@@ -121,7 +121,7 @@ async def test_roulette_never_repeats_in_the_night_and_warns(pg_url):
     async with maker() as db:
         cid = await _company(db, True)
         u = uuid.UUID(cid)
-        await svc.save_settings(db, cid, {"memory_pairs": 5, "trivia_seconds": 240, "roulette_ranges": [{"min": 1, "max": 3, "prize": "Shot"}], "differences_scenes": ["bar"]}, "dueno")
+        await svc.save_settings(db, cid, {"memory_pairs": 5, "trivia_seconds": 240, "roulette_ranges": [{"min": 1, "max": 3, "prize": "Shot"}], "differences_scene": "pub"}, "dueno")
         # 22:00 y 02:00 (hora Bogota) son la MISMA noche de la jornada 18:00-04:00.
         night = [datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc), datetime(2026, 10, 17, 7, 0, tzinfo=timezone.utc), datetime(2026, 10, 17, 8, 30, tzinfo=timezone.utc)]
         got = [(await svc.spin(db, cid, 1, 3, "Shot", "barman", now=t))["number"] for t in night]
@@ -200,7 +200,7 @@ async def test_memory_round_end_to_end(pg_url):
         state = await svc.live_state(db, cid, later)
         assert state["round"]["status"] == "closed" and [p["name"] for p in state["round"]["podium"]] == ["Camila", "Beto"]
         me = await api.play_me(token, _req(), a["player_token"], db)
-        assert me["result"] == {"result": "ranked", "place": 1, "score": 2, "finished": False}
+        assert {k: v for k, v in me["result"].items() if k != "ms"} == {"result": "ranked", "place": 1, "score": 2, "finished": False} and me["result"]["ms"] > 0
         with pytest.raises(HTTPException):
             await api.play_flip(token, _req(), {"index": pairs[4][0]}, a["player_token"], db)
         # Validar: el documento correcto coincide, el incorrecto no; nunca se devuelve el documento.
@@ -423,7 +423,7 @@ async def test_memory_pairs_are_chosen_per_round_and_kept(pg_url):
         a = await api.play_join(token, _req(), {"name": "Ana", "document": "12345678", "consent": True}, db)
         # Cambiar los ajustes despues NO cambia la ronda ya creada.
         await svc.save_settings(db, cid, {"memory_pairs": 7, "memory_times": {"15": 200}, "trivia_seconds": 240,
-                                          "roulette_ranges": [{"min": 1, "max": 50}], "differences_scenes": ["bar"]}, "dueno")
+                                          "roulette_ranges": [{"min": 1, "max": 50}], "differences_scene": "pub"}, "dueno")
         live = await api.start_round(u, uuid.UUID(live["round"]["id"]), _req(), BARMAN, db)
         assert live["round"]["duration_seconds"] == 300 and live["round"]["goal"] == 15
         r = await svc.round_by_token(db, token)
@@ -511,7 +511,8 @@ async def test_trivia_of_ten_replaces_wrong_ones_repeats_unanswered_and_fills_th
         assert rnd["status"] == "closed"
         assert [p["name"] for p in rnd["podium"]] == ["Ana", "Beto", "Cami"], "10/10 por tiempo y luego relleno por aciertos"
         me_c = await api.play_me(token, _req(), players["Cami"]["player_token"], db)
-        assert me_c["result"] == {"result": "ranked", "place": 3, "score": 3, "finished": False}, "sin 10/10: 'Se acabo el tiempo' con sus aciertos"
+        assert {k: v for k, v in me_c["result"].items() if k != "ms"} == {"result": "ranked", "place": 3, "score": 3, "finished": False}, "sin 10/10: 'Se acabo el tiempo' con sus aciertos"
+        assert me_c["result"]["ms"] == 5800, "tiempo de su ultimo acierto"
         me_d = await api.play_me(token, _req(), players["Dani"]["player_token"], db)
         assert me_d["result"]["result"] == "timeout" and me_d["result"]["place"] is None
         ok = await api.validate_winner(u, uuid.UUID(str(r["id"])), {"place": 3, "document": "11110003"}, BARMAN, db)
@@ -528,14 +529,14 @@ async def test_seven_differences_round(pg_url):
         cid = await _company(db, True)
         u = uuid.UUID(cid)
         await svc.save_settings(db, cid, {"memory_pairs": 5, "trivia_seconds": 240, "differences_seconds": 180, "differences_penalty": 5,
-                                          "differences_scenes": ["cards"], "roulette_ranges": [{"min": 1, "max": 50}]}, "dueno")
+                                          "differences_scene": "concert", "roulette_ranges": [{"min": 1, "max": 50}]}, "dueno")
         live = await api.open_round(u, _req(), {"kind": "differences", "prize": "Coctel"}, BARMAN, db)
         rv = live["round"]
-        assert rv["kind"] == "differences" and rv["goal"] == 7 and rv["scene"] == "cards" and rv["duration_seconds"] == 180
+        assert rv["kind"] == "differences" and rv["goal"] == 7 and rv["scene"] == "concert" and rv["duration_seconds"] == 180
         token = rv["join_url"].split("r=")[1]
         r = await _round(db, token)
         cfg = r["config"] if isinstance(r["config"], dict) else json.loads(r["config"])
-        assert cfg["diffs"] == scenes.choose("cards", int(r["seed"])), "7 elegidas por la semilla"
+        assert cfg["diffs"] == scenes.choose("concert", int(r["seed"])), "7 elegidas por la semilla"
         with pytest.raises(HTTPException) as exc:
             await api.play_image(token, "a", _req(), db)
         assert exc.value.status_code == 404, "en registro no se ve la imagen"
@@ -552,8 +553,8 @@ async def test_seven_differences_round(pg_url):
         assert "zones" not in screen["round"]
         me = await api.play_me(token, _req(), players["Ana"]["player_token"], db)
         assert me["differences"]["zones"] == [] and me["differences"]["total"] == 7
-        centers = [scenes.public_zone(scenes.zone("cards", d)) for d in cfg["diffs"]]
-        miss = next((x, y) for x in (0.02, 0.5, 0.98) for y in (0.02, 0.98) if scenes.hit("cards", cfg["diffs"], [], x, y) is None)
+        centers = [scenes.public_zone(scenes.zone("concert", d)) for d in cfg["diffs"]]
+        miss = next((x, y) for x in (0.02, 0.5, 0.98) for y in (0.02, 0.98) if scenes.hit("concert", cfg["diffs"], [], x, y) is None)
         tok_a = players["Ana"]["player_token"]
         res = await svc.tap(db, r, tok_a, *miss, now=t0 + timedelta(seconds=2))
         assert res["hit"] is False and res["penalty_ms"] == 5000 and res["lock_ms"] == 1000 and "zone" not in res
@@ -579,6 +580,45 @@ async def test_seven_differences_round(pg_url):
         assert sorted(z["id"] for z in state["round"]["zones"]) == sorted(cfg["diffs"]), "al final la pantalla revela las 7"
         me_c = await api.play_me(token, _req(), players["Cami"]["player_token"], db)
         assert len(me_c["differences"]["zones"]) == 2, "el celular sigue sin recibir las que no encontro"
+        assert me_c["result"]["score"] == 2 and me_c["result"]["ms"] is not None, "el celular muestra resultado y tiempo"
+        top = state["round"]["podium"][0]
+        assert (top["score"], top["ms"]) == (7, 9000), "el podio guarda resultado y tiempo (castigos incluidos)"
+        # El barman escoge la escena al abrir; una escena que ya no se ofrece no se acepta.
+        live = await api.open_round(u, _req(), {"kind": "differences", "scene": "pub"}, BARMAN, db)
+        assert live["round"]["scene"] == "pub"
+        await svc.close_round(db, cid, live["round"]["id"])
+        with pytest.raises(HTTPException) as exc:
+            await api.open_round(u, _req(), {"kind": "differences", "scene": "jukebox"}, BARMAN, db)
+        assert exc.value.status_code == 422
+        hist = await api.history(u, ADMIN, db)
+        assert hist["rounds"][-1]["goal"] == 7 and hist["rounds"][-1]["results"][0]["ms"] == 9000
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_differences_round_open_before_the_change_keeps_its_scene(pg_url):
+    from app.services import loyalty_games_scenes as scenes
+
+    engine, maker = await _session(pg_url)
+    async with maker() as db:
+        cid = await _company(db, True)
+        u = uuid.UUID(cid)
+        diffs = scenes.choose_legacy("jukebox", 99)
+        cfg = {"rules": 2, "scene": "jukebox", "diffs": diffs, "seconds": 180, "penalty_s": 5}
+        rid = (await db.execute(text("""INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, config)
+            VALUES (CAST(:c AS uuid), 'differences', 'registration', 'x', 99, CURRENT_DATE, 180, CAST(:cfg AS jsonb)) RETURNING id::text"""),
+                                {"c": cid, "cfg": json.dumps(cfg)})).scalar()
+        await db.commit()
+        token = svc.round_token(rid)
+        p = await api.play_join(token, _req(), {"name": "Ana", "document": "33330001", "consent": True}, db)
+        live = await api.start_round(u, uuid.UUID(rid), _req(), BARMAN, db)
+        assert live["round"]["scene"] == "jukebox", "termina con su escena original"
+        img = (await api.play_image(token, "b", _req(), db)).body
+        assert img == scenes.png("jukebox", tuple(diffs))
+        r = await svc.round_by_token(db, token)
+        z = scenes.public_zone(scenes.zone("jukebox", diffs[0]))
+        res = await svc.tap(db, r, p["player_token"], z["x"], z["y"], now=r["started_at"] + timedelta(seconds=3))
+        assert res["hit"] is True and res["zone"]["id"] == diffs[0], "y con sus diferencias originales"
     await engine.dispose()
 
 

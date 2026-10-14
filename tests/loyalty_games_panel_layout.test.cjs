@@ -80,7 +80,9 @@ test('Juegos en vivo · panel: botón solo con el interruptor; sin desborde y co
       assert.equal(r['live-barman-375'].spin, true);
       assert.equal(r['live-admin-1280'].pairs, 5, 'el barman elige 5, 7, 10, 13 o 15 parejas al abrir');
       assert.deepEqual(r['live-barman-375'].opens, ['memory', 'trivia', 'differences']);
-      assert.equal(r['config-1280'].scenes, 4, 'escenas activas');
+      assert.equal(r['config-1280'].scenes, 2, 'escena por defecto: Bar o Concierto');
+      assert.deepEqual(r['live-barman-375'].scenepick, ['Bar', 'Concierto'], 'el barman escoge la escena al abrir');
+      assert.match(r['live-admin-1280'].text, /10\/10 · 01:42/, 'ranking con resultado y tiempo');
       assert.equal(r['config-1280'].memtimes, 5, 'tiempo editable por cada cantidad de parejas');
       assert.equal(r['config-low-375'].warning, true, 'avisa si un nivel tiene menos de 4 preguntas activas');
       assert.equal(r['config-1280'].warning, false);

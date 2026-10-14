@@ -152,6 +152,22 @@ test('v2 pantalla: miniaturas en juego y revelado de las 7 después del podio', 
   const S = run(SCREEN).CxLoyaltyGamesScreen;
   assert.ok(S);
   assert.match(SCREEN, /REVEAL_AFTER_MS = 8000/);
-  assert.match(SCREEN, /r\.kind === "differences" \? `\/ \$\{r\.goal \|\| 7\}`/, 'ranking x/7');
+  assert.equal(S.resultLabel('differences', 5, 7, 102000), '5/7 · 01:42', 'ranking x/7 con tiempo');
   assert.match(SCREEN, /class="lgx-thumbs"/);
+});
+
+test('ranking con tiempo en panel, pantalla y celular: "5/7 · 01:42", "8/10 · 02:31", "7 parejas · 01:12"', () => {
+  for (const lab of [run(PANEL).CxLoyaltyGames.resultLabel, run(SCREEN).CxLoyaltyGamesScreen.resultLabel, run(PLAY).CxLoyaltyGamesPlay.resultLabel]) {
+    assert.equal(lab('differences', 5, 7, 102000), '5/7 · 01:42');
+    assert.equal(lab('trivia', 8, 10, 151000), '8/10 · 02:31');
+    assert.equal(lab('memory', 7, 7, 72000), '7 parejas · 01:12');
+    assert.equal(lab('memory', 1, 5, 9000), '1 pareja · 00:09');
+    assert.equal(lab('trivia', 3, 5, null), '3/5', 'sin tiempo (ronda de antes) solo el resultado');
+  }
+  const G = run(PANEL).CxLoyaltyGames;
+  Object.assign(G.model, { ctx: { role: 'barman', can: {}, brand: {}, scenes: [{ id: 'pub', name: 'Bar' }, { id: 'concert', name: 'Concierto' }], pair_options: [5],
+    settings: { roulette_ranges: [{ min: 1, max: 50 }], prizes: {}, memory_pairs: 5, memory_times: { 5: 120 }, differences_scene: 'concert' } },
+    live: { now: '2026-10-17T03:00:00Z', round: null }, tab: 'live', denied: '' });
+  const html = G.view();
+  assert.match(html, /<select data-lg-scenepick><option value="pub" >Bar<\/option><option value="concert" selected>Concierto<\/option><\/select>/, 'respeta la escena por defecto');
 });

@@ -123,7 +123,13 @@ test('Juegos en vivo: pantalla del bar 16:9 y celular 375 px sin desborde, AA y 
       assert.match(r['phone-timeout'].text, /Se acabó el tiempo[\s\S]*Lograste 7 de 10 correctas[\s\S]*¡Quedaste en el puesto 3!/);
       assert.equal(r['phone-diff'].panes, 2, 'imagen A y B');
       assert.equal(r['phone-diff'].marks, 3, 'solo los circulos de las que ya encontro');
+      assert.equal(r['phone-diff'].marks_visible, 3, `los circulos se ven de verdad ${JSON.stringify(r['phone-diff'].mark_debug)}`);
       assert.match(r['phone-diff'].text, /3\/7 encontradas/);
+      assert.match(r['phone-win'].text, /Tu resultado: 5 parejas · 01:12/, 'celular: resultado y tiempo');
+      assert.match(r['phone-timeout'].text, /Tu resultado: 7\/10 · 02:31/);
+      assert.match(r['screen-playing-1080'].text, /5 parejas · 00:3\d/, 'pantalla: resultado y tiempo');
+      assert.match(r['screen-diffplay-720'].text, /7\/7 · 00:40/);
+      assert.match(r['screen-podium-1080'].text, /Camila7\/10 · 01:42/, 'podio con resultado y tiempo');
       for (const res of ['1080', '720']) {
         assert.equal(r[`screen-diffplay-${res}`].thumbs, 2, 'las dos imagenes pequenas sin marcas');
         assert.equal(r[`screen-diffplay-${res}`].rank, 10);
@@ -136,7 +142,7 @@ test('Juegos en vivo: pantalla del bar 16:9 y celular 375 px sin desborde, AA y 
         const zf = process.env.CX_GAMES_SCENE_DIR && path.join(process.env.CX_GAMES_SCENE_DIR, 'zones.json');
         const zones = zf && fs.existsSync(zf) ? `&zones=${encodeURIComponent(fs.readFileSync(zf, 'utf8').trim())}` : '';
         for (const [k, w, hh, src0] of CASES) {
-          const src = /diff/.test(k) ? `${src0}${zones}` : src0;
+          const src = /diff/.test(k) ? `${src0}${zones}${k === 'phone-diff' ? '&found=7' : ''}` : src0;
           await chrome([`--user-data-dir=${profile}-${k}`, `--window-size=${w},${hh}`, '--hide-scrollbars', '--virtual-time-budget=6000',
             `--screenshot=${path.join(shots, `juegos-${k}.png`)}`, `${base}/__one.html?w=${w}&h=${hh}&src=${encodeURIComponent(src)}`]);
         }

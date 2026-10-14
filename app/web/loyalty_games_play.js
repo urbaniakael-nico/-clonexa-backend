@@ -249,7 +249,31 @@
     });
   }
 
+  // Resultado y tiempo (castigos incluidos): "5/7 · 01:42", "8/10 · 02:31", "7 parejas · 01:12".
+  function fmtTime(ms) {
+    if (ms === null || ms === undefined || ms === "") return "";
+    const s2 = Math.max(0, Math.round(Number(ms) / 1000));
+    return `${String(Math.floor(s2 / 60)).padStart(2, "0")}:${String(s2 % 60).padStart(2, "0")}`;
+  }
+  function resultLabel(kind, score, goal, ms) {
+    const n = Number(score) || 0;
+    const main = kind === "memory" ? T(n === 1 ? "{n} pareja" : "{n} parejas", { n }) : `${n}/${goal || "?"}`;
+    const t = fmtTime(ms);
+    return t ? `${main} · ${t}` : main;
+  }
+
+  function myResult() {
+    const r = st.me.result || {};
+    const kind = st.me.kind;
+    const goal = kind === "differences" ? ((st.me.differences || {}).total || 7) : kind === "trivia" ? (Number(st.me.rules) >= 2 ? 10 : ((st.me.trivia || {}).total || 5)) : null;
+    return `<p class="lgx-mine">${h(T("Tu resultado: {r}", { r: resultLabel(kind, r.score, goal, r.ms) }))}</p>`;
+  }
+
   function result() {
+    return result0().replace("</section>", `${myResult()}</section>`);
+  }
+
+  function result0() {
     const r = st.me.result || {};
     const claim = h(T((st.info.texts && st.info.texts.claim) || "Reclama con tu documento"));
     if (r.result === "lost") return `<section class="lgx-card lgx-end is-lost"><p class="lgx-big">⌛ ${h(T("Se acabó el tiempo, perdiste"))}</p><p>${h(T("Te quedaron preguntas sin contestar."))}</p></section>`;
@@ -427,7 +451,7 @@
   }
 
   if (typeof window !== "undefined") {
-    window.CxLoyaltyGamesPlay = { st, body, ERRORS, gridOf };
+    window.CxLoyaltyGamesPlay = { st, body, ERRORS, gridOf, resultLabel };
     if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("DOMContentLoaded", start);
   }
 })();

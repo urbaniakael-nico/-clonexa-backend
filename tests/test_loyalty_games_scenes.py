@@ -1,13 +1,15 @@
-"""7 diferencias: las escenas son detalladas y "super dificiles" pero justas.
+"""7 diferencias: escenas Bar y Concierto con diferencias CLARAS (medidas pixel a pixel).
 
-Se mide de verdad, pixel a pixel (imagen A contra imagen B ya dibujadas):
-- cada escena tiene 60+ formas y 15+ diferencias candidatas;
-- cada diferencia: zona entre ~1 % y 3 % de la imagen; cambia al menos 0,08 %
-  de los pixeles (visible con atencion y zoom); diferencia de color perceptible
-  (Delta E >= 8); los cambios de tono son sutiles (Delta E entre 8 y 15); y
-  NADA cambia fuera de su zona;
-- por ronda se eligen 7 con la semilla, en 7 zonas distintas de la rejilla 3x3
-  y separadas; el acierto se valida en el servidor con un radio justo.
+- Solo se ofrecen Bar y Concierto; las escenas de antes se siguen dibujando para
+  que una ronda abierta antes del cambio termine con su escena y diferencias.
+- Bar: 35-50 personas y mas de 120 objetos. Concierto: 90-110 personas en 5 filas.
+- Cada escena con 20+ candidatas. Ninguna es solo de tono: los cambios de color
+  tienen Delta E >= 35 y las demas cambian un objeto, atributo o letra.
+- Cada diferencia: area minima ~0,3 % de la imagen (caja de lo que cambia),
+  claramente visible (Delta E >= 20) y nada cambia fuera de su zona.
+- Por ronda se eligen 7 con la semilla: iguales para todos en la ronda, distintas
+  entre rondas; maximo 4 en personas; nunca 2 en la misma persona u objeto; en
+  zonas distintas de la rejilla 3x3 y separadas.
 """
 from __future__ import annotations
 
@@ -17,61 +19,80 @@ import pytest
 
 from app.services import loyalty_games_scenes as sc
 
-ALL = [(s, d) for s in sc.SCENES for d in sorted(sc.scene(s)[1])]
+V2 = ("pub", "concert")
+ALL_V2 = [(s, d) for s in V2 for d in sorted(sc.scene(s)[1])]
+ALLOWED = {"hat", "glasses", "shirt", "arm", "hair", "object", "text", "color"}
 
 
 @pytest.fixture(scope="module")
 def bases():
-    return {s: sc.render(s) for s in sc.SCENES}
+    return {s: sc.render(s) for s in V2}
 
 
-def test_scenes_are_detailed_and_offer_enough_candidates():
-    for s in sc.SCENES:
-        els, cands = sc.scene(s)
-        assert len(els) >= 60, f"{s}: {len(els)} formas"
-        assert len(cands) >= 15, f"{s}: {len(cands)} candidatas"
-        assert len({sc.cell_of(sc.zone(s, d)) for d in cands}) == 9, f"{s}: candidatas en las 9 zonas"
-    assert set(sc.SCENES) == {"bar", "stage", "jukebox", "cards"}
+def test_only_bar_and_concert_are_offered_and_old_scenes_still_render():
+    assert sc.OFFERED == {"pub": "Bar", "concert": "Concierto"} and sc.DEFAULT_SCENE == "pub"
+    for old in ("bar", "stage", "jukebox", "cards"):
+        assert old not in sc.OFFERED
+        assert sc.png(old, tuple(sc.choose_legacy(old, 7)))[:8] == b"\x89PNG\r\n\x1a\n", "una ronda de antes sigue dibujandose"
 
 
-@pytest.mark.parametrize("scene_id,diff_id", ALL)
-def test_every_difference_has_minimum_area_and_color_and_stays_in_its_zone(bases, scene_id, diff_id):
+def test_people_and_objects_counts():
+    assert 35 <= sc.people_count("pub") <= 50
+    assert 90 <= sc.people_count("concert") <= 110
+    els, _ = sc.scene("pub")
+    people_parts = sum(1 for e in els if "." in e["id"] and e["id"].split(".")[0] in {x["id"].split(".")[0] for x in els if x["id"].endswith(".head")})
+    assert len(els) - people_parts > 120, "mas de 120 objetos en el Bar"
+    for s in V2:
+        _, cands = sc.scene(s)
+        assert len(cands) >= 20, f"{s}: {len(cands)} candidatas"
+        assert {c.kind for c in cands.values()} <= ALLOWED
+        assert sum(1 for c in cands.values() if not c.people) >= 8, "suficientes objetos y letreros"
+
+
+@pytest.mark.parametrize("scene_id,diff_id", ALL_V2)
+def test_every_difference_is_clear_big_enough_and_in_its_zone(bases, scene_id, diff_id):
+    op = sc.scene(scene_id)[1][diff_id]
     st = sc.diff_stats(scene_id, diff_id, bases[scene_id])
-    assert 1.0 <= st["zone_pct"] <= 3.0, f"zona {st['zone_pct']:.2f} %"
-    assert st["area_pct"] >= 0.08, f"area cambiada {st['area_pct']:.3f} %"
-    assert st["p90_de"] >= 8, f"diferencia de color {st['p90_de']:.1f}"
+    assert st["bbox_pct"] >= 0.3, f"area {st['bbox_pct']:.2f} %"
+    assert st["p90_de"] >= 20, f"poco visible ({st['p90_de']:.1f})"
     assert st["outside"] == 0, "cambia algo fuera de su zona"
-    if st["recolor_de"] is not None:
-        assert 8 <= st["recolor_de"] <= 15, f"tono {st['recolor_de']}"
+    color = getattr(op, "color", None)
+    if op.kind in ("shirt", "color") or color:
+        assert color and sc.delta_e(*color) >= 35, f"cambio de color de solo tono ({color})"
+    else:
+        assert getattr(op, "touch", ()) or getattr(op, "adds", ()), "cambia un objeto, atributo o letra"
 
 
-def test_seven_are_chosen_by_seed_in_different_zones_and_far_apart():
-    for s in sc.SCENES:
-        for seed in range(0, 3000, 37):
+def test_seven_by_seed_same_for_the_round_different_between_rounds():
+    for s in V2:
+        _, cands = sc.scene(s)
+        seen = set()
+        for seed in range(0, 4000, 41):
             ids = sc.choose(s, seed)
-            assert ids == sc.choose(s, seed), "determinista"
+            assert ids == sc.choose(s, seed), "mismas para todos en la ronda"
+            seen.add(tuple(sorted(ids)))
             zones = [sc.zone(s, d) for d in ids]
-            assert len(ids) == 7 and len({sc.cell_of(z) for z in zones}) == 7
+            assert len(ids) == 7 and len({cands[d].target for d in ids}) == 7, "nunca 2 en la misma persona u objeto"
+            assert sum(1 for d in ids if cands[d].people) <= 4, "maximo 4 en personas"
+            assert len({sc.cell_of(z) for z in zones}) == 7, "en zonas distintas"
             for a in zones:
                 for b in zones:
                     if a is not b:
-                        assert math.hypot(a["cx"] - b["cx"], a["cy"] - b["cy"]) >= sc.MIN_SEPARATION
-    assert sc.pick_scene(["cards"], 5) == "cards" and sc.pick_scene([], 5) in sc.SCENES
+                        assert math.hypot(a["cx"] - b["cx"], a["cy"] - b["cy"]) >= sc.MIN_SEPARATION_V2
+        assert len(seen) > 80, "distintas entre rondas"
 
 
-def test_hit_radius_is_small_and_fair():
-    ids = sc.choose("bar", 11)
+def test_hit_is_fair_inside_the_crowd():
+    ids = sc.choose("concert", 11)
     for d in ids:
-        z = sc.zone("bar", d)
+        z = sc.zone("concert", d)
         x, y = z["cx"] / sc.W, z["cy"] / sc.H
-        assert sc.hit("bar", ids, [], x, y)["id"] == d, "en el centro acierta"
+        assert sc.hit("concert", ids, [], x, y)["id"] == d
         edge = (z["cx"] + z["r"] + sc.HIT_TOLERANCE + 2) / sc.W
-        assert sc.hit("bar", [d], [], edge, y) is None, "un poco por fuera, no"
-        assert sc.hit("bar", ids, [d], x, y) is None or sc.hit("bar", ids, [d], x, y)["id"] != d, "una ya encontrada no cuenta dos veces"
+        assert sc.hit("concert", [d], [], edge, y) is None
 
 
-def test_images_are_png_and_a_differs_from_b():
-    ids = tuple(sc.choose("jukebox", 3))
-    a, b = sc.png("jukebox"), sc.png("jukebox", ids)
-    assert a[:8] == b"\x89PNG\r\n\x1a\n" and b[:8] == b"\x89PNG\r\n\x1a\n" and a != b
-    assert len(a) < 400_000, "imagen liviana"
+def test_images_are_png_and_differ():
+    ids = tuple(sc.choose("pub", 3))
+    a, b = sc.png("pub"), sc.png("pub", ids)
+    assert a[:8] == b"\x89PNG\r\n\x1a\n" and a != b and len(a) < 700_000

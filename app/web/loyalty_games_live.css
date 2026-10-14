@@ -96,6 +96,8 @@ body {
 .lgx-pname { margin: 0; font-size: 4.6vh; font-weight: 900; max-width: 100%; line-height: 1.1; overflow-wrap: anywhere; }
 .lgx-step.is-1 .lgx-pname { font-size: 5.6vh; }
 .lgx-pname.is-empty { color: var(--lgx-soft); }
+.lgx-pscore { margin: 0; font-size: 3vh; font-weight: 800; color: var(--lgx-soft); font-variant-numeric: tabular-nums; }
+.lgx-mine { font-size: 17px !important; font-weight: 900; font-variant-numeric: tabular-nums; }
 .lgx-block { width: 100%; display: grid; place-items: center; border-radius: 2vh 2vh 0 0; background: linear-gradient(180deg, color-mix(in srgb, var(--lgx-accent) 55%, #0b0a14), #15132a);
   border: 1px solid var(--lgx-line); }
 .lgx-block b { font-size: 10vh; font-weight: 900; }
@@ -188,7 +190,9 @@ body {
 .lgx-reveal-img svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .lgx-reveal-img circle { fill: none; stroke: #22c55e; stroke-width: 8; stroke-dasharray: 400; stroke-dashoffset: 400; animation: lgx-draw .9s ease-out forwards; animation-delay: calc(var(--i) * .45s); }
 .lgx-reveal-img figcaption { position: absolute; top: 1vh; left: 1vh; padding: .2vh 1vh; border-radius: .8vh; background: rgba(11, 10, 20, .85); font-size: 2.6vh; font-weight: 900; }
-@keyframes lgx-ring { from { opacity: 0; transform-box: fill-box; transform-origin: center; transform: scale(1.6); } to { opacity: 1; transform: none; } }
+/* Solo escala: el circulo se ve desde el primer instante (nunca queda invisible si la animacion no corre). */
+.lgx-marks circle { transform-box: fill-box; transform-origin: center; }
+@keyframes lgx-ring { from { transform: scale(1.5); } to { transform: none; } }
 @keyframes lgx-draw { to { stroke-dashoffset: 0; } }
 
 @keyframes lgx-in { from { opacity: 0; transform: translateY(2vh) scale(.6); } to { opacity: 1; transform: none; } }

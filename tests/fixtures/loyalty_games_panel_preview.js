@@ -20,23 +20,23 @@
     roulette: { id: "d1", range_min: 1, range_max: 50, number: 37, prize: "Shot", spun_at: iso(-60000), drawn: [7, 21, 44, 37] },
     round: { id: "r1", kind: "trivia", status: "closed", prize: "Botella de aguardiente", count: 6, players: names.map((n, i) => ({ id: `p${i}`, name: n })),
       all_players: names.map((n, i) => ({ id: `p${i}`, name: n, hidden: i === 5, result: "ranked", place: i + 1, validated: i === 0 })),
-      ranking: names.slice(0, 5).map((n, i) => ({ id: `p${i}`, name: n, rank: i + 1, score: 5 - i, done: true })),
-      podium: [{ place: 1, id: "p0", name: "Camila" }, { place: 2, id: "p1", name: "Ana María Restrepo V" }, { place: 3, id: "p2", name: "Beto" }],
+      goal: 10, ranking: names.slice(0, 5).map((n, i) => ({ id: `p${i}`, name: n, rank: i + 1, score: 10 - i, done: i === 0, ms: 102000 + i * 9000 })),
+      podium: [{ place: 1, id: "p0", name: "Camila", score: 10, ms: 102000 }, { place: 2, id: "p1", name: "Ana María Restrepo V", score: 9, ms: 111000 }, { place: 3, id: "p2", name: "Beto", score: 8, ms: 151000 }],
       started_at: iso(-300000), ends_at: iso(-120000), join_url: "https://x/juegos/jugar?r=abc", token: "abc" },
   };
   const ctx = { role: ROLE, can: { configure: ROLE === "admin", launch: true, validate: true },
     brand: { name: "The Time Machine", logo_url: "", primary: "#6b5d00", secondary: "#aea924", language: "es", timezone: "America/Bogota" },
     settings: { memory_pairs: 5, memory_times: { 5: 120, 7: 150, 10: 210, 13: 270, 15: 300 }, trivia_seconds: 240, differences_seconds: 180, differences_penalty: 5,
-      differences_scenes: ["bar", "stage", "jukebox", "cards"], roulette_ranges: [{ min: 1, max: 50, prize: "Shot" }, { min: 1, max: 100, prize: "Cerveza" }],
+      differences_scene: "pub", roulette_ranges: [{ min: 1, max: 50, prize: "Shot" }, { min: 1, max: 100, prize: "Cerveza" }],
       prizes: { memory: "Botella de aguardiente", trivia: "Ronda de la casa", roulette: "", differences: "Coctel" }, texts: { claim: "Reclama con tu documento", consent: "Autorizo el tratamiento de mis datos para este concurso" } },
     pair_options: [5, 7, 10, 13, 15], levels: P.get("low") === "1" ? { 1: 8, 2: 8, 3: 3, 4: 8, 5: 2 } : { 1: 8, 2: 8, 3: 8, 4: 8, 5: 8 },
-    scenes: [{ id: "bar", name: "Barra con botellas y copas" }, { id: "stage", name: "Escenario con banda y luces" }, { id: "jukebox", name: "Rocola con discos de vinilo" }, { id: "cards", name: "Mesa con velas y cartas" }],
+    scenes: [{ id: "pub", name: "Bar" }, { id: "concert", name: "Concierto" }],
     live, ...(ROLE === "admin" ? { screen_url: "https://clonexa-backend-production.up.railway.app/juegos/pantalla?t=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" } : {}) };
   const seed = [["¿Qué banda canta \"Bohemian Rhapsody\"?", "Queen", "The Beatles", "AC/DC", 1], ["¿Cuál es el nombre real de Raphael?", "Miguel Rafael Martos Sánchez", "José Rómulo Sosa", "Rafael Pérez Botija", 4],
     ["¿En qué banda tocaba Ringo Starr antes de The Beatles?", "Rory Storm and the Hurricanes", "The Quarrymen", "The Animals", 5]];
   const questions = seed.map(([q, a, b, c, l], i) => ({ id: `q${i}`, level: l, question: q, correct_answer: a, wrong_1: b, wrong_2: c, active: i !== 1 }));
   const history = { rounds: [{ id: "r1", kind: "trivia", status: "closed", prize: "Botella de aguardiente", game_day: "2026-10-16", created_at: iso(-400000), players: 6, validated: 1,
-    results: [{ place: 1, name: "Camila" }, { place: 2, name: "Ana María Restrepo V" }, { place: 3, name: "Beto" }] }],
+    goal: 10, results: [{ place: 1, name: "Camila", score: 10, ms: 102000 }, { place: 2, name: "Ana María Restrepo V", score: 9, ms: 111000 }, { place: 3, name: "Beto", score: 8, ms: 151000 }] }],
     draws: [{ id: "d1", game_day: "2026-10-16", range_min: 1, range_max: 50, number: 37, prize: "Shot", spun_by: "barman@ttm", spun_at: iso(-60000) }] };
 
   window.fetch = async (url, opts) => {
@@ -93,8 +93,8 @@
     out.textContent = JSON.stringify({ mounted: true, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low,
       tabs: [...root.querySelectorAll(".lg-tabs button")].map((b) => b.textContent.trim()), screen_link: !!root.querySelector("[data-lg-screen-url]"),
       validate: !!root.querySelector("[data-lg-validate]"), spin: !!root.querySelector("[data-lg-spin]"), pairs: root.querySelectorAll("[data-lg-pairs] option").length,
-      opens: [...root.querySelectorAll("[data-lg-open]")].map((b) => b.getAttribute("data-lg-open")), scenes: root.querySelectorAll("[data-lg-scene]").length,
-      memtimes: root.querySelectorAll("[data-lg-memtime]").length, warning: /Nivel 3: solo 3 preguntas activas/.test(root.textContent), text: text.slice(0, 300), ...extra });
+      opens: [...root.querySelectorAll("[data-lg-open]")].map((b) => b.getAttribute("data-lg-open")), scenes: root.querySelectorAll("[data-lg-defscene] option").length, scenepick: [...root.querySelectorAll("[data-lg-scenepick] option")].map((o) => o.textContent.trim()),
+      memtimes: root.querySelectorAll("[data-lg-memtime]").length, warning: /Nivel 3: solo 3 preguntas activas/.test(root.textContent), text: text.slice(0, 4000), ...extra });
     document.body.appendChild(out);
   }
 

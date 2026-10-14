@@ -41,7 +41,7 @@ DEFAULTS = {
     "trivia_seconds": 240,
     "differences_seconds": 180,
     "differences_penalty": 5,
-    "differences_scenes": ["bar", "stage", "jukebox", "cards"],
+    "differences_scene": "pub",
     "roulette_ranges": [{"min": 1, "max": 50, "prize": ""}, {"min": 1, "max": 100, "prize": ""}],
     "prizes": {"memory": "", "trivia": "", "roulette": "", "differences": ""},
     "texts": {"claim": "Reclama con tu documento", "consent": "Autorizo el tratamiento de mis datos para este concurso"},
@@ -132,10 +132,10 @@ def validate_settings(raw: dict) -> dict:
     out["memory_times"] = times
     from app.services import loyalty_games_scenes as scenes
 
-    chosen = [x for x in (raw.get("differences_scenes") or []) if x in scenes.SCENES]
-    if not chosen:
-        raise GameError("escenas_requeridas", 422)
-    out["differences_scenes"] = sorted(set(chosen), key=list(scenes.SCENES).index)
+    scene_id = str(raw.get("differences_scene") or scenes.DEFAULT_SCENE)
+    if scene_id not in scenes.OFFERED:
+        raise GameError("escena_invalida", 422)
+    out["differences_scene"] = scene_id
     ranges = []
     for r in raw.get("roulette_ranges") or []:
         try:
@@ -330,7 +330,7 @@ def config_of(r: dict) -> dict:
 
 
 async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, actor: str, now: Optional[datetime] = None,
-                     pairs: Optional[int] = None) -> dict:
+                     pairs: Optional[int] = None, scene: Optional[str] = None) -> dict:
     """Abre el registro. La configuracion con la que se crea queda guardada en la
     ronda: si despues cambian los ajustes, la ronda termina con sus reglas."""
     if kind not in ("memory", "trivia", "differences"):
@@ -357,7 +357,10 @@ async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, a
     else:
         from app.services import loyalty_games_scenes as scenes
 
-        scene_id = scenes.pick_scene(conf["differences_scenes"], seed)
+        # Escena: la que elige el barman al abrir (Bar o Concierto) o la de Configuracion.
+        scene_id = str(scene or conf["differences_scene"])
+        if scene_id not in scenes.OFFERED:
+            raise GameError("escena_invalida", 422)
         config.update({"seconds": int(conf["differences_seconds"]), "penalty_s": int(conf["differences_penalty"]), "scene": scene_id,
                        "diffs": scenes.choose(scene_id, seed)})
     rid = (await db.execute(text("""
@@ -423,8 +426,10 @@ async def close_round(db: AsyncSession, company_id: Any, round_id: Any, now: Opt
     for p in places:
         await db.execute(text("""UPDATE loyalty_game_players SET result = :r, place = :pl, updated_at = :n
             WHERE company_id::text = :c AND id::text = :i"""), {"r": p["result"], "pl": p["place"], "n": now, "c": str(company_id), "i": p["id"]})
-    names = {p["id"]: p["display_name"] for p in plist}
-    podium = [{"place": p["place"], "id": p["id"], "name": names[p["id"]]} for p in sorted((x for x in places if x["place"]), key=lambda x: x["place"])][:3]
+    by_id = {p["id"]: p for p in plist}
+    # Podio con resultado y tiempo (solo para mostrar el desempate; las reglas no cambian).
+    podium = [{"place": x["place"], "id": x["id"], "name": by_id[x["id"]]["display_name"], "score": int(by_id[x["id"]]["score"] or 0),
+               "ms": by_id[x["id"]]["score_ms"]} for x in sorted((x for x in places if x["place"]), key=lambda x: x["place"])][:3]
     await db.execute(text("""UPDATE loyalty_game_rounds SET status = 'closed', closed_at = :n, results = CAST(:res AS jsonb), updated_at = :n
         WHERE company_id::text = :c AND id::text = :i"""), {"n": closed_at, "res": json.dumps(podium, ensure_ascii=False), "c": str(company_id), "i": str(round_id)})
     await db.commit()
@@ -682,7 +687,7 @@ async def me(db: AsyncSession, r: dict, token: str, now: Optional[datetime] = No
     out: dict = {"name": p["display_name"], "status": r["status"], "kind": r["kind"], "now": now.isoformat(), "rules": rules_of(r),
                  "ends_at": r["ends_at"].isoformat() if r["ends_at"] else None, "hidden": p["hidden"]}
     if r["status"] == "closed":
-        out["result"] = {"result": p["result"], "place": p["place"], "score": int(p["score"] or 0), "finished": bool(p["finished_at"])}
+        out["result"] = {"result": p["result"], "place": p["place"], "score": int(p["score"] or 0), "finished": bool(p["finished_at"]), "ms": p["score_ms"]}
     if r["kind"] == "memory" and r["status"] in ("playing", "closed") and p["progress"]:
         out["memory"] = eng.memory_public(p["progress"], int(r["seed"]), eng.pairs_of(config_of(r)))
     if r["kind"] == "trivia" and p["progress"]:

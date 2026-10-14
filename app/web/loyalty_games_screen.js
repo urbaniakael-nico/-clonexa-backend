@@ -72,6 +72,19 @@
     return `<header class="lgx-top${small ? " is-small" : ""}">${logo}<div><p class="lgx-company">${h((b && b.name) || "")}</p><p class="lgx-kicker">🎮 ${h(T("Juegos en vivo"))}</p></div></header>`;
   }
 
+  // Resultado y tiempo (castigos incluidos): "5/7 · 01:42", "8/10 · 02:31", "7 parejas · 01:12".
+  function fmtTime(ms) {
+    if (ms === null || ms === undefined || ms === "") return "";
+    const s2 = Math.max(0, Math.round(Number(ms) / 1000));
+    return `${String(Math.floor(s2 / 60)).padStart(2, "0")}:${String(s2 % 60).padStart(2, "0")}`;
+  }
+  function resultLabel(kind, score, goal, ms) {
+    const n = Number(score) || 0;
+    const main = kind === "memory" ? T(n === 1 ? "{n} pareja" : "{n} parejas", { n }) : `${n}/${goal || "?"}`;
+    const t = fmtTime(ms);
+    return t ? `${main} · ${t}` : main;
+  }
+
   function sceneKey(d) {
     if (d.focus === "roulette" && d.roulette) return `roulette:${d.roulette.id}`;
     if (d.focus === "round" && d.round) return `round:${d.round.id}:${d.round.status}`;
@@ -138,7 +151,7 @@
     const r = d.round;
     const by = {};
     arr(r.podium).forEach((p) => { by[p.place] = p; });
-    const step = (n) => `<div class="lgx-step is-${n}">${by[n] ? `<p class="lgx-pname">${h(by[n].name)}</p>` : `<p class="lgx-pname is-empty">—</p>`}<div class="lgx-block"><b>${n}</b></div></div>`;
+    const step = (n) => `<div class="lgx-step is-${n}">${by[n] ? `<p class="lgx-pname">${h(by[n].name)}</p>${by[n].score !== undefined ? `<p class="lgx-pscore">${h(resultLabel(r.kind, by[n].score, r.goal, by[n].ms))}</p>` : ""}` : `<p class="lgx-pname is-empty">—</p>`}<div class="lgx-block"><b>${n}</b></div></div>`;
     const confetti = reduced() ? "" : `<div class="lgx-confetti" aria-hidden="true">${Array.from({ length: 70 }, (_, i) => `<i style="--x:${(i * 37) % 100};--d:${(i % 10) * 0.18}s;--c:${i % 3}"></i>`).join("")}</div>`;
     return `${brandHead(d.brand, true)}<section class="lgx-podium" id="lgxPodium">${confetti}<p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))} · ${h(T("Resultados"))}</p>
       ${arr(r.podium).length ? `<div class="lgx-steps">${step(2)}${step(1)}${step(3)}</div>` : `<p class="lgx-huge">${h(T("Esta ronda no tuvo ganadores"))}</p>`}
@@ -188,13 +201,12 @@
   function updateRanking(r) {
     const list = $("lgxRank");
     if (!list) return;
-    const unit = (n) => (r.kind === "differences" ? `/ ${r.goal || 7}` : r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
     const top = arr(r.ranking).slice(0, 10);
     const marks = arrows(view.prevRanks, top);
     const before = {};
     list.querySelectorAll("[data-id]").forEach((li) => { before[li.getAttribute("data-id")] = li.getBoundingClientRect().top; });
     list.innerHTML = top.map((p) => `<li data-id="${h(p.id)}" class="${p.rank <= 3 ? `is-top is-${p.rank}` : ""}"><b class="lgx-pos">${h(p.rank)}</b><span class="lgx-who">${h(p.name)}</span>
-      <span class="lgx-arrow is-${marks[p.id] || "same"}" aria-hidden="true">${marks[p.id] === "up" ? "▲" : marks[p.id] === "down" ? "▼" : ""}</span><em>${h(p.score)} ${h(unit(p.score))}${p.done ? " ✓" : ""}</em></li>`).join("")
+      <span class="lgx-arrow is-${marks[p.id] || "same"}" aria-hidden="true">${marks[p.id] === "up" ? "▲" : marks[p.id] === "down" ? "▼" : ""}</span><em>${h(resultLabel(r.kind, p.score, r.goal, p.ms))}${p.done ? " ✓" : ""}</em></li>`).join("")
       || `<li class="lgx-empty">${h(T("Esperando las primeras jugadas…"))}</li>`;
     if (!reduced()) {
       list.querySelectorAll("[data-id]").forEach((li) => {
@@ -284,7 +296,7 @@
   }
 
   if (typeof window !== "undefined") {
-    window.CxLoyaltyGamesScreen = { rouletteFrame, rouletteTarget, numberAt, arrows, sceneKey, ease };
+    window.CxLoyaltyGamesScreen = { rouletteFrame, rouletteTarget, numberAt, arrows, sceneKey, ease, resultLabel, fmtTime };
     if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("DOMContentLoaded", start);
   }
 })();

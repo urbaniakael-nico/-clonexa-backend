@@ -1594,6 +1594,26 @@
     "Mesa con velas y cartas": "Table avec bougies et cartes",
   });
 
+  // Juegos en vivo: escenas de 7 diferencias y resultado con tiempo (055D).
+  Object.assign(EN, {
+    "Escena": "Scene",
+    "Escena por defecto": "Default scene",
+    "Escoge Bar o Concierto.": "Choose Bar or Concert.",
+    "Tu resultado: {r}": "Your result: {r}",
+    "Bar": "Bar",
+    "Concierto": "Concert",
+    "{n} pareja": "{n} pair",
+  });
+  Object.assign(FR, {
+    "Escena": "Scène",
+    "Escena por defecto": "Scène par défaut",
+    "Escoge Bar o Concierto.": "Choisis Bar ou Concert.",
+    "Tu resultado: {r}": "Ton résultat : {r}",
+    "Bar": "Bar",
+    "Concierto": "Concert",
+    "{n} pareja": "{n} paire",
+  });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

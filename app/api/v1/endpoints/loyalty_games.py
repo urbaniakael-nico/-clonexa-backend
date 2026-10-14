@@ -169,7 +169,7 @@ async def context(company_id: UUID, request: Request, who: dict = Depends(actor)
 
     out = {"role": who["role"], "can": {"configure": who["role"] == "admin", "launch": True, "validate": True},
            "settings": await svc.settings(db, company_id), "brand": await brand(db, company_id),
-           "pair_options": list(eng.PAIR_OPTIONS), "scenes": [{"id": k, "name": v} for k, v in scenes.SCENE_NAMES.items()],
+           "pair_options": list(eng.PAIR_OPTIONS), "scenes": [{"id": k, "name": v} for k, v in scenes.OFFERED.items()],
            "levels": await svc.active_by_level(db, company_id),
            "live": _live_extra(request, await svc.live_state(db, company_id))}
     if who["role"] == "admin":
@@ -233,13 +233,22 @@ async def history(company_id: UUID, who: dict = Depends(actor), db: AsyncSession
     _admin(who)
     from sqlalchemy import text
 
-    rows = (await db.execute(text("""SELECT id::text AS id, kind, status, prize, game_day, created_by, created_at, started_at, closed_at, results
+    rows = (await db.execute(text("""SELECT id::text AS id, kind, status, prize, game_day, created_by, created_at, started_at, closed_at, results, config, question_ids
         FROM loyalty_game_rounds WHERE company_id::text = :c ORDER BY created_at DESC LIMIT 60"""), {"c": str(company_id)})).mappings().all()
     counts = {str(r[0]): (int(r[1]), int(r[2])) for r in (await db.execute(text("""SELECT round_id, count(*), count(validated_at)
         FROM loyalty_game_players WHERE company_id::text = :c GROUP BY round_id"""), {"c": str(company_id)})).all()}
     from app.api.v1.endpoints.reports import serialize
 
-    rounds = [{**dict(r), "players": counts.get(r["id"], (0, 0))[0], "validated": counts.get(r["id"], (0, 0))[1]} for r in rows]
+    def goal(r) -> Any:  # para mostrar "5/7 · 01:42" (no cambia ninguna regla)
+        cfg = svc.config_of(r)
+        if r["kind"] == "differences":
+            return len(cfg.get("diffs") or []) or 7
+        if r["kind"] == "trivia":
+            return 10 if svc.rules_of(r) >= 2 else len(svc._json(r["question_ids"], []))
+        return cfg.get("pairs") or 5
+
+    rounds = [{**{k: v for k, v in dict(r).items() if k not in ("config", "question_ids")}, "goal": goal(r),
+               "players": counts.get(r["id"], (0, 0))[0], "validated": counts.get(r["id"], (0, 0))[1]} for r in rows]
     return {"rounds": serialize(rounds), "draws": await svc.draws(db, company_id)}
 
 
@@ -267,7 +276,8 @@ async def open_round(company_id: UUID, request: Request, body: dict = Body(...),
     except (TypeError, ValueError):
         raise HTTPException(status_code=422, detail="parejas_invalidas") from None
     try:
-        await svc.open_round(db, company_id, str(body.get("kind") or ""), body.get("prize"), who["name"], pairs=pairs)
+        await svc.open_round(db, company_id, str(body.get("kind") or ""), body.get("prize"), who["name"], pairs=pairs,
+                             scene=str(body.get("scene")) if body.get("scene") else None)
     except GameError as exc:
         raise _err(exc) from None
     return await live(company_id, request, who, db)

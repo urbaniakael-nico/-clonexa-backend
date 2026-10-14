@@ -20,7 +20,7 @@
   const ERRORS = {
     numeros_agotados: "Ya salieron todos los números de ese rango esta noche.",
     parejas_invalidas: "Las parejas deben ser 5, 7, 10, 13 o 15.",
-    escenas_requeridas: "Deja al menos una escena activa.",
+    escena_invalida: "Escoge Bar o Concierto.",
     ya_hay_una_ronda_activa: "Ya hay una ronda abierta: ciérrala antes de abrir otra.",
     la_ronda_no_esta_en_registro: "La ronda ya no está en registro.",
     la_ronda_no_esta_cerrada: "Primero cierra la ronda.",
@@ -37,7 +37,7 @@
   const PENALTY_OPTS = [0, 2, 3, 5, 8, 10, 15];
 
   const model = { tab: "live", ctx: null, live: null, questions: [], history: null, draft: null, qEdit: null, error: "", info: "", busy: "",
-    denied: "", lastSpin: null, validation: null, loading: false, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null } };
+    denied: "", lastSpin: null, validation: null, loading: false, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null, scene: null } };
   let ctx = null;
   let bound = false;
   let timer = null;
@@ -52,6 +52,18 @@
   function day(iso) {
     if (!iso) return "—";
     try { return new Intl.DateTimeFormat(locale(), { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(`${String(iso).slice(0, 10)}T12:00:00Z`)); } catch (_) { return String(iso).slice(0, 10); }
+  }
+  // Resultado y tiempo (castigos incluidos): "5/7 · 01:42", "8/10 · 02:31", "7 parejas · 01:12".
+  function fmtTime(ms) {
+    if (ms === null || ms === undefined || ms === "") return "";
+    const s2 = Math.max(0, Math.round(Number(ms) / 1000));
+    return `${String(Math.floor(s2 / 60)).padStart(2, "0")}:${String(s2 % 60).padStart(2, "0")}`;
+  }
+  function resultLabel(kind, score, goal, ms) {
+    const n = Number(score) || 0;
+    const main = kind === "memory" ? T(n === 1 ? "{n} pareja" : "{n} parejas", { n }) : `${n}/${goal || "?"}`;
+    const t = fmtTime(ms);
+    return t ? `${main} · ${t}` : main;
   }
   function placeLabel(n) { return T(["", "1.er puesto", "2.º puesto", "3.er puesto"][n] || "{n}.º puesto", { n }); }
   function errText(e) { return T(ERRORS[e] || e || "No se pudo completar la acción."); }
@@ -151,6 +163,7 @@
     const prizes = (model.ctx.settings && model.ctx.settings.prizes) || {};
     return `<section class="client-panel lg-card"><h2 class="lg-h">🕹️ ${h(T("Abrir un juego"))}</h2>
       ${["memory", "trivia", "differences"].map((k) => `<div class="lg-row"><b class="lg-game">${ICON[k]} ${h(T(KIND[k]))}</b>
+        ${k === "differences" ? `<label class="lg-field">${h(T("Escena"))}<select data-lg-scenepick>${arr(model.ctx.scenes).map((sc) => `<option value="${h(sc.id)}" ${(model.form.scene || model.ctx.settings.differences_scene) === sc.id ? "selected" : ""}>${h(T(sc.name))}</option>`).join("")}</select></label>` : ""}
         ${k === "memory" ? `<label class="lg-field">${h(T("Parejas"))}<select data-lg-pairs>${arr(model.ctx.pair_options).map((n) => `<option value="${n}" ${Number(model.form.pairs || model.ctx.settings.memory_pairs) === n ? "selected" : ""}>${n} · ${h(mmss(model.ctx.settings.memory_times[String(n)]))}</option>`).join("")}</select></label>` : ""}
         <label class="lg-field lg-grow">${h(T("Premio"))}<input data-lg-prize="${k}" maxlength="160" value="${h(model.form.prize[k] !== undefined ? model.form.prize[k] : (prizes[k] || ""))}"></label>
         <button type="button" class="lg-btn" data-lg-open="${k}" ${busy || model.busy ? "disabled" : ""}>${h(T("Abrir registro"))}</button></div>`).join("")}
@@ -181,7 +194,6 @@
     const r = model.live && model.live.round;
     if (!r) return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Ronda actual"))}</h2><p class="lg-muted">${h(T("No hay ronda esta noche."))}</p></section>`;
     const all = arr(r.all_players).length ? r.all_players : arr(r.players);
-    const unit = (n) => (r.kind === "differences" ? `/ ${r.goal || 7}` : r.kind === "memory" ? T(Number(n) === 1 ? "pareja" : "parejas") : T(Number(n) === 1 ? "acierto" : "aciertos"));
     const actions = r.status === "registration"
       ? `<button type="button" class="client-btn lg-btn is-primary" data-lg-start="${h(r.id)}" ${model.busy ? "disabled" : ""}>▶ ${h(T("Iniciar"))}</button><button type="button" class="lg-btn" data-lg-close="${h(r.id)}">${h(T("Cancelar registro"))}</button>`
       : r.status === "playing" ? `<button type="button" class="lg-btn" data-lg-close="${h(r.id)}" ${model.busy ? "disabled" : ""}>■ ${h(T("Cerrar ronda"))}</button>` : "";
@@ -191,8 +203,8 @@
         <i class="lg-chip is-${h(r.status)}">${h(T(STATUS[r.status] || r.status))}${r.status === "playing" ? ` · ${h(remaining(r))}` : ""}</i></header>
       ${r.status === "registration" && r.join_url ? `<p class="lg-muted">${h(T("Los jugadores entran con el QR de la pantalla del bar."))}</p>` : ""}
       <div class="lg-actions">${actions}</div>
-      ${r.status === "playing" || r.status === "closed" ? `<ol class="lg-rank">${arr(r.ranking).slice(0, 10).map((p) => `<li><b>${h(p.rank)}.</b><span>${h(p.name)}</span><em>${h(p.score)} ${h(unit(p.score))}</em></li>`).join("")}</ol>` : ""}
-      ${podium.length ? `<p class="lg-podium">${podium.map((p) => `<span>${h(placeLabel(p.place))}: <b>${h(p.name)}</b></span>`).join("")}</p>` : ""}
+      ${r.status === "playing" || r.status === "closed" ? `<ol class="lg-rank">${arr(r.ranking).slice(0, 10).map((p) => `<li><b>${h(p.rank)}.</b><span>${h(p.name)}</span><em>${h(resultLabel(r.kind, p.score, r.goal, p.ms))}</em></li>`).join("")}</ol>` : ""}
+      ${podium.length ? `<p class="lg-podium">${podium.map((p) => `<span>${h(placeLabel(p.place))}: <b>${h(p.name)}</b>${p.score !== undefined ? ` · ${h(resultLabel(r.kind, p.score, r.goal, p.ms))}` : ""}</span>`).join("")}</p>` : ""}
       <h3 class="lg-h3">${h(T("Inscritos ({n})", { n: all.filter((p) => !p.hidden).length }))}</h3>
       <ul class="lg-players">${all.map((p) => `<li class="${p.hidden ? "is-hidden" : ""}"><span>${h(p.name)}${p.validated ? " ✓" : ""}</span>${p.hidden ? `<small>${h(T("Oculto"))}</small>` : `<button type="button" class="lg-btn is-small" data-lg-hide="${h(p.id)}" data-lg-round="${h(r.id)}">${h(T("Quitar de la pantalla"))}</button>`}</li>`).join("") || `<li class="lg-muted">${h(T("Aún no hay inscritos."))}</li>`}</ul>
       ${r.status === "closed" && podium.length ? validateBox(r) : ""}</section>`;
@@ -229,7 +241,7 @@
       <section class="client-panel lg-card"><h2 class="lg-h">🔍 ${h(T("7 diferencias"))}</h2><div class="lg-row">
         <label class="lg-field">${h(T("Tiempo total"))}${sel('data-lg-set="differences_seconds"', d.differences_seconds, DIFF_OPTS, mmss)}</label>
         <label class="lg-field">${h(T("Castigo por toque en falso"))}${sel('data-lg-set="differences_penalty"', d.differences_penalty, PENALTY_OPTS, (n) => `+${n} s`)}</label></div>
-        <div class="lg-scenes" role="group" aria-label="${h(T("Escenas activas"))}">${scenes.map((sc) => `<label class="lg-check"><input type="checkbox" data-lg-scene="${h(sc.id)}" ${arr(d.differences_scenes).includes(sc.id) ? "checked" : ""}>${h(T(sc.name))}</label>`).join("")}</div></section>
+        <div class="lg-row"><label class="lg-field">${h(T("Escena por defecto"))}<select data-lg-defscene>${scenes.map((sc) => `<option value="${h(sc.id)}" ${d.differences_scene === sc.id ? "selected" : ""}>${h(T(sc.name))}</option>`).join("")}</select></label></div></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Rangos y premios de la ruleta"))}</h2>
         ${arr(d.roulette_ranges).map((r, i) => `<div class="lg-row"><label class="lg-field">${h(T("Desde"))}<input type="number" min="0" max="9999" data-lg-rng="${i}" data-k="min" value="${h(r.min)}"></label>
           <label class="lg-field">${h(T("Hasta"))}<input type="number" min="1" max="9999" data-lg-rng="${i}" data-k="max" value="${h(r.max)}"></label>
@@ -273,7 +285,7 @@
     if (!hst) return `<section class="client-panel lg-card"><p class="lg-muted">${h(T("Cargando…"))}</p></section>`;
     return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Rondas"))}</h2><div class="lg-table" role="table">
         <div class="lg-tr is-head" role="row"><span>${h(T("Noche"))}</span><span>${h(T("Juego"))}</span><span>${h(T("Premio"))}</span><span>${h(T("Jugadores"))}</span><span>${h(T("Podio"))}</span></div>
-        ${arr(hst.rounds).map((r) => `<div class="lg-tr" role="row"><span>${h(day(r.game_day))} ${h(clock(r.created_at))}</span><span>${h(T(KIND[r.kind] || r.kind))} · ${h(T(STATUS[r.status] || r.status))}</span><span>${h(r.prize || "—")}</span><span>${h(r.players)}</span><span>${arr(r.results).map((p) => h(`${p.place}. ${p.name}`)).join(" · ") || "—"}${r.validated ? ` · ${h(T("{n} validados", { n: r.validated }))}` : ""}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin rondas todavía."))}</p>`}</div></section>
+        ${arr(hst.rounds).map((r) => `<div class="lg-tr" role="row"><span>${h(day(r.game_day))} ${h(clock(r.created_at))}</span><span>${h(T(KIND[r.kind] || r.kind))} · ${h(T(STATUS[r.status] || r.status))}</span><span>${h(r.prize || "—")}</span><span>${h(r.players)}</span><span>${arr(r.results).map((p) => h(`${p.place}. ${p.name}${p.score !== undefined ? ` (${resultLabel(r.kind, p.score, r.goal, p.ms)})` : ""}`)).join(" · ") || "—"}${r.validated ? ` · ${h(T("{n} validados", { n: r.validated }))}` : ""}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin rondas todavía."))}</p>`}</div></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Giros de la ruleta"))}</h2><div class="lg-table is-draws" role="table">
         <div class="lg-tr is-head" role="row"><span>${h(T("Hora"))}</span><span>${h(T("Número"))}</span><span>${h(T("Rango"))}</span><span>${h(T("Premio"))}</span><span>${h(T("Giró"))}</span></div>
         ${arr(hst.draws).map((d) => `<div class="lg-tr" role="row"><span>${h(day(d.game_day))} ${h(clock(d.spun_at))}</span><span><b>${h(d.number)}</b></span><span>${h(`${d.range_min}–${d.range_max}`)}</span><span>${h(d.prize || "—")}</span><span>${h(d.spun_by)}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin giros todavía."))}</p>`}</div></section>`;
@@ -324,6 +336,7 @@
     }
     if ((v = attr("data-lg-open"))) { const prize = model.form.prize[v] !== undefined ? model.form.prize[v] : ((model.ctx.settings.prizes || {})[v] || ""); const body = { kind: v, prize };
       if (v === "memory") body.pairs = Number(model.form.pairs || model.ctx.settings.memory_pairs);
+      if (v === "differences") body.scene = model.form.scene || model.ctx.settings.differences_scene;
       act("open", async () => { model.live = await call("/rounds", "POST", body); model.validation = null; schedule(); }); return; }
     if ((v = attr("data-lg-start"))) { act("start", async () => { model.live = await call(`/rounds/${v}/start`, "POST"); schedule(); }); return; }
     if ((v = attr("data-lg-close"))) { act("close", async () => { model.live = await call(`/rounds/${v}/close`, "POST"); }); return; }
@@ -369,6 +382,7 @@
     else if (t.hasAttribute("data-lg-place")) model.form.place = Number(t.value);
     else if (t.hasAttribute("data-lg-doc")) model.form.doc = t.value;
     else if (t.hasAttribute("data-lg-pairs")) model.form.pairs = Number(t.value);
+    else if (t.hasAttribute("data-lg-scenepick")) model.form.scene = t.value;
   }
 
   function onChange(event) {
@@ -378,12 +392,7 @@
     let v;
     if ((v = t.getAttribute("data-lg-set"))) { model.draft[v] = Number(t.value); return; }
     if ((v = t.getAttribute("data-lg-memtime"))) { model.draft.memory_times[v] = Number(t.value); return; }
-    if ((v = t.getAttribute("data-lg-scene"))) {
-      const set = new Set(arr(model.draft.differences_scenes));
-      if (t.checked) set.add(v); else set.delete(v);
-      model.draft.differences_scenes = arr(model.ctx.scenes).map((x) => x.id).filter((id) => set.has(id));
-      return;
-    }
+    if (t.hasAttribute("data-lg-defscene")) { model.draft.differences_scene = t.value; return; }
     if ((v = t.getAttribute("data-lg-rng")) !== null) { const k = t.getAttribute("data-k"); model.draft.roulette_ranges[Number(v)][k] = k === "prize" ? t.value : Number(t.value); return; }
     if ((v = t.getAttribute("data-lg-defprize"))) { model.draft.prizes[v] = t.value; return; }
     if ((v = t.getAttribute("data-lg-text"))) { model.draft.texts[v] = t.value; return; }
@@ -399,10 +408,10 @@
       bound = true;
     }
     Object.assign(model, { tab: "live", ctx: null, live: null, draft: null, qEdit: null, error: "", info: "", denied: "", lastSpin: null, validation: null,
-      form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null } });
+      form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null, scene: null } });
     draw();
     await loadAll();
   }
 
-  window.CxLoyaltyGames = { mount, model, view, placeLabel, errText, liveInputsBusy };
+  window.CxLoyaltyGames = { mount, model, view, placeLabel, errText, liveInputsBusy, resultLabel, fmtTime };
 })();

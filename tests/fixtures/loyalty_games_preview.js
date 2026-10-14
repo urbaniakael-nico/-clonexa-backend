@@ -20,7 +20,7 @@
   const round = (status, kind = "memory") => ({ id: "r1", kind, status, prize: "Botella de aguardiente", players, count: players.length,
     goal: kind === "differences" ? 7 : kind === "memory" ? 5 : 10, closed_at: status === "closed" ? iso(-20000) : null, zones: kind === "differences" && status === "closed" ? ZONES : undefined,
     ranking: status === "registration" ? [] : kind === "differences" ? diffRanking : ranking,
-    podium: status === "closed" ? [{ place: 1, id: "p0", name: "Camila" }, { place: 2, id: "p1", name: "Ana María Restrepo V" }, { place: 3, id: "p2", name: "Beto" }] : [],
+    podium: status === "closed" ? [{ place: 1, id: "p0", name: "Camila", score: 7, ms: 102000 }, { place: 2, id: "p1", name: "Ana María Restrepo V", score: 6, ms: 111000 }, { place: 3, id: "p2", name: "Beto", score: 5, ms: 151000 }] : [],
     started_at: iso(-45000), ends_at: iso(75000), duration_seconds: 120 });
   const state = () => ({
     now: new Date().toISOString(), game_day: "2026-10-16", brand, texts: { claim: "Reclama con tu documento", consent: "Autorizo el tratamiento de mis datos para este concurso" },
@@ -39,9 +39,9 @@
     memory: kind === "memory" ? (view === "memory30"
       ? { size: 30, faces: { 0: ICONS[14], 29: ICONS[14], 7: ICONS[3] }, matched: [0, 29], open: 7, pairs: 1, total_pairs: 15 }
       : { size: 10, faces: { 0: "🎸", 5: "🎸", 2: "🍸" }, matched: [0, 5], open: 2, pairs: 1, total_pairs: 5 }) : undefined,
-    differences: kind === "differences" ? { total: 7, found: 3, penalty_ms: 5000, penalty_s: 5, done: false, zones: ZONES.slice(0, 3).map((z) => ({ ...z, found: true })) } : undefined,
-    result: view === "lost" ? { result: "lost", place: null, score: 3 } : view === "win" ? { result: "ranked", place: 1, score: 5, finished: true }
-      : view === "timeout" ? { result: "ranked", place: 3, score: 7, finished: false } : undefined });
+    differences: kind === "differences" ? { total: 7, found: Number(P.get("found") || 3), penalty_ms: 5000, penalty_s: 5, done: false, zones: ZONES.slice(0, Number(P.get("found") || 3)).map((z) => ({ ...z, found: true })) } : undefined,
+    result: view === "lost" ? { result: "lost", place: null, score: 3 } : view === "win" ? { result: "ranked", place: 1, score: 5, finished: true, ms: 72000 }
+      : view === "timeout" ? { result: "ranked", place: 3, score: 7, finished: false, ms: 151000 } : undefined });
   const question = { done: false, answered: 2, total: 5, lap: 1, correct: 2,
     question: { id: "q3", text: "¿Qué guitarrista construyó con su padre la guitarra \"Red Special\"?", level: 5, options: ["Jimmy Page", "Brian May", "Keith Richards"], remaining_ms: 7000, limit_ms: 10000 } };
 
@@ -113,11 +113,13 @@
     root.querySelectorAll(".lgx-who, .lgx-pname").forEach((el) => { if (el.scrollWidth > el.clientWidth + 1) bad.push({ cls: String(el.className), text: el.textContent, cut: true }); });
     const vert = SCREEN ? root.scrollHeight > root.clientHeight + 1 : false;
     out.textContent = JSON.stringify({ mounted: root.children.length > 0, w: window.innerWidth, hgt: window.innerHeight, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
-      vert, bad, low_contrast: low, small, text: root.textContent.replace(/\s+/g, " ").trim().slice(0, 400),
+      vert, bad, low_contrast: low, small, text: root.textContent.replace(/\s+/g, " ").trim().slice(0, 3000),
       names: root.querySelectorAll(".lgx-names li").length, rank: root.querySelectorAll(".lgx-rank li").length, steps: root.querySelectorAll(".lgx-step").length,
       cards: root.querySelectorAll("[data-lgx-flip]").length, doc_h: document.documentElement.scrollHeight, view_h: window.innerHeight,
       min_card: Math.min(...[...root.querySelectorAll("[data-lgx-flip]")].map((b) => Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height)), 999),
-      panes: root.querySelectorAll("[data-lgx-zoom]").length, marks: root.querySelectorAll(".lgx-marks circle").length / 2, thumbs: root.querySelectorAll(".lgx-thumbs img").length,
+      panes: root.querySelectorAll("[data-lgx-zoom]").length,
+      marks_visible: [...root.querySelectorAll(".lgx-marks circle.is-hit")].filter((c) => { const b = c.getBoundingClientRect(); const cs = getComputedStyle(c); return b.width > 5 && Number(cs.opacity) > 0.5 && cs.visibility !== "hidden"; }).length / 2,
+      mark_debug: (() => { const c = root.querySelector(".lgx-marks circle"); if (!c) return null; const b = c.getBoundingClientRect(); const cs = getComputedStyle(c); return { w: b.width, op: cs.opacity, stroke: cs.stroke, sw: cs.strokeWidth, svg: c.ownerSVGElement && c.ownerSVGElement.getBoundingClientRect().width, ns: c.namespaceURI }; })(), marks: root.querySelectorAll(".lgx-marks circle").length / 2, thumbs: root.querySelectorAll(".lgx-thumbs img").length,
       reveal_visible: !!(root.querySelector("#lgxReveal") && !root.querySelector("#lgxReveal").hidden), reveal_circles: root.querySelectorAll("#lgxReveal figure:first-child circle").length, faces: root.querySelectorAll(".lgx-card3d.is-up").length, opts: root.querySelectorAll(".lgx-opt").length });
     document.body.appendChild(out);
   }
