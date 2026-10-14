@@ -185,3 +185,57 @@ def test_all_four_routes_are_guarded_and_switch_is_registered():
 
     sw = next(s for s in switch_registry.registry()["switches"] if s["key"] == "reports_v2")
     assert sw["module"] == "reports" and sw["delicate"] is True
+
+
+# ---------------------------------------------------------------- logo del panel (parte 1)
+PNG_1PX = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def _logo_env(monkeypatch, published: bool):
+    """Marca publicada (Estudio de marca) o, sin ella, el logo de la experiencia de siempre."""
+    from app.api.v1.endpoints import companies
+    from app.services import brand_media, brand_store, brand_theme
+
+    img = "11111111-2222-3333-4444-555555555555"
+    monkeypatch.setattr(brand_store, "published_tokens", AsyncMock(return_value={"logo": img} if published else None))
+    monkeypatch.setattr(brand_theme, "branding_for_portal", lambda tokens, cid: {"logo_url": f"/brand-media/{cid}/{tokens['logo']}.webp"})
+    monkeypatch.setattr(brand_media, "read", AsyncMock(return_value=PNG_1PX))
+    monkeypatch.setattr(companies, "_get_company_or_404", AsyncMock(return_value=SimpleNamespace()))
+    old = "data:image/png;base64," + base64.b64encode(PNG_1PX).decode()
+    monkeypatch.setattr(companies, "_read_company_branding", lambda company: {"logo_url": old})
+    return f"/brand-media/{CID}/{img}.webp", old
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("published", [True, False])
+async def test_screen_and_pdf_use_the_home_panel_logo(monkeypatch, published):
+    from app.services import panel_logo
+
+    new, old = _logo_env(monkeypatch, published)
+    expected = new if published else old
+    assert (await panel_logo.panel_logo(Db(), CID)) == {"url": expected, "source": "published" if published else "experience"}
+    monkeypatch.setattr(reports_v2, "is_on", AsyncMock(return_value=True))
+    monkeypatch.setattr(reports_v2, "weekly_limit_minutes", AsyncMock(return_value=2400))
+    monkeypatch.setattr(reports_v2, "role_codes", AsyncMock(return_value=CODES))
+    # Pantalla: el payload de /general lleva el logo del panel (no el de company_branding).
+    screen = await reports._with_insights_053c(Db(), CID, payload())
+    assert screen["company"]["logo_url"] == expected
+    # PDF: el lector de logo recibe esos mismos bytes y la imagen queda dentro del PDF.
+    seen = []
+    real_reader = reports.report_pdf_logo_reader
+    monkeypatch.setattr(reports, "report_pdf_logo_reader", lambda src: seen.append(src) or real_reader(src))
+    monkeypatch.setattr(reports, "build_report_payload", AsyncMock(return_value=payload()))
+    args = dict(preset="7d", start_date=None, end_date=None, employee_id=None, module=None, status=None, search=None, detail="all", db=Db(), _access=None)
+    res = await reports.export_report_pdf(CID, disposition="inline", **args)
+    body = b"".join([chunk async for chunk in res.body_iterator])
+    assert seen and base64.b64decode(seen[0].split(",", 1)[1]) == PNG_1PX
+    assert b"/Subtype /Image" in body
+
+
+@pytest.mark.asyncio
+async def test_published_brand_without_logo_shows_no_logo_like_the_portal(monkeypatch):
+    from app.services import brand_theme, panel_logo
+
+    _logo_env(monkeypatch, True)
+    monkeypatch.setattr(brand_theme, "branding_for_portal", lambda tokens, cid: {"logo_url": ""})
+    assert await panel_logo.panel_logo(Db(), CID) == {"url": "", "source": "none"}

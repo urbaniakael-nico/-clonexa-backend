@@ -960,6 +960,10 @@ async def _with_insights_053c(db: AsyncSession, company_id: UUID, payload: dict[
     from app.services import reports_v2
 
     if await reports_v2.is_on(db, company_id):
+        from app.services import panel_logo
+
+        # El mismo logo del panel inicial (marca publicada o, si no hay, el de siempre del panel).
+        payload["company"] = {**(payload.get("company") or {}), "logo_url": (await panel_logo.panel_logo(db, company_id))["url"]}
         payload["insights_v2"] = serialize(await reports_v2.insights_for(db, company_id, payload))
     return payload
 
@@ -1641,9 +1645,15 @@ async def export_report_pdf(
 
     if await reports_v2.is_on(db, company_id):
         # Reportes v2: carta, fondo blanco, logo, periodo, "Pagina X de Y" y las secciones de la pantalla.
+        from app.services import panel_logo
+
+        logo = await panel_logo.panel_logo(db, company_id)  # el mismo logo del panel inicial
+        payload["company"] = {**(payload.get("company") or {}), "logo_url": logo["url"]}
+        raw_logo = await panel_logo.panel_logo_bytes(db, company_id, logo["url"])
         insights = await reports_v2.insights_for(db, company_id, payload)
         pdf_bytes = reports_v2.build_pdf(payload, insights, company_locale.current_zone(),
-                                         report_pdf_logo_reader((payload.get("company") or {}).get("logo_url")))
+                                         report_pdf_logo_reader("data:image/webp;base64," + base64.b64encode(raw_logo).decode()) if raw_logo
+                                         else report_pdf_logo_reader(logo["url"]))
     else:
         pdf_bytes = build_report_pdf_bytes(payload, detail)
     safe_detail = normalize(detail or "all") or "all"
