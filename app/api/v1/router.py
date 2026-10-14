@@ -34,6 +34,7 @@ for _module_name, _prefix, _tags in [
     ("kpis", "/kpis", ["kpis"]),
     ("reports", "/reports", ["reports"]),
     ("shifts_v1", "/turnos", ["turnos"]),
+    ("loyalty_games", "/loyalty-games", ["loyalty_games"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),

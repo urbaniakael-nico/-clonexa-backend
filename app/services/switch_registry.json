@@ -1,6 +1,6 @@
 {
   "_doc": "Registro unico de interruptores por empresa (Consola v2+ · Interruptores). Solo lo que esta aqui aparece en la consola. Cada interruptor es una clave booleana dentro de company_modules.settings del modulo indicado. depends_on: interruptores de los que depende este (verificado en el codigo). requires_modules: modulos que tambien deben estar encendidos. delicate: cambia calculos o una pantalla completa; en empresas registradas exige escribir el nombre de la empresa. v2_form: Admin V2 tambien la guarda desde su formulario de mesero/cocina/caja.",
-  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR", "Referencias", "Personal", "Nómina"],
+  "groups": ["Caja", "Cocina", "Pedidos", "Enlaces", "Reportes", "Marca", "Domicilios", "QR", "Referencias", "Personal", "Nómina", "Fidelización"],
   "switches": [
     {"key": "cashier_redesign", "label": "Caja rediseñada", "module": "waiter_ordering", "group": "Caja",
      "description": "Panel de caja con indicadores del turno, secciones Mesas / Domicilios / Ventas y el Z del día.",
@@ -56,6 +56,9 @@
      "delicate": true, "delicate_reason": "Cambia la pantalla completa de Nómina del portal."},
     {"key": "reports_v2", "label": "Reportes rediseñados", "module": "reports", "group": "Reportes",
      "description": "Pantalla nueva de Reportes a pantalla completa: seis cifras, horas por día, alertas, materiales, inventario bajo mínimo y personal, con PDF para ver, imprimir y descargar. Solo el dueño y el director abren Reportes (validado en el servidor). El cálculo no cambia.",
-     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Reportes y limita el acceso al dueño y al director."}
+     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Reportes y limita el acceso al dueño y al director."},
+    {"key": "loyalty_games", "label": "Juegos en vivo", "module": "loyalty", "group": "Fidelización",
+     "description": "Ruleta de la rifa, Memoria relámpago y Trivia con pantalla del bar (enlace con token), registro por QR con documento cifrado (HMAC, purga a 30 días) y podio. Lo lanza el barman; el dueño configura premios, tiempos y preguntas. Lo existente de Fidelización no cambia.",
+     "delicate": false}
   ]
 }

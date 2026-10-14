@@ -114,6 +114,34 @@ def register_client_portal(app: FastAPI) -> None:
                     await db.rollback()
             return await _branded_html(web_dir / "carta_qr.html", db, company_id)
 
+    # Juegos en vivo (interruptor loyalty_games): pantalla del bar (?t= token secreto
+    # que el admin regenera) y pagina del jugador (?r= token firmado de la ronda).
+    # Sin token valido la pagina carga pero la API responde 403/404 y no muestra nada.
+    if not any(getattr(route, "path", None) == "/juegos/pantalla" for route in app.routes):
+        @app.get("/juegos/pantalla", response_class=HTMLResponse, include_in_schema=False)
+        async def loyalty_games_screen_page(t: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            company_id = None
+            try:
+                from app.services import loyalty_games
+
+                company_id = await loyalty_games.company_by_screen_token(db, t) if t else None
+            except Exception:
+                await db.rollback()
+            return await _branded_html(web_dir / "loyalty_games_screen.html", db, company_id)
+
+    if not any(getattr(route, "path", None) == "/juegos/jugar" for route in app.routes):
+        @app.get("/juegos/jugar", response_class=HTMLResponse, include_in_schema=False)
+        async def loyalty_games_play_page(r: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            company_id = None
+            try:
+                from app.services import loyalty_games
+
+                row = await loyalty_games.round_by_token(db, r) if r else None
+                company_id = row["company_id"] if row else None
+            except Exception:
+                await db.rollback()
+            return await _branded_html(web_dir / "loyalty_games_play.html", db, company_id)
+
     if not any(getattr(route, "path", None) == "/shoplink" for route in app.routes):
         @app.get("/shoplink", response_class=HTMLResponse, include_in_schema=False)
         async def shoplink_public_page() -> HTMLResponse:

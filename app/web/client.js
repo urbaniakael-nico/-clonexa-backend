@@ -171,6 +171,82 @@
   }
   /* CLONEXA_055A_SHIFTS_END */
 
+  /* CLONEXA_055B_LOYALTY_GAMES_START: Juegos en vivo (interruptor loyalty_games
+     del modulo loyalty). Agrega un boton en Fidelizacion y en el Panel Barman
+     solo si el servidor responde que el interruptor esta encendido y el rol
+     puede (dueno/admin o barman); si no, nada cambia. Su pantalla va aparte
+     (loyalty_games.js/.css). */
+  let cxLoyGamesCheck055B = null;
+  function cxLoyGamesOn055B() {
+    const companyId = companyIdFromUrl();
+    if (!companyId) return Promise.resolve(false);
+    if (!cxLoyGamesCheck055B) {
+      cxLoyGamesCheck055B = fetch(`${API}/loyalty-games/companies/${encodeURIComponent(companyId)}/context`, { headers: authHeaders() })
+        .then((res) => res.ok)
+        .catch(() => false);
+    }
+    return cxLoyGamesCheck055B;
+  }
+
+  async function cxLoyGamesDecorate055B(origin) {
+    try {
+      if (!(await cxLoyGamesOn055B())) return;
+      const actions = document.querySelector("#app .client-hero .client-actions");
+      if (!actions || actions.querySelector("[data-loy-games-open-055b]")) return;
+      const btn = document.createElement("button");
+      btn.className = "client-btn";
+      btn.type = "button";
+      btn.setAttribute("data-loy-games-open-055b", origin || "loyalty");
+      btn.textContent = "🎮 " + (window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t("Juegos en vivo") : "Juegos en vivo");
+      btn.addEventListener("click", () => { cxLoyGamesOpen055B(origin); });
+      actions.appendChild(btn);
+    } catch (_) {}
+  }
+
+  let cxLoyGamesLoading055B = null;
+  function cxLoyGamesLoad055B() {
+    if (window.CxLoyaltyGames) return Promise.resolve();
+    if (!cxLoyGamesLoading055B) {
+      cxLoyGamesLoading055B = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxLoyGamesCss055B")) {
+          const link = document.createElement("link");
+          link.id = "cxLoyGamesCss055B";
+          link.rel = "stylesheet";
+          link.href = "/client-static/loyalty_games.css?v=055B";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/loyalty_games.js?v=055B";
+        script.onload = () => resolve();
+        script.onerror = () => { cxLoyGamesLoading055B = null; reject(new Error("loyalty_games")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxLoyGamesLoading055B;
+  }
+
+  async function cxLoyGamesOpen055B(origin) {
+    const companyId = companyIdFromUrl();
+    const app = document.getElementById("app");
+    if (!companyId || !app) return false;
+    try { await cxLoyGamesLoad055B(); } catch (_) { return false; }
+    if (!window.CxLoyaltyGames || typeof window.CxLoyaltyGames.mount !== "function") return false;
+    app.innerHTML = `<main class="client-shell lg-shell"><div id="cxLoyGamesHost055B"></div></main>`;
+    const company = state.company || {};
+    await window.CxLoyaltyGames.mount({
+      companyId, apiBase: API, token: authToken, company: { name: company.name || "", slug: company.slug || "" },
+      host: () => document.getElementById("cxLoyGamesHost055B"),
+      back: () => {
+        if (origin === "orders" && typeof renderHospitalityOrdersModule024R === "function") return renderHospitalityOrdersModule024R();
+        if (typeof renderHospitalityLoyaltyModule024Z === "function") return renderHospitalityLoyaltyModule024Z();
+        window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`;
+        return null;
+      },
+    });
+    return true;
+  }
+  /* CLONEXA_055B_LOYALTY_GAMES_END */
+
   function validHex(value, fallback) {
     const v = String(value || "").trim();
     return /^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
@@ -24598,6 +24674,7 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    cxLoyGamesDecorate055B("orders");
 
     cxHspRenderOrdersBoard024R(summary);
     cxHspSyncAlertButton030B();
@@ -27553,6 +27630,7 @@ function inventoryCreatePayload() {
         </div>
       </main>
     `;
+    cxLoyGamesDecorate055B("loyalty");
     cxHspLoyaltyPaint024Z();
     cxHspLoyaltyStartPolling025F();
   }

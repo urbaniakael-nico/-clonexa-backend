@@ -593,6 +593,16 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.shifts").warning("No se pudo iniciar el vencimiento de cambios de turno: %s", exc)
 
     try:
+        # Juegos en vivo: purga del HMAC del documento y los 4 digitos a los 30 dias (cada hora).
+        from app.services.loyalty_games import start_purge_loop
+
+        start_purge_loop()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.loyalty_games").warning("No se pudo iniciar la purga de Juegos en vivo: %s", exc)
+
+    try:
         from app.services.shoplink_whatsapp_web import start_whatsapp_bridge
 
         start_whatsapp_bridge()

@@ -1,0 +1,25 @@
+{
+  "_doc": "Banco inicial de la trivia 'Maquina del tiempo'. Se copia como DATOS editables (loyalty_trivia_questions) a cada empresa la primera vez que usa los juegos; despues la empresa lo edita desde Fidelizacion > Juegos en vivo > Preguntas.",
+  "questions": [
+    {"level": 1, "question": "¿Qué banda canta \"Bohemian Rhapsody\"?", "correct": "Queen", "wrong": ["The Beatles", "AC/DC"]},
+    {"level": 1, "question": "¿Quién canta \"El triste\"?", "correct": "José José", "wrong": ["Camilo Sesto", "Raphael"]},
+    {"level": 1, "question": "¿Qué banda canta \"Hotel California\"?", "correct": "Eagles", "wrong": ["The Doors", "Pink Floyd"]},
+    {"level": 1, "question": "¿Quién canta \"Querida\"?", "correct": "Juan Gabriel", "wrong": ["José José", "Leo Dan"]},
+    {"level": 2, "question": "¿Cómo se llamaba el vocalista de Queen?", "correct": "Freddie Mercury", "wrong": ["Mick Jagger", "Robert Plant"]},
+    {"level": 2, "question": "¿De qué país es Camilo Sesto?", "correct": "España", "wrong": ["México", "Argentina"]},
+    {"level": 2, "question": "¿De qué ciudad son The Beatles?", "correct": "Liverpool", "wrong": ["Londres", "Mánchester"]},
+    {"level": 2, "question": "¿Qué banda canta \"Highway to Hell\"?", "correct": "AC/DC", "wrong": ["Kiss", "Guns N' Roses"]},
+    {"level": 3, "question": "¿Qué banda grabó \"The Dark Side of the Moon\"?", "correct": "Pink Floyd", "wrong": ["Led Zeppelin", "Deep Purple"]},
+    {"level": 3, "question": "¿Quién compuso \"Amor eterno\"?", "correct": "Juan Gabriel", "wrong": ["José José", "Marco Antonio Solís"]},
+    {"level": 3, "question": "¿Quién canta \"Vivir así es morir de amor\"?", "correct": "Camilo Sesto", "wrong": ["Raphael", "Nino Bravo"]},
+    {"level": 3, "question": "¿Quién era el guitarrista de Led Zeppelin?", "correct": "Jimmy Page", "wrong": ["Jimi Hendrix", "Eric Clapton"]},
+    {"level": 4, "question": "¿En qué año salió \"Stairway to Heaven\"?", "correct": "1971", "wrong": ["1975", "1968"]},
+    {"level": 4, "question": "¿Cuál es el nombre real de Raphael?", "correct": "Miguel Rafael Martos Sánchez", "wrong": ["José Rómulo Sosa", "Rafael Pérez Botija"]},
+    {"level": 4, "question": "¿Quién canta \"Libre\" (1972)?", "correct": "Nino Bravo", "wrong": ["Camilo Sesto", "Raphael"]},
+    {"level": 4, "question": "¿De qué país es AC/DC?", "correct": "Australia", "wrong": ["Inglaterra", "Estados Unidos"]},
+    {"level": 5, "question": "¿Cuál era el nombre real de José José?", "correct": "José Rómulo Sosa Ortiz", "wrong": ["Miguel Rafael Martos", "Alberto Aguilera Valadez"]},
+    {"level": 5, "question": "¿Qué guitarrista construyó con su padre la guitarra \"Red Special\"?", "correct": "Brian May", "wrong": ["Jimmy Page", "Keith Richards"]},
+    {"level": 5, "question": "¿En qué banda tocaba Ringo Starr antes de The Beatles?", "correct": "Rory Storm and the Hurricanes", "wrong": ["The Quarrymen", "The Animals"]},
+    {"level": 5, "question": "¿Cómo se llamaba el vocalista de AC/DC que murió en 1980?", "correct": "Bon Scott", "wrong": ["Brian Johnson", "Angus Young"]}
+  ]
+}
