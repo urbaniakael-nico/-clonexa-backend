@@ -322,6 +322,14 @@
     return model.board.draft || miniPanelConfig(model.modules).config;
   }
 
+  // "Pedidos por mesero" (estaciones, porciones, metas, fotos) sigue solo en
+  // Admin V2: el enlace sale únicamente si la empresa tiene ese módulo.
+  function waiterLink(c) {
+    const rest = F() && F().restaurantState ? F().restaurantState(model.modules) : null;
+    if (!rest || !rest.waiterOrderingPresent) return "";
+    return `<a class="vp-link-muted" href="/admin-v2?company_id=${encodeURIComponent(c.id)}" data-vpf-waiter-link>Pedidos por mesero (Admin V2)</a>`;
+  }
+
   function tabModulos(c) {
     if (!model.modules || !F()) return loading("módulos");
     const mini = miniPanelConfig(model.modules);
@@ -331,7 +339,7 @@
         rest: F().restaurantState(model.modules), companyId: c.id, origin: origin(), ui: model.board })}
     </div>
     <p class="vp-login-hint">Solo encender, apagar y asignar módulos a los paneles. La configuración operativa (categorías, estaciones, porciones, imágenes, metas) no vive en la consola.
-      <a class="vp-link-muted" href="/admin-v2?company_id=${encodeURIComponent(c.id)}">Configuración avanzada en Admin V2</a></p>
+      ${waiterLink(c)}</p>
     ${F().picker(model.modules, model.board)}`;
   }
 

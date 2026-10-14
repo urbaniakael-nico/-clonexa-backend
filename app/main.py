@@ -22,11 +22,6 @@ except Exception:
     api_router = None
 
 try:
-    from app.web.admin_routes import register_admin_console
-except Exception:
-    register_admin_console = None
-
-try:
     from app.web.client_routes import register_client_portal
 except Exception:
     register_client_portal = None
@@ -215,11 +210,25 @@ async def _clonexa_company_ip_access_guard(request, call_next):
 async def _clonexa_legacy_admin_redirect(request, call_next):
     """
     CLONEXA 019D:
-    /admin legacy queda depurado como redirect permanente a /admin-v2.
+    /admin legacy queda depurado como redirect permanente.
     No se elimina para no romper accesos guardados.
+    2026-10-14: la pagina vieja (admin.html y /admin-static) se borro; el
+    redirect va directo a la consola v2+.
     """
     if request.url.path.rstrip("/") == "/admin":
-        return RedirectResponse(url="/admin-v2", status_code=308)
+        return RedirectResponse(url="/admin-v2plus", status_code=308)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _clonexa_static_guard(request, call_next):
+    """2026-10-14: bloqueo global de rutas estaticas. Codigo, configuracion,
+    respaldos, archivos ocultos y ".." responden 404 en /client-static,
+    /assets, /admin-v2-assets y /admin-static, exista o no el archivo."""
+    from app.web.safe_static import blocks_request
+
+    if blocks_request(request.url.path):
+        return JSONResponse({"detail": "Not Found"}, status_code=404, headers={"Cache-Control": "no-store"})
     return await call_next(request)
 
 
@@ -616,9 +625,6 @@ async def _clonexa_startup_bootstrap_bots() -> None:
 
 if api_router is not None:
     app.include_router(api_router, prefix="/api/v1")
-
-if register_admin_console is not None:
-    register_admin_console(app)
 
 if register_client_portal is not None:
     register_client_portal(app)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from starlette.staticfiles import StaticFiles
+from app.web.safe_static import SafeStaticFiles
 
 VERSION = "cx26a"
 DIR = Path(__file__).resolve().parent / "assets" / "brand"
@@ -56,8 +56,13 @@ def pdf_icon() -> Path:
     return path("clonexa-icono-192.png")
 
 
-class CachedAssets(StaticFiles):
-    """El /assets de siempre; solo brand/ sale con cache larga (URL versionada)."""
+class CachedAssets(SafeStaticFiles):
+    """El /assets de siempre; solo brand/ sale con cache larga (URL versionada).
+    Solo imagenes de la raiz y de brand/ (lista blanca de safe_static)."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allowed_dirs", frozenset({"brand"}))
+        super().__init__(*args, **kwargs)
 
     async def get_response(self, path_: str, scope):  # type: ignore[override]
         response = await super().get_response(path_, scope)

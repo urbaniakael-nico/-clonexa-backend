@@ -25,7 +25,8 @@
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
-    passkeys: { open: false, list: [], ready: true, busy: false, message: "", error: "" } };
+    passkeys: { open: false, list: [], ready: true, busy: false, message: "", error: "" },
+    logout: { open: false, busy: false, error: "" } };
 
   // ------------------------------------------------------------ utilidades
   function h(value) {
@@ -284,6 +285,47 @@
     renderPasskeys();
   }
 
+  // ------------------------------------------------- cerrar sesión (menú)
+  // Mismo diálogo de confirmación de la v2+ y la misma acción que "Cerrar mi
+  // sesión" de Accesos (CxConsoleAdmin.consoleApi.logout): el servidor cierra
+  // la sesión y borra la cookie; si falla, se avisa y no se sale.
+  function logoutPanel(l) {
+    if (!l || !l.open) return "";
+    return `
+      <div class="vp-modal" data-vp-logout-modal>
+        <div class="vp-panel vp-modal-card" role="dialog" aria-modal="true" aria-label="Cerrar sesión">
+          <div class="vp-modal-head"><h2>Cerrar sesión</h2><button class="vp-btn vp-btn-sm" type="button" data-vp-logout-close aria-label="Cerrar">✕</button></div>
+          <p class="vp-login-hint">¿Cerrar tu sesión de la consola en este equipo?</p>
+          ${l.error ? `<div class="vp-alert" role="alert"><span>${h(l.error)}</span></div>` : ""}
+          <div class="vp-actions"><button class="vp-btn vp-btn-danger" type="button" data-vp-logout-go ${l.busy ? "disabled" : ""}>${l.busy ? "Cerrando…" : "Cerrar sesión"}</button><button class="vp-btn" type="button" data-vp-logout-close>Cancelar</button></div>
+        </div>
+      </div>`;
+  }
+
+  function renderLogout() {
+    let host = document.getElementById("vpLogout");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "vpLogout";
+      document.body.appendChild(host);
+    }
+    host.innerHTML = logoutPanel(state.logout);
+  }
+
+  async function logout() {
+    if (state.logout.busy) return;
+    state.logout = { open: true, busy: true, error: "" };
+    renderLogout();
+    try {
+      const admin = window.CxConsoleAdmin && window.CxConsoleAdmin.consoleApi;
+      if (!admin) throw new Error("La consola no terminó de cargar. Recarga la página.");
+      await admin.logout();
+    } catch (error) {
+      state.logout = { open: true, busy: false, error: error.message };
+      renderLogout();
+    }
+  }
+
   // Sin manejadores en línea (la CSP de v2+ no los permite): si el logo no
   // carga, se muestra la marca "CX" igual que antes.
   function logoFallback() {
@@ -421,6 +463,9 @@
     if (target.closest("[data-vp-refresh]")) { load(); return; }
     const bill = target.closest("[data-vp-billing]");
     if (bill) { event.preventDefault(); setView("billing", { company: bill.getAttribute("data-vp-billing") }); return; }
+    if (target.closest("[data-vp-logout-open]")) { state.logout = { open: true, busy: false, error: "" }; renderLogout(); return; }
+    if (target.closest("[data-vp-logout-close]")) { if (!state.logout.busy) { state.logout.open = false; renderLogout(); } return; }
+    if (target.closest("[data-vp-logout-go]")) { logout(); return; }
     if (target.closest("[data-vp-passkeys-open]")) { openPasskeys(); return; }
     if (target.closest("[data-vp-passkeys-close]")) { state.passkeys.open = false; renderPasskeys(); return; }
     if (target.closest("[data-vp-passkey-register]")) { registerPasskey(); return; }
@@ -438,11 +483,14 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);
+    // Volver atrás después de cerrar sesión: si el navegador muestra la página
+    // desde su memoria (bfcache), se recarga y el servidor manda al ingreso.
+    if (typeof window.addEventListener === "function") window.addEventListener("pageshow", (event) => { if (event && event.persisted) window.location.reload(); });
     // Ctrl+K y el botón "Buscar u ordenar…" los atiende admin_v2plus_palette.js.
     load();
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, state, STATES };
+  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();

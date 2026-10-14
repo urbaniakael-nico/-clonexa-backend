@@ -15,9 +15,9 @@ from app.web import brand_assets
 
 WEB = Path("app/web")
 V = brand_assets.VERSION
-# Pantallas con la marca Clonexa (consola v2+ y su login, Admin V2, admin.html,
+# Pantallas con la marca Clonexa (consola v2+ y su login, Admin V2,
 # login del portal, portal, mini paneles y sus ingresos).
-PAGES = ("admin_v2plus.html", "admin_v2plus_login.html", "admin_v2.html", "admin.html", "login.html", "client.html", "mini_panel.html",
+PAGES = ("admin_v2plus.html", "admin_v2plus_login.html", "admin_v2.html", "login.html", "client.html", "mini_panel.html",
          "hsp_cashier.html", "hsp_kitchen.html", "hsp_waiter.html")
 
 

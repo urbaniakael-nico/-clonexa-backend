@@ -135,7 +135,9 @@ test('HTML y tema: menú completo, logo idéntico a Admin V2 y colores Catedral'
   assert.deepEqual(nav, order);
   assert.match(html, /data-vp-view="billing">Facturación<\/button>/, 'Facturación ocupa el lugar de Auditoría');
   assert.match(html, /<script src="\/admin-v2plus-billing\.js"><\/script>/);
-  assert.match(html, /Volver a Admin V2/);
+  // 2026-10-14: el menú ya no manda a Admin V2; abajo, junto a la huella, "Cerrar sesión".
+  assert.doesNotMatch(html, /Volver a Admin V2|href="\/admin-v2"/);
+  assert.match(html, /data-vp-passkeys-open>☝ Huella de este equipo<\/button>\s*<button class="vp-nav-item vp-logout-btn" type="button" data-vp-logout-open>\s*<svg[^>]*aria-hidden="true"[\s\S]*?<span>Cerrar sesión<\/span>/);
   assert.match(html, /class="cx-logo-fallback" aria-hidden="true">CX</);
   // Marca Clonexa 2026-10: el nombre es el SVG entregado (igual en Admin V2).
   assert.match(html, /class="cx-brand-title"><img class="cx-brand-name" src="\/assets\/brand\/clonexa-nombre\.svg\?v=cx26a"/);

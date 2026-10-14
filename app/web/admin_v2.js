@@ -1768,6 +1768,20 @@
     state.lastRefresh = localTime();
     renderAll();
     applyOwnerAccessLabels();
+    cxOpenCompanyFromUrl061A();
+  }
+
+  // 061A: /admin-v2?company_id=… (enlace "Pedidos por mesero" de la consola
+  // v2+) abre la Ficha de esa empresa en Módulos, una sola vez por carga.
+  let cxDeepLinkDone061A = false;
+  function cxOpenCompanyFromUrl061A() {
+    if (cxDeepLinkDone061A) return;
+    cxDeepLinkDone061A = true;
+    let companyId = "";
+    try { companyId = new URLSearchParams(window.location.search).get("company_id") || ""; } catch (_) { return; }
+    if (companyId && state.companies.some((company) => company.id === companyId)) {
+      selectCompany(companyId, "módulos").catch(() => null);
+    }
   }
 
   function setApiStatus(ok) {

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 from app.web.admin_v2_routes import _set_company_preview_cookie
-from fastapi.staticfiles import StaticFiles
+from app.web.safe_static import SafeStaticFiles
 
 
 def _read_html(path: Path) -> HTMLResponse:
@@ -62,7 +62,9 @@ def register_client_portal(app: FastAPI) -> None:
     web_dir = Path(__file__).resolve().parent
 
     if not any(getattr(route, "name", None) == "clonexa_client_static" for route in app.routes):
-        app.mount("/client-static", StaticFiles(directory=str(web_dir)), name="clonexa_client_static")
+        # Solo estaticos publicos de la raiz de app/web (lista blanca); antes
+        # servia la carpeta completa, codigo Python incluido.
+        app.mount("/client-static", SafeStaticFiles(directory=str(web_dir)), name="clonexa_client_static")
 
     if not any(getattr(route, "path", None) == "/login" for route in app.routes):
         @app.get("/login", response_class=HTMLResponse)

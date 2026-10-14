@@ -29,7 +29,16 @@
     sessions: () => apiGet("/admin-v2/api/sessions"),                                                 // H03
     closeSession: (key) => apiPost(`/admin-v2/api/sessions/${key}/close`, {}),                       // H04
     // Z01: igual que v2 (POST sin cuerpo), pero vuelve a la entrada de v2+.
-    async logout() { await fetch("/admin-v2/logout", { method: "POST" }).catch(() => null); window.location.href = "/admin-v2plus/login"; },
+    // El servidor cierra la sesión (access_sessions) y borra la cookie. Si no
+    // responde, se lanza el error: la sesión no se da por cerrada sin el servidor.
+    async logout() {
+      const response = await fetch("/admin-v2/logout", { method: "POST", credentials: "same-origin", redirect: "manual" });
+      const done = response && (response.ok || response.type === "opaqueredirect" || response.status === 303 || response.status === 0);
+      if (!done) throw new Error("No se pudo cerrar la sesión en el servidor. Intenta de nuevo.");
+      // replace: el botón Atrás no vuelve a la consola.
+      if (typeof window.location.replace === "function") window.location.replace("/admin-v2plus/login");
+      else window.location.href = "/admin-v2plus/login";
+    },
     // H01 con respaldo H02, igual que loadHealth de v2.
     health: () => apiGet("/health").catch(() => apiGet(`${API}/health`)),
     // L01: mismos parámetros y en el mismo orden que loadLandingAnalytics025R.
@@ -313,7 +322,7 @@
     if (!t || !t.closest) return;
     if (!ctx || !ctx.active()) return;
     if (t.closest("[data-vpx-logout]")) {
-      ask("Cerrar mi sesión", "Cerrar tu sesión de la consola en este equipo?", () => consoleApi.logout(), { cta: "Cerrar sesión", danger: true });
+      ask("Cerrar mi sesión", "¿Cerrar tu sesión de la consola en este equipo?", () => act(() => consoleApi.logout(), ""), { cta: "Cerrar sesión", danger: true });
       return;
     }
     const a = model.access;

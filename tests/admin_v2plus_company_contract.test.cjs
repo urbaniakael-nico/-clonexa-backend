@@ -189,7 +189,8 @@ test('la Ficha no trae configuración operativa (pedidos por mesero, cocina, cat
   // waiter_ordering solo aparece para encender/apagar mesero, cocina y caja (segments).
   const uses = source.match(/modules\/waiter_ordering\/[a-z]+/g) || [];
   assert.deepEqual([...new Set(uses)], ['modules/waiter_ordering/activate']);
-  assert.match(source, /Configuración avanzada en Admin V2/);
+  assert.doesNotMatch(source, /Configuración avanzada en Admin V2/);
+  assert.match(source, />Pedidos por mesero \(Admin V2\)<\/a>/);
   assert.match(source, /data-vpf-brand-studio>Abrir en Estudio de marca</);
   assert.match(source, /setView\("brand", \{ companyId: model\.id, companyName: model\.company\.name \}\)/);
 });
@@ -222,6 +223,22 @@ test('la ficha dibuja encabezado, pestañas y escapa los datos', () => {
   assert.match(pub, /<img class="vp-brand-logo" src="\/brand-media\/a\/b.webp"/);
   assert.doesNotMatch(pub, /borrador sin publicar/);
   assert.doesNotMatch(marca, /style=/);
+});
+
+test('Módulos: "Pedidos por mesero (Admin V2)" solo si la empresa tiene ese módulo, con su company_id', () => {
+  const { ui } = load();
+  const company = { id: ID, name: 'Asadero', slug: 'asadero', status: 'active', settings_json: { kind: 'registrada' } };
+  ui.model = { ...ui.model, id: ID, company, tab: 'modulos', modules: [...MODULES, { code: 'waiter_ordering', name: 'Pedidos por mesero', enabled: true, settings: {} }] };
+  assert.ok(ui.view().includes(`<a class="vp-link-muted" href="/admin-v2?company_id=${ID}" data-vpf-waiter-link>Pedidos por mesero (Admin V2)</a>`));
+  ui.model = { ...ui.model, modules: MODULES };
+  assert.doesNotMatch(ui.view(), /data-vpf-waiter-link|Admin V2<\/a>/, 'sin el módulo no hay enlace');
+});
+
+test('Admin V2 abre la Ficha en Módulos con ?company_id= (enlace de la v2+), una sola vez', () => {
+  assert.match(v2, /function cxOpenCompanyFromUrl061A\(\) \{\s*if \(cxDeepLinkDone061A\) return;\s*cxDeepLinkDone061A = true;/);
+  assert.match(v2, /new URLSearchParams\(window\.location\.search\)\.get\("company_id"\)/);
+  assert.match(v2, /state\.companies\.some\(\(company\) => company\.id === companyId\)\) \{\s*selectCompany\(companyId, "módulos"\)/);
+  assert.match(v2, /applyOwnerAccessLabels\(\);\s*cxOpenCompanyFromUrl061A\(\);/);
 });
 
 test('ruta /admin-v2plus#empresa/{id}', () => {

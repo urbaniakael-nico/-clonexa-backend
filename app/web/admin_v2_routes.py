@@ -231,6 +231,11 @@ async def _active_session(request: Request, db: AsyncSession) -> bool:
 
 async def _require_admin_v2_session(request: Request, db: AsyncSession) -> None:
     if not await _active_session(request, db):
+        # 2026-10-14: la API responde 401 en JSON (la consola v2+ lleva al
+        # ingreso con el 401); las paginas siguen redirigiendo al login.
+        if request.url.path.startswith("/admin-v2/api/"):
+            raise HTTPException(status_code=401, detail="Sesión de Admin V2 requerida.",
+                                headers={"Cache-Control": "no-store"})
         raise HTTPException(status_code=303, headers={"Location": "/admin-v2/login"})
 
 
@@ -569,6 +574,10 @@ async def admin_v2_js():
 
 @router.get("/admin-v2-assets/{asset_path:path}", include_in_schema=False)
 async def admin_v2_assets(asset_path: str):
+    from app.web.safe_static import is_allowed_file
+
+    if not is_allowed_file(asset_path, allowed_dirs=frozenset({"brand"})):
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
     safe_path = (ASSETS_DIR / asset_path).resolve()
     assets_root = ASSETS_DIR.resolve()
 
