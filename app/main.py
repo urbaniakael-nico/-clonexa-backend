@@ -583,6 +583,16 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.payroll").warning("No se pudo iniciar el corte automatico de nomina: %s", exc)
 
     try:
+        # Turnos: propuestas de cambio vencidas pasan al siguiente candidato (calculado desde la base).
+        from app.services.shifts import start_expire_loop
+
+        start_expire_loop()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.shifts").warning("No se pudo iniciar el vencimiento de cambios de turno: %s", exc)
+
+    try:
         from app.services.shoplink_whatsapp_web import start_whatsapp_bridge
 
         start_whatsapp_bridge()

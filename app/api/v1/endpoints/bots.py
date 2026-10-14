@@ -2236,6 +2236,16 @@ async def _send_materials_webapp_button(
     )
 
 
+SHIFTS_BUTTON = {"es": "📅 Mis turnos", "en": "📅 My shifts", "fr": "📅 Mes services"}
+
+
+def _shifts_rows(language: str, enabled_modules: set[str]) -> list[list[dict[str, str]]]:
+    """Turnos: "Mis turnos" solo con el modulo shifts activo (las demas empresas no cambian)."""
+    if "shifts" not in enabled_modules:
+        return []
+    return [[{"text": SHIFTS_BUTTON.get(str(language or "es")[:2], SHIFTS_BUTTON["es"]), "callback_data": "clx:shift:mine"}]]
+
+
 def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | None = None, employee: Employee | None = None) -> dict[str, Any]:
     status_key = status_text or "sin_turno"
     if status_key in {"not_started", "checked_out"}:
@@ -2246,6 +2256,7 @@ def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | 
     # Menú lógico por estado: solo se muestra la siguiente acción válida.
     if status_key == "sin_turno":
         rows.append([{"text": _txt(language, "btn_start_shift"), "callback_data": "clx:cmd:entrada"}])
+        rows.extend(_shifts_rows(language, enabled_modules))
         rows.append([{"text": _txt(language, "btn_language"), "callback_data": "clx:language"}])
         return {"inline_keyboard": rows}
 
@@ -2254,6 +2265,7 @@ def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | 
             {"text": _txt(language, "btn_resume"), "callback_data": "clx:cmd:reanudar"},
             {"text": _txt(language, "btn_end_shift"), "callback_data": "clx:cmd:salida"},
         ])
+        rows.extend(_shifts_rows(language, enabled_modules))
         rows.append([{"text": _txt(language, "btn_language"), "callback_data": "clx:language"}])
         return {"inline_keyboard": rows}
 
@@ -2275,6 +2287,7 @@ def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | 
         extra_rows.append([{"text": _txt(language, "btn_production"), "callback_data": "clx:cmd:produccion"}])
 
     rows.extend(extra_rows)
+    rows.extend(_shifts_rows(language, enabled_modules))
     rows.append([{"text": _txt(language, "btn_language"), "callback_data": "clx:language"}])
     return {"inline_keyboard": rows}
 
@@ -4908,6 +4921,56 @@ async def _process_telegram_update(
         company_locale.reset(tokens)
 
 
+async def _process_shift_update(
+    db: AsyncSession,
+    *,
+    bot: CompanyBotInstance,
+    token: str,
+    update_id: Any,
+    text_value: str,
+    language: str,
+    telegram_user_id: str | None,
+    username: str | None,
+    chat_id: str | None,
+    send_replies: bool,
+) -> TelegramBotPollItem:
+    """Turnos por bot: "Mis turnos" (semana publicada) y respuesta a una propuesta de cambio
+    (clx:shift:yes|no:<cambio>:<posicion>). Solo con el modulo shifts activo y empleado vinculado."""
+    from app.services import shifts as shifts_service
+
+    employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username) if telegram_user_id else None
+    lang = language if language in shifts_service.SHIFT_TEXT else "es"
+    if employee is None or not await shifts_service.module_on(db, bot.company_id):
+        if send_replies and employee is None:
+            await _send_telegram_message(token, chat_id, _txt(language, "not_linked", telegram_user_id=telegram_user_id), reply_markup=_language_keyboard())
+        return TelegramBotPollItem(update_id=update_id, ok=True, action="shift_ignored", message="Turnos no disponible.",
+                                   telegram_user_id=telegram_user_id, telegram_username=username)
+    await shifts_service.remember_language(db, bot.company_id, employee.id, lang)
+    await db.commit()
+    parts = text_value.split(":")
+    if len(parts) == 5 and parts[2] in {"yes", "no"}:
+        try:
+            index = int(parts[4])
+            result = await shifts_service.respond(db, bot.company_id, parts[3], str(employee.id), index, parts[2] == "yes", via="bot",
+                                                  actor=employee.full_name or "")
+        except (ValueError, IndexError):
+            result = {"ok": False}
+        if send_replies and not result.get("ok"):
+            await _send_telegram_message(token, chat_id, shifts_service.st(lang, "gone"))
+        elif send_replies and parts[2] == "no":
+            await _send_telegram_message(token, chat_id, shifts_service.st(lang, "declined"))
+        return TelegramBotPollItem(update_id=update_id, ok=True, action="shift_reply", message=str(result.get("result") or "gone"),
+                                   employee_id=employee.id, employee_name=employee.full_name, telegram_user_id=telegram_user_id, telegram_username=username)
+    tz = await shifts_service.zone(db, bot.company_id)
+    from datetime import datetime as _dt
+
+    reply = await shifts_service.my_week_text(db, bot.company_id, str(employee.id), lang, _dt.now(tz).date())
+    if send_replies:
+        await _send_telegram_message(token, chat_id, reply)
+    return TelegramBotPollItem(update_id=update_id, ok=True, action="shift_mine", message="Mis turnos enviado.",
+                               employee_id=employee.id, employee_name=employee.full_name, telegram_user_id=telegram_user_id, telegram_username=username)
+
+
 async def _process_telegram_update_052C(
     db: AsyncSession,
     *,
@@ -5017,6 +5080,12 @@ async def _process_telegram_update_052C(
             employee_name=employee.full_name if employee else None,
             telegram_user_id=telegram_user_id,
             telegram_username=username,
+        )
+
+    if text_value.startswith("clx:shift:") or text_value.lower() in {"/turnos", "/misturnos", "/shifts"}:
+        return await _process_shift_update(
+            db, bot=bot, token=token, update_id=update_id, text_value=text_value, language=language,
+            telegram_user_id=telegram_user_id, username=username, chat_id=chat_id, send_replies=send_replies,
         )
 
     if text_value.startswith("clx:mat:"):

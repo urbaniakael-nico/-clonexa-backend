@@ -372,6 +372,16 @@ MODULE_CATALOG_ES: dict[str, dict[str, Any]] = {
         "badge": "LEY",
         "is_transversal": False,
     },
+    "shifts": {
+        "name": "Turnos",
+        "description": "Malla semanal de turnos con reglas de descanso y cobertura por rol, armado automático, publicación por bot y cambios de turno con candidatos.",
+        "category": "core",
+        "category_label": "Núcleo operativo",
+        "layer": "operativo",
+        "module_type": "operational",
+        "badge": "TRN",
+        "is_transversal": False,
+    },
     "requests": {
         "name": "Solicitudes",
         "description": "Solicitudes internas, aprobaciones y estados.",

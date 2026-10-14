@@ -129,6 +129,48 @@
     return params.get("company_id") || params.get("companyId") || params.get("tenant") || "";
   }
 
+  /* CLONEXA_055A_SHIFTS_START: modulo Turnos (shifts). Solo se abre desde su
+     tarjeta, que solo existe con el modulo activo; carga shifts_v1.js/.css aparte.
+     Si el archivo no carga, la tarjeta sigue su camino de siempre. */
+  let cxShiftsLoading055A = null;
+  function cxShiftsLoad055A() {
+    if (window.CxShiftsV1) return Promise.resolve();
+    if (!cxShiftsLoading055A) {
+      cxShiftsLoading055A = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxShiftsCss055A")) {
+          const link = document.createElement("link");
+          link.id = "cxShiftsCss055A";
+          link.rel = "stylesheet";
+          link.href = "/client-static/shifts_v1.css?v=055A";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/shifts_v1.js?v=055A";
+        script.onload = () => resolve();
+        script.onerror = () => { cxShiftsLoading055A = null; reject(new Error("shifts_v1")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxShiftsLoading055A;
+  }
+
+  async function cxShiftsOpen055A() {
+    const companyId = companyIdFromUrl();
+    const app = document.getElementById("app");
+    if (!companyId || !app) return false;
+    try { await cxShiftsLoad055A(); } catch (_) { return false; }
+    if (!window.CxShiftsV1 || typeof window.CxShiftsV1.mount !== "function") return false;
+    app.innerHTML = `<main class="client-shell sh-shell"><div id="cxShiftsHost055A"></div></main>`;
+    const company = state.company || {};
+    await window.CxShiftsV1.mount({
+      companyId, apiBase: API, token: authToken, company: { name: company.name || "", slug: company.slug || "" },
+      host: () => document.getElementById("cxShiftsHost055A"),
+      back: () => { window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`; },
+    });
+    return true;
+  }
+  /* CLONEXA_055A_SHIFTS_END */
+
   function validHex(value, fallback) {
     const v = String(value || "").trim();
     return /^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
@@ -35805,6 +35847,10 @@ function inventoryCreatePayload() {
           return;
         }
 
+
+        if (code === "shifts" && await cxShiftsOpen055A()) {
+          return;
+        }
 
         if (code === "workforce") {
           await renderPersonalModule();

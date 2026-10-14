@@ -33,6 +33,7 @@ for _module_name, _prefix, _tags in [
     ("materials_webapp", "/materials-webapp", ["materials_webapp"]),
     ("kpis", "/kpis", ["kpis"]),
     ("reports", "/reports", ["reports"]),
+    ("shifts_v1", "/turnos", ["turnos"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),
     ("packages", "/packages", ["packages"]),
