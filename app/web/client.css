@@ -183,3 +183,6 @@ input{background:#050505;border:1px solid #3f3f46;border-radius:14px;color:#fff;
 @media(max-width:1000px){.hero{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.launchpad{grid-template-columns:repeat(2,1fr)}.topbar{align-items:flex-start;flex-direction:column}}
 @media(max-width:700px){.cx-telephony-number-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.kpis,.launchpad{grid-template-columns:1fr}.client-shell{padding:14px}.brand h1{font-size:24px}}
+
+/* Marca Clonexa 2026-10: logo horizontal entregado (SVG) */
+.wordmark-logo{display:block;height:34px;width:auto;max-width:80%;margin:0 auto 12px;text-shadow:none}

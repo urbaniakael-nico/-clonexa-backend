@@ -1,0 +1,102 @@
+;; Plantilla del contrato que se redacta desde Facturación → "Redactar contrato".
+;; Se puede editar a mano. Reglas:
+;; - Las líneas que empiezan con ";;" son comentarios (no salen en el PDF).
+;; - "@titulo" y "@subtitulo": encabezado del documento.
+;; - "== TÍTULO" abre una cláusula o anexo; los párrafos van separados por una línea en blanco.
+;; - {campo}: se reemplaza con el dato del formulario. Si un dato opcional queda vacío,
+;;   sale una línea para llenar a mano, resaltada en amarillo suave.
+;; - {?condicion} al inicio de un párrafo: el párrafo sale solo si la condición se cumple;
+;;   {!condicion}: solo si NO se cumple. Condiciones: prueba, permanencia, recargo, varios_tramos.
+;; - [[CUOTAS]], [[MODULOS]], [[ACCESOS]], [[QR]] y [[FIRMAS]] son bloques que arma el sistema.
+;; Montos en número y en letras: {campo} y {campo_letras}.
+
+@titulo CONTRATO DE LICENCIA DE USO Y PRESTACIÓN DE SERVICIOS TECNOLÓGICOS
+@subtitulo CLONEXA · Plataforma operativa en la nube para {cliente_empresa}
+
+== PARTES
+Entre los suscritos: (i) {proveedor_nombre}, titular de {proveedor_marca}, identificado con {proveedor_documento}, con domicilio en {proveedor_ciudad}, quien para efectos del presente contrato se denominará EL PROVEEDOR; y (ii) {cliente_representante}, en nombre propio o como representante de {cliente_razon_social}, establecimiento «{cliente_empresa}», identificado con {cliente_documento}, con domicilio en {cliente_direccion}, quien se denominará EL CLIENTE, se celebra el presente contrato de licencia de uso y prestación de servicios tecnológicos, regido por las siguientes cláusulas:
+
+== PRIMERA. OBJETO
+EL PROVEEDOR concede a EL CLIENTE una licencia de uso temporal, limitada, no exclusiva, no transferible y revocable sobre la plataforma CLONEXA, y presta los servicios de habilitación, configuración, soporte funcional y ajustes descritos en este contrato para la operación de «{cliente_empresa}». La solución se entregará mediante enlace web, usuario y clave de aplicación, sin que ello implique cesión del código fuente, de la arquitectura, de las marcas ni de otros derechos de propiedad intelectual.
+
+== SEGUNDA. ALCANCE DEL SERVICIO
+El servicio comprende el acceso a los módulos de CLONEXA habilitados para EL CLIENTE a la fecha de este contrato, que se describen a continuación, junto con la entrega inicial de accesos, la configuración razonable de la empresa y el acompañamiento para la puesta en marcha:
+
+[[MODULOS]]
+
+No forman parte de la licencia la entrega del código fuente, infraestructura propia, equipos, conectividad, impresoras, servicios de mensajería de terceros, desarrollos para una empresa distinta, ni módulos o integraciones completamente nuevos que no hagan parte del alcance habilitado. Estos trabajos requerirán cotización y aceptación separadas.
+
+== TERCERA. ENTREGA Y CUSTODIA DE ACCESOS
+EL PROVEEDOR entregará a EL CLIENTE el enlace de acceso, el usuario y la clave de aplicación. La contraseña deberá comunicarse por un canal seguro distinto del contrato y no se imprimirá en este documento. EL CLIENTE será responsable por la custodia de sus credenciales, por el uso que realicen sus dependientes y por informar inmediatamente cualquier acceso no autorizado. Los accesos se destinan exclusivamente a la operación del establecimiento identificado en el Anexo 1.
+
+== CUARTA. PERÍODO DE PRUEBA Y ACEPTACIÓN
+{?prueba} El período de prueba y puesta a punto será de {prueba_dias_letras} ({prueba_dias}) días calendario, desde el {prueba_desde} hasta el {prueba_hasta}, ambos inclusive. Durante este período EL CLIENTE probará el flujo real de operación y reportará por escrito los incidentes o diferencias frente al alcance acordado. EL PROVEEDOR atenderá las observaciones reproducibles según su prioridad técnica. El período de prueba no reemplaza ni reduce la permanencia mínima pactada; los períodos pagados inician el {inicio_pagos}.
+
+{!prueba} Las partes acuerdan que no habrá período de prueba: el servicio y los períodos pagados inician el {inicio_pagos}. Durante el primer período EL CLIENTE reportará por escrito los incidentes o diferencias frente al alcance acordado, y EL PROVEEDOR atenderá las observaciones reproducibles según su prioridad técnica.
+
+== QUINTA. PRECIO, FACTURACIÓN Y FORMA DE PAGO
+EL CLIENTE pagará los valores indicados en la siguiente programación: {tramos_texto}. Cada período se paga dentro de la ventana comprendida entre el día {pago_desde} y el día {pago_hasta} de su mes. Los valores se pagarán mediante el QR del Anexo 2 o por el medio que confirme EL PROVEEDOR y se soportarán mediante factura o cuenta de cobro, según corresponda al régimen tributario aplicable.
+
+[[CUOTAS]]
+
+{?permanencia} Compromiso económico base de la permanencia mínima: {compromiso} ({compromiso_letras}), sin incluir recargos opcionales por ajustes posteriores ni impuestos legalmente aplicables, si los hubiere.
+
+== SEXTA. AJUSTES, CORRECCIONES Y CONTROL DE CAMBIOS
+{?varios_tramos} Durante los períodos de la tarifa inicial, el valor pactado cubre los ajustes y la recodificación razonables necesarios para adaptar y estabilizar las funciones ya incluidas en CLONEXA según las necesidades operativas reportadas por EL CLIENTE.
+
+{?recargo} A partir del período {recargo_desde} ({recargo_desde_fecha}), si EL CLIENTE solicita y aprueba por escrito uno o varios ajustes nuevos durante un mismo período mensual, se adicionará un único recargo de {recargo} ({recargo_letras}) a la tarifa de ese período. Si no solicita ajustes nuevos, pagará únicamente la tarifa base. El recargo no se cobra por cada solicitud, sino una sola vez por período mensual, siempre que los cambios correspondan al alcance existente y sean técnicamente razonables.
+
+{!recargo} Los ajustes nuevos que EL CLIENTE solicite y apruebe por escrito sobre el alcance existente se atenderán según su prioridad técnica; si exceden lo razonable, EL PROVEEDOR informará su valor antes de ejecutarlos.
+
+No generan cobro adicional las correcciones de fallas reproducibles que impidan que una función incluida opere conforme a su comportamiento acordado. Los módulos nuevos, integraciones con terceros, migraciones extraordinarias, rediseños completos o cambios que excedan el alcance existente se cotizarán por separado y solo se ejecutarán con aceptación previa de ambas partes.
+
+== SÉPTIMA. PERMANENCIA MÍNIMA, RENOVACIÓN Y TERMINACIÓN ANTICIPADA
+{?permanencia} La permanencia mínima comprende {permanencia_letras} ({permanencia}) períodos mensuales pagados, desde el {inicio_pagos} hasta el {fin_permanencia}. Si EL CLIENTE termina unilateralmente sin incumplimiento atribuible a EL PROVEEDOR antes de finalizar dicho término, deberá pagar las tarifas base pendientes hasta completar el compromiso mínimo, sin recargos de ajustes no solicitados. Cumplida la permanencia mínima, el servicio se renovará mes a mes por la tarifa base vigente y cualquiera de las partes podrá terminarlo mediante aviso escrito con al menos quince (15) días calendario de anticipación.
+
+{!permanencia} No se pacta permanencia mínima. El servicio se presta y renueva mes a mes por la tarifa vigente, y cualquiera de las partes podrá terminarlo mediante aviso escrito con al menos quince (15) días calendario de anticipación, sin perjuicio de pagar los períodos ya prestados.
+
+== OCTAVA. OBLIGACIONES DE EL PROVEEDOR
+EL PROVEEDOR se obliga a habilitar el servicio y los accesos contratados; mantener una gestión diligente de la plataforma; atender reportes técnicos por los canales acordados; implementar los cambios aceptados; proteger la confidencialidad de la información a la que tenga acceso; y permitir, al finalizar el contrato y una vez se encuentren al día las obligaciones, la entrega razonable de la información operativa exportable disponible en la plataforma.
+
+== NOVENA. OBLIGACIONES DE EL CLIENTE
+EL CLIENTE se obliga a pagar oportunamente; suministrar información cierta para la configuración; designar un responsable de comunicación; capacitar y supervisar a su personal; custodiar las credenciales; contar con internet y equipos compatibles; verificar cierres, inventarios, precios y métodos de pago; realizar respaldos o exportaciones disponibles que requiera para su gestión; y usar la plataforma de manera lícita, sin intentar copiar, descompilar, revender, ceder o vulnerar el software.
+
+== DÉCIMA. DISPONIBILIDAD, MANTENIMIENTO Y SERVICIOS DE TERCEROS
+EL PROVEEDOR realizará esfuerzos comercialmente razonables para mantener el servicio disponible y corregir incidentes. EL CLIENTE reconoce que la operación depende de internet, navegador, energía, infraestructura de alojamiento y otros servicios de terceros. Las interrupciones atribuibles exclusivamente a dichos terceros, fuerza mayor, mantenimiento necesario o uso indebido no constituyen por sí solas incumplimiento. Siempre que sea posible, EL PROVEEDOR comunicará con antelación los mantenimientos que puedan afectar materialmente la operación.
+
+== DÉCIMA PRIMERA. DATOS, CONFIDENCIALIDAD Y SEGURIDAD
+Los datos operativos y comerciales cargados por EL CLIENTE le pertenecen a este. EL PROVEEDOR podrá tratarlos únicamente para prestar, soportar, asegurar y mejorar el servicio, aplicando medidas razonables de confidencialidad y seguridad. Cada parte cumplirá las obligaciones que le correspondan bajo la Ley 1581 de 2012 y las normas colombianas de protección de datos. EL CLIENTE declara que cuenta con las autorizaciones necesarias respecto de los datos personales que registre y que no incorporará información prohibida o ajena al propósito del sistema.
+
+== DÉCIMA SEGUNDA. PROPIEDAD INTELECTUAL
+CLONEXA, su código fuente, arquitectura, diseños, componentes, documentación, mejoras reutilizables, marcas y conocimientos técnicos son y continuarán siendo de titularidad de EL PROVEEDOR o de sus licenciantes. EL CLIENTE recibe únicamente el derecho de acceso y uso previsto en este contrato. Los ajustes solicitados para la operación de EL CLIENTE podrán incorporarse al producto general cuando no revelen información confidencial ni datos propios de EL CLIENTE. Ninguna disposición obliga a entregar repositorios, credenciales de infraestructura, secretos empresariales o código fuente.
+
+== DÉCIMA TERCERA. MORA Y SUSPENSIÓN
+Vencida la ventana de pago, EL PROVEEDOR podrá requerir por escrito el pago. Si transcurren cinco (5) días hábiles desde el requerimiento sin que EL CLIENTE subsane la mora, EL PROVEEDOR podrá suspender temporalmente los accesos hasta recibir el pago, sin que la suspensión elimine las obligaciones económicas del término mínimo. Ninguna suspensión opera de forma automática ni sin el requerimiento escrito previo. La reactivación se realizará en un plazo razonable después de verificarse el pago.
+
+== DÉCIMA CUARTA. INCUMPLIMIENTO Y OPORTUNIDAD DE SUBSANACIÓN
+Ante un incumplimiento material, la parte cumplida notificará por escrito los hechos y concederá diez (10) días hábiles para subsanar, salvo que la naturaleza del incumplimiento exija atención inmediata por seguridad, fraude, uso ilícito o afectación grave. Si no se subsana, la parte cumplida podrá terminar el contrato y ejercer los derechos que le reconozca la ley.
+
+== DÉCIMA QUINTA. RESPONSABILIDAD
+Cada parte responderá por los daños directos que cause por dolo o culpa comprobada. EL PROVEEDOR no será responsable por decisiones operativas de EL CLIENTE, errores de digitación, pérdida derivada de credenciales compartidas, fallas de conectividad, indisponibilidad de terceros ni lucro cesante indirecto. Salvo dolo, culpa grave, violación de confidencialidad o tratamiento ilícito de datos, la responsabilidad acumulada de EL PROVEEDOR no excederá el valor efectivamente pagado por EL CLIENTE durante los tres (3) meses anteriores al hecho que origine la reclamación.
+
+== DÉCIMA SEXTA. SOLUCIÓN DE CONTROVERSIAS Y LEY APLICABLE
+El contrato se rige por las leyes de la República de Colombia. Las partes procurarán resolver cualquier diferencia mediante negociación directa durante quince (15) días hábiles desde la notificación escrita. Si no hay acuerdo, acudirán a los jueces competentes de {ciudad_jurisdiccion}, sin perjuicio de que puedan acordar por escrito una conciliación.
+
+== DÉCIMA SÉPTIMA. NOTIFICACIONES Y FIRMA ELECTRÓNICA
+Serán válidas las comunicaciones enviadas a los correos electrónicos y números de contacto informados por las partes: EL PROVEEDOR en {proveedor_correo} y {proveedor_telefonos}; EL CLIENTE en {cliente_correo} y {cliente_telefono}. El contrato podrá firmarse de manera manuscrita o por un método electrónico confiable que permita identificar al firmante y expresar su aprobación, de conformidad con la Ley 527 de 1999. Las copias y mensajes de datos conservarán valor probatorio conforme a la legislación aplicable.
+
+== DÉCIMA OCTAVA. INTEGRIDAD CONTRACTUAL
+Este contrato, junto con sus anexos y las solicitudes de cambio aceptadas por escrito, contiene el acuerdo entre las partes sobre el servicio. Toda modificación deberá constar por escrito. Si una disposición resulta ineficaz, las demás continuarán vigentes. La tolerancia frente a un incumplimiento no implica renuncia a exigir posteriormente el cumplimiento.
+
+== ANEXO 1. ENTREGA DE ACCESOS Y DATOS DEL SERVICIO
+[[ACCESOS]]
+
+== ANEXO 2. CANAL DE PAGO CLONEXA
+EL CLIENTE podrá efectuar los pagos del servicio mediante el siguiente QR suministrado por EL PROVEEDOR o por otro medio confirmado por escrito. Antes de transferir, deberá verificar los datos del destinatario por los canales oficiales de soporte.
+
+[[QR]]
+
+== FIRMAS
+Leído el contrato y entendidas sus condiciones, las partes lo firman en dos ejemplares del mismo valor, en {ciudad_firma}, a los {_} días del mes de {_} de {_}.
+
+[[FIRMAS]]

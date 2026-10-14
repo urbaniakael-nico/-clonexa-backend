@@ -48,7 +48,7 @@ def _login(prefix: str, title: str) -> str:
     return f"""
       <section class="{prefix}-login">
         <div class="{prefix}-login-card" data-brand="ingreso.tarjeta">
-          <div class="{prefix}-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <div class="{prefix}-brand" data-brand="ingreso.marca"><img src="/assets/brand/clonexa-icono.svg?v=cx26a" alt="CLONEXA" width="48" height="48" style="display:block;margin:0 auto" /></div>
           <h1 data-brand="ingreso.titulo">{html.escape(title)}</h1>
           <form>
             <label>Usuario<input name="username" value="cajero.demo" readonly /></label>

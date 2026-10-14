@@ -700,7 +700,7 @@
     return `
       <section class="wtr-login">
         <div class="wtr-login-card" data-brand="ingreso.tarjeta">
-          <div class="wtr-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <div class="wtr-brand" data-brand="ingreso.marca"><img src="/assets/brand/clonexa-icono.svg?v=cx26a" alt="CLONEXA" width="48" height="48" style="display:block;margin:0 auto" /></div>
           <h1 data-brand="ingreso.titulo">Panel Mesero</h1>
           ${state.error ? `<div class="wtr-alert">${h(state.error)}</div>` : ""}
           <form id="wtrLoginForm">

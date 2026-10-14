@@ -2916,3 +2916,18 @@ p {
   }
 }
 
+
+/* Marca Clonexa 2026-10: el icono trae su propia placa; el nombre es el SVG entregado. */
+.cx-logo-wrap.is-cx-icon {
+  border: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 12px;
+}
+
+.cx-brand-name {
+  display: block;
+  height: 15px;
+  width: auto;
+  max-width: 100%;
+}

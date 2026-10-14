@@ -1587,7 +1587,7 @@
     setShellMode(false);
     root.innerHTML = `
       <section class="mp-card">
-        <div class="mp-kicker">CLONEXA</div>
+        <div class="mp-kicker"><img class="cx-mark" src="/assets/brand/clonexa-icono.svg?v=cx26a" alt="CLONEXA" width="40" height="40" /></div>
         <h1>Mini Panel</h1>
         <p>${h(message || "No fue posible cargar el mini panel.")}</p>
         <button class="mp-button secondary" type="button" data-retry>Reintentar</button>

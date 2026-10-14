@@ -35,7 +35,7 @@ def _migrations() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    for name in ("023b_admin_audit_log", "024d_billing"):
+    for name in ("023b_admin_audit_log", "024d_billing", "024l_billing_drafts"):
         module = importlib.import_module(f"migrations.versions.{name}")
         module.op = Op()
         module.upgrade()

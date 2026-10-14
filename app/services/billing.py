@@ -245,7 +245,7 @@ async def is_registered(db: AsyncSession, company_id: str) -> bool:
 async def get_contract(db: AsyncSession, company_id: str) -> Optional[dict]:
     row = (await db.execute(text("""
         SELECT id::text AS id, company_id::text AS company_id, contract_type, start_date, min_months, currency, pay_day_from, pay_day_to,
-               notes, status, created_at, updated_at
+               notes, status, created_at, updated_at, reminder_enabled
         FROM billing_contracts WHERE company_id = CAST(:c AS uuid)
     """), {"c": company_id})).mappings().first()
     if not row:
@@ -417,17 +417,19 @@ async def validate_payment_and_issue(db: AsyncSession, company_id: str, payment_
 
 
 async def void_payment(db: AsyncSession, company_id: str, payment_id: str, reason: str, actor: str) -> dict:
+    """Anula un pago validado (su comprobante queda ANULADO) o uno por validar
+    (p. ej. el que reporto el cliente con "Ya pague" y no llego)."""
     reason = str(reason or "").strip()
     if len(reason) < 5:
         raise BillingInvalid("reason", "escribe el motivo (mínimo 5 caracteres)")
     row = (await db.execute(text("""
         UPDATE billing_payments SET status = 'anulado', void_reason = :r, voided_by = :by, voided_at = now()
-        WHERE id = CAST(:p AS uuid) AND company_id = CAST(:c AS uuid) AND status = 'validado'
+        WHERE id = CAST(:p AS uuid) AND company_id = CAST(:c AS uuid) AND status IN ('validado', 'por_validar')
         RETURNING id::text AS id
     """), {"p": payment_id, "c": company_id, "r": reason[:500], "by": actor[:200]})).mappings().first()
     if not row:
         await db.rollback()
-        raise BillingConflict("Solo se anula un pago validado de esta empresa.")
+        raise BillingConflict("Solo se anula un pago validado o por validar de esta empresa.")
     rec = (await db.execute(text("""
         UPDATE billing_receipts SET status = 'anulado', voided_at = now(), void_reason = :r
         WHERE payment_id = CAST(:p AS uuid) AND company_id = CAST(:c AS uuid) RETURNING number
@@ -441,6 +443,7 @@ async def payments(db: AsyncSession, company_id: str, limit: int = 200) -> list[
     rows = (await db.execute(text("""
         SELECT p.id::text AS id, p.installment_id::text AS installment_id, p.amount, p.paid_on, p.method, p.reference, p.note, p.status,
                p.created_by, p.created_at, p.validated_by, p.validated_at, p.void_reason, p.voided_at,
+               p.source, (p.proof_key IS NOT NULL) AS has_proof, p.proof_type,
                r.id::text AS receipt_id, r.number AS receipt_number, r.status AS receipt_status, i.period
         FROM billing_payments p
         JOIN billing_installments i ON i.id = p.installment_id AND i.company_id = p.company_id
@@ -607,4 +610,13 @@ async def alerts(db: AsyncSession, today: Optional[date] = None) -> list[dict]:
         s = summarize(contract, await installments(db, company["id"], today), today)
         for a in s["alerts"]:
             out.append({"company_id": company["id"], "company_name": company["name"], **a})
+    # Pagos que el cliente reporto desde su panel ("Ya pague") y esperan validacion.
+    reported = (await db.execute(text("""
+        SELECT p.company_id::text AS cid, c.name, COUNT(*) AS n FROM billing_payments p JOIN companies c ON c.id = p.company_id
+        WHERE p.status = 'por_validar' AND p.source = 'cliente' GROUP BY p.company_id, c.name
+    """))).mappings().all()
+    for r in reported:
+        n = int(r["n"])
+        out.append({"company_id": r["cid"], "company_name": r["name"], "kind": "reportado", "days": 0,
+                    "text": f"{n} pago{'s' if n != 1 else ''} reportado{'s' if n != 1 else ''} por el cliente con comprobante: por validar"})
     return out

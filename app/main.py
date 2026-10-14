@@ -634,7 +634,8 @@ except Exception as exc:
 # END_CLONEXA_MATERIALS_WEBAPP_ROUTE
 
 # CLONEXA web assets
-app.mount("/assets", StaticFiles(directory="app/web/assets"), name="assets")
+from app.web.brand_assets import CachedAssets as _CxBrandCachedAssets  # marca Clonexa con cache y ?v=
+app.mount("/assets", _CxBrandCachedAssets(directory="app/web/assets"), name="assets")
 
 # CLONEXA_ADMIN_V2_ROUTE
 try:

@@ -34,6 +34,22 @@
     receiptUrl: (id, rid) => `${API}/companies/${enc(id)}/receipts/${enc(rid)}.pdf`,
     fileUrl: (id, fid) => `${API}/companies/${enc(id)}/contract-file/${enc(fid)}`,
     logo: (id) => request(`/admin-v2/api/brand/${enc(id)}/summary`).then((d) => (d && d.logo_url) || "").catch(() => ""),
+    provider: () => request(`${API}/provider`),
+    saveProvider: (body) => request(`${API}/provider`, { method: "PUT", body: JSON.stringify(body) }),
+    uploadQr: (file) => request(`${API}/provider/qr`, { method: "POST", body: file, headers: { "Content-Type": file.type || "image/png" } }),
+    providerQrUrl: () => `${API}/provider/qr`,
+    draftCompanies: () => request(`${API}/drafts/companies`),
+    draftPrefill: (id) => request(`${API}/drafts/companies/${enc(id)}`),
+    draftPreview: (id, body) => request(`${API}/drafts/companies/${enc(id)}/preview`, { method: "POST", body: JSON.stringify(body) }),
+    draftGenerate: (id, body) => request(`${API}/drafts/companies/${enc(id)}/generate`, { method: "POST", body: JSON.stringify(body) }),
+    draftPdf: async (id, body) => {
+      const r = await fetch(`${API}/drafts/companies/${enc(id)}/preview.pdf`, { method: "POST", credentials: "same-origin", body: JSON.stringify(body), headers: { "Content-Type": "application/json", Accept: "application/pdf" } });
+      if (r.status === 401) { window.location.href = "/admin-v2plus/login"; throw new Error("Sesión vencida."); }
+      if (!r.ok) { const d = await r.json().catch(() => ({})); const x = d && d.detail; throw new Error((x && typeof x === "object" ? x.message : x) || `Respuesta ${r.status}`); }
+      return r.blob();
+    },
+    reminder: (id, enabled) => request(`${API}/companies/${enc(id)}/reminder`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+    proofUrl: (id, pid) => `${API}/companies/${enc(id)}/payments/${enc(pid)}/proof`,
   };
 
   const STATES = {
@@ -66,7 +82,7 @@
   };
 
   // ------------------------------------------------------------ estado
-  const model = { data: null, error: "", filter: "todas", logos: {}, companyId: "", detail: null, edit: null, modal: null, busy: false, notice: "" };
+  const model = { data: null, error: "", filter: "todas", logos: {}, companyId: "", detail: null, edit: null, modal: null, busy: false, notice: "", draft: null, provider: null };
   let ctx = null;
   let bound = false;
 
@@ -158,7 +174,9 @@
   function boardView() {
     const d = model.data;
     const head = `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · FACTURACIÓN</p><h1 class="vp-title">Facturación</h1></div>
-      <div class="vp-head-actions"><button class="vp-btn" type="button" data-vpb-refresh>Refrescar</button></div></header>`;
+      <div class="vp-head-actions"><button class="vp-btn vp-btn-primary" type="button" data-vpb-draft>Redactar contrato</button>
+        <button class="vp-btn" type="button" data-vpb-provider>Datos del proveedor</button>
+        <button class="vp-btn" type="button" data-vpb-refresh>Refrescar</button></div></header>`;
     if (model.error && !d) return `${head}<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>`;
     if (!d) return `${head}<p class="vp-loading">Cargando facturación…</p>`;
     const k = d.kpis || {};
@@ -265,14 +283,16 @@
         const [label, cls] = PAY[p.status] || [p.status, ""];
         const methods = d.methods || {};
         const code = p.receipt_number ? `CX-${String(p.receipt_number).padStart(6, "0")}` : "";
+        const proof = p.has_proof ? `<a class="vp-btn vp-btn-sm" href="${h(api.proofUrl(id, p.id))}" target="_blank" rel="noopener">Ver comprobante del cliente</a>` : "";
         const actions = p.status === "por_validar"
-          ? `<button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpb-validate="${h(p.id)}">Marcar como pago validado</button>`
+          ? `${proof}<button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpb-validate="${h(p.id)}">Marcar como pago validado</button>
+            <button class="vp-btn vp-btn-sm vp-btn-danger" type="button" data-vpb-void="${h(p.id)}" data-vpb-code="">Anular</button>`
           : p.receipt_id ? `<a class="vp-btn vp-btn-sm" href="${h(api.receiptUrl(id, p.receipt_id))}" target="_blank" rel="noopener">${h(code)}${p.receipt_status === "anulado" ? " (anulado)" : ""}</a>
             ${p.status === "validado" ? `<button class="vp-btn vp-btn-sm" type="button" data-vpb-link="${h(p.receipt_id)}">Copiar enlace para el cliente</button>
             <button class="vp-btn vp-btn-sm vp-btn-danger" type="button" data-vpb-void="${h(p.id)}" data-vpb-code="${h(code)}">Anular</button>` : ""}` : "";
         return `<tr><td>${h(period(p.period))}</td><td class="vp-mono">${h(money(p.amount, k.currency))}</td><td>${h(day(p.paid_on))}</td>
           <td>${h(methods[p.method] || p.method)}${p.reference ? ` · <span class="vp-mono">${h(p.reference)}</span>` : ""}</td>
-          <td><span class="vp-bill-pill ${cls}">${h(label)}</span>${p.validated_by && p.status !== "por_validar" ? `<small> ${h(p.validated_by)} · ${h(day(p.validated_at))}</small>` : ""}${p.void_reason ? `<small> Motivo: ${h(p.void_reason)}</small>` : ""}</td>
+          <td><span class="vp-bill-pill ${cls}">${h(label)}</span>${p.source === "cliente" ? `<small> Reportado por el cliente</small>` : ""}${p.validated_by && p.status !== "por_validar" ? `<small> ${h(p.validated_by)} · ${h(day(p.validated_at))}</small>` : ""}${p.void_reason ? `<small> Motivo: ${h(p.void_reason)}</small>` : ""}</td>
           <td><div class="vp-chip-row">${actions}</div></td></tr>`;
       }).join("")}</tbody></table></div>` : `<div class="vp-empty">Sin pagos registrados.</div>`}</section>`;
   }
@@ -291,7 +311,7 @@
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}
       ${arr(s.alerts).length ? `<div class="vp-alert ${s.state === "en_mora" ? "" : "vp-alert-soft"}" role="status">${arr(s.alerts).map((a) => `<span>${h(a.text)}</span>`).join("")}<small>Solo es un aviso: nada se suspende ni se bloquea.</small></div>` : ""}
       <div class="vp-sum-grid">${contractPanel(d)}${filesPanel(d)}</div>
-      ${calendar(d)}${paymentsPanel(d)}`;
+      ${documentsPanel(d)}${calendar(d)}${paymentsPanel(d)}`;
   }
 
   // ------------------------------------------------------------ ventanas
@@ -312,7 +332,7 @@
         <p class="vp-login-hint vp-bill-wide">Queda «por validar» hasta que lo marques como validado. No escribas números de tarjeta ni de cuentas bancarias.</p>
         ${err}<div class="vp-actions vp-bill-wide"><button class="vp-btn vp-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Registrar pago</button><button class="vp-btn" type="button" data-vpb-close>Cancelar</button></div></form>`;
     } else if (m.type === "void") {
-      body = `<form class="vp-form-grid" data-vpb-void-form><p class="vp-login-hint vp-bill-wide">El comprobante ${h(m.code)} queda marcado como ANULADO; no se borra y su número no se reutiliza.</p>
+      body = `<form class="vp-form-grid" data-vpb-void-form><p class="vp-login-hint vp-bill-wide">${m.code ? `El comprobante ${h(m.code)} queda marcado como ANULADO; no se borra y su número no se reutiliza.` : "El pago por validar queda ANULADO y la cuota vuelve a deberse (si lo reportó el cliente, el recordatorio vuelve a salir)."}</p>
         <label class="vp-field vp-bill-wide">Motivo<input name="reason" required minlength="5" maxlength="500" autocomplete="off"></label>
         ${err}<div class="vp-actions vp-bill-wide"><button class="vp-btn vp-btn-danger" type="submit" ${model.busy ? "disabled" : ""}>Anular pago</button><button class="vp-btn" type="button" data-vpb-close>Cancelar</button></div></form>`;
     } else if (m.type === "type") {
@@ -324,8 +344,205 @@
     return `<div class="vp-modal" data-vpb-modal><div class="vp-panel vp-modal-card" role="dialog" aria-modal="true">${head}${body}</div></div>`;
   }
 
+  // ------------------------------------------------------------ redactar contrato
+  // Paso 1: empresa (registradas SIN contrato). Paso 2: formulario precargado
+  // (módulos activos, fecha sugerida). Paso 3: vista previa y "Generar y guardar".
+  const CLIENT_FIELDS = [["legal_name", "Razón social"], ["doc_id", "NIT o CC"], ["representative", "Representante"], ["address", "Dirección"],
+    ["email", "Correo"], ["phone", "Teléfono"]];
+  const PROVIDER_FIELDS = [["name", "Nombre"], ["trade_name", "Marca"], ["doc_id", "Documento o NIT"], ["email", "Correo"], ["phones", "Teléfonos"], ["city", "Ciudad"]];
+
+  function blankOr(value) { return value === null || value === undefined || value === "" ? `<mark class="vp-bill-blank">______________</mark>` : h(value); }
+  function segments(list) {
+    return arr(list).map((s) => (s[0] === "b" ? `<mark class="vp-bill-blank">______________</mark>` : s[0] === "s" ? `<mark class="vp-bill-blank">______</mark>` : h(s[1]))).join("");
+  }
+
+  function draftPick() {
+    const d = model.draft;
+    const list = arr(d.companies);
+    return `<section class="vp-panel vp-section"><h2>1. Elige la empresa</h2>
+      <p class="vp-login-hint">Solo empresas registradas (no demos) que todavía no tienen contrato.</p>
+      ${list.length ? `<ul class="vp-actions-list">${list.map((c) => `<li class="vp-action vp-toggle-row"><b>${h(c.name)}</b>
+        <button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpb-draft-pick="${h(c.id)}">Redactar</button></li>`).join("")}</ul>`
+        : `<div class="vp-empty">Todas las empresas registradas ya tienen contrato.</div>`}</section>`;
+  }
+
+  function draftForm() {
+    const d = model.draft;
+    const f = d.form;
+    const types = arr(d.types);
+    const active = arr(d.prefill && d.prefill.modules);
+    const chosen = new Set(arr(f.modules).map((m) => m.code));
+    const byCode = Object.fromEntries(arr(f.modules).map((m) => [m.code, m]));
+    const cl = f.client || {};
+    const sur = f.surcharge || {};
+    return `<form class="vp-form-grid" data-vpb-draft-form>
+      <section class="vp-panel vp-section vp-bill-wide"><h2>2. Datos del contrato · ${h(d.prefill && d.prefill.company && d.prefill.company.name)}</h2>
+        ${d.prefill && d.prefill.current ? `<p class="vp-login-hint">Editas ${h(d.prefill.current.number)} versión ${h(d.prefill.current.version)}: al guardar se genera la versión ${h(Number(d.prefill.current.version) + 1)} y la anterior queda en el historial.</p>` : ""}
+        <div class="vp-form-grid">
+        <label class="vp-field">Tipo de contrato<select name="contract_type" required>${types.map((t) => `<option value="${h(t.code)}" ${f.contract_type === t.code ? "selected" : ""}>${h(t.label)}</option>`).join("")}</select></label>
+        <label class="vp-field">Fecha de inicio<input name="start_date" type="date" required value="${h(f.start_date)}"></label>
+        <label class="vp-field">Días de prueba (0 = sin prueba)<input name="trial_days" type="number" min="0" max="90" value="${h(f.trial_days ?? 0)}"></label>
+        <label class="vp-field">Permanencia mínima (meses)<input name="min_months" type="number" min="0" max="120" value="${h(f.min_months ?? 0)}"></label>
+        <label class="vp-field">Moneda<select name="currency">${["COP", "USD"].map((c) => `<option ${f.currency === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+        <label class="vp-field">Paga desde el día<input name="pay_day_from" type="number" min="1" max="28" required value="${h(f.pay_day_from)}"></label>
+        <label class="vp-field">hasta el día<input name="pay_day_to" type="number" min="1" max="28" required value="${h(f.pay_day_to)}"></label>
+        <label class="vp-field">Ciudad de jurisdicción<input name="jurisdiction_city" maxlength="80" value="${h(f.jurisdiction_city)}" placeholder="vacío = línea para llenar"></label>
+        <label class="vp-field">Ciudad de firma<input name="sign_city" maxlength="80" value="${h(f.sign_city)}" placeholder="vacío = línea para llenar"></label>
+        </div>
+        <fieldset class="vp-bill-tiers"><legend>Tramos de precio (el último queda abierto: «en adelante»)</legend>
+          ${arr(f.tiers).map((t, i) => `<div class="vp-bill-tier">
+            <label class="vp-field">Desde el mes<input name="tier_from_${i}" type="number" min="1" value="${h(t.month_from)}" required></label>
+            <label class="vp-field">Hasta el mes<input name="tier_to_${i}" type="number" min="1" value="${h(t.month_to ?? "")}" placeholder="en adelante"></label>
+            <label class="vp-field">Valor mensual<input name="tier_amount_${i}" type="number" min="0" step="0.01" value="${h(t.amount)}" required></label>
+            ${f.tiers.length > 1 ? `<button class="vp-btn vp-btn-sm" type="button" data-vpb-dtier-del="${i}" aria-label="Quitar tramo">✕</button>` : ""}</div>`).join("")}
+          <button class="vp-btn vp-btn-sm" type="button" data-vpb-dtier-add>Agregar tramo</button></fieldset>
+        <fieldset class="vp-bill-tiers"><legend>Recargo mensual por ajustes nuevos (opcional)</legend><div class="vp-bill-tier">
+          <label class="vp-field">Monto<input name="surcharge_amount" type="number" min="0" step="0.01" value="${h(sur.amount ?? "")}"></label>
+          <label class="vp-field">Desde el mes<input name="surcharge_from" type="number" min="1" max="120" value="${h(sur.from_month ?? "")}"></label></div></fieldset>
+      </section>
+      <section class="vp-panel vp-section vp-bill-wide"><h2>Datos del cliente</h2>
+        <p class="vp-login-hint">Todos son opcionales: si quedan vacíos, el PDF deja una línea para llenar a mano, resaltada en amarillo suave.</p>
+        <div class="vp-form-grid">${CLIENT_FIELDS.map(([k, label]) => `<label class="vp-field">${h(label)}<input name="client_${k}" maxlength="200" value="${h(cl[k])}" autocomplete="off"></label>`).join("")}</div>
+      </section>
+      <section class="vp-panel vp-section vp-bill-wide"><h2>Alcance: módulos activos</h2>
+        <p class="vp-login-hint">Salen del sistema con su nombre del catálogo. Puedes ajustar la línea que describe cada uno.</p>
+        ${active.length ? `<ul class="vp-actions-list">${active.map((m, i) => {
+          const cur = byCode[m.code] || m;
+          return `<li class="vp-action vp-bill-module"><label class="vp-check"><input type="checkbox" name="mod_on_${i}" ${chosen.has(m.code) ? "checked" : ""}> <b>${h(m.name)}</b></label>
+            <input type="hidden" name="mod_code_${i}" value="${h(m.code)}"><input type="hidden" name="mod_name_${i}" value="${h(cur.name || m.name)}">
+            <input class="vp-bill-module-line" name="mod_line_${i}" maxlength="200" value="${h(cur.line || m.line)}" aria-label="Qué hace ${h(m.name)}"></li>`;
+        }).join("")}</ul>` : `<div class="vp-empty">La empresa no tiene módulos activos.</div>`}
+      </section>
+      ${d.error ? `<div class="vp-alert vp-bill-wide" role="alert"><span>${h(d.error)}</span></div>` : ""}
+      <div class="vp-actions vp-bill-wide"><button class="vp-btn vp-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Vista previa</button>
+        <button class="vp-btn" type="button" data-vpb-draft-cancel>Cancelar</button></div></form>`;
+  }
+
+  function draftPreview() {
+    const d = model.draft;
+    const p = d.preview || {};
+    const v = p.vigencia || {};
+    const prov = p.provider || {};
+    const cl = p.client || {};
+    const cards = [["Proveedor", [[null, `${prov.name || ""} · ${prov.trade_name || "CLONEXA"}`], ["NIT/documento", prov.doc_id], ["Correo", prov.email], ["Teléfonos", prov.phones], ["Ciudad", prov.city]]],
+      ["Cliente", [[null, p.company_name], ...CLIENT_FIELDS.map(([k, l]) => [l, cl[k]])]],
+      ["Vigencia", [["Modalidad", v.type], ["Inicio del servicio", v.start], ["Prueba", v.trial], ["Primer período pagado", v.paid_start],
+        ["Permanencia mínima", v.min_months ? `${v.min_months} meses (hasta el ${v.end})` : "Sin permanencia: mes a mes"]]],
+      ["Pago", [["Moneda", p.currency], ["Ventana de pago", (p.pago || {}).window], ["Canal", (p.pago || {}).channel],
+        ...(p.surcharge ? [["Recargo por ajustes nuevos", `${p.surcharge.amount_text} desde el período ${p.surcharge.from_month}`]] : [])]]];
+    const blocks = {
+      CUOTAS: () => `<div class="vp-table-wrap"><table class="vp-table"><thead><tr><th>No.</th><th>Período</th><th>Ventana de pago</th><th>Tarifa</th><th>Observación</th></tr></thead><tbody>
+        ${arr(p.schedule).map((r) => `<tr><td>${h(r.seq)}</td><td>${h(r.period)}</td><td>${h(r.window)}</td><td class="vp-mono">${h(r.amount_text)}</td><td>${h(r.note)}</td></tr>`).join("")}</tbody></table></div>`,
+      MODULOS: () => `<ul class="vp-bill-doc-list">${arr(p.modules).map((m) => `<li><b>${h(m.name)}</b>: ${h(m.line)}</li>`).join("")}</ul>`,
+      ACCESOS: () => `<dl class="vp-bill-doc-kv">${arr(p.access).map(([k, val]) => `<dt>${h(k)}</dt><dd>${blankOr(val)}</dd>`).join("")}</dl>`,
+      QR: () => `<p class="vp-login-hint">${(model.draft.provider || {}).has_qr ? "Aquí va el QR de pago de «Datos del proveedor»." : "Sin QR cargado: el PDF deja la línea para llenarlo. Súbelo en «Datos del proveedor»."}</p>`,
+      FIRMAS: () => `<p class="vp-login-hint">Firmas de EL PROVEEDOR y EL CLIENTE.</p>`,
+    };
+    return `<section class="vp-panel vp-section"><div class="vp-row-between"><h2>3. Vista previa</h2>
+        <div class="vp-chip-row"><span class="vp-mini-chip">N.º ${h(p.number)}${d.prefill && d.prefill.current ? "" : " (se confirma al guardar)"}</span><span class="vp-mini-chip">Versión ${h(p.version)}</span><span class="vp-mini-chip">Verificación ${h(p.verification)}</span></div></div>
+      <article class="vp-bill-doc">
+        <header class="vp-bill-doc-band"><img src="/assets/brand/clonexa-logo-horizontal.svg?v=cx26a" alt="CLONEXA"><span>CONTRATO DE SERVICIO</span></header>
+        <h3 class="vp-bill-doc-title">${h(p.title)}</h3><p class="vp-bill-doc-sub">${segments(p.subtitle)}</p>
+        <div class="vp-bill-doc-cards">${cards.map(([title, rows]) => `<div class="vp-bill-doc-card"><b>${h(title.toUpperCase())}</b>${rows.map(([k, val]) => `<span>${k ? `${h(k)}: ` : ""}${blankOr(val)}</span>`).join("")}</div>`).join("")}</div>
+        <div class="vp-bill-doc-strip">${arr(p.tiers).map((t) => `<div><small>${h(t.label)}</small><b>${h(t.amount_text)}</b></div>`).join("")}
+          <div class="is-total"><small>Compromiso mínimo</small><b>${v.min_months ? h(p.commitment_text) : "Mes a mes"}</b></div></div>
+        ${v.min_months ? `<p class="vp-login-hint">En letras: ${h(p.commitment_words)}.</p>` : ""}
+        <div class="vp-chip-row">${arr(p.modules).map((m) => `<span class="vp-bill-tag">${h(m.name)}</span>`).join("")}</div>
+        ${arr(p.sections).map((s) => `<section class="vp-bill-doc-sec">${s.title !== "PARTES" ? `<h4>${h(s.title)}</h4>` : ""}${arr(s.blocks).map((b) => (b.type === "block" ? (blocks[b.name] || (() => ""))() : `<p>${segments(b.segments)}</p>`)).join("")}</section>`).join("")}
+      </article>
+      ${d.error ? `<div class="vp-alert" role="alert"><span>${h(d.error)}</span></div>` : ""}
+      <div class="vp-actions"><button class="vp-btn vp-btn-primary" type="button" data-vpb-draft-generate ${model.busy ? "disabled" : ""}>Generar y guardar</button>
+        <button class="vp-btn" type="button" data-vpb-draft-pdf ${model.busy ? "disabled" : ""}>Ver el PDF</button>
+        <button class="vp-btn" type="button" data-vpb-draft-edit>Volver a editar</button>
+        ${d.pdfUrl ? `<a class="vp-btn vp-btn-link" href="${h(d.pdfUrl)}" target="_blank" rel="noopener">Abrir el PDF de muestra</a>` : ""}</div></section>`;
+  }
+
+  function draftView() {
+    const d = model.draft;
+    const back = `<p><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpb-draft-cancel>← Facturación</button></p>`;
+    const head = `<header class="vp-head"><div><p class="vp-eyebrow">FACTURACIÓN</p><h1 class="vp-title">Redactar contrato</h1></div></header>`;
+    if (d.loading) return `${back}${head}<p class="vp-loading">Cargando…</p>`;
+    if (d.step === "pick") return `${back}${head}${d.error ? `<div class="vp-alert" role="alert"><span>${h(d.error)}</span></div>` : ""}${draftPick()}`;
+    if (d.step === "preview") return `${back}${head}${draftPreview()}`;
+    return `${back}${head}${draftForm()}`;
+  }
+
+  function readDraftForm(form) {
+    const f = Object.fromEntries(new FormData(form).entries());
+    const tiers = arr(model.draft.form.tiers).map((_, i) => ({ month_from: Number(f[`tier_from_${i}`]), month_to: f[`tier_to_${i}`] === "" || f[`tier_to_${i}`] === undefined ? null : Number(f[`tier_to_${i}`]), amount: Number(f[`tier_amount_${i}`] || 0) }));
+    const modules = arr(model.draft.prefill && model.draft.prefill.modules).map((m, i) => (f[`mod_on_${i}`] ? { code: f[`mod_code_${i}`], name: f[`mod_name_${i}`], line: f[`mod_line_${i}`] || "" } : null)).filter(Boolean);
+    const client = Object.fromEntries(CLIENT_FIELDS.map(([k]) => [k, String(f[`client_${k}`] || "").trim()]));
+    return { contract_type: f.contract_type, start_date: f.start_date, trial_days: Number(f.trial_days || 0), min_months: Number(f.min_months || 0), currency: f.currency || "COP",
+      pay_day_from: Number(f.pay_day_from), pay_day_to: Number(f.pay_day_to), tiers, surcharge: { amount: f.surcharge_amount || "", from_month: f.surcharge_from || "" },
+      jurisdiction_city: String(f.jurisdiction_city || "").trim(), sign_city: String(f.sign_city || "").trim(), client, modules };
+  }
+
+  async function openDraft(companyId) {
+    model.companyId = "";
+    model.provider = null;
+    model.draft = { step: companyId ? "form" : "pick", loading: true, companies: [], error: "" };
+    draw();
+    try {
+      if (companyId) {
+        const pre = await api.draftPrefill(companyId);
+        Object.assign(model.draft, { companyId, prefill: pre, types: pre.types, form: pre.form, provider: (await api.provider().catch(() => ({}))).provider || {} });
+      } else {
+        const r = await api.draftCompanies();
+        Object.assign(model.draft, { companies: r.companies, types: r.types, provider: r.provider });
+      }
+    } catch (error) { model.draft.error = error.message; if (companyId) model.draft.step = "pick"; }
+    model.draft.loading = false;
+    draw();
+  }
+
+  // ------------------------------------------------------------ datos del proveedor
+  function providerView() {
+    const m = model.provider || {};
+    const p = m.data || {};
+    const back = `<p><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpb-provider-close>← Facturación</button></p>`;
+    if (!m.data && !m.error) return `${back}<p class="vp-loading">Cargando…</p>`;
+    return `${back}<header class="vp-head"><div><p class="vp-eyebrow">FACTURACIÓN</p><h1 class="vp-title">Datos del proveedor</h1></div></header>
+      <p class="vp-login-hint">Los contratos nuevos toman estos datos. Cuando cambien (por ejemplo, al constituirse la sociedad), solo se editan aquí; los contratos ya generados no cambian.</p>
+      ${m.error ? `<div class="vp-alert" role="alert"><span>${h(m.error)}</span></div>` : ""}${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}
+      <div class="vp-sum-grid"><section class="vp-panel vp-section"><h2>Proveedor</h2><form class="vp-form-grid" data-vpb-provider-form>
+        ${PROVIDER_FIELDS.map(([k, label]) => `<label class="vp-field ${k === "phones" ? "vp-bill-wide" : ""}">${h(label)}<input name="${k}" maxlength="300" value="${h(p[k])}" ${k === "name" ? "required" : ""} autocomplete="off"></label>`).join("")}
+        <div class="vp-actions vp-bill-wide"><button class="vp-btn vp-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar</button></div></form></section>
+      <section class="vp-panel vp-section"><h2>QR de pago</h2>
+        ${p.has_qr ? `<img class="vp-bill-qr" src="${h(api.providerQrUrl())}?t=${h(m.stamp || 0)}" alt="QR de pago">` : `<div class="vp-empty">Sin QR todavía.</div>`}
+        <form class="vp-form-grid" data-vpb-qr-form><label class="vp-field">${p.has_qr ? "Reemplazar QR" : "Subir QR"}<input name="file" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+          <button class="vp-btn" type="submit" ${model.busy ? "disabled" : ""}>Subir</button></form>
+        <p class="vp-login-hint">PNG, JPG o WebP hasta 5 MB. Se guarda tal cual en el almacenamiento privado (no en la base de datos).</p></section></div>`;
+  }
+
+  async function openProvider() {
+    model.companyId = "";
+    model.draft = null;
+    model.notice = "";
+    model.provider = { data: null, error: "", stamp: Date.now() };
+    draw();
+    try { model.provider.data = (await api.provider()).provider; } catch (error) { model.provider.error = error.message; }
+    draw();
+  }
+
+  // ------------------------------------------------------------ contrato redactado (detalle)
+  function documentsPanel(d) {
+    const docs = arr(d.documents);
+    const k = d.contract;
+    if (!k) return "";
+    const files = Object.fromEntries(arr(d.files).map((f) => [f.id, f]));
+    const on = k.reminder_enabled !== false;
+    return `<section class="vp-panel vp-section"><div class="vp-row-between"><h2>Contrato redactado y recordatorio</h2>
+        <button class="vp-btn vp-btn-sm ${on ? "vp-btn-primary" : ""}" type="button" data-vpb-reminder="${on ? "off" : "on"}" aria-pressed="${on}">Recordatorio en el panel: ${on ? "encendido" : "apagado"}</button></div>
+      <p class="vp-login-hint">El recordatorio sale en el panel principal (solo dueño o admin) desde el día de pago, si la cuota del mes no está cubierta. Nunca suspende ni bloquea nada.</p>
+      ${docs.length ? `<ul class="vp-actions-list vp-bill-scroll">${docs.map((doc) => `<li class="vp-action vp-toggle-row"><b>${h(doc.number)} · versión ${h(doc.version)}${doc.is_current ? " · vigente" : ""}</b>
+          <small>Verificación ${h(doc.verification)} · ${h(day(doc.created_at))}</small>
+          ${doc.file_id && files[doc.file_id] ? `<a class="vp-btn vp-btn-sm" href="${h(api.fileUrl(d.company.id, doc.file_id))}" target="_blank" rel="noopener">Ver PDF</a>` : ""}</li>`).join("")}</ul>
+        <div class="vp-actions"><button class="vp-btn vp-btn-sm" type="button" data-vpb-draft-edit-company="${h(d.company.id)}">Editar contrato (genera la versión ${h(Number(docs[0].version) + 1)})</button></div>`
+        : `<p class="vp-login-hint">Este contrato se registró a mano: no tiene documento redactado.</p>`}</section>`;
+  }
+
   // ------------------------------------------------------------ dibujo y carga
-  function view() { return `${model.companyId ? detailView() : boardView()}${modal()}`; }
+  function view() { return `${model.draft ? draftView() : model.provider ? providerView() : model.companyId ? detailView() : boardView()}${modal()}`; }
 
   function draw() {
     if (!ctx || !ctx.active()) return;
@@ -412,6 +629,63 @@
     if (filter) { model.filter = filter.getAttribute("data-vpb-filter"); draw(); return; }
     if (t.closest("[data-vpb-refresh]")) { loadBoard(); return; }
     if (t.closest("[data-vpb-back]")) { model.companyId = ""; model.detail = null; model.error = ""; draw(); loadBoard(); return; }
+    if (t.closest("[data-vpb-draft]")) { openDraft(""); return; }
+    if (t.closest("[data-vpb-provider]")) { openProvider(); return; }
+    if (t.closest("[data-vpb-provider-close]") || t.closest("[data-vpb-draft-cancel]")) { model.draft = null; model.provider = null; model.notice = ""; draw(); loadBoard(); return; }
+    const pick = t.closest("[data-vpb-draft-pick]");
+    if (pick) { openDraft(pick.getAttribute("data-vpb-draft-pick")); return; }
+    const editDoc = t.closest("[data-vpb-draft-edit-company]");
+    if (editDoc) { openDraft(editDoc.getAttribute("data-vpb-draft-edit-company")); return; }
+    if (model.draft && t.closest("[data-vpb-draft-edit]")) { model.draft.step = "form"; model.draft.error = ""; draw(); return; }
+    if (model.draft && (t.closest("[data-vpb-dtier-add]") || t.closest("[data-vpb-dtier-del]"))) {
+      const form = t.closest("form");
+      if (form) model.draft.form = readDraftForm(form);
+      const tiers = model.draft.form.tiers;
+      const del = t.closest("[data-vpb-dtier-del]");
+      if (del) tiers.splice(Number(del.getAttribute("data-vpb-dtier-del")), 1);
+      else {
+        const last = tiers[tiers.length - 1];
+        if (last.month_to === null) last.month_to = last.month_from;
+        tiers.push({ month_from: Number(last.month_to) + 1, month_to: null, amount: last.amount });
+      }
+      draw();
+      return;
+    }
+    if (model.draft && t.closest("[data-vpb-draft-pdf]")) {
+      const dr = model.draft;
+      model.busy = true; draw();
+      api.draftPdf(dr.companyId, dr.form).then((blob) => {
+        if (dr.pdfUrl) URL.revokeObjectURL(dr.pdfUrl);
+        dr.pdfUrl = URL.createObjectURL(blob);
+        window.open(dr.pdfUrl, "_blank");
+      }).catch((error) => { dr.error = error.message; }).finally(() => { model.busy = false; draw(); });
+      return;
+    }
+    if (model.draft && t.closest("[data-vpb-draft-generate]")) {
+      const dr = model.draft;
+      model.modal = { type: "confirm", title: "Generar y guardar el contrato", cta: "Generar y guardar",
+        message: "Se crea el contrato con sus cuotas y alertas, se genera el PDF con su número, versión y código de verificación, y se guarda en el almacenamiento privado.",
+        run: async () => {
+          model.busy = true; draw();
+          try {
+            const r = await api.draftGenerate(dr.companyId, dr.form);
+            model.modal = null;
+            model.draft = null;
+            await openCompany(dr.companyId);
+            model.notice = `Contrato ${r.document.number} versión ${r.document.version} generado y guardado. Verificación ${r.document.verification}.`;
+          } catch (error) { if (model.modal) model.modal.error = error.message; }
+          model.busy = false; draw();
+        } };
+      draw();
+      return;
+    }
+    const rem = t.closest("[data-vpb-reminder]");
+    if (rem && id) {
+      const enabled = rem.getAttribute("data-vpb-reminder") === "on";
+      run(async () => { const r = await api.reminder(id, enabled); model.detail = { ...model.detail, documents: r.documents }; return r; },
+        enabled ? "Recordatorio en el panel encendido." : "Recordatorio en el panel apagado.");
+      return;
+    }
     if (t.closest("[data-vpb-close]") || (t.matches && t.matches("[data-vpb-modal]"))) { model.modal = null; draw(); return; }
     if (t.closest("[data-vpb-edit]")) { startEdit(); draw(); return; }
     if (t.closest("[data-vpb-edit-cancel]")) { model.edit = null; draw(); return; }
@@ -475,6 +749,34 @@
     const form = event.target;
     if (!form || !form.matches) return;
     const id = model.companyId;
+    if (form.matches("[data-vpb-draft-form]") && model.draft) {
+      event.preventDefault();
+      const dr = model.draft;
+      dr.form = readDraftForm(form);
+      if (!dr.form.modules.length) { dr.error = "Elige al menos un módulo del alcance."; draw(); return; }
+      model.busy = true; dr.error = ""; draw();
+      api.draftPreview(dr.companyId, dr.form).then((r) => { dr.preview = r.preview; dr.step = "preview"; })
+        .catch((error) => { dr.error = error.message; }).finally(() => { model.busy = false; draw(); });
+      return;
+    }
+    if (form.matches("[data-vpb-provider-form]") && model.provider) {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(form).entries());
+      model.busy = true; draw();
+      api.saveProvider(body).then((r) => { model.provider.data = r.provider; model.provider.error = ""; model.notice = "Datos del proveedor guardados."; })
+        .catch((error) => { model.provider.error = error.message; }).finally(() => { model.busy = false; draw(); });
+      return;
+    }
+    if (form.matches("[data-vpb-qr-form]") && model.provider) {
+      event.preventDefault();
+      const file = form.querySelector("input[type=file]").files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) { model.provider.error = "El QR pesa más de 5 MB."; draw(); return; }
+      model.busy = true; draw();
+      api.uploadQr(file).then((r) => { model.provider.data = r.provider; model.provider.stamp = Date.now(); model.provider.error = ""; model.notice = "QR de pago actualizado."; })
+        .catch((error) => { model.provider.error = error.message; }).finally(() => { model.busy = false; draw(); });
+      return;
+    }
     if (form.matches("[data-vpb-contract-form]")) {
       event.preventDefault();
       const body = readForm(form);
@@ -528,6 +830,8 @@
         bound = true;
       }
       const p = (context && context.params) || {};
+      model.draft = null;
+      model.provider = null;
       if (p.company) { openCompany(p.company, p.focus || ""); return; }
       model.companyId = "";
       draw();
@@ -535,5 +839,6 @@
     },
     refreshPulse() {},
   };
-  window.CxConsoleBilling = { model, api, view, boardView, detailView, chartByMonth, chartByCompany, chartByType, money, stateOf, STATES };
+  window.CxConsoleBilling = { model, api, view, boardView, detailView, chartByMonth, chartByCompany, chartByType, money, stateOf, STATES,
+    draftView, providerView, documentsPanel, readDraftForm, segments };
 })();

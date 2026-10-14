@@ -1179,6 +1179,18 @@ def report_pdf_value(value: Any) -> str:
     return str(value)
 
 
+def report_pdf_clonexa_icon():
+    """Icono de la marca Clonexa (logo nuevo) para el pie y el respaldo sin empresa."""
+    try:
+        from reportlab.lib.utils import ImageReader
+
+        from app.web import brand_assets
+
+        return ImageReader(str(brand_assets.pdf_icon()))
+    except Exception:
+        return None
+
+
 def report_pdf_logo_reader(source: str | None):
     raw = str(source or "").strip()
     if not raw:
@@ -1232,6 +1244,9 @@ def build_report_pdf_bytes(payload: dict[str, Any], detail: str | None) -> bytes
     filters = payload.get("filters") or {}
     company_name = str(company.get("name") or "CLONEXA")
     logo = report_pdf_logo_reader(company.get("logo_url"))
+    brand_icon = report_pdf_clonexa_icon()
+    if logo is None and company_name == "CLONEXA" and not company.get("logo_url"):
+        logo = brand_icon  # respaldo sin empresa: la marca Clonexa (nunca reemplaza el logo de una empresa)
 
     def pdf_color(value: Any, fallback: str):
         try:
@@ -1276,7 +1291,14 @@ def build_report_pdf_bytes(payload: dict[str, Any], detail: str | None) -> bytes
     def draw_footer() -> None:
         c.setFillColor(muted)
         c.setFont("Helvetica", 7)
-        c.drawString(margin, 18, "CLONEXA / Reporte operativo generado automaticamente")
+        footer_x = margin
+        if brand_icon is not None:
+            try:
+                c.drawImage(brand_icon, margin, 14, width=11, height=11, preserveAspectRatio=True, mask="auto")
+                footer_x = margin + 15
+            except Exception:
+                footer_x = margin
+        c.drawString(footer_x, 18, "CLONEXA / Reporte operativo generado automaticamente")
         c.drawRightString(page_w - margin, 18, f"Pagina {page_no}")
 
     def draw_header() -> None:

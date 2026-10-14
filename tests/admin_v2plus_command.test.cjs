@@ -137,7 +137,9 @@ test('HTML y tema: menú completo, logo idéntico a Admin V2 y colores Catedral'
   assert.match(html, /<script src="\/admin-v2plus-billing\.js"><\/script>/);
   assert.match(html, /Volver a Admin V2/);
   assert.match(html, /class="cx-logo-fallback" aria-hidden="true">CX</);
-  assert.match(html, /class="cx-brand-title">CLONEXA</);
+  // Marca Clonexa 2026-10: el nombre es el SVG entregado (igual en Admin V2).
+  assert.match(html, /class="cx-brand-title"><img class="cx-brand-name" src="\/assets\/brand\/clonexa-nombre\.svg\?v=cx26a"/);
+  assert.match(readFileSync('app/web/admin_v2.html', 'utf8'), /class="cx-brand-title"><img class="cx-brand-name" src="\/assets\/brand\/clonexa-nombre\.svg\?v=cx26a"/);
   const v2css = readFileSync('app/web/admin_v2.css', 'utf8').replace(/\r\n/g, '\n');
   const block = (text, sel) => text.slice(text.indexOf(`${sel} {`), text.indexOf('}', text.indexOf(`${sel} {`)) + 1);
   for (const sel of ['.cx-brand', '.cx-logo-wrap', '.cx-logo-img', '.cx-logo-fallback', '.cx-brand-title', '.cx-brand-subtitle']) {

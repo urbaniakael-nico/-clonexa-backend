@@ -36520,7 +36520,7 @@ function inventoryCreatePayload() {
     $("app").innerHTML = `
       <main class="client-shell">
         <section class="client-panel" style="max-width:900px;margin:12vh auto">
-          <div class="client-eyebrow">CLONEXA</div>
+          <div class="client-eyebrow"><img src="/assets/brand/clonexa-icono.svg?v=cx26a" alt="CLONEXA" width="40" height="40" style="display:block" /></div>
           <h1>No se pudo cargar el panel cliente</h1>
           <p>${h(error?.message || error)}</p>
           <p>Verifica company_id y endpoint /api/v1/companies/{id}/experience.</p>
@@ -41295,7 +41295,7 @@ function inventoryCreatePayload() {
       <main class="client-shell">
         <div class="client-layout">
           <aside class="client-sidebar">
-            <div class="client-logo"><strong>CLONEXA</strong></div>
+            <div class="client-logo"><img src="/assets/brand/clonexa-logo-horizontal.svg?v=cx26a" alt="CLONEXA" style="display:block;height:26px;width:auto;max-width:100%" /></div>
             <h2 class="client-company-name">Workforce</h2>
             <div class="client-muted">${h(companyId || "tenant")}</div>
 
@@ -42119,7 +42119,7 @@ function inventoryCreatePayload() {
       <main class="client-shell">
         <div class="client-layout">
           <aside class="client-sidebar">
-            <div class="client-logo"><strong>CLONEXA</strong></div>
+            <div class="client-logo"><img src="/assets/brand/clonexa-logo-horizontal.svg?v=cx26a" alt="CLONEXA" style="display:block;height:26px;width:auto;max-width:100%" /></div>
             <h2 class="client-company-name">Reportes</h2>
             <div class="client-muted">${h(companyId || "tenant")}</div>
             <nav class="client-nav">

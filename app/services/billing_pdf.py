@@ -16,7 +16,8 @@ from typing import Any
 from app.services import billing
 
 LEGEND = "Comprobante de pago. No es factura electrónica."
-LOGO = Path(__file__).resolve().parent.parent / "web" / "assets" / "clonexa-logo.png"
+# Marca Clonexa (logo nuevo, fondo claro): app/web/brand_assets.
+LOGO = Path(__file__).resolve().parent.parent / "web" / "assets" / "brand" / "clonexa-logo-horizontal-fondo-claro.png"
 
 
 def issuer() -> dict:
@@ -63,7 +64,7 @@ def render(r: dict) -> bytes:
     # Encabezado: logo (o marca CX) y datos de Clonexa
     if LOGO.exists():
         try:
-            c.drawImage(str(LOGO), left, top - 14 * mm, width=30 * mm, height=14 * mm, preserveAspectRatio=True, mask="auto")
+            c.drawImage(str(LOGO), left, top - 10 * mm, width=50 * mm, height=8.8 * mm, preserveAspectRatio=True, mask="auto")
         except Exception:
             pass
     else:

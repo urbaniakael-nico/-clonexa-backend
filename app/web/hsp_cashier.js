@@ -1345,7 +1345,7 @@
     return `
       <section class="csh-login">
         <div class="csh-login-card" data-brand="ingreso.tarjeta">
-          <div class="csh-brand" data-brand="ingreso.marca">CLONEXA</div>
+          <div class="csh-brand" data-brand="ingreso.marca"><img src="/assets/brand/clonexa-icono.svg?v=cx26a" alt="CLONEXA" width="48" height="48" style="display:block;margin:0 auto" /></div>
           <h1 data-brand="ingreso.titulo">Panel Caja</h1>
           ${state.error ? `<div class="csh-alert">${h(state.error)}</div>` : ""}
           <form id="cshLoginForm">

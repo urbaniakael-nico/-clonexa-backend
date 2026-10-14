@@ -54,10 +54,17 @@ def test_every_billing_endpoint_requires_the_admin_session(client):
                          ("put", f"/admin-v2/api/billing/companies/{A}/contract"), ("post", f"/admin-v2/api/billing/companies/{A}/payments"),
                          ("post", f"/admin-v2/api/billing/companies/{A}/payments/{R_A}/validate"), ("post", f"/admin-v2/api/billing/companies/{A}/payments/{R_A}/void"),
                          ("get", f"/admin-v2/api/billing/companies/{A}/receipts/{R_A}.pdf"), ("post", f"/admin-v2/api/billing/companies/{A}/receipts/{R_A}/link"),
-                         ("post", f"/admin-v2/api/billing/companies/{A}/contract-file"), ("get", f"/admin-v2/api/billing/companies/{A}/contract-file/{R_A}")]:
+                         ("post", f"/admin-v2/api/billing/companies/{A}/contract-file"), ("get", f"/admin-v2/api/billing/companies/{A}/contract-file/{R_A}"),
+                         # Redactar contrato, Datos del proveedor, recordatorio y comprobante del cliente
+                         ("get", "/admin-v2/api/billing/provider"), ("put", "/admin-v2/api/billing/provider"),
+                         ("get", "/admin-v2/api/billing/provider/qr"), ("post", "/admin-v2/api/billing/provider/qr"),
+                         ("get", "/admin-v2/api/billing/drafts/companies"), ("get", f"/admin-v2/api/billing/drafts/companies/{A}"),
+                         ("post", f"/admin-v2/api/billing/drafts/companies/{A}/preview"), ("post", f"/admin-v2/api/billing/drafts/companies/{A}/preview.pdf"),
+                         ("post", f"/admin-v2/api/billing/drafts/companies/{A}/generate"), ("put", f"/admin-v2/api/billing/companies/{A}/reminder"),
+                         ("get", f"/admin-v2/api/billing/companies/{A}/payments/{R_A}/proof")]:
         assert getattr(c, method)(path).status_code == 401, path
     paths = {r.path for r in app_main.app.routes if "billing/" in getattr(r, "path", "") and r.path.startswith("/admin-v2/api/billing")}
-    assert len(paths) == 12, "si se agrega una ruta, se agrega aqui con su prueba de sesion"
+    assert len(paths) == 21, "si se agrega una ruta, se agrega aqui con su prueba de sesion"
 
 
 def test_demos_do_not_bill(client):
