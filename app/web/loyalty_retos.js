@@ -67,6 +67,19 @@
     datos_purgados: "Los datos del desempate ya se purgaron (30 días).",
     juego_invalido: "Escoge memoria, trivia o 7 diferencias.",
     tipo_invalido: "Escoge qué quieres lanzar.",
+    el_reto_ya_termino: "Este reto ya terminó.",
+    pronosticos_ya_cerrados: "Los pronósticos ya están cerrados.",
+  };
+  // Diálogo de confirmación dentro de la página (nunca ventanas del navegador).
+  const CONFIRM_TITLES = { close: "Terminar ahora", cancel: "Cancelar y reiniciar", score: "Poner marcador final", pick: "Elegir ganador", tiebreak: "Desempatar con Juego en vivo" };
+  const CONFIRM_BODY = {
+    close_consumption: "Se cierra el torneo en este momento y gana la mesa con más consumo con los pedidos hasta ahora.",
+    close_score_pool: "Se cierran los pronósticos ya. Después pones el marcador final.",
+    close_vote_poll: "Se cierra ya y se aplica la regla de ganador del concurso.",
+    cancel: "Se anula sin ganador, deja de verse en el QR de las mesas y queda en el historial como Cancelado. Luego puedes lanzar otro del mismo tipo.",
+    score: "Se guarda el marcador y se calculan los aciertos exactos.",
+    pick: "Esa opción queda como ganadora y el premio pasa a pendiente.",
+    tiebreak: "Se abre una ronda de Juegos en vivo solo para las mesas empatadas.",
   };
   const PRIZE_EXAMPLES = ["1/4 de ron", "Botella de aguardiente", "Ronda de shots", "Consumo de $50.000"];
   const DEFAULTS = {
@@ -488,14 +501,24 @@
 
   function form(id) { return model.forms[id] || (model.forms[id] = { score_a: "", score_b: "", pick: "", kind: "memory", answer: "", doc: "" }); }
 
-  function confirmBtn(r, action, label, extraAttr = "") {
-    const key = `${r.id}:${action}`;
-    if (model.confirm === key) {
-      return `<span class="rt-confirm" role="group" aria-label="${h(T("Confirmar"))}"><span>${h(T("¿Seguro?"))}</span>
-        <button type="button" class="client-btn rt-btn is-primary" data-rt-do="${h(action)}" data-rt-id="${h(r.id)}" ${extraAttr} ${model.busy ? "disabled" : ""}>${h(T("Sí, {a}", { a: T(label).toLowerCase() }))}</button>
-        <button type="button" class="rt-btn" data-rt-unconfirm>${h(T("No"))}</button></span>`;
-    }
-    return `<button type="button" class="client-btn rt-btn is-primary" data-rt-ask="${h(key)}" ${model.busy ? "disabled" : ""}>${h(T(label))}</button>`;
+  function confirmBtn(r, action, label, secondary = false) {
+    return `<button type="button" class="${secondary ? "" : "client-btn "}rt-btn${secondary ? "" : " is-primary"}" data-rt-ask="${h(`${r.id}:${action}`)}" ${model.busy ? "disabled" : ""}>${action === "cancel" ? "↺ " : ""}${h(T(label))}</button>`;
+  }
+
+  function findReto(id) {
+    return Object.values((model.st && model.st.active) || {}).find((r) => r && r.id === id) || null;
+  }
+
+  function confirmDialog() {
+    if (!model.confirm) return "";
+    const [id, action] = model.confirm.split(":");
+    const r = findReto(id);
+    if (!r || !CONFIRM_TITLES[action]) return "";
+    const body = CONFIRM_BODY[action === "close" ? `close_${r.campaign_type}` : action];
+    return `<div class="rt-dialog-back" data-rt-dialog><div class="rt-dialog client-panel" role="dialog" aria-modal="true" aria-labelledby="rtDlgT" aria-describedby="rtDlgB">
+      <h2 class="rt-h" id="rtDlgT">${h(T(CONFIRM_TITLES[action]))}</h2><p class="rt-dlg-reto">${ICONS[r.campaign_type]} ${h(r.title)}</p><p id="rtDlgB">${h(T(body))}</p>
+      <div class="rt-confirm"><button type="button" class="client-btn rt-btn is-primary" data-rt-do="${h(action)}" data-rt-id="${h(id)}" ${model.busy ? "disabled" : ""}>${h(T("Sí, {a}", { a: T(CONFIRM_TITLES[action]).toLowerCase() }))}</button>
+        <button type="button" class="rt-btn" data-rt-unconfirm>${h(T("Volver"))}</button></div></div></div>`;
   }
 
   function choices(r) {
@@ -510,7 +533,7 @@
     const out = [];
     const legacySecret = r.campaign_type === "vote_poll" && (r.vote_mode === "yes_no" || r.vote_mode === "true_false") && !r.secret_answer_key;
     if (arr(r.actions).includes("close_now")) {
-      const label = r.campaign_type === "vote_poll" ? (r.vote_mode === "participants" ? "Cerrar votación" : r.vote_mode === "registration" ? "Cerrar inscripción" : "Cerrar ahora") : "Cerrar ahora";
+      const label = "Terminar ahora";
       out.push(`${legacySecret ? `<label class="rt-field is-inline"><span>${h(T("¿Cuál era la respuesta correcta?"))}</span><select data-rt-f="answer" data-rt-id="${h(r.id)}"><option value="">—</option>${(r.vote_mode === "yes_no" ? ["yes", "no"] : ["true", "false"]).map((k) => `<option value="${k}" ${f.answer === k ? "selected" : ""}>${h(T(ANSWERS[k]))}</option>`).join("")}</select></label>` : ""}
         ${confirmBtn(r, "close", label)}`);
     }
@@ -540,6 +563,7 @@
           ${list.length ? confirmBtn(r, "pick", "Elegir ganador") : ""}</fieldset>`);
       }
     }
+    if (arr(r.actions).includes("cancel")) out.push(`<div class="rt-cancel-row">${confirmBtn(r, "cancel", "Cancelar y reiniciar", true)}</div>`);
     return out.join("");
   }
 
@@ -594,7 +618,8 @@
       ${list.length ? `<ul class="rt-hist is-full">${list.map((x) => `<li><span class="rt-type-icon" aria-hidden="true">${ICONS[x.type] || "•"}</span>
         <div class="rt-hist-main"><b>${h(x.title)}</b><small>${h(fmt(x.closed_at))}${x.type === "score_pool" ? ` · ${h(x.team_a)} vs ${h(x.team_b)}` : ""}${x.final_score ? ` · ${h(x.final_score.score_a)} - ${h(x.final_score.score_b)}` : ""}</small>
           <small>${h(T("Premio"))}: ${h(x.prize || "—")}</small></div>
-        <div class="rt-hist-win">${x.winner ? `<b>🏆 ${h(winnerText(x.winner))}</b><small>${h(T(SOURCES[x.source] || ""))}</small>` : `<b>${h(T(x.result_status ? OUTCOMES[x.result_status] || "" : "Sin resultado registrado"))}</b>`}</div>
+        <div class="rt-hist-win">${x.status === "cancelled" ? `<b>↺ ${h(T("Cancelado"))}</b><small>${h(fmt(x.closed_at))}${x.closed_by ? ` · ${h(x.closed_by)}` : ""}</small>`
+          : x.winner ? `<b>🏆 ${h(winnerText(x.winner))}</b><small>${h(T(SOURCES[x.source] || ""))}</small>` : `<b>${h(T(x.result_status ? OUTCOMES[x.result_status] || "" : "Sin resultado registrado"))}</b>`}</div>
         <div class="rt-hist-prize">${x.prize_status === "delivered" ? `<i class="rt-chip-ok">✓ ${h(T("Entregado"))}</i><small>${h(fmt(x.prize_delivered_at))} · ${h(x.prize_delivered_by)}</small>`
           : x.prize_status === "pending" ? `<i class="rt-chip-pend">${h(T("Pendiente"))}</i>${prizeBox(x)}` : "<small>—</small>"}</div></li>`).join("")}</ul>`
         : `<p class="rt-muted">${h(T("Aún no hay retos cerrados."))}</p>`}</section>`;
@@ -606,7 +631,7 @@
     if (!model.st) return `<div class="rt-root" data-rt-root>${head()}${notices}<section class="client-panel rt-card"><p class="rt-muted">${h(T("Cargando…"))}</p></section></div>`;
     const body = model.tab === "history" ? historyView()
       : `<div class="rt-layout"><div class="rt-col">${model.wizard ? wizardView() : typeCards()}</div>${liveColumn()}</div>`;
-    return `<div class="rt-root" data-rt-root>${head()}${notices}${body}</div>`;
+    return `<div class="rt-root" data-rt-root>${head()}${notices}${body}${confirmDialog()}</div>`;
   }
 
   function draw() {
@@ -668,7 +693,7 @@
       return;
     }
     if ((v = attr("data-rt-ask"))) { model.confirm = v; draw(); return; }
-    if (t.closest("[data-rt-unconfirm]")) { model.confirm = ""; draw(); return; }
+    if (t.closest("[data-rt-unconfirm]") || (t.hasAttribute && t.hasAttribute("data-rt-dialog"))) { model.confirm = ""; draw(); return; }
     if ((v = attr("data-rt-do"))) {
       const id = attr("data-rt-id");
       const f = form(id);
@@ -677,11 +702,15 @@
         score: ["/score", { score_a: f.score_a === "" ? null : Number(f.score_a), score_b: f.score_b === "" ? null : Number(f.score_b) }],
         pick: ["/winner", { key: f.pick }],
         tiebreak: ["/tiebreak", { kind: f.kind || "memory" }],
+        cancel: ["/cancel", {}],
       };
+      const r = findReto(id);
       const [path, body] = paths[v];
       act(v, async () => {
         await call(`/retos/${encodeURIComponent(id)}${path}`, "POST", body);
-        model.info = v === "tiebreak" ? T("Desempate abierto: inícialo en Juegos en vivo cuando estén las mesas.") : T("Listo.");
+        model.info = v === "tiebreak" ? T("Desempate abierto: inícialo en Juegos en vivo cuando estén las mesas.")
+          : v === "cancel" ? T("Cancelado: ya no se ve en el QR y puedes lanzar otro.")
+          : v === "close" && r && r.campaign_type === "score_pool" ? T("Pronósticos cerrados: ya puedes poner el marcador final.") : T("Listo.");
         await loadState();
       });
       return;
@@ -721,6 +750,10 @@
     if (t.getAttribute("data-rt-f") === "pick") draw();
   }
 
+  function onKey(event) {
+    if (event.key === "Escape" && model.confirm && ctx) { model.confirm = ""; draw(); }
+  }
+
   function stop() {
     if (timer) clearTimeout(timer);
     if (ticker) clearInterval(ticker);
@@ -734,6 +767,7 @@
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
       document.addEventListener("input", onInput);
+      document.addEventListener("keydown", onKey);
       bound = true;
     }
     Object.assign(model, { st: null, tab: "main", wizard: null, error: "", info: "", busy: "", denied: "", confirm: "", forms: {}, loading: false });

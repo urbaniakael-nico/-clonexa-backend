@@ -179,6 +179,11 @@
 .rt-field.is-num input { text-align: center; font-size: 20px; font-weight: 800; }
 .rt-field.is-num span { overflow-wrap: anywhere; }
 .rt-confirm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-weight: 800; }
+.rt-cancel-row { display: flex; justify-content: flex-end; padding-top: 6px; border-top: 1px solid var(--rt-line); }
+.rt-dialog-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--cx-bg) 55%, rgba(0, 0, 0, .6)); }
+.rt-root .rt-dialog { width: min(480px, 100%); display: grid; gap: 10px; background: var(--cx-bg); border: 1px solid var(--rt-line); box-shadow: 0 24px 60px rgba(0, 0, 0, .45); }
+.rt-dialog p { margin: 0; font-size: 14.5px; line-height: 1.4; overflow-wrap: break-word; }
+.rt-dialog .rt-dlg-reto { font-weight: 800; }
 .rt-pick { gap: 6px; }
 
 /* Historial y premios */

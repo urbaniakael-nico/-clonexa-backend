@@ -450,6 +450,23 @@ async def close_round(db: AsyncSession, company_id: Any, round_id: Any, now: Opt
     return closed
 
 
+async def cancel_round(db: AsyncSession, company_id: Any, round_id: Any, actor: str, now: Optional[datetime] = None) -> dict:
+    """Cancelar y reiniciar: anula la ronda SIN ganador (registro o en juego). La
+    pantalla del bar vuelve a "en espera", los jugadores ven "Este juego fue
+    cancelado" y ya se puede abrir otra. Queda en el historial con hora y quien."""
+    now = now or _now()
+    r = await round_row(db, company_id, round_id, lock=True)
+    if not r:
+        raise GameError("ronda_no_encontrada", 404)
+    if r["status"] not in ("registration", "playing"):
+        await db.rollback()
+        raise GameError("la_ronda_ya_termino")
+    await db.execute(text("""UPDATE loyalty_game_rounds SET status = 'cancelled', closed_at = :n, cancelled_at = :n, cancelled_by = :by,
+        results = '[]'::jsonb, updated_at = :n WHERE company_id::text = :c AND id::text = :i"""), {"n": now, "by": actor[:200], "c": str(company_id), "i": str(round_id)})
+    await db.commit()  # sin podio: los puestos solo se asignan al cerrar
+    return await round_row(db, company_id, round_id)
+
+
 async def refresh(db: AsyncSession, company_id: Any, r: Optional[dict], now: Optional[datetime] = None) -> Optional[dict]:
     """Cierre por tiempo calculado desde la base (sobrevive reinicios)."""
     now = now or _now()
@@ -865,8 +882,8 @@ async def live_state(db: AsyncSession, company_id: Any, now: Optional[datetime] 
     now = now or _now()
     day = await game_day(db, company_id, now)
     r = await refresh(db, company_id, await latest_round(db, company_id), now)
-    if r and r["game_day"] != day and r["status"] in ("closed", "cancelled"):
-        r = None
+    if r and (r["status"] == "cancelled" or (r["game_day"] != day and r["status"] == "closed")):
+        r = None  # cancelada: la pantalla del bar vuelve a "en espera"
     plist = await players(db, company_id, r["id"]) if r else []
     last = (await db.execute(text("""SELECT id::text AS id, range_min, range_max, number, prize, spun_by, spun_at FROM loyalty_roulette_draws
         WHERE company_id::text = :c AND game_day = :d ORDER BY spun_at DESC LIMIT 1"""), {"c": str(company_id), "d": day})).mappings().first()

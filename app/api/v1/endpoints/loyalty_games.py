@@ -233,7 +233,8 @@ async def history(company_id: UUID, who: dict = Depends(actor), db: AsyncSession
     _admin(who)
     from sqlalchemy import text
 
-    rows = (await db.execute(text("""SELECT id::text AS id, kind, status, prize, game_day, created_by, created_at, started_at, closed_at, results, config, question_ids
+    rows = (await db.execute(text("""SELECT id::text AS id, kind, status, prize, game_day, created_by, created_at, started_at, closed_at, results, config, question_ids,
+            cancelled_at, cancelled_by
         FROM loyalty_game_rounds WHERE company_id::text = :c ORDER BY created_at DESC LIMIT 60"""), {"c": str(company_id)})).mappings().all()
     counts = {str(r[0]): (int(r[1]), int(r[2])) for r in (await db.execute(text("""SELECT round_id, count(*), count(validated_at)
         FROM loyalty_game_players WHERE company_id::text = :c GROUP BY round_id"""), {"c": str(company_id)})).all()}
@@ -296,6 +297,16 @@ async def start_round(company_id: UUID, round_id: UUID, request: Request, who: d
 async def close_round(company_id: UUID, round_id: UUID, request: Request, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
     try:
         await svc.close_round(db, company_id, round_id)
+    except GameError as exc:
+        raise _err(exc) from None
+    return await live(company_id, request, who, db)
+
+
+@router.post("/companies/{company_id}/rounds/{round_id}/cancel")
+async def cancel_round(company_id: UUID, round_id: UUID, request: Request, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
+    """Cancelar y reiniciar (dueno, admin o barman): sin ganador y libera la pantalla."""
+    try:
+        await svc.cancel_round(db, company_id, round_id, who["name"])
     except GameError as exc:
         raise _err(exc) from None
     return await live(company_id, request, who, db)

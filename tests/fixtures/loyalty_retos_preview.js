@@ -16,7 +16,7 @@
   const iso = (ms) => new Date(now + ms).toISOString();
   const consumption = {
     id: "c1", campaign_type: "consumption", title: "Reto de consumo · Viernes de rock", prize: "1/4 de ron Viejo de Caldas", status: "active", rules_version: 2,
-    stage: "playing", deadline: iso(2 * 3600000 + 754000), deadline_label: "El torneo cierra en", actions: ["close_now"], participants: 6,
+    stage: "playing", deadline: iso(2 * 3600000 + 754000), deadline_label: "El torneo cierra en", actions: ["close_now", "cancel"], participants: 6,
     leaderboard: [
       { rank: 1, team_name: "Los del fondo con nombre largo de verdad", table_number: "Mesa 12", orders_count: 7, total: 412000 },
       { rank: 2, team_name: "Rockeros", table_number: "Mesa 3", orders_count: 4, total: 268500 },
@@ -25,14 +25,14 @@
   };
   const pool = {
     id: "p1", campaign_type: "score_pool", title: "Polla · Colombia vs Argentina", prize: "Botella de aguardiente", team_a: "Colombia", team_b: "Argentina", status: "active", rules_version: 2,
-    stage: "result", deadline: null, actions: ["tiebreak", "pick_winner"], participants: 9, result_status: "tie", final_score: { score_a: 2, score_b: 1 },
+    stage: "result", deadline: null, actions: ["tiebreak", "pick_winner", "cancel"], participants: 9, result_status: "tie", final_score: { score_a: 2, score_b: 1 },
     result: { matches: [{ table_key: "mesa 4", table_number: "Mesa 4", team_name: "Los parceros" }, { table_key: "mesa 9", table_number: "Mesa 9", team_name: "Mesa 9" }] },
     predictions: [[2, 1], [2, 1], [1, 1], [0, 0], [3, 1], [1, 0], [2, 0], [1, 1], [0, 1]].map(([a, b], i) => ({ table_number: `Mesa ${i + 1}`, score_a: a, score_b: b })),
     tiebreak: null,
   };
   const vote = {
     id: "v1", campaign_type: "vote_poll", vote_mode: "participants", title: "Karaoke de las 10", prize: "Ronda de shots", status: "active", rules_version: 2,
-    description: "¿Quién cantó mejor esta noche?", stage: "registration", deadline: iso(1520000), deadline_label: "Votación cierra en", actions: ["close_now"], participants: 14,
+    description: "¿Quién cantó mejor esta noche?", stage: "registration", deadline: iso(1520000), deadline_label: "Votación cierra en", actions: ["close_now", "cancel"], participants: 14,
     results: [{ key: "option_1", label: "Ana — Bohemian Rhapsody", count: 6, percent: 42.9 }, { key: "option_2", label: "Beto", count: 5, percent: 35.7 }, { key: "option_3", label: "Caro", count: 3, percent: 21.4 }],
   };
   const history = [
@@ -144,6 +144,7 @@
       if (!document.querySelector(".rt-root .rt-layout, .rt-root .rt-card")) return j > 50 ? measure({ waited: true }) : setTimeout(() => waitRoot(j + 1), 200);
       if (P.get("view") === "history") click('[data-rt-tab="history"]');
       if (P.get("wiz") && !wizard()) return measure({ wizard: false });
+      if (P.get("confirm")) click(`[data-rt-ask="${P.get("confirm")}"]`);
       return setTimeout(() => measure(), 900);
     };
     setTimeout(waitRoot, 400);

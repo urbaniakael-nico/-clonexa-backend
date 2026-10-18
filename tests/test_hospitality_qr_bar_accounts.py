@@ -127,6 +127,8 @@ class BarDb:
                 if str(o["id"]) == params["order_id"]:
                     o["status"] = "cerrado"
             return _Rows([])
+        if "lower(m.code) = 'hospitality'" in sql:  # qr_welcome_name (apagado en esta prueba)
+            return _Rows([])
         raise AssertionError(f"SQL no esperado en la prueba: {sql[:120]}")
 
     def open_orders(self, table_key):

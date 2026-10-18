@@ -119,7 +119,7 @@ test('client.js: el botón solo aparece si el servidor dice que el interruptor e
   assert.match(CLIENT, /`;\n    cxLoyGamesDecorate055B\("orders"\);\n\n    cxHspRenderOrdersBoard024R\(summary\);/);
   assert.match(CLIENT, /`;\n    cxLoyGamesDecorate055B\("loyalty"\);\n    cxHspLoyaltyPaint024Z\(\);/);
   assert.match(CLIENT, /fetch\(`\$\{API\}\/loyalty-games\/companies\/\$\{encodeURIComponent\(companyId\)\}\/context`, \{ headers: authHeaders\(\) \}\)\n\s+\.then\(\(res\) => res\.ok\)/);
-  assert.match(CLIENT, /\/client-static\/loyalty_games\.js\?v=055B/);
+  assert.match(CLIENT, /\/client-static\/loyalty_games\.js\?v=056B/);
   assert.match(PANEL, /Authorization: `Bearer \$\{t\}`/, 'el panel siempre con la sesión');
   assert.match(SCREEN, /prefers-reduced-motion: reduce/);
 });

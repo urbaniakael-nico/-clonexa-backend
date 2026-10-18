@@ -1521,6 +1521,8 @@ def _comanda(order: dict[str, Any], station_set: set[str]) -> dict[str, Any] | N
         "table_number": order.get("table_number"),
         "status": order.get("status"),
         "waiter": (order.get("metadata") or {}).get("waiter") or {},
+        # Bienvenida con nombre (qr_welcome_name): "Laura · Mesa 4" en la comanda.
+        **({"guest_name": (order.get("metadata") or {}).get("guest_name")} if (order.get("metadata") or {}).get("guest_name") else {}),
         # Domicilio: the kitchen sees it is not a table and where it goes.
         "delivery": {"customer_name": delivery.get("customer_name") or "", "address": delivery.get("address") or ""} if delivery else None,
         "notes": order.get("notes"),

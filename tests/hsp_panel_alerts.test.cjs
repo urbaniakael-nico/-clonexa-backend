@@ -135,7 +135,7 @@ function kitchenFn(name) {
 test('cocina announces each new comanda once, never what was already there', () => {
   const env = alertsEnv();
   const ctx = vm.createContext({ window: { CxAlerts: env.CxAlerts }, Set, Array, String });
-  vm.runInContext('var seenComandas = null;\n' + kitchenFn('comandaSummary') + kitchenFn('newComandaAlerts'), ctx);
+  vm.runInContext('var seenComandas = null;\n' + kitchenFn('tableLabel') + kitchenFn('comandaSummary') + kitchenFn('newComandaAlerts'), ctx);
   const a = { order_id: 'a', table_number: 'Mesa 1', items: [{ quantity: 1, name: 'CARNE' }] };
   const b = { order_id: 'b', table_number: 'Mesa 4', items: [{ quantity_label: '1/2', quantity: 0.5, name: 'POLLO' }, { quantity: 2, name: 'GASEOSA' }] };
   assert.equal(ctx.newComandaAlerts([a]).length, 0);                 // first load

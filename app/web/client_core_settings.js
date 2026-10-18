@@ -313,6 +313,7 @@
       }
 
       .clx-core-field input,
+      .clx-core-field textarea,
       .clx-core-field select {
         width: 100%;
         box-sizing: border-box;
@@ -534,6 +535,57 @@
     document.getElementById("clxSaveCoreEmail")?.addEventListener("click", changeEmail);
     document.getElementById("clxSaveCorePassword")?.addEventListener("click", changePassword);
     document.getElementById("clxCoreLogoutFromModal")?.addEventListener("click", doLogout);
+    installQrWelcome056B(overlay).catch(() => {});
+  }
+
+  // Bienvenida del QR (interruptor qr_welcome_name): la tarjeta solo aparece si el
+  // servidor responde 200 (con el interruptor apagado responde 404 y nada cambia).
+  // Solo el dueño o el admin guardan (el servidor responde 403 a los demás).
+  function wt056B(text) {
+    return window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(text) : text;
+  }
+
+  async function installQrWelcome056B(overlay) {
+    const id = companyId();
+    if (!id) return;
+    let data;
+    try {
+      data = await api(`/hospitality/companies/${encodeURIComponent(id)}/qr-welcome`);
+    } catch (_) {
+      return;
+    }
+    const grid = overlay.querySelector(".clx-core-grid");
+    if (!grid || overlay.querySelector("#clxQrWelcome056B")) return;
+    const card = document.createElement("section");
+    card.className = "clx-core-card";
+    card.id = "clxQrWelcome056B";
+    card.innerHTML = `
+      <h3>${escapeHtml(wt056B("Bienvenida del QR"))}</h3>
+      <p class="clx-core-muted">${escapeHtml(wt056B("Se muestra al activar la mesa con la clave. [bar] se cambia por el nombre del bar. Vacía = la frase por defecto."))}</p>
+      <label class="clx-core-field">
+        <span>${escapeHtml(wt056B("Frase de bienvenida"))}</span>
+        <textarea id="clxQrWelcomeText056B" rows="3" maxlength="${Number(data.max || 160)}" placeholder="${escapeHtml(data.default || "")}">${escapeHtml(data.text || "")}</textarea>
+        <small class="clx-core-muted" id="clxQrWelcomeCount056B"></small>
+      </label>
+      <button class="clx-core-save" id="clxSaveQrWelcome056B" type="button">${escapeHtml(wt056B("Guardar frase"))}</button>
+      <div class="clx-core-status" id="clxQrWelcomeStatus056B"></div>`;
+    grid.insertBefore(card, grid.children[1] || null);
+    const area = card.querySelector("#clxQrWelcomeText056B");
+    const count = card.querySelector("#clxQrWelcomeCount056B");
+    const paint = () => { count.textContent = `${area.value.length} / ${Number(data.max || 160)}`; };
+    area.addEventListener("input", paint);
+    paint();
+    card.querySelector("#clxSaveQrWelcome056B").addEventListener("click", async () => {
+      const node = card.querySelector("#clxQrWelcomeStatus056B");
+      try {
+        const saved = await api(`/hospitality/companies/${encodeURIComponent(id)}/qr-welcome`, { method: "PUT", body: JSON.stringify({ text: area.value }) });
+        area.value = saved.text || "";
+        paint();
+        status(node, wt056B("Frase guardada."), "ok");
+      } catch (error) {
+        status(node, error.message === "frase_muy_larga" ? wt056B("La frase puede tener hasta 160 caracteres.") : (error.message || wt056B("No se pudo guardar la frase.")), "err");
+      }
+    });
   }
 
   async function savePreferences() {

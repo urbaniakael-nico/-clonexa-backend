@@ -307,11 +307,12 @@
   function body() {
     if (!st.info) return st.error ? `<section class="lgx-card"><p class="lgx-big">${h(st.error)}</p></section>` : `<section class="lgx-card"><p>${h(T("Cargando…"))}</p></section>`;
     const status = st.me ? st.me.status : st.info.status;
+    if (status === "cancelled") return `<section class="lgx-card lgx-end"><p class="lgx-big">${h(T("Este juego fue cancelado"))}</p><p>${h(T("¡Gracias por jugar!"))}</p></section>`;
     if (!st.me) return status === "registration" ? joinForm() : `<section class="lgx-card"><p class="lgx-big">${h(T("El registro de esta ronda ya cerró."))}</p></section>`;
     if (status === "registration") return waiting();
     if (status === "playing") return st.info.kind === "memory" ? memory() : st.info.kind === "differences" ? differences() : trivia();
     if (status === "closed") return result();
-    return `<section class="lgx-card"><p class="lgx-big">${h(T("Esta ronda se canceló."))}</p></section>`;
+    return `<section class="lgx-card"><p class="lgx-big">${h(T("Este juego fue cancelado"))}</p></section>`;
   }
 
   function draw() {

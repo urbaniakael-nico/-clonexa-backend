@@ -108,7 +108,7 @@ function dashboard(payload, mode = 'days', kpiDays = 10, restaurant = false, tab
      var cxHspDashEventTimezone033B = "America/Bogota"; var cxHspDashEventDate033B = "2026-09-22";
      var cxHspDashEventSummary033B = cxHspDashAnalytics033E.event_search.summary; var cxHspDashEvents033B = cxHspDashAnalytics033E.event_search.events || [];
      var cxHspDashEventLoading033B = false; var cxHspDashEventError033B = ""; var cxHspDashPainted033E = "";
-     var cxHspDashKpiDays048D = ${kpiDays};\n`
+     var cxHspDashKpiDays048D = ${kpiDays}; var cxHspDashGuestSearch056B = false; var cxHspDashGuestFilter056B = "";\n`
       + NAMES.map(fn).join('\n'),
     ctx,
   );

@@ -84,7 +84,7 @@ test('Retos para las mesas: pantalla nueva y QR de la mesa sin desborde y con AA
       }
       assert.equal(r['main-1280'].types, 3);
       assert.equal(r['main-1280'].live, 3, 'tres retos en curso');
-      assert.match(r['main-375'].text, /Ya hay una polla en curso[\s\S]*Desempatar con Juego en vivo[\s\S]*Cerrar votación/);
+      assert.match(r['main-375'].text, /Ya hay una polla en curso[\s\S]*Desempatar con Juego en vivo[\s\S]*Terminar ahora[\s\S]*Cancelar y reiniciar/);
       assert.match(r['wiz1-polla-1280'].step, /Qué/);
       assert.match(r['wiz2-consumo-1280'].step, /Cuándo/);
       assert.match(r['wiz2-consumo-1280'].text, /Jornada del bar/);

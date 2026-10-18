@@ -73,6 +73,7 @@ async def test_hospitality_qr_access_status_carries_the_switch_and_company_name(
     monkeypatch.setattr(hospitality, "_qr_company_name", AsyncMock(return_value="The Time Machine"))
     ui = AsyncMock(return_value={"bar_menu": True})
     monkeypatch.setattr(hospitality, "_qr_customer_ui", ui)
+    monkeypatch.setattr(hospitality, "_qr_welcome", AsyncMock(return_value={"on": False, "text": ""}))  # qr_welcome_name apagado
 
     response = await hospitality.get_hospitality_table_access(company_id, table="Mesa 5", db=object())
 

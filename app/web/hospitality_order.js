@@ -306,6 +306,33 @@
     };
   }
 
+  // "Polla activa" y demás etiquetas: el color de marca de la empresa, aclarado solo lo
+  // necesario para pasar AA (4.5:1) sobre la tarjeta del QR, en temas claros y oscuros.
+  function qrHexRgb(hex = "") {
+    const raw = String(hex || "").trim().replace(/^#/, "");
+    const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
+    if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  }
+
+  function qrLum(rgb) {
+    const f = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+  }
+
+  function qrReadableAccent(primary, pageBg) {
+    const base = qrHexRgb(primary) || [255, 138, 28];
+    const bg = qrHexRgb(pageBg) || [18, 0, 34];
+    // Tarjeta: --qr-card (15,23,42 al 72 %) sobre el fondo y el brillo blanco del 12 %.
+    const card = bg.map((c, i) => 0.88 * (0.72 * [15, 23, 42][i] + 0.28 * c) + 0.12 * 255);
+    const ratio = (a) => { const x = qrLum(a) + 0.05; const y = qrLum(card) + 0.05; return Math.max(x, y) / Math.min(x, y); };
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const mixed = base.map((c) => Math.round(c + (255 - c) * t));
+      if (ratio(mixed) >= 4.8) return `rgb(${mixed.join(",")})`;
+    }
+    return "#ffffff";
+  }
+
   function injectStyles() {
     const b = brand();
     let style = document.getElementById("hspPublicQrStyles024X");
@@ -323,6 +350,7 @@
         --qr-card:rgba(15,23,42,.72);
         --qr-line:rgba(255,255,255,.14);
         --qr-muted:rgba(255,255,255,.68);
+        --qr-eyebrow:${qrReadableAccent(b.primary, b.bg)};
       }
       *{box-sizing:border-box}
       body{
@@ -411,7 +439,7 @@
       .qr-hero-locked h1{font-size:clamp(32px,7vw,54px)}
       .qr-logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;overflow:hidden;background:linear-gradient(135deg,var(--qr-primary),var(--qr-secondary));color:#111827;font-weight:1000}
       .qr-logo img{width:100%;height:100%;object-fit:contain}
-      .qr-eyebrow{margin:0 0 6px;color:var(--qr-primary);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:1000}
+      .qr-eyebrow{margin:0 0 6px;color:var(--qr-eyebrow);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:1000}
       h1{margin:0;font-size:clamp(30px,8vw,58px);line-height:.95;letter-spacing:-.03em}
       .qr-muted{color:var(--qr-muted);font-weight:750;line-height:1.35}
       .qr-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
@@ -580,13 +608,29 @@
       .qr-contestant-badge{display:grid;place-items:center;min-height:28px;border-radius:9px;background:rgba(255,255,255,.08);color:var(--qr-primary);font-size:10px;font-weight:1000;text-align:center;overflow-wrap:anywhere}
       .qr-contestant strong{display:block;font-size:12px;line-height:1.15}
       .qr-contestant small{display:block;margin-top:2px;color:var(--qr-muted);font-size:10px;font-weight:800;line-height:1.15}
-      .qr-rank-row{display:grid;grid-template-columns:28px 1fr;gap:9px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:9px}
-      .qr-rank-row span{font-weight:1000;color:var(--qr-secondary)}
-      .qr-rank-row strong{display:block}
-      .qr-rank-row small{display:block;color:var(--qr-muted);font-size:11px;font-weight:850}
+      .qr-rank-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;background:rgba(3,7,18,.30);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:9px}
+      .qr-rank-row > span{font-weight:1000;color:var(--qr-secondary);min-width:28px;max-width:7.5em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+      .qr-rank-row > div{min-width:0}
+      .qr-rank-row strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .qr-rank-row small{display:block;color:var(--qr-muted);font-size:11px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .qr-rank-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
       .qr-rank-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
       .qr-score-form{display:grid;gap:10px}
+      .qr-welcome-back{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:16px;background:rgba(3,2,10,.78)}
+      .qr-welcome{width:min(420px,100%);display:grid;gap:12px;justify-items:center;text-align:center;padding:22px 18px;border-radius:24px;border:1px solid var(--qr-line);
+        background:linear-gradient(160deg,color-mix(in srgb,var(--qr-bg) 92%,#000),#0b0716);color:var(--qr-text);box-shadow:0 24px 70px rgba(0,0,0,.55)}
+      .qr-welcome .qr-field{width:100%;text-align:left}
+      .qr-welcome input{width:100%;min-height:48px;font-size:17px}
+      .qr-welcome-logo{width:76px;height:76px}
+      .qr-welcome-text{margin:0;font-size:20px;font-weight:1000;line-height:1.25;overflow-wrap:break-word;color:var(--qr-text)}
+      .qr-welcome-hint{color:var(--qr-text);opacity:.85;font-size:12px;font-weight:800}
+      .qr-welcome-actions{display:grid;gap:8px;width:100%}
+      .qr-welcome-actions .qr-btn{min-height:48px;width:100%}
+      .qr-welcome-chip{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:14px;border:1px solid var(--qr-line);background:rgba(3,7,18,.42);color:var(--qr-text);font-weight:900}
+      .qr-welcome-chip span{min-width:0;overflow-wrap:anywhere}
+      .qr-welcome-chip .qr-btn{min-height:40px;padding:0 14px}
+      .qr-welcome-as{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .qr-welcome-as strong{flex:1 1 140px;min-width:0;overflow-wrap:anywhere}
       .qr-reto-headline{font-size:22px;font-weight:1000;line-height:1.15;color:var(--qr-text);overflow-wrap:anywhere}
       .qr-reto-headline b{color:var(--qr-secondary)}
       .qr-reto-result.is-win .qr-reto-headline{color:var(--qr-secondary)}
@@ -984,7 +1028,7 @@
           <strong>Te animas a participar?</strong>
           <span>Nombre del equipo</span>
         </div>
-        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || "")}">
+        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || (welcomeOn056B() ? state.customerName : "") || "")}">
         <button class="qr-btn" type="button" data-campaign-join>Si, participar</button>
         <button class="qr-btn secondary" type="button" data-campaign-dismiss>No participar</button>
       </div>
@@ -1052,7 +1096,7 @@
           <strong>Te animas a participar?</strong>
           <span>Nombre del equipo</span>
         </div>
-        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || "")}">
+        <input id="qrTeam024Z" placeholder="Ej: Equipo Mesa 1" value="${h(document.getElementById("qrTeam024Z")?.value || (welcomeOn056B() ? state.customerName : "") || "")}">
         <button class="qr-btn" type="button" data-campaign-join>Si, participar</button>
         <button class="qr-btn secondary" type="button" data-campaign-dismiss>No participar</button>
       </div>
@@ -1188,7 +1232,7 @@
         })),
       });
     }
-    const currentName = document.getElementById("qrScoreName025G")?.value || prediction.team_name || "";
+    const currentName = document.getElementById("qrScoreName025G")?.value || prediction.team_name || (welcomeOn056B() ? state.customerName : "") || "";
     const scoreA = document.getElementById("qrScoreA025G")?.value ?? (prediction.score_a ?? "");
     const scoreB = document.getElementById("qrScoreB025G")?.value ?? (prediction.score_b ?? "");
     return `
@@ -1258,7 +1302,7 @@
         })),
       });
     }
-    const currentName = document.getElementById("qrVoteName025O")?.value || response.voter_name || "";
+    const currentName = document.getElementById("qrVoteName025O")?.value || response.voter_name || (welcomeOn056B() ? state.customerName : "") || "";
     const currentAnswer = document.querySelector("input[name='qrVoteOption025O']:checked")?.value || response.answer_key || "";
     const form = !isClosed && !response.id ? `
       <div class="qr-score-form">
@@ -1521,6 +1565,136 @@
   // usa cuando la empresa tiene el interruptor encendido (llega en
   // GET qr-tables/access -> ui.bar_menu) y el kit de menú compartido cargó;
   // las demás empresas siguen con la pantalla de siempre.
+  /* CLONEXA_056B_QR_WELCOME_START: nombre al entrar a la mesa (interruptor
+     qr_welcome_name; el servidor solo manda ui.welcome_name a esas empresas).
+     Apenas se activa la mesa con la clave aparece la bienvenida (logo, frase
+     editable en Ajustes y "¿Cómo te llamas?"). El nombre es opcional, de cada
+     celular, max. 30 y sin HTML; queda en la sesion del invitado (la cuenta de
+     la mesa lo registra y renombra sus pedidos) y ya no se pide al pedir. */
+  function welcomeOn056B() {
+    return !isAssemblyMode() && state.ui?.welcome_name === true;
+  }
+
+  function wt056B(text, vars) {
+    const fill = (s) => (vars ? String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? String(vars[k]) : m)) : String(s));
+    return window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(text, vars) : fill(text);
+  }
+
+  let welcomeI18n056B = null;
+  function loadWelcomeI18n056B() {
+    if (window.CxI18n || !welcomeOn056B() || (state.ui.language || "es") === "es") return Promise.resolve();
+    if (!welcomeI18n056B) {
+      const add = (src) => new Promise((resolve) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = resolve;
+        document.head.appendChild(s);
+      });
+      welcomeI18n056B = add("/client-static/client_i18n_dict.js?v=056B").then(() => add("/client-static/client_i18n_core.js?v=056B")).then(() => {
+        try { if (window.CxI18n && window.CxI18n.setLanguage) window.CxI18n.setLanguage(state.ui.language); } catch (_) {}
+      });
+    }
+    return welcomeI18n056B;
+  }
+
+  function welcomeCleanName056B(value = "") {
+    return String(value || "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, " ").split(/\s+/).filter(Boolean).join(" ").slice(0, Number(state.ui?.name_max || 30)).trim();
+  }
+
+  function welcomeSkipKey056B() {
+    return `${customerStorageKey()}_welcome_skip`;
+  }
+
+  function welcomeSkipped056B() {
+    try { return window.localStorage.getItem(welcomeSkipKey056B()) === "1"; } catch (_) { return false; }
+  }
+
+  function welcomePhrase056B() {
+    const bar = state.company?.name || state.company?.company_name || "";
+    const raw = state.ui?.welcome_custom ? state.ui.welcome_text : wt056B(state.ui?.welcome_text || "¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?");
+    return String(raw || "").split("[bar]").join(bar);
+  }
+
+  // Cómo se ve este celular en el bar: "Laura · Mesa 4" (o "Persona 2 · Mesa 4").
+  function welcomeLabel056B() {
+    const name = state.customerName || barMyName() || wt056B("Invitado");
+    return `${name} · ${barTableTitle()}`;
+  }
+
+  function welcomeChip056B() {
+    if (!welcomeOn056B() || !state.access?.unlocked) return "";
+    return `<div class="qr-welcome-chip" data-brand="qr.nombre"><span>👤 ${h(welcomeLabel056B())}</span>
+      <button class="qr-btn secondary" type="button" data-welcome-open>${h(wt056B(state.customerName ? "Cambiar nombre" : "Poner mi nombre"))}</button></div>`;
+  }
+
+  function welcomeNameKnown056B() {
+    return welcomeOn056B() && (!!state.customerName || welcomeSkipped056B());
+  }
+
+  function welcomeAsYouHtml056B() {
+    return `<div class="qr-field qr-welcome-as"><span>${h(wt056B("Pides como"))}</span><strong>${h(welcomeLabel056B())}</strong>
+      <button class="qr-btn secondary" type="button" data-welcome-open>${h(wt056B("Cambiar nombre"))}</button></div>`;
+  }
+
+  async function showWelcome056B(force = false) {
+    if (!welcomeOn056B() || !state.access?.unlocked || document.getElementById("qrWelcome056B")) return;
+    if (!force && (state.customerName || welcomeSkipped056B())) return;
+    await loadWelcomeI18n056B();
+    const b = brand();
+    const bar = state.company?.name || state.company?.company_name || "";
+    const box = document.createElement("div");
+    box.id = "qrWelcome056B";
+    box.className = "qr-welcome-back";
+    box.innerHTML = `
+      <form class="qr-welcome" role="dialog" aria-modal="true" aria-labelledby="qrWelcomeText056B" data-welcome-form novalidate>
+        <div class="qr-logo qr-welcome-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(bar || "Logo")}">` : h((bar.slice(0, 1) || "C").toUpperCase())}</div>
+        <p class="qr-welcome-text" id="qrWelcomeText056B">${h(welcomePhrase056B())}</p>
+        <label class="qr-field"><span>${h(wt056B("¿Cómo te llamas?"))}</span>
+          <input id="qrWelcomeName056B" name="name" maxlength="${h(state.ui?.name_max || 30)}" autocomplete="given-name" value="${h(state.customerName || "")}" placeholder="${h(wt056B("Ej: Laura"))}"></label>
+        <small class="qr-welcome-hint">${h(wt056B("Así te verá el bar: {who}", { who: `${wt056B("tu nombre")} · ${barTableTitle()}` }))}</small>
+        <div class="qr-welcome-actions">
+          <button class="qrb-confirm qr-btn" type="submit">${h(wt056B("Continuar"))}</button>
+          <button class="qr-btn secondary" type="button" data-welcome-skip>${h(wt056B("Ahora no"))}</button>
+        </div>
+      </form>`;
+    document.body.appendChild(box);
+    setTimeout(() => document.getElementById("qrWelcomeName056B")?.focus(), 50);
+  }
+
+  function closeWelcome056B() {
+    document.getElementById("qrWelcome056B")?.remove();
+  }
+
+  async function saveWelcome056B(rawName) {
+    const name = welcomeCleanName056B(rawName);
+    if (!name) return skipWelcome056B();
+    rememberCustomerName(name);
+    closeWelcome056B();
+    try { await refreshTableAccount(); } catch (_) {}
+    render();
+  }
+
+  function skipWelcome056B() {
+    try { window.localStorage.setItem(welcomeSkipKey056B(), "1"); } catch (_) {}
+    closeWelcome056B();
+    render();
+  }
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target?.closest?.("[data-welcome-form]");
+    if (!form) return;
+    event.preventDefault();
+    saveWelcome056B(form.elements.namedItem("name")?.value || "");
+  });
+  document.addEventListener("click", (event) => {
+    const t = event.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest("[data-welcome-skip]")) { skipWelcome056B(); return; }
+    if (t.closest("[data-welcome-open]")) { event.preventDefault(); showWelcome056B(true); }
+  });
+  /* CLONEXA_056B_QR_WELCOME_END */
+
   function barMenuOn() {
     return !isAssemblyMode() && state.ui?.bar_menu === true && !!window.CxMenuKit;
   }
@@ -1724,6 +1898,7 @@
           </div>
         </details>
 
+        ${welcomeChip056B()}
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${friendly ? `<div class="qr-msg err">${h(friendly)}</div>` : ""}
         <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}</div>
@@ -1739,11 +1914,11 @@
             </div>
             <button class="qr-cart-close" type="button" data-cart-close aria-label="Cerrar pedido">×</button>
           </div>
-          <label class="qr-field">
+          ${welcomeNameKnown056B() ? welcomeAsYouHtml056B() : `<label class="qr-field">
             <span>Tu nombre</span>
             <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="${h(barMyName() && !state.customerName ? `Escríbelo o sigue como ${barMyName()}` : "Ej: Javier")}" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
             ${barMyName() ? `<small class="qrb-my-name">En la barra apareces como <strong>${h(barMyName())}</strong></small>` : ""}
-          </label>
+          </label>`}
           <div id="qrCartLines024S">${cartRows()}</div>
           <label class="qr-field">
             <span>Notas</span>
@@ -1977,6 +2152,7 @@
           </div>
         </section>
 
+        ${welcomeChip056B()}
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${state.error ? `<div class="qr-msg err">${h(state.error)}</div>` : ""}
         <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}</div>
@@ -2003,11 +2179,11 @@
               </div>
               <button class="qr-cart-close" type="button" data-cart-close aria-label="Cerrar pedido">×</button>
             </div>
-            <label class="qr-field">
+            ${welcomeNameKnown056B() ? welcomeAsYouHtml056B() : `<label class="qr-field">
               <span>Nombre</span>
               <input id="qrCustomer024S" name="name" autocomplete="name" placeholder="Ej: Javier" value="${h(document.getElementById("qrCustomer024S")?.value || state.customerName || "")}">
               ${state.customerName ? `<small>Nombre recordado en este dispositivo</small>` : ""}
-            </label>
+            </label>`}
             <div id="qrCartLines024S">${cartRows()}</div>
             <label class="qr-field">
               <span>Notas</span>
@@ -2399,6 +2575,10 @@
       state.company = company && (company.name || company.company_name) ? company : { name: access.company_name || "" };
       state.branding = branding.branding || branding || {};
       state.ui = { bar_menu: access.ui?.bar_menu === true };
+      if (access.ui?.welcome_name === true) {
+        Object.assign(state.ui, { welcome_name: true, welcome_text: String(access.ui.welcome_text || ""), welcome_custom: access.ui.welcome_custom === true,
+          language: String(access.ui.language || "es"), name_max: Number(access.ui.name_max || 30) });
+      }
       state.customerName = storedCustomerName();
       applyAssemblyPublic(assemblyPublic || {});
       if (isAssemblyMode()) {
@@ -2680,6 +2860,7 @@
     state.error = "";
     if (!options.silent) state.message = isAssemblyMode() ? "Acceso activado. Completa tus datos para participar." : "Mesa activada. Ya puedes realizar tu pedido.";
     if (!options.silent) render();
+    if (welcomeOn056B()) setTimeout(() => { showWelcome056B().catch(() => {}); }, 0);
     return data;
   }
 

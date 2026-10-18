@@ -75,6 +75,16 @@ async def close_now(company_id: UUID, reto_id: UUID, body: dict = Body(default={
         raise _err(exc) from None
 
 
+@router.post("/companies/{company_id}/retos/{reto_id}/cancel")
+async def cancel(company_id: UUID, reto_id: UUID, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
+    """Cancelar y reiniciar (dueno, admin o barman): sin ganador, libera el espacio."""
+    await _ensure(db)
+    try:
+        return await svc.cancel(db, company_id, reto_id, who["name"])
+    except RetoError as exc:
+        raise _err(exc) from None
+
+
 @router.post("/companies/{company_id}/retos/{reto_id}/score")
 async def final_score(company_id: UUID, reto_id: UUID, body: dict = Body(...), who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict:
     await _ensure(db)

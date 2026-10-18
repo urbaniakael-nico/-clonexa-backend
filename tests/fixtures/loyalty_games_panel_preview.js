@@ -24,6 +24,10 @@
       podium: [{ place: 1, id: "p0", name: "Camila", score: 10, ms: 102000 }, { place: 2, id: "p1", name: "Ana María Restrepo V", score: 9, ms: 111000 }, { place: 3, id: "p2", name: "Beto", score: 8, ms: 151000 }],
       started_at: iso(-300000), ends_at: iso(-120000), join_url: "https://x/juegos/jugar?r=abc", token: "abc" },
   };
+  if (P.get("round") === "playing") {  // ronda en juego: Terminar ahora / Cancelar y reiniciar
+    live.active = true;
+    Object.assign(live.round, { status: "playing", podium: [], ends_at: iso(95000), closed_at: null });
+  }
   const ctx = { role: ROLE, can: { configure: ROLE === "admin", launch: true, validate: true },
     brand: { name: "The Time Machine", logo_url: "", primary: "#6b5d00", secondary: "#aea924", language: "es", timezone: "America/Bogota" },
     settings: { memory_pairs: 5, memory_times: { 5: 120, 7: 150, 10: 210, 13: 270, 15: 300 }, trivia_seconds: 240, differences_seconds: 180, differences_penalty: 5,
@@ -111,6 +115,7 @@
         if (!document.querySelector(".lg-root .lg-tabs")) return j > 40 ? measure({ button: true }) : setTimeout(() => waitPanel(j + 1), 200);
         const tab = P.get("tab");
         if (tab && tab !== "live") { const b = document.querySelector(`[data-lg-tab="${tab}"]`); if (b) b.click(); }
+        if (P.get("confirm")) setTimeout(() => { const b = document.querySelector(`[data-lg-ask="${P.get("confirm")}"]`); if (b) b.click(); }, 500);
         setTimeout(() => measure({ button: true }), 1000);
       };
       waitPanel();

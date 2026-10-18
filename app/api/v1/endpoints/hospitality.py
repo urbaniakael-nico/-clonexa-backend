@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import re
 import secrets
 import uuid
 from datetime import date as calendar_date
@@ -893,6 +894,46 @@ async def _qr_customer_ui(db: AsyncSession, company_id: uuid.UUID) -> dict[str, 
     return {"bar_menu": settings.get(QR_BAR_MENU_SETTING) is True}
 
 
+# Bienvenida con nombre al activar la mesa (interruptor qr_welcome_name en los
+# ajustes del modulo hospitality, apagado por defecto: hoy solo The Time
+# Machine). La frase la edita el dueno en Ajustes (qr_welcome_text, max. 160;
+# [bar] = nombre del bar). Sin el interruptor el QR queda igual.
+QR_WELCOME_SETTING = "qr_welcome_name"
+QR_WELCOME_TEXT = "qr_welcome_text"
+QR_WELCOME_DEFAULT = "¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?"
+QR_WELCOME_NAME_MAX = 30
+QR_WELCOME_TEXT_MAX = 160
+
+
+async def _qr_welcome(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    result = await db.execute(
+        text(
+            """
+            SELECT cm.enabled, cm.settings
+            FROM company_modules cm
+            JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = :company_id AND lower(m.code) = 'hospitality'
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id)},
+    )
+    row = result.mappings().first()
+    settings = _json(row["settings"], {}) if row else {}
+    settings = settings if isinstance(settings, dict) else {}
+    on = bool(row and row["enabled"] and settings.get(QR_WELCOME_SETTING) is True)
+    return {"on": on, "text": _clean(settings.get(QR_WELCOME_TEXT))[:QR_WELCOME_TEXT_MAX] if on else ""}
+
+
+def _no_html(value: Any) -> str:
+    return " ".join(re.sub(r"<[^>]*>", " ", str(value or "")).replace("<", " ").replace(">", " ").split())
+
+
+def _qr_welcome_name(value: Any) -> str:
+    """Nombre del invitado con la bienvenida: opcional, sin HTML, max. 30."""
+    return _no_html(value)[:QR_WELCOME_NAME_MAX].strip()
+
+
 # "Persona N" automático (carta de bar): cada teléfono que abre la mesa queda
 # registrado en hospitality_table_guests, por activación de mesa, con el
 # número en que llegó. El número nunca se reusa ni se reordena aunque esa
@@ -1006,6 +1047,9 @@ async def _rename_qr_guest_orders(
                 UPDATE hospitality_orders
                 SET people = CAST(:people AS jsonb),
                     customer_name = :customer_name,
+                    metadata = CASE WHEN metadata ? 'guest_name'
+                                    THEN jsonb_set(metadata, '{guest_name}', to_jsonb(CAST(:guest_name AS text)))
+                                    ELSE metadata END,
                     updated_at = NOW()
                 WHERE id = :order_id AND company_id = :company_id
                 """
@@ -1013,6 +1057,7 @@ async def _rename_qr_guest_orders(
             {
                 "people": json.dumps(people, ensure_ascii=False),
                 "customer_name": display_name,
+                "guest_name": display_name,
                 "order_id": str(row["id"]),
                 "company_id": str(company_id),
             },
@@ -1956,6 +2001,11 @@ def _hsp_event_payload(
             customer_names.append(customer)
     customer_name = customer_names[0] if customer_names else ("Cliente barra" if event_type == "bar" else "")
     label = customer_name if event_type == "bar" else location
+    guest_names: list[str] = []
+    for order in valid_orders:
+        guest = _clean((order.get("metadata") or {}).get("guest_name"))
+        if guest and guest not in guest_names:
+            guest_names.append(guest)
 
     return {
         "id": str(event_id or ""),
@@ -1976,6 +2026,7 @@ def _hsp_event_payload(
         "total": total,
         "payment_method": method,
         "payment_label": payment_label,
+        **({"guest_names": guest_names} if guest_names else {}),
     }
 
 
@@ -4719,8 +4770,71 @@ async def get_hospitality_table_access(
         "table": _clean(table),
         "access": _table_access_payload(access, include_code=False),
         "company_name": await _qr_company_name(db, company_id),
-        "ui": await _qr_customer_ui(db, company_id),
+        "ui": {**await _qr_customer_ui(db, company_id), **await _qr_welcome_ui(db, company_id)},
     }
+
+
+async def _qr_welcome_ui(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    welcome = await _qr_welcome(db, company_id)
+    if not welcome["on"]:
+        return {}
+    from app.services import company_locale
+
+    loc = await company_locale.get_company_locale(db, company_id)
+    return {"welcome_name": True, "welcome_text": welcome["text"] or QR_WELCOME_DEFAULT, "welcome_custom": bool(welcome["text"]),
+            "language": loc.get("language") or "es", "name_max": QR_WELCOME_NAME_MAX}
+
+
+class HospitalityQrWelcomeIn(BaseModel):
+    text: str = Field(default="", max_length=400)
+
+
+async def _qr_welcome_reader(company_id: str, request: Request, authorization: str | None = Header(default=None),
+                             db: AsyncSession = Depends(get_db)) -> dict:
+    from app.api.v1.endpoints.core_settings import require_settings_reader
+
+    return await require_settings_reader(company_id, request, authorization, db)
+
+
+async def _qr_welcome_writer(actor: dict = Depends(_qr_welcome_reader)) -> dict:
+    from app.api.v1.endpoints.core_settings import require_settings_writer
+
+    return await require_settings_writer(actor)
+
+
+@router.get("/companies/{company_id}/qr-welcome")
+async def get_qr_welcome(company_id: uuid.UUID, db: AsyncSession = Depends(get_db), _actor: dict = Depends(_qr_welcome_reader)) -> dict[str, Any]:
+    """Frase de bienvenida del QR (Ajustes). 404 sin el interruptor qr_welcome_name."""
+    welcome = await _qr_welcome(db, company_id)
+    if not welcome["on"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bienvenida_no_activa")
+    return {"ok": True, "text": welcome["text"], "default": QR_WELCOME_DEFAULT, "max": QR_WELCOME_TEXT_MAX}
+
+
+@router.put("/companies/{company_id}/qr-welcome")
+async def save_qr_welcome(company_id: uuid.UUID, payload: HospitalityQrWelcomeIn, db: AsyncSession = Depends(get_db),
+                          _actor: dict = Depends(_qr_welcome_writer)) -> dict[str, Any]:
+    """Solo el dueno o el admin (o Admin V2) guarda. Vacia = la frase por defecto."""
+    if not (await _qr_welcome(db, company_id))["on"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bienvenida_no_activa")
+    clean = _no_html(payload.text)
+    if len(clean) > QR_WELCOME_TEXT_MAX:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="frase_muy_larga")
+    await db.execute(
+        text(
+            """
+            UPDATE company_modules cm
+            SET settings = CASE WHEN :text = '' THEN COALESCE(cm.settings, '{}'::jsonb) - :key
+                                ELSE COALESCE(cm.settings, '{}'::jsonb) || jsonb_build_object(:key, CAST(:text AS text)) END,
+                updated_at = NOW()
+            FROM modules m
+            WHERE m.id = cm.module_id AND lower(m.code) = 'hospitality' AND cm.company_id = :company_id
+            """
+        ),
+        {"text": clean, "key": QR_WELCOME_TEXT, "company_id": str(company_id)},
+    )
+    await db.commit()
+    return {"ok": True, "text": clean, "default": QR_WELCOME_DEFAULT, "max": QR_WELCOME_TEXT_MAX}
 
 
 @router.post("/companies/{company_id}/qr-tables/access", status_code=status.HTTP_201_CREATED)
@@ -4885,7 +4999,10 @@ async def get_hospitality_table_account(
     await _require_table_access(db, company_id, table_number, payload.access_code)
     account_id = _clean(payload.account_id)
     if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
-        guest = await _register_qr_guest(db, company_id, table_number, account_id, _qr_typed_name(payload.customer))
+        typed = _qr_typed_name(payload.customer)
+        if typed and (await _qr_welcome(db, company_id))["on"]:
+            typed = _qr_welcome_name(typed)
+        guest = await _register_qr_guest(db, company_id, table_number, account_id, typed)
         if guest and guest["renamed"]:
             await _rename_qr_guest_orders(db, company_id, table_number, account_id, guest["display_name"])
         if guest:
@@ -5616,7 +5733,8 @@ async def hospitality_sales_analytics(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
     timezone_name, business_day = report_settings
     if business_day:
-        return await _hsp_business_analytics(db, company_id, timezone_name, business_day, event_date)
+        out = await _hsp_business_analytics(db, company_id, timezone_name, business_day, event_date)
+        return await _hsp_mark_guest_search(db, company_id, out)
     today = _hsp_local_date(_now(), timezone_name)
     # Include whole shifts closing after the scan boundary; filter by opening later.
     start = datetime.combine(today - timedelta(days=120), datetime.min.time(), _hsp_report_zone(timezone_name))
@@ -5628,7 +5746,7 @@ async def hospitality_sales_analytics(
     for mode, period in (("days", "daily"), ("weeks", "weekly"), ("months", "monthly")):
         aggregated = _hsp_aggregate(shifts, period, timezone_name=timezone_name)
         analytics[mode] = {key: aggregated[key] for key in ("periods", "totals")}
-    return {
+    return await _hsp_mark_guest_search(db, company_id, {
         "ok": True,
         "company_id": str(company_id),
         "timezone": timezone_name,
@@ -5636,7 +5754,13 @@ async def hospitality_sales_analytics(
         "generated_at": _now().isoformat(),
         "analytics": analytics,
         "event_search": _hsp_shift_event_search(orders, accesses, shifts, selected_date, timezone_name),
-    }
+    })
+
+
+async def _hsp_mark_guest_search(db: AsyncSession, company_id: uuid.UUID, out: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(out.get("event_search"), dict) and (await _qr_welcome(db, company_id))["on"]:
+        out["event_search"]["guest_search"] = True
+    return out
 
 
 @router.get("/companies/{company_id}/day-closures")
@@ -5807,12 +5931,18 @@ async def create_hospitality_order(
     customer_name = _clean(payload.customer) or "Cliente barra"
     source = _clean(payload.source) or "client"
     account_id = _clean(payload.account_id)[:120] if _norm(source) == "qr" else ""
+    guest_name = ""
     if _norm(source) == "qr":
         await _require_table_access(db, company_id, table_number, payload.access_code)
         if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
-            guest = await _register_qr_guest(db, company_id, table_number, account_id, _qr_typed_name(payload.customer))
+            welcome_on = (await _qr_welcome(db, company_id))["on"]
+            typed = _qr_typed_name(payload.customer)
+            if typed and welcome_on:
+                typed = _qr_welcome_name(typed)
+            guest = await _register_qr_guest(db, company_id, table_number, account_id, typed)
             if guest:
                 customer_name = guest["display_name"]
+                guest_name = customer_name if welcome_on else ""
                 if guest["renamed"]:
                     await _rename_qr_guest_orders(db, company_id, table_number, account_id, customer_name)
 
@@ -5867,6 +5997,7 @@ async def create_hospitality_order(
                     "source_product": "bar-bot-completo.zip",
                     "payment_label": PAYMENT_LABELS.get(payment_method, "Otro"),
                     "account_id": account_id,
+                    **({"guest_name": guest_name} if guest_name else {}),
                     **(
                         {"waiter": {"id": _clean(payload.waiter_id), "name": _clean(payload.waiter_name)}}
                         if _clean(payload.waiter_id) or _clean(payload.waiter_name)

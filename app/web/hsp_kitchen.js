@@ -51,7 +51,7 @@
     seenComandas = new Set([...(seenComandas || []), ...ids]);
     return comandas
       .filter((c) => fresh.includes(c.order_id))
-      .map((c) => ({ kind: "new_order", title: `Pedido nuevo · ${c.table_number || "Mesa"}`, message: comandaSummary(c) }));
+      .map((c) => ({ kind: "new_order", title: `Pedido nuevo · ${tableLabel(c)}`, message: comandaSummary(c) }));
   }
 
   function h(value) {
@@ -340,6 +340,12 @@
     return `<div class="ktc-delivery">🛵 DOMICILIO · ${h(delivery.customer_name || "")}<small>${h(delivery.address || "")}</small></div>`;
   }
 
+  // Bienvenida con nombre (qr_welcome_name): "Laura · Mesa 4"; sin nombre, la mesa de siempre.
+  function tableLabel(comanda) {
+    const table = comanda.table_number || "Mesa";
+    return comanda.guest_name ? `${comanda.guest_name} · ${table}` : table;
+  }
+
   function comandaCard(comanda) {
     const minutes = minutesOpen(comanda.created_at);
     const cls = timerClass(minutes);
@@ -348,7 +354,7 @@
     return `
       <article class="ktc-card ${cls}" data-brand="cocina.comanda">
         <header>
-          <div class="ktc-table">${h(comanda.table_number || "Mesa")}</div>
+          <div class="ktc-table">${h(tableLabel(comanda))}</div>
           <div class="ktc-meta">
             ${waiterName ? `<span class="ktc-waiter">${h(waiterName)}</span>` : ""}
             <span class="ktc-timer">${Math.floor(minutes)} min</span>
@@ -384,7 +390,7 @@
     return `
       <article class="ktc-card ktc-card-col ${cls}" data-brand="cocina.comanda">
         <header>
-          <div class="ktc-table">${h(comanda.table_number || "Mesa")}</div>
+          <div class="ktc-table">${h(tableLabel(comanda))}</div>
           <div class="ktc-meta">
             ${waiterName ? `<span class="ktc-waiter">${h(waiterName)}</span>` : ""}
             <span class="ktc-timer">${isListo ? "lista hace " : ""}${Math.floor(minutes)} min</span>
@@ -434,7 +440,7 @@
       <div class="ktc-history">
         ${state.history.map((comanda) => `
           <div class="ktc-history-row">
-            <strong>${h(comanda.table_number || "Mesa")}</strong>
+            <strong>${h(tableLabel(comanda))}</strong>
             <span>${(comanda.items || []).map((item) => `${h(itemQuantity(item))} ${h(item.name)}`).join(" · ")}</span>
             <span class="ktc-history-meta">${comanda.waiter && comanda.waiter.name ? `${h(comanda.waiter.name)} · ` : ""}entregada ${h(historyTime(comanda.delivered_at))}</span>
           </div>`).join("") || `<div class="ktc-empty">Todavía no hay comandas entregadas hoy.</div>`}
@@ -590,7 +596,7 @@
     .ktc-card.ktc-timer-red{border-color:#ef4444;animation:ktcPulse 1.4s ease-in-out infinite}
     @keyframes ktcPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}
     .ktc-card header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:10px}
-    .ktc-table{font-size:44px;font-weight:1000;line-height:1;letter-spacing:-.02em}
+    .ktc-table{font-size:44px;font-weight:1000;line-height:1;letter-spacing:-.02em;overflow-wrap:anywhere;min-width:0}
     .ktc-meta{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
     .ktc-delivery{display:grid;gap:2px;margin:6px 0;padding:8px 10px;border-radius:12px;background:rgba(56,189,248,.18);color:#bae6fd;font-weight:900}
     .ktc-delivery small{font-size:12px;font-weight:700;color:#e0f2fe}

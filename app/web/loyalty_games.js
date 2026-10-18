@@ -29,6 +29,12 @@
     documento_invalido: "Documento inválido.",
     rango_invalido: "Rango inválido.",
     opciones_repetidas: "Las tres opciones deben ser distintas.",
+    la_ronda_ya_termino: "La ronda ya terminó.",
+  };
+  // Terminar ahora / Cancelar y reiniciar: diálogo dentro de la página (nunca ventanas del navegador).
+  const CONFIRM = {
+    close: ["Terminar ahora", "Se cierra con el ranking actual y la pantalla del bar muestra el podio.", "Sí, terminar"],
+    cancel: ["Cancelar y reiniciar", "Se anula sin ganador. La pantalla del bar vuelve a «en espera», los jugadores ven «Este juego fue cancelado» y puedes abrir otro juego.", "Sí, cancelar"],
   };
   const LEVEL_OPTS = [1, 2, 3, 4, 5];
   const MEM_OPTS = [60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420];
@@ -37,7 +43,7 @@
   const PENALTY_OPTS = [0, 2, 3, 5, 8, 10, 15];
 
   const model = { tab: "live", ctx: null, live: null, questions: [], history: null, draft: null, qEdit: null, error: "", info: "", busy: "",
-    denied: "", lastSpin: null, validation: null, loading: false, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null, scene: null } };
+    denied: "", lastSpin: null, validation: null, loading: false, confirm: null, form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null, scene: null } };
   let ctx = null;
   let bound = false;
   let timer = null;
@@ -195,8 +201,8 @@
     if (!r) return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Ronda actual"))}</h2><p class="lg-muted">${h(T("No hay ronda esta noche."))}</p></section>`;
     const all = arr(r.all_players).length ? r.all_players : arr(r.players);
     const actions = r.status === "registration"
-      ? `<button type="button" class="client-btn lg-btn is-primary" data-lg-start="${h(r.id)}" ${model.busy ? "disabled" : ""}>▶ ${h(T("Iniciar"))}</button><button type="button" class="lg-btn" data-lg-close="${h(r.id)}">${h(T("Cancelar registro"))}</button>`
-      : r.status === "playing" ? `<button type="button" class="lg-btn" data-lg-close="${h(r.id)}" ${model.busy ? "disabled" : ""}>■ ${h(T("Cerrar ronda"))}</button>` : "";
+      ? `<button type="button" class="client-btn lg-btn is-primary" data-lg-start="${h(r.id)}" ${model.busy ? "disabled" : ""}>▶ ${h(T("Iniciar"))}</button>${askBtn("cancel", r.id)}`
+      : r.status === "playing" ? `<button type="button" class="client-btn lg-btn is-primary" data-lg-ask="close" data-lg-round="${h(r.id)}" ${model.busy ? "disabled" : ""}>■ ${h(T("Terminar ahora"))}</button>${askBtn("cancel", r.id)}` : "";
     const podium = arr(r.podium);
     return `<section class="client-panel lg-card"><header class="lg-round-head"><div><h2 class="lg-h">${h(T(KIND[r.kind]))}</h2>
         <p class="lg-muted">${h(r.prize ? T("Premio: {p}", { p: r.prize }) : T("Sin premio definido"))}</p></div>
@@ -208,6 +214,20 @@
       <h3 class="lg-h3">${h(T("Inscritos ({n})", { n: all.filter((p) => !p.hidden).length }))}</h3>
       <ul class="lg-players">${all.map((p) => `<li class="${p.hidden ? "is-hidden" : ""}"><span>${h(p.name)}${p.validated ? " ✓" : ""}</span>${p.hidden ? `<small>${h(T("Oculto"))}</small>` : `<button type="button" class="lg-btn is-small" data-lg-hide="${h(p.id)}" data-lg-round="${h(r.id)}">${h(T("Quitar de la pantalla"))}</button>`}</li>`).join("") || `<li class="lg-muted">${h(T("Aún no hay inscritos."))}</li>`}</ul>
       ${r.status === "closed" && podium.length ? validateBox(r) : ""}</section>`;
+  }
+
+  function askBtn(action, id) {
+    return `<button type="button" class="lg-btn" data-lg-ask="${action}" data-lg-round="${h(id)}" ${model.busy ? "disabled" : ""}>${action === "cancel" ? "↺ " : ""}${h(T(CONFIRM[action][0]))}</button>`;
+  }
+
+  function confirmDialog() {
+    const c = model.confirm;
+    if (!c || !CONFIRM[c.action]) return "";
+    const [title, body, yes] = CONFIRM[c.action];
+    return `<div class="lg-dialog-back" data-lg-dialog><div class="lg-dialog client-panel" role="dialog" aria-modal="true" aria-labelledby="lgDlgT" aria-describedby="lgDlgB">
+      <h2 class="lg-h" id="lgDlgT">${h(T(title))}</h2><p id="lgDlgB">${h(T(body))}</p>
+      <div class="lg-actions"><button type="button" class="client-btn lg-btn is-primary" data-lg-confirm ${model.busy ? "disabled" : ""}>${h(T(yes))}</button>
+        <button type="button" class="lg-btn" data-lg-unconfirm>${h(T("Volver"))}</button></div></div></div>`;
   }
 
   function validateBox(r) {
@@ -285,7 +305,7 @@
     if (!hst) return `<section class="client-panel lg-card"><p class="lg-muted">${h(T("Cargando…"))}</p></section>`;
     return `<section class="client-panel lg-card"><h2 class="lg-h">${h(T("Rondas"))}</h2><div class="lg-table" role="table">
         <div class="lg-tr is-head" role="row"><span>${h(T("Noche"))}</span><span>${h(T("Juego"))}</span><span>${h(T("Premio"))}</span><span>${h(T("Jugadores"))}</span><span>${h(T("Podio"))}</span></div>
-        ${arr(hst.rounds).map((r) => `<div class="lg-tr" role="row"><span>${h(day(r.game_day))} ${h(clock(r.created_at))}</span><span>${h(T(KIND[r.kind] || r.kind))} · ${h(T(STATUS[r.status] || r.status))}</span><span>${h(r.prize || "—")}</span><span>${h(r.players)}</span><span>${arr(r.results).map((p) => h(`${p.place}. ${p.name}${p.score !== undefined ? ` (${resultLabel(r.kind, p.score, r.goal, p.ms)})` : ""}`)).join(" · ") || "—"}${r.validated ? ` · ${h(T("{n} validados", { n: r.validated }))}` : ""}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin rondas todavía."))}</p>`}</div></section>
+        ${arr(hst.rounds).map((r) => `<div class="lg-tr" role="row"><span>${h(day(r.game_day))} ${h(clock(r.created_at))}</span><span>${h(T(KIND[r.kind] || r.kind))} · ${h(T(STATUS[r.status] || r.status))}${r.cancelled_by ? ` · ${h(clock(r.cancelled_at))} · ${h(r.cancelled_by)}` : ""}</span><span>${h(r.prize || "—")}</span><span>${h(r.players)}</span><span>${arr(r.results).map((p) => h(`${p.place}. ${p.name}${p.score !== undefined ? ` (${resultLabel(r.kind, p.score, r.goal, p.ms)})` : ""}`)).join(" · ") || "—"}${r.validated ? ` · ${h(T("{n} validados", { n: r.validated }))}` : ""}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin rondas todavía."))}</p>`}</div></section>
       <section class="client-panel lg-card"><h2 class="lg-h">${h(T("Giros de la ruleta"))}</h2><div class="lg-table is-draws" role="table">
         <div class="lg-tr is-head" role="row"><span>${h(T("Hora"))}</span><span>${h(T("Número"))}</span><span>${h(T("Rango"))}</span><span>${h(T("Premio"))}</span><span>${h(T("Giró"))}</span></div>
         ${arr(hst.draws).map((d) => `<div class="lg-tr" role="row"><span>${h(day(d.game_day))} ${h(clock(d.spun_at))}</span><span><b>${h(d.number)}</b></span><span>${h(`${d.range_min}–${d.range_max}`)}</span><span>${h(d.prize || "—")}</span><span>${h(d.spun_by)}</span></div>`).join("") || `<p class="lg-muted">${h(T("Sin giros todavía."))}</p>`}</div></section>`;
@@ -296,7 +316,7 @@
     const body = !model.ctx ? `<section class="client-panel lg-card"><p class="lg-muted">${h(T("Cargando…"))}</p></section>`
       : model.tab === "config" ? configView() : model.tab === "questions" ? questionsView() : model.tab === "history" ? historyView() : liveView();
     return `<div class="lg-root" data-lg-root>${head()}${model.ctx ? tabs() : ""}
-      ${model.error ? `<div class="lg-notice" role="alert">${h(model.error)}</div>` : ""}${model.info ? `<div class="lg-notice is-ok" role="status">${h(model.info)}</div>` : ""}${body}</div>`;
+      ${model.error ? `<div class="lg-notice" role="alert">${h(model.error)}</div>` : ""}${model.info ? `<div class="lg-notice is-ok" role="status">${h(model.info)}</div>` : ""}${body}${confirmDialog()}</div>`;
   }
 
   function draw() {
@@ -339,7 +359,17 @@
       if (v === "differences") body.scene = model.form.scene || model.ctx.settings.differences_scene;
       act("open", async () => { model.live = await call("/rounds", "POST", body); model.validation = null; schedule(); }); return; }
     if ((v = attr("data-lg-start"))) { act("start", async () => { model.live = await call(`/rounds/${v}/start`, "POST"); schedule(); }); return; }
-    if ((v = attr("data-lg-close"))) { act("close", async () => { model.live = await call(`/rounds/${v}/close`, "POST"); }); return; }
+    if ((v = attr("data-lg-ask"))) { model.confirm = { action: v, id: attr("data-lg-round") }; draw(); return; }
+    if (t.closest("[data-lg-unconfirm]") || (t.hasAttribute && t.hasAttribute("data-lg-dialog"))) { model.confirm = null; draw(); return; }
+    if (t.closest("[data-lg-confirm]") && model.confirm) {
+      const c = model.confirm;
+      act(c.action, async () => {
+        model.live = await call(`/rounds/${c.id}/${c.action === "cancel" ? "cancel" : "close"}`, "POST");
+        model.confirm = null;
+        model.info = c.action === "cancel" ? T("Juego cancelado: la pantalla del bar quedó en espera.") : T("Juego terminado: la pantalla muestra el podio.");
+      });
+      return;
+    }
     if ((v = attr("data-lg-hide"))) { const rid = attr("data-lg-round"); act("hide", async () => { model.live = await call(`/rounds/${rid}/players/${v}/hide`, "POST"); }); return; }
     if ((v = attr("data-lg-validate"))) {
       const body = { place: Number(model.form.place) || 1, document: model.form.doc };
@@ -370,6 +400,10 @@
         model.ctx.levels = Object.fromEntries([1, 2, 3, 4, 5].map((n) => [String(n), lv[String(n)] || 0]));
       });
     }
+  }
+
+  function onKey(event) {
+    if (event.key === "Escape" && model.confirm && ctx) { model.confirm = null; draw(); }
   }
 
   function onInput(event) {
@@ -405,9 +439,10 @@
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
       document.addEventListener("input", onInput);
+      document.addEventListener("keydown", onKey);
       bound = true;
     }
-    Object.assign(model, { tab: "live", ctx: null, live: null, draft: null, qEdit: null, error: "", info: "", denied: "", lastSpin: null, validation: null,
+    Object.assign(model, { tab: "live", ctx: null, live: null, draft: null, qEdit: null, error: "", info: "", denied: "", lastSpin: null, validation: null, confirm: null,
       form: { range: 0, spinPrize: "", prize: {}, place: 1, doc: "", pairs: null, scene: null } });
     draw();
     await loadAll();

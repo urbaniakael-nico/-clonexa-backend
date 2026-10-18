@@ -60,6 +60,9 @@
     {"key": "loyalty_games", "label": "Juegos en vivo", "module": "loyalty", "group": "Fidelización",
      "description": "Ruleta de la rifa, Memoria relámpago y Trivia con pantalla del bar (enlace con token), registro por QR con documento cifrado (HMAC, purga a 30 días) y podio. Lo lanza el barman; el dueño configura premios, tiempos y preguntas. Lo existente de Fidelización no cambia.",
      "delicate": false},
+    {"key": "qr_welcome_name", "label": "Nombre al entrar a la mesa", "module": "hospitality", "group": "QR",
+     "description": "Al activar la mesa con la clave, el QR da la bienvenida con el logo y una frase editable en Ajustes y pregunta \"¿Cómo te llamas?\" (opcional, máx. 30). El nombre queda en la sesión del invitado, no se vuelve a pedir al pedir y se ve como \"Laura · Mesa 4\" en barra, cocina, cuentas y Reportes (búsqueda por nombre).",
+     "delicate": false, "requires_modules": ["qr"]},
     {"key": "loyalty_retos_v2", "label": "Retos para las mesas", "module": "loyalty", "group": "Fidelización",
      "description": "Pantalla nueva de Sorteos de consumo: reto de consumo, polla de marcador y concurso con asistente de 3 pasos, uno activo por tipo, cierre de pronósticos, marcador final, ganador según el tipo (sorteo seguro en Sí/No y V/F), desempate de la polla con Juego en vivo, historial y premio pendiente/entregado. El ranking de consumo no cambia y los retos que ya existían siguen.",
      "delicate": true, "delicate_reason": "Cambia la pantalla completa de Fidelización y cómo se cierran pollas y concursos (ganador y premio)."}

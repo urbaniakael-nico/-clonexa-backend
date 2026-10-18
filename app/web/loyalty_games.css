@@ -46,6 +46,9 @@
 .lg-notice { margin: 0; padding: 10px 14px; border-radius: var(--lg-r); border: 1px solid var(--lg-line); border-left: 4px solid var(--lg-bad); background: color-mix(in srgb, var(--cx-bg) 92%, transparent); color: var(--lg-text); }
 .lg-notice.is-ok { border-left-color: var(--lg-ok); }
 .lg-denied { margin: 0; font-size: 16px; font-weight: 700; }
+.lg-dialog-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--cx-bg) 55%, rgba(0, 0, 0, .6)); }
+.lg-root .lg-dialog { width: min(460px, 100%); display: grid; gap: 12px; background: var(--cx-bg); border: 1px solid var(--lg-line); box-shadow: 0 24px 60px rgba(0, 0, 0, .45); }
+.lg-dialog p { margin: 0; font-size: 14.5px; line-height: 1.4; }
 
 .lg-card { display: grid; gap: 10px; }
 .lg-root .client-panel h2.lg-h { margin: 0; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }

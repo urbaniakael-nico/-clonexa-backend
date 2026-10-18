@@ -49,7 +49,7 @@ def _migrations() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    for name in ("024j_loyalty_games", "024k_loyalty_games_v2", "024m_loyalty_retos_v2"):
+    for name in ("024j_loyalty_games", "024k_loyalty_games_v2", "024m_loyalty_retos_v2", "024n_loyalty_cancel"):
         module = importlib.import_module(f"migrations.versions.{name}")
         module.op = Op()
         module.upgrade()
@@ -227,7 +227,7 @@ async def test_one_active_per_type_and_consumption_ranking_is_the_same(pg_url):
         now = datetime.now(timezone.utc)
         reto = await svc.create(db, cid, {"type": "consumption", "title": "Reto", "prize": "1/4 de ron", "registration_ends_at": _iso(now + timedelta(minutes=30)),
                                           "starts_at": _iso(now + timedelta(minutes=30)), "ends_at": _iso(now + timedelta(hours=3))}, "dueno")
-        assert reto["stage"] == "registration" and reto["actions"] == ["close_now"] and reto["deadline_label"] == "Inscripción cierra en"
+        assert reto["stage"] == "registration" and reto["actions"] == ["close_now", "cancel"] and reto["deadline_label"] == "Inscripción cierra en"
         with pytest.raises(RetoError) as exc:
             await svc.create(db, cid, {"type": "consumption", "prize": "x", "registration_ends_at": _iso(now + timedelta(minutes=5)),
                                        "starts_at": _iso(now + timedelta(minutes=5)), "ends_at": _iso(now + timedelta(hours=1))}, "dueno")
@@ -294,7 +294,7 @@ async def test_score_pool_close_of_predictions_and_exact_score(pg_url):
         qr = await hsp.get_active_loyalty_campaign(u, "Mesa 4", db)
         assert qr["score_campaign"]["predictions_open"] is False and qr["score_prediction"] is None
         tied = await svc.set_score(db, cid, rid, 2, 1, "barman@bar")
-        assert tied["result_status"] == "tie" and tied["status"] == "active" and tied["actions"] == ["tiebreak", "pick_winner"]
+        assert tied["result_status"] == "tie" and tied["status"] == "active" and tied["actions"] == ["tiebreak", "pick_winner", "cancel"]
         assert [m["table_number"] for m in tied["result"]["matches"]] == ["Mesa 1", "Mesa 3"]
         qr = await hsp.get_active_loyalty_campaign(u, "Mesa 3", db)
         assert [t["table_key"] for t in qr["score_campaign"]["tied_tables"]] == ["mesa 1", "mesa 3"]
@@ -478,7 +478,7 @@ async def test_contest_modes_and_secret_never_reaches_the_qr(pg_url):
         await _vote(db, cid, reg["id"], "Mesa 3", "registered")
         await _vote(db, cid, reg["id"], "Mesa 4", "registered")
         pick = await svc.close_now(db, cid, reg["id"], "dueno")
-        assert pick["result_status"] == "pick" and pick["actions"] == ["pick_winner"] and pick["status"] == "active"
+        assert pick["result_status"] == "pick" and pick["actions"] == ["pick_winner", "cancel"] and pick["status"] == "active"
         with pytest.raises(RetoError):
             await svc.pick_winner(db, cid, reg["id"], "mesa 1", "dueno")
         assert (await svc.pick_winner(db, cid, reg["id"], "mesa 4", "dueno"))["winner"]["team_name"] == "Voz Mesa 4"
@@ -505,8 +505,8 @@ async def test_existing_retos_show_and_work_and_switch_off_keeps_the_old_screen(
         legacy_before = json.dumps(await hsp.get_active_loyalty_campaign(u_off, "Mesa 1", db), default=str, sort_keys=True)
         st = await svc.state(db, cid, "admin")
         pool, vote = st["active"]["score_pool"], st["active"]["vote_poll"]
-        assert pool["title"] == "Polla vieja" and pool["rules_version"] == 1 and pool["actions"] == ["set_score"], "en curso, con lo que falta"
-        assert vote["title"] == "¿Si o no?" and vote["actions"] == ["close_now"]
+        assert pool["title"] == "Polla vieja" and pool["rules_version"] == 1 and pool["actions"] == ["set_score", "cancel"], "en curso, con lo que falta"
+        assert vote["title"] == "¿Si o no?" and vote["actions"] == ["close_now", "cancel"]
         await _predict(db, cid, pool["id"], "Mesa 1", 1, 0)  # sin "pronosticos hasta": como siempre
         assert (await svc.set_score(db, cid, pool["id"], 1, 0, "dueno"))["winner"]["table_number"] == "Mesa 1"
         await _vote(db, cid, vote["id"], "Mesa 2", "yes")

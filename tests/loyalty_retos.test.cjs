@@ -154,7 +154,7 @@ test('en curso: etapa, cuenta regresiva, participantes, conteo y el botón de lo
   const cons = { id: 'c1', campaign_type: 'consumption', title: 'Reto', prize: 'Ron', status: 'active', stage: 'playing', deadline: '2026-10-19T05:00:00Z',
     deadline_label: 'El torneo cierra en', actions: ['close_now'], participants: 2, leaderboard: [{ rank: 1, team_name: 'Los 2', table_number: 'Mesa 2', orders_count: 2, total: 90000 }] };
   const vote = { id: 'v1', campaign_type: 'vote_poll', vote_mode: 'participants', title: 'Karaoke', prize: 'Shots', status: 'active', stage: 'registration', description: '¿Quién cantó mejor?',
-    deadline: '2026-10-19T02:30:00Z', deadline_label: 'Votación cierra en', actions: ['close_now'], participants: 4, results: [{ key: 'option_1', label: 'Ana', count: 3, percent: 75 }] };
+    deadline: '2026-10-19T02:30:00Z', deadline_label: 'Votación cierra en', actions: ['close_now', 'cancel'], participants: 4, results: [{ key: 'option_1', label: 'Ana', count: 3, percent: 75 }] };
   const R = retos(ST({ active: { consumption: cons, score_pool: tie, vote_poll: vote } }));
   let html = R.view();
   assert.match(html, /<li class="is-done" >Inscripción<\/li><li class="is-done" >En juego<\/li><li class="is-on" aria-current="step">Resultado<\/li>/);
@@ -163,13 +163,15 @@ test('en curso: etapa, cuenta regresiva, participantes, conteo y el botón de lo
   assert.match(html, /Marcador final: <b>Colombia 2 - 1 Argentina<\/b>[\s\S]*Empate: 2 mesas acertaron el marcador exacto\./);
   assert.match(html, /Desempatar con Juego en vivo/);
   assert.match(html, /O elige el ganador/);
-  assert.match(html, /Cerrar votación/);
+  assert.match(html, /Terminar ahora/);
+  assert.match(html, /data-rt-ask="v1:cancel"[^>]*>↺ Cancelar y reiniciar/);
   assert.match(html, /\$\s?90\.000/);
   R.model.confirm = 'p1:tiebreak';
   html = R.view();
-  assert.match(html, /¿Seguro\?[\s\S]*data-rt-do="tiebreak" data-rt-id="p1"/, 'confirmación en la tarjeta, sin ventanas del navegador');
+  assert.match(html, /role="dialog" aria-modal="true"[\s\S]*Desempatar con Juego en vivo[\s\S]*data-rt-do="tiebreak" data-rt-id="p1"/, 'diálogo de confirmación en la página, sin ventanas del navegador');
   assert.doesNotMatch(SRC, /\bconfirm\(|\balert\(|\bprompt\(/);
   // Desempate abierto: lleva a Juegos en vivo y no deja elegir a mano.
+  R.model.confirm = '';
   R.model.st.active.score_pool = { ...tie, tiebreak: { round_id: 'g1', kind: 'trivia', status: 'registration', players: 1 } };
   html = R.view();
   assert.match(html, /Desempate en Juegos en vivo: Trivia Máquina del tiempo · Registro abierto · 1 inscrito\(s\)[\s\S]*Abrir Juegos en vivo/);
@@ -184,7 +186,7 @@ test('en curso: etapa, cuenta regresiva, participantes, conteo y el botón de lo
   assert.match(R.view(), /data-rt-f="score_a"[\s\S]*data-rt-f="score_b"[\s\S]*Poner marcador final/);
   // Sí/No de antes (sin respuesta guardada): el bar la indica al cerrar.
   R.model.st.active.vote_poll = { ...vote, vote_mode: 'yes_no', secret_answer_key: '', results: [] };
-  assert.match(R.view(), /¿Cuál era la respuesta correcta\?[\s\S]*Cerrar ahora/);
+  assert.match(R.view(), /¿Cuál era la respuesta correcta\?[\s\S]*Terminar ahora/);
 });
 
 test('historial y premios: ganador, premio, fecha y validación (pendiente → entregado)', () => {
@@ -210,7 +212,7 @@ test('textos por t(): todo tiene inglés y francés en el diccionario único', (
   const w = {};
   vm.runInContext(DICT, vm.createContext({ window: w, Object }));
   const D = w.CX_I18N_DICT;
-  for (const b of SRC.matchAll(/const (?:TYPES|HOW|BUSY|MODES|MODE_HOW|ANSWERS|STAGES|GAMES|ROUND|SOURCES|OUTCOMES|ERRORS) = \{([\s\S]*?)\};/g)) {
+  for (const b of SRC.matchAll(/const (?:TYPES|HOW|BUSY|MODES|MODE_HOW|ANSWERS|STAGES|GAMES|ROUND|SOURCES|OUTCOMES|ERRORS|CONFIRM_TITLES|CONFIRM_BODY) = \{([\s\S]*?)\};/g)) {
     for (const m of b[1].matchAll(/:\s*"([^"]+)"/g)) seen.add(m[1]);
   }
   for (const src of [SRC, PLAY, SCREEN]) for (const m of src.matchAll(/T\("([^"]*)"/g)) seen.add(m[1]);
@@ -235,8 +237,8 @@ test('estilos: tema del panel, sin desborde (minmax 0 y 375 px) y AA en los boto
 test('client.js: la pantalla nueva solo con el interruptor; si no, Fidelización de siempre', () => {
   assert.match(CLIENT, /async function renderHospitalityLoyaltyModule024Z\(\) \{\n    if \(await cxLoyRetosOpen056A\(\)\) return;\n    cxHspLoyaltyStyles024Z\(\);/);
   assert.match(CLIENT, /fetch\(`\$\{API\}\/loyalty-retos\/companies\/\$\{encodeURIComponent\(companyId\)\}\/state`, \{ headers: authHeaders\(\) \}\)\n\s+\.then\(\(res\) => res\.ok \|\| res\.status === 403\)/);
-  assert.match(CLIENT, /\/client-static\/loyalty_retos\.js\?v=056A/);
-  assert.match(CLIENT, /\/client-static\/loyalty_retos\.css\?v=056A/);
+  assert.match(CLIENT, /\/client-static\/loyalty_retos\.js\?v=056B/);
+  assert.match(CLIENT, /\/client-static\/loyalty_retos\.css\?v=056B/);
   assert.match(CLIENT, /openGames: \(\) => cxLoyGamesOpen055B\("loyalty"\)/);
   assert.match(CLIENT, /<h1 class="client-title">Sorteos de consumo<\/h1>/, 'la pantalla vieja sigue igual');
   assert.match(SRC, /Authorization: `Bearer \$\{t\}`/, 'siempre con la sesión');

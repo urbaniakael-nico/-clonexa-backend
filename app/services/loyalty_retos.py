@@ -162,23 +162,23 @@ def stage_of(row: dict, now: datetime) -> dict:
         return {"stage": "result", "deadline": None, "deadline_label": "", "actions": ["deliver"] if row.get("prize_status") == "pending" else []}
     if rs in ("tie", "pick"):
         acts = ["tiebreak", "pick_winner"] if t == "score_pool" else ["pick_winner"]
-        return {"stage": "result", "deadline": None, "deadline_label": "", "actions": acts}
+        return {"stage": "result", "deadline": None, "deadline_label": "", "actions": [*acts, "cancel"]}
     if t == "consumption":
         reg, starts, ends = _aware(row.get("registration_ends_at")), _aware(row["starts_at"]), _aware(row["ends_at"])
         if reg and now < reg:
-            return {"stage": "registration", "deadline": _iso(reg), "deadline_label": "Inscripción cierra en", "actions": ["close_now"]}
+            return {"stage": "registration", "deadline": _iso(reg), "deadline_label": "Inscripción cierra en", "actions": ["close_now", "cancel"]}
         if now < starts:
-            return {"stage": "playing", "deadline": _iso(starts), "deadline_label": "El torneo empieza en", "actions": ["close_now"]}
-        return {"stage": "playing", "deadline": _iso(ends), "deadline_label": "El torneo cierra en", "actions": ["close_now"]}
+            return {"stage": "playing", "deadline": _iso(starts), "deadline_label": "El torneo empieza en", "actions": ["close_now", "cancel"]}
+        return {"stage": "playing", "deadline": _iso(ends), "deadline_label": "El torneo cierra en", "actions": ["close_now", "cancel"]}
     if t == "score_pool":
         close = _aware(row.get("predictions_close_at"))
         if close and now < close:
-            return {"stage": "registration", "deadline": _iso(close), "deadline_label": "Pronósticos cierran en", "actions": []}
-        return {"stage": "playing", "deadline": None, "deadline_label": "", "actions": ["set_score"]}
+            return {"stage": "registration", "deadline": _iso(close), "deadline_label": "Pronósticos cierran en", "actions": ["close_now", "cancel"]}
+        return {"stage": "playing", "deadline": None, "deadline_label": "", "actions": ["set_score", "cancel"]}
     ends = _aware(row["ends_at"])
     mode = row.get("vote_mode") or "registration"
     label = "Inscripción cierra en" if mode == "registration" else "Votación cierra en" if mode == "participants" else "Respuestas cierran en"
-    return {"stage": "registration", "deadline": _iso(ends), "deadline_label": label, "actions": ["close_now"]}
+    return {"stage": "registration", "deadline": _iso(ends), "deadline_label": label, "actions": ["close_now", "cancel"]}
 
 
 # ---------------------------------------------------------------- lectura
@@ -426,8 +426,15 @@ async def close_now(db: AsyncSession, company_id: Any, reto_id: Any, actor: str,
         raise RetoError("el_reto_ya_tiene_resultado")
     t = row["campaign_type"]
     if t == "score_pool":
-        await db.rollback()
-        raise RetoError("la_polla_se_cierra_con_el_marcador", 422)
+        close = _aware(row.get("predictions_close_at"))
+        if close and close <= now:
+            await db.rollback()
+            raise RetoError("pronosticos_ya_cerrados")
+        await db.execute(text("""UPDATE hospitality_loyalty_campaigns SET predictions_close_at = :n, registration_ends_at = LEAST(registration_ends_at, :n),
+            rules_version = GREATEST(rules_version, :rules), updated_at = :n WHERE company_id::text = :c AND id::text = :i"""),
+                         {"n": now, "rules": RULES, "c": str(company_id), "i": str(row["id"])})
+        await db.commit()
+        return await view(db, await _row(db, company_id, reto_id), now)
     secret = row.get("secret_answer_key") or ""
     if t == "vote_poll":
         mode = _hsp()._vote_poll_mode(row.get("vote_mode"))
@@ -520,6 +527,30 @@ async def pick_winner(db: AsyncSession, company_id: Any, reto_id: Any, key: str,
     outcome = {**result, "status": "winner", "source": "bar", "chosen_by": actor[:200], "winner": winner}
     await _finish(db, company_id, row, outcome, actor, now)
     await db.commit()
+    return await view(db, await _row(db, company_id, reto_id), now)
+
+
+async def cancel(db: AsyncSession, company_id: Any, reto_id: Any, actor: str, now: Optional[datetime] = None) -> dict:
+    """Cancelar y reiniciar: anula el reto SIN ganador y libera el espacio para otro
+    del mismo tipo. El QR deja de mostrarlo; queda en el historial como Cancelado
+    con hora y quien. Si tenia un desempate abierto en Juegos en vivo, tambien se cancela."""
+    now = now or _now()
+    row = await _row(db, company_id, reto_id, lock=True)
+    if row["status"] != "active":
+        await db.rollback()
+        raise RetoError("el_reto_ya_termino")
+    await db.execute(text("""UPDATE hospitality_loyalty_campaigns SET status = 'cancelled', result_status = 'cancelled', winner = NULL, prize_status = '',
+        closed_at = :n, closed_by = :by, ends_at = LEAST(ends_at, :n), rules_version = GREATEST(rules_version, :rules), updated_at = :n
+        WHERE company_id::text = :c AND id::text = :i"""), {"n": now, "by": actor[:200], "rules": RULES, "c": str(company_id), "i": str(row["id"])})
+    await db.commit()
+    if row.get("tiebreak_round_id"):
+        from app.services import loyalty_games as games
+        from app.services.loyalty_games_engine import GameError
+
+        try:
+            await games.cancel_round(db, company_id, row["tiebreak_round_id"], actor, now)
+        except GameError:
+            await db.rollback()  # ya habia terminado
     return await view(db, await _row(db, company_id, reto_id), now)
 
 
@@ -640,7 +671,7 @@ async def history(db: AsyncSession, company_id: Any, limit: int = 40) -> list[di
     out = []
     for r in rows:
         res = _json(r["result"], {}) or {}
-        out.append({"id": r["id"], "type": r["campaign_type"], "title": r["title"], "prize": r["prize"], "team_a": r["team_a"], "team_b": r["team_b"],
+        out.append({"id": r["id"], "type": r["campaign_type"], "title": r["title"], "status": r["status"], "prize": r["prize"], "team_a": r["team_a"], "team_b": r["team_b"],
                     "vote_mode": r["vote_mode"], "result_status": r["result_status"] or "", "winner": _json(r["winner"], None),
                     "final_score": {"score_a": res["score_a"], "score_b": res["score_b"]} if "score_a" in res else None,
                     "source": res.get("source") or "", "prize_status": r["prize_status"] or "", "prize_delivered_at": _iso(r["prize_delivered_at"]),

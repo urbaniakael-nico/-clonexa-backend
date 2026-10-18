@@ -51,7 +51,7 @@ def _migration() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    for name, parent in (("024j_loyalty_games", "024i_shifts_v1"), ("024k_loyalty_games_v2", "024j_loyalty_games")):
+    for name, parent in (("024j_loyalty_games", "024i_shifts_v1"), ("024k_loyalty_games_v2", "024j_loyalty_games"), ("024n_loyalty_cancel", "024m_loyalty_retos_v2")):
         module = importlib.import_module(f"migrations.versions.{name}")
         module.op = Op()
         module.upgrade()

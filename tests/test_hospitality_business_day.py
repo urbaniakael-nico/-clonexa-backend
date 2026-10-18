@@ -156,6 +156,7 @@ async def test_hospitality_analytics_uses_business_day_only_with_the_switch(monk
     legacy = AsyncMock(side_effect=AssertionError("no debe usar la jornada por cierres"))
     monkeypatch.setattr(hsp, "_hsp_load_shift_sources", legacy)
 
+    monkeypatch.setattr(hsp, "_qr_welcome", AsyncMock(return_value={"on": False, "text": ""}))  # qr_welcome_name apagado
     data = await hsp.hospitality_sales_analytics(company_id, db=object(), event_date=date(2026, 9, 23))
 
     assert data["business_day"] == {"enabled": True, "open": "18:00", "close": "04:00"}
@@ -183,6 +184,7 @@ async def test_hospitality_other_companies_keep_closure_based_reports(monkeypatc
     monkeypatch.setattr(hsp, "_hsp_business_analytics", AsyncMock(side_effect=AssertionError("no aplica")))
     monkeypatch.setattr(hsp, "_hsp_load_shift_sources", AsyncMock(return_value=([], [], [], [])))
 
+    monkeypatch.setattr(hsp, "_qr_welcome", AsyncMock(return_value={"on": False, "text": ""}))  # qr_welcome_name apagado
     data = await hsp.hospitality_sales_analytics(company_id, db=object(), event_date=date(2026, 9, 23))
 
     assert "business_day" not in data

@@ -212,11 +212,11 @@
           const link = document.createElement("link");
           link.id = "cxLoyGamesCss055B";
           link.rel = "stylesheet";
-          link.href = "/client-static/loyalty_games.css?v=055B";
+          link.href = "/client-static/loyalty_games.css?v=056B";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/loyalty_games.js?v=055B";
+        script.src = "/client-static/loyalty_games.js?v=056B";
         script.onload = () => resolve();
         script.onerror = () => { cxLoyGamesLoading055B = null; reject(new Error("loyalty_games")); };
         document.head.appendChild(script);
@@ -273,11 +273,11 @@
           const link = document.createElement("link");
           link.id = "cxLoyRetosCss056A";
           link.rel = "stylesheet";
-          link.href = "/client-static/loyalty_retos.css?v=056A";
+          link.href = "/client-static/loyalty_retos.css?v=056B";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/loyalty_retos.js?v=056A";
+        script.src = "/client-static/loyalty_retos.js?v=056B";
         script.onload = () => resolve();
         script.onerror = () => { cxLoyRetosLoading056A = null; reject(new Error("loyalty_retos")); };
         document.head.appendChild(script);
@@ -25357,6 +25357,42 @@ function inventoryCreatePayload() {
   let cxHspDashPdfPeriod032F = "daily";
   let cxHspDashEventDate033B = "";
   let cxHspDashEvents033B = [];
+  /* CLONEXA_056B_EVENT_GUESTS_START: con qr_welcome_name (el servidor manda
+     event_search.guest_search) cada evento muestra el nombre de sus invitados
+     ("Laura · Mesa 4") y se busca por nombre. Sin el interruptor, igual que siempre. */
+  let cxHspDashGuestSearch056B = false;
+  let cxHspDashGuestFilter056B = "";
+
+  function cxHspGuestNorm056B(value = "") {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+
+  function cxHspGuestLabels056B(event = {}) {
+    const where = event.type === "bar" ? "Barra" : (event.location || "Mesa");
+    return (Array.isArray(event.guest_names) ? event.guest_names : []).map((name) => `${name} · ${where}`);
+  }
+
+  function cxHspDashVisibleEvents056B() {
+    const list = Array.isArray(cxHspDashEvents033B) ? cxHspDashEvents033B : [];
+    const query = cxHspGuestNorm056B(cxHspDashGuestFilter056B);
+    if (!cxHspDashGuestSearch056B || !query) return list;
+    return list.filter((event) => [...(event.guest_names || []), event.customer_name || ""].some((name) => cxHspGuestNorm056B(name).includes(query)));
+  }
+
+  function cxHspDashEventListHtml056B() {
+    const list = cxHspDashVisibleEvents056B();
+    if (list.length) return list.map(cxHspDashEventCard033B).join("");
+    return `<div class="hspdash-empty-024w">${h(cxHspDashGuestFilter056B ? "Ningún evento con ese nombre de invitado." : "No hay consumos capturados para este día.")}</div>`;
+  }
+
+  document.addEventListener("input", (event) => {
+    const input = event.target && event.target.closest ? event.target.closest("[data-hsp-dash-guest-filter]") : null;
+    if (!input) return;
+    cxHspDashGuestFilter056B = String(input.value || "").slice(0, 60);
+    const box = document.querySelector(".hspdash-event-list-033b");
+    if (box) box.innerHTML = cxHspDashEventListHtml056B();
+  });
+  /* CLONEXA_056B_EVENT_GUESTS_END */
   let cxHspDashEventSummary033B = {};
   let cxHspDashEventTimezone033B = "America/Bogota";
   let cxHspDashEventLoading033B = false;
@@ -25499,6 +25535,7 @@ function inventoryCreatePayload() {
           </div>
           <div class="hspdash-event-total-033b"><span>Total</span><b>${h(cxHspMoney024R(event.total || 0))}</b></div>
         </header>
+        ${cxHspDashGuestSearch056B && cxHspGuestLabels056B(event).length ? `<p class="hspdash-event-guests-056b"><span>Invitados</span>${cxHspGuestLabels056B(event).map((label) => `<b>${h(label)}</b>`).join("")}</p>` : ""}
         <div class="hspdash-event-items-033b">${cxHspDashEventItems033B(event.items || [])}</div>
         <footer>
           <span>${h(event.orders_count || 0)} pedido(s) · ${h(event.payment_label || "Otro")}</span>
@@ -25523,6 +25560,7 @@ function inventoryCreatePayload() {
         <div class="hspdash-event-controls-033b">
           <label>Día de apertura de la jornada<input type="date" value="${h(cxHspDashEventDate033B || cxHspDashDefaultEventDate033B())}" data-hsp-dash-event-date></label>
           <button class="client-btn" type="button" data-hsp-dash-event-search>Buscar</button>
+          ${cxHspDashGuestSearch056B ? `<label>Nombre del invitado<input type="search" maxlength="60" placeholder="Ej: Laura" value="${h(cxHspDashGuestFilter056B)}" data-hsp-dash-guest-filter></label>` : ""}
         </div>
         <div class="hspdash-event-summary-033b">
           <span>Mesas QR <b>${h(summary.qr_events || 0)}</b></span>
@@ -25536,7 +25574,7 @@ function inventoryCreatePayload() {
             : cxHspDashEventError033B
               ? `<div class="personal-toast error">${h(cxHspDashEventError033B)}</div>`
               : cxHspDashEvents033B.length
-                ? cxHspDashEvents033B.map(cxHspDashEventCard033B).join("")
+                ? (cxHspDashGuestSearch056B ? cxHspDashEventListHtml056B() : cxHspDashEvents033B.map(cxHspDashEventCard033B).join(""))
                 : `<div class="hspdash-empty-024w">${h(summary.message || "No hay consumos capturados para este día.")}</div>`}
         </div>
       </section>
@@ -25805,6 +25843,10 @@ function inventoryCreatePayload() {
       .hspdash-event-controls-033b label{display:grid;gap:5px;color:var(--hd-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}
       .hspdash-event-controls-033b input{width:100%;min-height:42px;border:1px solid var(--hd-line);border-radius:11px;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);padding:8px 10px;font:inherit;font-weight:900;color-scheme:dark}
       .hspdash-event-controls-033b .client-btn{min-height:42px;padding-inline:15px;background:linear-gradient(135deg,var(--hd-primary),var(--hd-secondary));color:#101827}
+      .hspdash-event-controls-033b label:has([data-hsp-dash-guest-filter]){grid-column:1 / -1}
+      .hspdash-event-guests-056b{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px;font-size:12px}
+      .hspdash-event-guests-056b span{color:var(--hd-muted);font-size:9px;font-weight:1000;text-transform:uppercase;letter-spacing:.08em}
+      .hspdash-event-guests-056b b{padding:3px 9px;border-radius:999px;border:1px solid var(--hd-line);background:rgba(3,7,18,.42);color:var(--cx-text,#fff);overflow-wrap:anywhere}
       .hspdash-event-summary-033b{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0}
       .hspdash-event-summary-033b span{display:grid;gap:3px;padding:8px 9px;border-radius:11px;background:rgba(3,7,18,.28);border:1px solid rgba(255,255,255,.09);color:var(--hd-muted);font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
       .hspdash-event-summary-033b b{color:var(--cx-text,#fff);font-size:12px;letter-spacing:0;text-transform:none}
@@ -25844,6 +25886,7 @@ function inventoryCreatePayload() {
       cxHspDashEventTimezone033B = data.timezone || "America/Bogota";
       cxHspDashEventDate033B = data.event_search.date;
       cxHspDashEvents033B = data.event_search.events;
+      cxHspDashGuestSearch056B = data.event_search.guest_search === true;
       cxHspDashEventSummary033B = data.event_search.summary;
       cxHspDashEventError033B = data.event_search.summary.reconciled === false
         ? "El detalle de pedidos no coincide con el cierre guardado. Requiere revisión." : "";
