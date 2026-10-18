@@ -208,3 +208,7 @@ body {
   .lgx-bar i { transform: scaleX(.5); }
   .lgx-reveal-img circle { stroke-dashoffset: 0; }
 }
+
+/* Desempate de una polla (Retos para las mesas) */
+.lgx-tiebreak { margin: 6px 0 0; font-size: clamp(18px, 2.4vw, 34px); font-weight: 900; line-height: 1.15; overflow-wrap: anywhere; }
+.lgx-form select { min-height: 48px; width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--lgx-line); background: #0b0a14; color: #fff; font: inherit; font-size: 16px; }

@@ -47,6 +47,7 @@
     if (p === `/companies/${CID}`) return json({ id: CID, name: "The Time Machine", slug: "ttm", status: "active" });
     if (p === `/companies/${CID}/experience`) return json({ company_id: CID, branding });
     if (p === `/companies/${CID}/modules`) return json([{ id: "cm1", company_id: CID, module_id: "m1", enabled: true, settings: {}, module: { code: "loyalty", name: "Fidelización" } }]);
+    if (p.startsWith(`/loyalty-retos/companies/${CID}/`)) return json({ detail: "Retos para las mesas no está activo para esta empresa." }, 404);  // sin loyalty_retos_v2
     if (p.startsWith(`/loyalty-games/companies/${CID}/`)) {
       if (P.get("off") === "1") return json({ detail: "Juegos en vivo no está activo para esta empresa." }, 404);
       if (p.endsWith("/context")) return json(ctx);

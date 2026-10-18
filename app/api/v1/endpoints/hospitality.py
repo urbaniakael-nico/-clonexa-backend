@@ -674,6 +674,10 @@ async def _initialize_storage(db: AsyncSession) -> None:
     await db.execute(text("ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_campaigns_company_status ON hospitality_loyalty_campaigns(company_id, status, starts_at DESC);"))
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_hospitality_loyalty_campaigns_company_type ON hospitality_loyalty_campaigns(company_id, campaign_type, status, starts_at DESC);"))
+    from app.services.loyalty_retos import CAMPAIGN_COLUMNS as _RETOS_COLUMNS  # Retos para las mesas (024m, aditivas)
+
+    for _column in _RETOS_COLUMNS:
+        await db.execute(text(f"ALTER TABLE hospitality_loyalty_campaigns ADD COLUMN IF NOT EXISTS {_column};"))
     await db.execute(
         text(
             """
@@ -3241,7 +3245,7 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
     tournament_seconds_left = max(int(((ends if isinstance(ends, datetime) else now) - now).total_seconds()), 0)
     rows = leaderboard or []
     winner = rows[0] if tournament_phase == "closed" and rows and _money(rows[0].get("total")) > 0 else None
-    return {
+    payload = {
         "id": str(data.get("id")),
         "company_id": str(data.get("company_id")),
         "title": data.get("title") or "Reto de consumo",
@@ -3267,6 +3271,12 @@ def _campaign_payload(row: Any, leaderboard: list[dict[str, Any]] | None = None)
         "created_at": _iso(data.get("created_at")),
         "updated_at": _iso(data.get("updated_at")),
     }
+    if int(data.get("rules_version") or 1) >= 2 or data.get("result_status"):
+        # Retos para las mesas (loyalty_retos_v2): solo los retos nuevos o ya resueltos ahi.
+        from app.services import loyalty_retos
+
+        payload.update(loyalty_retos.public_fields(data, now))
+    return payload
 
 
 def _table_access_payload(row: Any | None, include_code: bool = False) -> dict[str, Any]:
@@ -4053,10 +4063,19 @@ async def _vote_poll_votes(db: AsyncSession, campaign: dict[str, Any]) -> list[d
     return rows
 
 
+def _vote_poll_row_options(row: dict[str, Any]) -> list[dict[str, str]]:
+    mode = _vote_poll_mode(row.get("vote_mode"))
+    saved = _json(row.get("options"), [])
+    options = _vote_poll_options(mode, saved)
+    if mode == "participants" and int(row.get("rules_version") or 1) >= 2 and saved:
+        options = options[: len(saved)]
+    return options
+
+
 def _vote_poll_payload(row: dict[str, Any], votes: list[dict[str, Any]]) -> dict[str, Any]:
     payload = _campaign_payload(row, [])
     mode = _vote_poll_mode(payload.get("vote_mode") or row.get("vote_mode"))
-    options = _vote_poll_options(mode, _json(row.get("options"), []))
+    options = _vote_poll_row_options(row)
     counts = {option["key"]: 0 for option in options}
     for vote in votes:
         key = vote.get("answer_key") or ""
@@ -4090,10 +4109,13 @@ async def _loyalty_response(
     campaign: dict[str, Any] | None = None,
     table: str | None = None,
 ) -> dict[str, Any]:
+    from app.services import loyalty_retos
+
     if campaign is None:
-        campaign = await _active_loyalty_campaign(db, company_id, "consumption")
-    score_campaign = await _active_loyalty_campaign(db, company_id, "score_pool")
-    vote_campaign = await _active_loyalty_campaign(db, company_id, "vote_poll")
+        campaign = await _active_loyalty_campaign(db, company_id, "consumption") or await loyalty_retos.recent_result(db, company_id, "consumption")
+    # Sin reto activo, el QR muestra el resultado del ultimo reto resuelto (solo Retos para las mesas).
+    score_campaign = await _active_loyalty_campaign(db, company_id, "score_pool") or await loyalty_retos.recent_result(db, company_id, "score_pool")
+    vote_campaign = await _active_loyalty_campaign(db, company_id, "vote_poll") or await loyalty_retos.recent_result(db, company_id, "vote_poll")
     table_key = _table_key(table) if _clean(table) else ""
     campaign_payload = None
     participant = None
@@ -4277,6 +4299,9 @@ async def get_active_loyalty_campaign(
     await _ensure_storage(db)
     if not await _company_exists(db, company_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="company_not_found")
+    from app.services import loyalty_retos
+
+    await loyalty_retos.refresh_due(db, company_id)  # retos nuevos: cierre a su hora y ganador
     campaign = await _active_loyalty_campaign(db, company_id, "consumption")
     return await _loyalty_response(db, company_id, campaign, table)
 
@@ -4453,6 +4478,9 @@ async def submit_loyalty_score_prediction(
     campaign = campaign_result.mappings().first()
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="polla_no_encontrada")
+    predictions_close_at = campaign.get("predictions_close_at")
+    if campaign.get("result_status") or (predictions_close_at and _now() >= _aware(predictions_close_at)):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="pronosticos_cerrados")
 
     table_number = _clean(payload.table) or "Mesa"
     await _require_table_access(db, company_id, table_number, payload.access_code)
@@ -4575,8 +4603,10 @@ async def submit_loyalty_vote_poll(
     table_number = _clean(payload.table) or "Mesa"
     await _require_table_access(db, company_id, table_number, payload.access_code)
 
+    if campaign_data.get("result_status"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="concurso_cerrado")
     mode = _vote_poll_mode(campaign_data.get("vote_mode"))
-    options = _vote_poll_options(mode, _json(campaign_data.get("options"), []))
+    options = _vote_poll_row_options(campaign_data)
     selected_key = _clean(payload.answer_key) or ("registered" if mode == "registration" else "")
     selected = next((option for option in options if option["key"] == selected_key), None)
     if not selected:

@@ -383,16 +383,22 @@ async def _round(db: AsyncSession, token: str, request: Request, join: bool = Fa
 async def play_info(token: str, request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     r = await _round(db, token, request)
     conf = await svc.settings(db, r["company_id"])
-    return {"kind": r["kind"], "status": r["status"], "prize": r["prize"], "duration_seconds": int(r["duration_seconds"]),
-            "ends_at": r["ends_at"].isoformat() if r["ends_at"] else None, "now": datetime.now(timezone.utc).isoformat(),
-            "brand": await brand(db, r["company_id"]), "texts": conf["texts"]}
+    out = {"kind": r["kind"], "status": r["status"], "prize": r["prize"], "duration_seconds": int(r["duration_seconds"]),
+           "ends_at": r["ends_at"].isoformat() if r["ends_at"] else None, "now": datetime.now(timezone.utc).isoformat(),
+           "brand": await brand(db, r["company_id"]), "texts": conf["texts"]}
+    tb = svc.tiebreak_of(r)
+    if tb:  # desempate de una polla: el jugador elige su mesa entre las empatadas
+        out["tiebreak"] = {"title": tb.get("title") or "", "teams": tb.get("teams") or "",
+                           "tables": [{"key": t["key"], "label": t["label"]} for t in tb.get("tables") or []]}
+    return out
 
 
 @router.post("/play/{token}/join")
 async def play_join(token: str, request: Request, body: dict = Body(...), db: AsyncSession = Depends(get_db)) -> dict:
     r = await _round(db, token, request, join=True)
     try:
-        return await svc.join(db, r, str(body.get("name") or ""), str(body.get("document") or ""), body.get("consent") is True)
+        return await svc.join(db, r, str(body.get("name") or ""), str(body.get("document") or ""), body.get("consent") is True,
+                              table=str(body.get("table") or "") or None)
     except GameError as exc:
         raise _err(exc) from None
 

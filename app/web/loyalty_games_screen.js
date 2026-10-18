@@ -128,11 +128,18 @@
         <p class="lgx-sub">${h(T("Sacados esta noche"))}</p><p class="lgx-drawn" id="lgxDrawn">${arr(r.drawn).map((n) => `<span>${h(n)}</span>`).join("")}</p></div></section>`;
   }
 
+  // Desempate de una polla (Retos para las mesas): solo juegan las mesas empatadas.
+  function tiebreakLine(r) {
+    const tb = r && r.tiebreak;
+    if (!tb) return "";
+    return `<p class="lgx-tiebreak">⚖️ ${h(T("Desempate de la polla {teams}", { teams: tb.teams }))}</p><p class="lgx-sub">${h(T("Solo las mesas empatadas: {list}", { list: (tb.tables || []).join(", ") }))}</p>`;
+  }
+
   function registration(d) {
     const r = d.round;
     return `${brandHead(d.brand, true)}<section class="lgx-reg">
       <div class="lgx-qrbox"><img class="lgx-qr" alt="${h(T("Código QR para jugar"))}" src="${API}/${encodeURIComponent(TOKEN)}/qr.svg?r=${encodeURIComponent(r.id)}"><p class="lgx-huge">${h(T("Escanea y juega"))}</p></div>
-      <div class="lgx-side"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}
+      <div class="lgx-side"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>${tiebreakLine(r)}${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}
         <p class="lgx-count"><b id="lgxCount">${h(r.count)}</b> <span>${h(T("inscritos"))}</span></p><ul class="lgx-names" id="lgxNames"></ul></div></section>`;
   }
 
@@ -142,7 +149,7 @@
     const r = d.round;
     const thumbs = r.kind === "differences"
       ? `<div class="lgx-thumbs" aria-hidden="true"><img src="${img(r, "a")}" alt=""><img src="${img(r, "b")}" alt=""></div>` : "";
-    return `${brandHead(d.brand, true)}<section class="lgx-live${r.kind === "differences" ? " is-diff" : ""}"><div class="lgx-livehead"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>
+    return `${brandHead(d.brand, true)}<section class="lgx-live${r.kind === "differences" ? " is-diff" : ""}"><div class="lgx-livehead"><p class="lgx-kicker">${h(T(KIND[r.kind] || r.kind))}</p>${r.tiebreak ? `<p class="lgx-tiebreak">⚖️ ${h(T("Desempate de la polla {teams}", { teams: r.tiebreak.teams }))}</p>` : ""}
         <p class="lgx-clock" id="lgxClock">--:--</p>${r.prize ? `<p class="lgx-prize">🎁 ${h(r.prize)}</p>` : ""}${thumbs}</div>
       <ol class="lgx-rank" id="lgxRank"></ol></section>`;
   }

@@ -247,6 +247,76 @@
   }
   /* CLONEXA_055B_LOYALTY_GAMES_END */
 
+  /* CLONEXA_056A_LOYALTY_RETOS_START: Retos para las mesas (interruptor
+     loyalty_retos_v2 del modulo loyalty). Fidelizacion abre la pantalla nueva
+     solo si el servidor responde que el interruptor esta encendido (404 = la
+     pantalla de siempre, sin cambios). Su pantalla va aparte
+     (loyalty_retos.js/.css), dentro del mismo marco del panel. */
+  let cxLoyRetosCheck056A = null;
+  function cxLoyRetosOn056A() {
+    const companyId = companyIdFromUrl();
+    if (!companyId) return Promise.resolve(false);
+    if (!cxLoyRetosCheck056A) {
+      cxLoyRetosCheck056A = fetch(`${API}/loyalty-retos/companies/${encodeURIComponent(companyId)}/state`, { headers: authHeaders() })
+        .then((res) => res.ok || res.status === 403)
+        .catch(() => false);
+    }
+    return cxLoyRetosCheck056A;
+  }
+
+  let cxLoyRetosLoading056A = null;
+  function cxLoyRetosLoad056A() {
+    if (window.CxLoyaltyRetos) return Promise.resolve();
+    if (!cxLoyRetosLoading056A) {
+      cxLoyRetosLoading056A = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxLoyRetosCss056A")) {
+          const link = document.createElement("link");
+          link.id = "cxLoyRetosCss056A";
+          link.rel = "stylesheet";
+          link.href = "/client-static/loyalty_retos.css?v=056A";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/loyalty_retos.js?v=056A";
+        script.onload = () => resolve();
+        script.onerror = () => { cxLoyRetosLoading056A = null; reject(new Error("loyalty_retos")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxLoyRetosLoading056A;
+  }
+
+  async function cxLoyRetosOpen056A() {
+    const companyId = companyIdFromUrl();
+    const app = document.getElementById("app");
+    if (!companyId || !app) return false;
+    if (!(await cxLoyRetosOn056A())) return false;
+    try { await cxLoyRetosLoad056A(); } catch (_) { return false; }
+    if (!window.CxLoyaltyRetos || typeof window.CxLoyaltyRetos.mount !== "function") return false;
+    const company = state.company || {};
+    app.innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("loyalty")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main"><div id="cxLoyRetosHost056A"></div></section>
+        </div>
+      </main>
+    `;
+    await window.CxLoyaltyRetos.mount({
+      companyId, apiBase: API, token: authToken, company: { name: company.name || "", slug: company.slug || "" },
+      host: () => document.getElementById("cxLoyRetosHost056A"),
+      openGames: () => cxLoyGamesOpen055B("loyalty"),
+    });
+    return true;
+  }
+  /* CLONEXA_056A_LOYALTY_RETOS_END */
+
   function validHex(value, fallback) {
     const v = String(value || "").trim();
     return /^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
@@ -27530,6 +27600,7 @@ function inventoryCreatePayload() {
   }
 
   async function renderHospitalityLoyaltyModule024Z() {
+    if (await cxLoyRetosOpen056A()) return;
     cxHspLoyaltyStyles024Z();
     const company = state.company || {};
     const now = new Date();

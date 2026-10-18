@@ -587,6 +587,10 @@
       .qr-rank-row i{display:block;height:7px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin-top:6px}
       .qr-rank-row b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--qr-primary),var(--qr-secondary))}
       .qr-score-form{display:grid;gap:10px}
+      .qr-reto-headline{font-size:22px;font-weight:1000;line-height:1.15;color:var(--qr-text);overflow-wrap:anywhere}
+      .qr-reto-headline b{color:var(--qr-secondary)}
+      .qr-reto-result.is-win .qr-reto-headline{color:var(--qr-secondary)}
+      .qr-reto-result .qr-eyebrow,.qr-reto-result .qr-muted{color:var(--qr-text)}
       .qr-score-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:end}
       .qr-score-grid label{display:grid;gap:5px;color:var(--qr-muted);font-size:11px;font-weight:1000;letter-spacing:.08em;text-transform:uppercase}
       .qr-score-grid input,.qr-score-name{
@@ -1021,6 +1025,8 @@
   function campaignHtml025G() {
     const campaign = state.campaign;
     if (!campaign) return "";
+    const retoWin = cxRetoConsumptionWin056A(campaign, state.participant);
+    if (retoWin) return retoWin;
     const rows = Array.isArray(campaign.leaderboard) ? campaign.leaderboard : [];
     const open = campaign.registration_open === true;
     const participant = state.participant;
@@ -1084,10 +1090,90 @@
     `;
   }
 
+  /* CLONEXA_056A_RETOS_QR_START: Retos para las mesas (loyalty_retos_v2). Solo los
+     retos nuevos o ya resueltos traen result_status / predictions_open; los de
+     siempre se ven igual. La respuesta correcta nunca llega aqui. */
+  function cxRetoTableKey056A(value = "") {
+    return String(value || "mesa").toLowerCase().replace(/_/g, " ").trim().split(/\s+/).join(" ");
+  }
+
+  function cxRetoIsNew056A(campaign) {
+    return !!campaign && (Number(campaign.rules_version || 1) >= 2 || !!campaign.result_status);
+  }
+
+  function cxRetoResultHtml056A({ label, campaign, myKey, headline, detail, win = false }) {
+    return `
+      <section class="qr-campaign qr-reto-result${win ? " is-win" : ""}" data-reto-result="${h(campaign.result_status || "")}">
+        <div class="qr-campaign-main">
+          <p class="qr-eyebrow">${h(label)}</p>
+          <h2>${h(campaign.title || "Reto")}</h2>
+          <div class="qr-reto-headline" role="status">${headline}</div>
+          ${detail ? `<p class="qr-muted">${detail}</p>` : ""}
+          <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function cxRetoScoreHtml056A(campaign, prediction) {
+    if (!cxRetoIsNew056A(campaign)) return null;
+    const myKey = prediction?.table_key || cxRetoTableKey056A(state.table);
+    const final = campaign.final_score;
+    const score = final ? `${h(campaign.team_a || "Equipo A")} <b>${h(final.score_a)} - ${h(final.score_b)}</b> ${h(campaign.team_b || "Equipo B")}` : "";
+    const mine = prediction?.id ? `Tu pronóstico: ${h(prediction.score_a)} - ${h(prediction.score_b)}` : "";
+    const winner = campaign.winner || null;
+    if (campaign.result_status === "winner" && winner) {
+      if (winner.table_key === myKey) {
+        return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, win: true, headline: "🏆 ¡Ganaste!", detail: `${score ? `Marcador final: ${score}. ` : ""}Reclama tu premio en la barra.` });
+      }
+      const who = `${h(winner.team_name || winner.table_number || "")}${winner.player_name ? ` (${h(winner.player_name)})` : ""}`;
+      return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, headline: `Marcador final: ${score}`, detail: `Ganó ${who}. ${mine}` });
+    }
+    if (campaign.result_status === "tie") {
+      const tied = (campaign.tied_tables || []).some((row) => row.table_key === myKey);
+      if (tied) {
+        return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, win: true, headline: "⚖️ Empate: prepárate para el desempate", detail: `Marcador final: ${score}. Acertaste el marcador exacto junto con otras mesas: el desempate es con un juego en vivo en la pantalla del bar.` });
+      }
+      return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, headline: `Marcador final: ${score}`, detail: `Hubo empate entre ${h((campaign.tied_tables || []).length)} mesas. ${mine}` });
+    }
+    if (campaign.result_status === "no_winner") {
+      return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, headline: `Marcador final: ${score}`, detail: `Nadie acertó el marcador exacto. ${mine}` });
+    }
+    if (campaign.predictions_open === false) {
+      return cxRetoResultHtml056A({ label: "Polla", campaign, myKey, headline: "Pronósticos cerrados", detail: `${h(campaign.team_a || "Equipo A")} vs ${h(campaign.team_b || "Equipo B")}. ${mine || "Esta mesa no envió pronóstico."} El resultado aparece aquí al final del partido.` });
+    }
+    return null;
+  }
+
+  function cxRetoVoteHtml056A(campaign, response) {
+    if (!cxRetoIsNew056A(campaign) || !campaign.result_status) return null;
+    const label = voteModeLabel025O(campaign.vote_mode);
+    const myKey = response?.table_key || cxRetoTableKey056A(state.table);
+    const winner = campaign.winner || null;
+    if (campaign.result_status === "winner" && winner) {
+      if (winner.kind !== "option" && winner.table_key === myKey) {
+        return cxRetoResultHtml056A({ label, campaign, myKey, win: true, headline: "🏆 ¡Ganaste!", detail: "Reclama tu premio en la barra." });
+      }
+      return cxRetoResultHtml056A({ label, campaign, myKey, headline: `Ganador: ${h(winner.label || winner.team_name || winner.table_number || "")}`, detail: "Concurso cerrado." });
+    }
+    if (campaign.result_status === "no_winner") return cxRetoResultHtml056A({ label, campaign, myKey, headline: "Concurso cerrado", detail: "Sin ganador." });
+    return cxRetoResultHtml056A({ label, campaign, myKey, headline: "Concurso cerrado", detail: "El bar está eligiendo al ganador." });
+  }
+
+  function cxRetoConsumptionWin056A(campaign, participant) {
+    if (!cxRetoIsNew056A(campaign) || campaign.result_status !== "winner" || !campaign.winner) return null;
+    const myKey = participant?.table_key || cxRetoTableKey056A(state.table);
+    if (campaign.winner.table_key !== myKey) return null;
+    return cxRetoResultHtml056A({ label: "Sorteo", campaign, myKey, win: true, headline: "🏆 ¡Ganaste!", detail: "Tu mesa tuvo el mayor consumo del torneo. Reclama tu premio en la barra." });
+  }
+  /* CLONEXA_056A_RETOS_QR_END */
+
   function scorePoolHtml025G() {
     const campaign = state.scoreCampaign;
     if (!campaign) return "";
     const prediction = state.scorePrediction || {};
+    const retoHtml = cxRetoScoreHtml056A(campaign, state.scorePrediction);
+    if (retoHtml) return retoHtml;
     const rows = Array.isArray(campaign.predictions) ? campaign.predictions : [];
     if (prediction.id) {
       return lockedContestHtml026J({
@@ -1112,6 +1198,7 @@
           <h2>${h(campaign.title || "Polla de marcador")}</h2>
           <p class="qr-muted">${h(campaign.description || "Coloca tu marcador y participa por el premio.")}</p>
           <div class="qr-campaign-prize"><span>Premio</span><strong>${h(campaign.prize || "Por definir")}</strong></div>
+          ${campaign.predictions_close_at ? `<div class="qr-campaign-clock"><span>Pronósticos cierran en</span><strong>${h(countdown(campaign.predictions_seconds_left))}</strong></div>` : ""}
           <div class="qr-score-form">
             <input id="qrScoreName025G" class="qr-score-name" placeholder="Nombre o equipo" value="${h(currentName)}">
             <div class="qr-score-grid">
@@ -1151,6 +1238,8 @@
     const campaign = state.voteCampaign;
     if (!campaign) return "";
     const response = state.voteResponse || {};
+    const retoHtml = cxRetoVoteHtml056A(campaign, state.voteResponse);
+    if (retoHtml) return retoHtml;
     const results = Array.isArray(campaign.results) ? campaign.results : [];
     const votes = Array.isArray(campaign.votes) ? campaign.votes : [];
     const options = Array.isArray(campaign.options) ? campaign.options : [];
@@ -2681,6 +2770,11 @@
       state.error = "";
       render();
     } catch (error) {
+      if (String(error.message || "").includes("pronosticos_cerrados")) {
+        state.error = "Pronósticos cerrados: ya empezó el partido.";
+        refreshCampaign().catch(() => {}).finally(() => render());
+        return;
+      }
       state.error = error.message || "No se pudo enviar el marcador.";
       state.message = "";
       render();

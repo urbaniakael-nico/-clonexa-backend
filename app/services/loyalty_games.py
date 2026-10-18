@@ -330,9 +330,11 @@ def config_of(r: dict) -> dict:
 
 
 async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, actor: str, now: Optional[datetime] = None,
-                     pairs: Optional[int] = None, scene: Optional[str] = None) -> dict:
+                     pairs: Optional[int] = None, scene: Optional[str] = None, tiebreak: Optional[dict] = None) -> dict:
     """Abre el registro. La configuracion con la que se crea queda guardada en la
-    ronda: si despues cambian los ajustes, la ronda termina con sus reglas."""
+    ronda: si despues cambian los ajustes, la ronda termina con sus reglas.
+    tiebreak (Retos para las mesas): desempate de una polla, solo para sus mesas
+    empatadas; queda en la config y al cerrar el 1.er puesto gana la polla."""
     if kind not in ("memory", "trivia", "differences"):
         raise GameError("tipo_invalido", 422)
     now = now or _now()
@@ -363,6 +365,12 @@ async def open_round(db: AsyncSession, company_id: Any, kind: str, prize: str, a
             raise GameError("escena_invalida", 422)
         config.update({"seconds": int(conf["differences_seconds"]), "penalty_s": int(conf["differences_penalty"]), "scene": scene_id,
                        "diffs": scenes.choose(scene_id, seed)})
+    if tiebreak:
+        tables = [{"key": str(t["key"])[:120], "label": str(t["label"])[:120], "team": str(t.get("team") or t["label"])[:160]} for t in tiebreak.get("tables") or []]
+        if len(tables) < 2:
+            raise GameError("desempate_sin_mesas", 422)
+        config["tiebreak"] = {"campaign_id": str(tiebreak["campaign_id"]), "title": str(tiebreak.get("title") or "")[:160],
+                              "teams": str(tiebreak.get("teams") or "")[:250], "tables": tables}
     rid = (await db.execute(text("""
         INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, question_ids, config, created_by, created_at, updated_at)
         VALUES (CAST(:c AS uuid), :k, 'registration', :p, :s, :d, :dur, CAST(:q AS jsonb), CAST(:cfg AS jsonb), :by, :n, :n) RETURNING id::text
@@ -433,7 +441,13 @@ async def close_round(db: AsyncSession, company_id: Any, round_id: Any, now: Opt
     await db.execute(text("""UPDATE loyalty_game_rounds SET status = 'closed', closed_at = :n, results = CAST(:res AS jsonb), updated_at = :n
         WHERE company_id::text = :c AND id::text = :i"""), {"n": closed_at, "res": json.dumps(podium, ensure_ascii=False), "c": str(company_id), "i": str(round_id)})
     await db.commit()
-    return await round_row(db, company_id, round_id)
+    closed = await round_row(db, company_id, round_id)
+    if config_of(closed).get("tiebreak"):
+        # Desempate de una polla (Retos para las mesas): el 1.er puesto gana la polla.
+        from app.services import loyalty_retos
+
+        await loyalty_retos.on_tiebreak_closed(db, company_id, closed)
+    return closed
 
 
 async def refresh(db: AsyncSession, company_id: Any, r: Optional[dict], now: Optional[datetime] = None) -> Optional[dict]:
@@ -475,7 +489,11 @@ async def round_by_token(db: AsyncSession, token: str) -> Optional[dict]:
     return dict(row)
 
 
-async def join(db: AsyncSession, r: dict, name: str, document: str, consent: bool, now: Optional[datetime] = None) -> dict:
+def tiebreak_of(r: dict) -> Optional[dict]:
+    return config_of(r).get("tiebreak") or None
+
+
+async def join(db: AsyncSession, r: dict, name: str, document: str, consent: bool, now: Optional[datetime] = None, table: Optional[str] = None) -> dict:
     now = now or _now()
     if r["status"] != "registration":
         raise GameError("registro_cerrado")
@@ -483,15 +501,37 @@ async def join(db: AsyncSession, r: dict, name: str, document: str, consent: boo
         raise GameError("consentimiento_requerido", 422)
     clean_name = eng.clean_name(name)
     doc = eng.clean_document(document)
+    seat = None
+    tb = tiebreak_of(r)
+    if tb:
+        # Desempate: solo las mesas empatadas, una persona por mesa (el servidor rechaza otras).
+        if not str(table or "").strip():
+            raise GameError("mesa_requerida", 422)
+        seat = next((t for t in tb.get("tables") or [] if t["key"] == str(table).strip()), None)
+        if not seat:
+            raise GameError("mesa_no_empatada", 403)
+        if (await db.execute(text("SELECT 1 FROM loyalty_game_players WHERE company_id = :c AND round_id = :r AND table_key = :k"),
+                             {"c": r["company_id"], "r": r["id"], "k": seat["key"]})).first():
+            raise GameError("mesa_ya_juega")
     digest = eng.document_hmac(r["company_id"], doc)
     taken = (await db.execute(text("SELECT 1 FROM loyalty_game_players WHERE company_id = :c AND round_id = :r AND document_hmac = :h"),
                               {"c": r["company_id"], "r": r["id"], "h": digest})).first()
     if taken:
         raise GameError("documento_ya_juega")
-    pid = (await db.execute(text("""
-        INSERT INTO loyalty_game_players (company_id, round_id, display_name, document_hmac, document_last4, consent, consent_at, joined_at, updated_at)
-        VALUES (:c, :r, :n, :h, :l4, true, :t, :t, :t) RETURNING id::text
-    """), {"c": r["company_id"], "r": r["id"], "n": clean_name, "h": digest, "l4": doc[-4:], "t": now})).scalar()
+    if seat:
+        pid = (await db.execute(text("""
+            INSERT INTO loyalty_game_players (company_id, round_id, display_name, document_hmac, document_last4, consent, consent_at, joined_at, updated_at,
+                table_key, table_number)
+            VALUES (:c, :r, :n, :h, :l4, true, :t, :t, :t, :tk, :tn) ON CONFLICT DO NOTHING RETURNING id::text
+        """), {"c": r["company_id"], "r": r["id"], "n": clean_name, "h": digest, "l4": doc[-4:], "t": now, "tk": seat["key"], "tn": seat["label"]})).scalar()
+        if not pid:  # otra persona de la misma mesa se inscribio al mismo tiempo
+            await db.rollback()
+            raise GameError("mesa_ya_juega")
+    else:
+        pid = (await db.execute(text("""
+            INSERT INTO loyalty_game_players (company_id, round_id, display_name, document_hmac, document_last4, consent, consent_at, joined_at, updated_at)
+            VALUES (:c, :r, :n, :h, :l4, true, :t, :t, :t) RETURNING id::text
+        """), {"c": r["company_id"], "r": r["id"], "n": clean_name, "h": digest, "l4": doc[-4:], "t": now})).scalar()
     await db.commit()
     return {"player_token": player_token(pid), "name": clean_name}
 
@@ -802,6 +842,9 @@ def round_view(r: Optional[dict], plist: list[dict], now: datetime) -> Optional[
         "podium": _json(r["results"], []) if r["status"] == "closed" else [],
         "token": round_token(r["id"]),
     }
+    tb = tiebreak_of(r)
+    if tb:
+        out["tiebreak"] = {"title": tb.get("title") or "", "teams": tb.get("teams") or "", "tables": [t["label"] for t in tb.get("tables") or []]}
     if r["kind"] == "differences":
         from app.services import loyalty_games_scenes as scenes
 

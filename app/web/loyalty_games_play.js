@@ -22,13 +22,16 @@
     ronda_no_en_juego: "La ronda no está en juego.",
     fuera_de_tiempo: "Se acabó el tiempo de esa pregunta.",
     espera_un_segundo: "Espera un segundo antes de volver a tocar.",
+    mesa_requerida: "Elige tu mesa.",
+    mesa_no_empatada: "Esa mesa no está en el desempate.",
+    mesa_ya_juega: "Ya hay una persona de esa mesa en el desempate.",
   };
 
   const P = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
   const ROUND = P.get("r") || "";
   const API = `/api/v1/loyalty-games/play/${encodeURIComponent(ROUND)}`;
   const KEY = `cxlg:${ROUND.slice(0, 48)}`;
-  const st = { info: null, me: null, token: "", error: "", busy: false, board: {}, lock: false, question: null, feedback: null, timer: null, qtimer: null, form: { name: "", doc: "", consent: false },
+  const st = { info: null, me: null, token: "", error: "", busy: false, board: {}, lock: false, question: null, feedback: null, timer: null, qtimer: null, form: { name: "", doc: "", consent: false, table: "" },
     zoom: { s: 1, x: 0, y: 0 }, diffLockUntil: 0, misses: [], scene: "" };
   const $ = (id) => document.getElementById(id);
 
@@ -62,7 +65,8 @@
   function top() {
     const b = (st.info && st.info.brand) || {};
     const logo = b.logo_url ? `<img class="lgx-logo" src="${h(b.logo_url)}" alt="">` : "";
-    return `<header class="lgx-top is-phone">${logo}<div><p class="lgx-company">${h(b.name || "")}</p><p class="lgx-kicker">${h(T(KIND[st.info && st.info.kind] || "Juegos en vivo"))}</p></div></header>
+    const tb = st.info && st.info.tiebreak;
+    return `<header class="lgx-top is-phone">${logo}<div><p class="lgx-company">${h(b.name || "")}</p><p class="lgx-kicker">${h(T(KIND[st.info && st.info.kind] || "Juegos en vivo"))}</p>${tb ? `<p class="lgx-kicker">⚖️ ${h(T("Desempate de la polla {teams}", { teams: tb.teams }))}</p>` : ""}</div></header>
       ${st.info && st.info.prize ? `<p class="lgx-prize is-phone">🎁 ${h(st.info.prize)}</p>` : ""}`;
   }
 
@@ -71,8 +75,18 @@
     return `<form class="lgx-card lgx-form" data-lgx-join novalidate>
       <label>${h(T("Tu nombre (se verá en la pantalla)"))}<input name="name" maxlength="20" autocomplete="nickname" required value="${h(st.form.name)}"></label>
       <label>${h(T("Documento"))}<input name="doc" inputmode="numeric" autocomplete="off" maxlength="15" required value="${h(st.form.doc)}"><small>${h(T("Solo para validar si ganas. No se muestra a nadie."))}</small></label>
+      ${tableField()}
       <label class="lgx-consent"><input type="checkbox" name="consent" ${st.form.consent ? "checked" : ""} required><span>${h(T(consent))} ${h(T("(Ley 1581)"))}</span></label>
       <button type="submit" class="lgx-btn" ${st.busy ? "disabled" : ""}>${h(T("Inscribirme"))}</button></form>`;
+  }
+
+  // Desempate de una polla: solo las mesas empatadas, una persona por mesa (lo valida el servidor).
+  function tableField() {
+    const tb = st.info && st.info.tiebreak;
+    if (!tb) return "";
+    const tables = Array.isArray(tb.tables) ? tb.tables : [];
+    return `<label>${h(T("Tu mesa"))}<select name="table" required><option value="">${h(T("Elige tu mesa"))}</option>${tables.map((t) => `<option value="${h(t.key)}" ${st.form.table === t.key ? "selected" : ""}>${h(t.label)}</option>`).join("")}</select>
+      <small>${h(T("Solo juegan las mesas empatadas, una persona por mesa."))}</small></label>`;
   }
 
   function waiting() {
@@ -400,11 +414,14 @@
 
   async function join(form) {
     const el = (n) => form.elements.namedItem(n);
-    st.form = { name: el("name").value, doc: el("doc").value, consent: el("consent").checked };
+    st.form = { name: el("name").value, doc: el("doc").value, consent: el("consent").checked, table: el("table") ? el("table").value : "" };
     if (!st.form.consent) { st.error = T(ERRORS.consentimiento_requerido); draw(); return; }
+    if (st.info && st.info.tiebreak && !st.form.table) { st.error = T(ERRORS.mesa_requerida); draw(); return; }
     st.busy = true; st.error = ""; draw();
     try {
-      const res = await call("/join", "POST", { name: st.form.name, document: st.form.doc, consent: true });
+      const body = { name: st.form.name, document: st.form.doc, consent: true };
+      if (st.form.table) body.table = st.form.table;
+      const res = await call("/join", "POST", body);
       st.token = res.player_token;
       store(false, st.token);
       st.form.doc = "";
@@ -427,7 +444,10 @@
     });
     document.addEventListener("input", (e) => {
       const f = e.target.form;
-      if (f && f.hasAttribute("data-lgx-join")) st.form = { name: f.elements.namedItem("name").value, doc: f.elements.namedItem("doc").value, consent: f.elements.namedItem("consent").checked };
+      if (f && f.hasAttribute("data-lgx-join")) {
+        const table = f.elements.namedItem("table");
+        st.form = { name: f.elements.namedItem("name").value, doc: f.elements.namedItem("doc").value, consent: f.elements.namedItem("consent").checked, table: table ? table.value : "" };
+      }
     });
     document.addEventListener("submit", (e) => {
       const f = e.target.closest && e.target.closest("[data-lgx-join]");
