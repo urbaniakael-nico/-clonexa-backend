@@ -276,19 +276,22 @@ async def test_welcome_name_flow_and_where_the_name_shows(pg_url):
         meta = [r["metadata"] if isinstance(r["metadata"], dict) else json.loads(r["metadata"]) for r in rows]
         assert [r["customer_name"] for r in rows] == [guest, "Persona 2"], "cada celular con su nombre; sin nombre, el de siempre"
         assert [m["guest_name"] for m in meta] == [guest, "Persona 2"]
-        # Cambiar el nombre despues: renombra sus pedidos abiertos (tambien lo que ve la cocina).
-        await hsp.get_hospitality_table_account(u, _account("Laura"), db)
+        # 056C: el nombre queda FIJO; cambiarlo desde el QR da 409 (lo corrige el bar: test_qr_guest_name_fixed_pg).
+        with pytest.raises(HTTPException) as exc:
+            await hsp.get_hospitality_table_account(u, _account("Laura"), db)
+        assert exc.value.status_code == 409
+        await db.rollback()
         rows = (await db.execute(text("SELECT * FROM hospitality_orders WHERE company_id::text = :c ORDER BY created_at"), {"c": cid})).mappings().all()
         first = rows[0]
         m0 = first["metadata"] if isinstance(first["metadata"], dict) else json.loads(first["metadata"])
         people = first["people"] if isinstance(first["people"], list) else json.loads(first["people"])
-        assert first["customer_name"] == "Laura" and m0["guest_name"] == "Laura" and people[0]["name"] == "Laura", "barra (personas) y cocina"
+        assert first["customer_name"] == guest and m0["guest_name"] == guest and people[0]["name"] == guest, "barra (personas) y cocina"
         # Cocina: "Laura · Mesa 4".
         comanda = waiter_ordering._comanda(hsp._payload(first), set())
-        assert comanda["guest_name"] == "Laura" and comanda["table_number"] == "Mesa 4"
+        assert comanda["guest_name"] == guest and comanda["table_number"] == "Mesa 4"
         # Reportes: el evento trae los nombres de los invitados y la pantalla busca por nombre.
         event = hsp._hsp_event_payload([hsp._payload(r) for r in rows], event_id="e1", event_type="qr", location="Mesa 4")
-        assert event["guest_names"] == ["Laura", "Persona 2"]
+        assert event["guest_names"] == [guest, "Persona 2"]
         out = await hsp._hsp_mark_guest_search(db, u, {"event_search": {"events": [event]}})
         assert out["event_search"]["guest_search"] is True
         # Frase editable (solo dueno/admin): se guarda, sin HTML, max. 160; vacia = por defecto.

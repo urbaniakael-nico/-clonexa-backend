@@ -631,6 +631,24 @@
       .qr-welcome-chip .qr-btn{min-height:40px;padding:0 14px}
       .qr-welcome-as{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .qr-welcome-as strong{flex:1 1 140px;min-width:0;overflow-wrap:anywhere}
+      .qrw-add{appearance:none;border:0;background:none;padding:6px 0;min-height:32px;color:var(--qr-text);font:inherit;font-size:13px;font-weight:800;text-decoration:underline;text-underline-offset:3px;cursor:pointer;text-align:left}
+      .qrw-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:6px 2px;position:relative}
+      .qrw-logo{width:56px;height:56px;border-radius:16px;font-size:24px}
+      .qrw-id{min-width:0}
+      .qrw-id h1{margin:0;font-size:30px;line-height:1.05;font-weight:1000;letter-spacing:-.02em;overflow-wrap:anywhere}
+      .qrw-name{margin:2px 0 0;color:var(--qr-muted);font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .qrw-open{position:relative;justify-self:end}
+      .qrw-tag{appearance:none;display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:4px 10px;border-radius:999px;border:1px solid var(--qr-line);background:rgba(3,7,18,.55);color:var(--qr-text);font:inherit;font-size:12px;font-weight:900;white-space:nowrap;cursor:pointer}
+      .qrw-hint{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(260px,calc(100vw - 32px));margin:0;padding:10px 12px;border-radius:12px;border:1px solid var(--qr-line);background:#0b0716;color:var(--qr-text);font-size:13px;font-weight:700;line-height:1.35;box-shadow:0 12px 30px rgba(0,0,0,.45)}
+      .qrw-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
+      .qrw-cards .qrw-card[open]{grid-column:1 / -1}
+      .qrw-cards .qrw-card summary{display:grid;gap:3px;align-content:start;padding:12px;min-height:96px}
+      .qrw-cards .qrw-card summary::after{display:none}
+      .qrw-cards .qrw-card-t{font-size:12px;font-weight:1000;flex:none}
+      .qrw-cards .qrw-card summary strong{font-size:22px;line-height:1.1;overflow-wrap:anywhere}
+      .qrw-cards .qrw-card summary small,.qrw-cards .qrw-card-q{flex:none;color:var(--qr-muted);font-size:12px;font-weight:800;overflow-wrap:anywhere}
+      .qrw-cards .qrw-card summary em{font-style:normal;color:var(--qr-text);font-size:12px;font-weight:900}
+      @media(max-width:339px){.qrw-cards{grid-template-columns:minmax(0,1fr)}.qrw-head{grid-template-columns:auto minmax(0,1fr)}.qrw-open{grid-column:1 / -1;justify-self:start}.qrw-hint{left:0;right:auto}}
       .qr-reto-headline{font-size:22px;font-weight:1000;line-height:1.15;color:var(--qr-text);overflow-wrap:anywhere}
       .qr-reto-headline b{color:var(--qr-secondary)}
       .qr-reto-result.is-win .qr-reto-headline{color:var(--qr-secondary)}
@@ -1616,29 +1634,42 @@
     return String(raw || "").split("[bar]").join(bar);
   }
 
+  // 056C: el nombre queda FIJO en la sesion de mesa (el servidor manda y responde
+  // 409 si se intenta cambiar desde el QR). Solo quien sigue con el nombre por
+  // defecto puede agregarlo UNA vez; despues solo el bar lo corrige desde su panel.
+  function welcomeNamed056C() {
+    return state.guest056C ? state.guest056C.named === true : !!state.customerName;
+  }
+
+  function welcomeName056C() {
+    return (state.guest056C && state.guest056C.named ? state.guest056C.name : "") || state.customerName || barMyName() || wt056B("Invitado");
+  }
+
   // Cómo se ve este celular en el bar: "Laura · Mesa 4" (o "Persona 2 · Mesa 4").
   function welcomeLabel056B() {
-    const name = state.customerName || barMyName() || wt056B("Invitado");
-    return `${name} · ${barTableTitle()}`;
+    return `${welcomeName056C()} · ${barTableTitle()}`;
+  }
+
+  function welcomeAddLink056C() {
+    return `<button class="qrw-add" type="button" data-welcome-open>${h(wt056B("Agregar mi nombre"))}</button>`;
   }
 
   function welcomeChip056B() {
     if (!welcomeOn056B() || !state.access?.unlocked) return "";
-    return `<div class="qr-welcome-chip" data-brand="qr.nombre"><span>👤 ${h(welcomeLabel056B())}</span>
-      <button class="qr-btn secondary" type="button" data-welcome-open>${h(wt056B(state.customerName ? "Cambiar nombre" : "Poner mi nombre"))}</button></div>`;
+    return `<div class="qr-welcome-chip" data-brand="qr.nombre"><span>👤 ${h(welcomeLabel056B())}</span>${welcomeNamed056C() ? "" : welcomeAddLink056C()}</div>`;
   }
 
   function welcomeNameKnown056B() {
-    return welcomeOn056B() && (!!state.customerName || welcomeSkipped056B());
+    return welcomeOn056B() && (welcomeNamed056C() || welcomeSkipped056B());
   }
 
   function welcomeAsYouHtml056B() {
-    return `<div class="qr-field qr-welcome-as"><span>${h(wt056B("Pides como"))}</span><strong>${h(welcomeLabel056B())}</strong>
-      <button class="qr-btn secondary" type="button" data-welcome-open>${h(wt056B("Cambiar nombre"))}</button></div>`;
+    return `<div class="qr-field qr-welcome-as"><span>${h(wt056B("Pides como"))}</span><strong>${h(welcomeLabel056B())}</strong>${welcomeNamed056C() ? "" : welcomeAddLink056C()}</div>`;
   }
 
   async function showWelcome056B(force = false) {
     if (!welcomeOn056B() || !state.access?.unlocked || document.getElementById("qrWelcome056B")) return;
+    if (welcomeNamed056C()) return;  // nombre fijo: no se vuelve a pedir ni se cambia
     if (!force && (state.customerName || welcomeSkipped056B())) return;
     await loadWelcomeI18n056B();
     const b = brand();
@@ -1669,10 +1700,57 @@
   async function saveWelcome056B(rawName) {
     const name = welcomeCleanName056B(rawName);
     if (!name) return skipWelcome056B();
-    rememberCustomerName(name);
     closeWelcome056B();
-    try { await refreshTableAccount(); } catch (_) {}
+    state.namePending056C = name;  // se manda UNA vez; despues el nombre queda fijo
+    try {
+      await refreshTableAccount();
+    } catch (error) {
+      if (String(error.message || "").includes("nombre_fijo")) state.error = wt056B("Tu nombre ya quedó guardado en esta mesa. Si hay un error, pídele al bar que lo corrija.");
+    } finally {
+      state.namePending056C = "";
+    }
+    if (!state.guest056C) rememberCustomerName(name);
     render();
+  }
+
+  // Encabezado de la carta de bar con la bienvenida: logo, "Mesa 2" y "👤 Nicolas"
+  // (o "Agregar mi nombre"), la etiqueta "● Mesa abierta" (su texto sale al tocarla)
+  // y dos tarjetas: cuenta de la mesa y música (abren el mismo detalle de siempre).
+  const OPEN_HINT_056C = "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrará cuando el bar cierre la mesa.";
+
+  function welcomeBarTop056C(companyName, tableAccount, songDraft) {
+    const b = brand();
+    const initial = (String(companyName || "").trim().slice(0, 1) || "C").toUpperCase();
+    const open = state.openHint056C === true;
+    const who = welcomeNamed056C() ? `<p class="qrw-name">👤 ${h(welcomeName056C())}</p>` : welcomeAddLink056C();
+    return `
+      <header class="qrw-head">
+        <div class="qr-logo qrb-logo qrw-logo">${b.logo ? `<img src="${h(b.logo)}" alt="${h(companyName || "Logo")}">` : h(initial)}</div>
+        <div class="qrw-id"><h1>${h(barTableTitle())}</h1>${who}</div>
+        <div class="qrw-open">
+          <button class="qrw-tag" type="button" data-open-hint aria-expanded="${open}" aria-controls="qrwHint056C">● ${h(wt056B("Mesa abierta"))}</button>
+          ${open ? `<p class="qrw-hint" id="qrwHint056C" role="status">${h(wt056B(OPEN_HINT_056C))}</p>` : ""}
+        </div>
+      </header>
+      <div class="qrw-cards">
+        <details class="qrb-line qrw-card" data-bar-line="account" ${state.barAccountOpen ? "open" : ""}>
+          <summary><span class="qrw-card-t">🧾 ${h(wt056B("Cuenta de la mesa"))}</span><strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong>
+            <small id="qrTableAccountMeta030B">${h(tableAccountMeta())}</small><em>${h(wt056B("Ver detalle"))} ▾</em></summary>
+          <div class="qrb-line-body">
+            <div id="qrTableAccountBreakdown033C" class="qr-table-breakdown-panel">${tableAccountItemsHtml()}</div>
+          </div>
+        </details>
+        <details class="qrb-line qrw-card" data-bar-line="song" ${state.barSongOpen ? "open" : ""}>
+          <summary><span class="qrw-card-t">🎵 ${h(wt056B("Música"))}</span><span class="qrw-card-q">${h(wt056B("¿Qué deseas escuchar?"))}</span><em>${h(wt056B("Pedir canción"))} ▾</em></summary>
+          <div class="qrb-line-body">
+            ${state.songNotice ? `<div id="qrbSongNotice" class="qrb-song-notice" role="status">🎶 Tu canción fue enviada: <strong>${h(state.songNotice)}</strong></div>` : ""}
+            <div class="qr-song-form">
+              <input id="qrSongRequest031C" maxlength="220" autocomplete="off" placeholder="Canción o artista" value="${h(songDraft)}">
+              <button class="qr-btn" type="button" data-submit-song ${state.songSending ? "disabled" : ""}>${state.songSending ? "Enviando..." : "Enviar"}</button>
+            </div>
+          </div>
+        </details>
+      </div>`;
   }
 
   function skipWelcome056B() {
@@ -1691,7 +1769,8 @@
     const t = event.target;
     if (!(t instanceof Element)) return;
     if (t.closest("[data-welcome-skip]")) { skipWelcome056B(); return; }
-    if (t.closest("[data-welcome-open]")) { event.preventDefault(); showWelcome056B(true); }
+    if (t.closest("[data-welcome-open]")) { event.preventDefault(); showWelcome056B(true); return; }
+    if (t.closest("[data-open-hint]")) { state.openHint056C = !state.openHint056C; render(); }
   });
   /* CLONEXA_056B_QR_WELCOME_END */
 
@@ -1877,7 +1956,7 @@
 
     app.innerHTML = `
       <main class="qr-shell qrb-shell ${itemCount > 0 ? "has-pending" : ""}">
-        ${barHeaderHtml(companyName)}
+        ${welcomeOn056B() ? welcomeBarTop056C(companyName, tableAccount, songDraft) : `${barHeaderHtml(companyName)}
 
         <details class="qrb-line" data-bar-line="account" ${state.barAccountOpen ? "open" : ""}>
           <summary><span>🧾 Cuenta total de la mesa</span><strong id="qrTableAccountTotal030B">${h(money(tableAccount.total || 0))}</strong></summary>
@@ -1896,9 +1975,7 @@
               <button class="qr-btn" type="button" data-submit-song ${state.songSending ? "disabled" : ""}>${state.songSending ? "Enviando..." : "Enviar"}</button>
             </div>
           </div>
-        </details>
-
-        ${welcomeChip056B()}
+        </details>`}
         ${state.message ? `<div class="qr-msg">${h(state.message)}</div>` : ""}
         ${friendly ? `<div class="qr-msg err">${h(friendly)}</div>` : ""}
         <div id="qrCampaignHost025F">${campaignHtml025G()}${scorePoolHtml025G()}${votePollHtml025O()}</div>
@@ -2872,9 +2949,14 @@
       const data = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/qr-tables/account`, {
         method: "POST",
         body: barMenuOn()
-          ? JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId(), customer: state.customerName || "" })
+          ? JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId(),
+            customer: welcomeOn056B() ? (state.namePending056C || "") : (state.customerName || "") })
           : JSON.stringify({ table: state.table, access_code: accessCode, account_id: tableCustomerAccountId() }),
       });
+      if (welcomeOn056B() && data.guest) {
+        state.guest056C = { name: String(data.guest.name || ""), display_name: String(data.guest.display_name || ""), named: data.guest.named === true };
+        rememberCustomerName(state.guest056C.named ? state.guest056C.name : "");
+      }
       state.tableAccount = {
         total: Number(data.account?.total || 0),
         orders_count: Number(data.account?.orders_count || 0),
@@ -3080,7 +3162,11 @@
       render();
       return;
     }
-    state.message = "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrara cuando el bar cierre la mesa.";
+    if (welcomeOn056B() && barMenuOn()) {
+      state.openHint056C = true;
+    } else {
+      state.message = "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrara cuando el bar cierre la mesa.";
+    }
     state.error = "";
     render();
   });

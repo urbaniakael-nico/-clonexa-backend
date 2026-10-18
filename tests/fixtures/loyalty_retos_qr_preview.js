@@ -2,7 +2,9 @@
 // Retos para las mesas en sus cuatro momentos: ?qr=open|closed|tie|win, como Mesa 4.
 // Datos de ejemplo (sin servidor). Mide desbordes y contraste en <pre id="layout">.
 // ?theme=light (tema claro), ?long=1 (nombres largos en la lista de pronosticos),
-// ?welcome=1 (bienvenida con nombre: qr_welcome_name), ?named=Laura (ya puso su nombre).
+// ?welcome=1 (bienvenida con nombre: qr_welcome_name), ?named=Laura (ya puso su nombre),
+// ?bar=1 (carta de bar: encabezado nuevo con la bienvenida), ?skip=1 ("Ahora no"),
+// ?hint=1 (toca "● Mesa abierta"), ?detail=1 (abre "Ver detalle" de la cuenta).
 (() => {
   const P = new URLSearchParams(location.search);
   const CID = P.get("company_id");
@@ -12,9 +14,11 @@
   try {
     localStorage.setItem(`clonexa_hsp_table_access_${CID}_mesa_4`, "ABC12");
     if (P.get("named")) localStorage.setItem(`clonexa_hospitality_account_${CID}_mesa_4_ABC12_customer`, P.get("named"));
+    if (P.get("skip") === "1") localStorage.setItem(`clonexa_hospitality_account_${CID}_mesa_4_ABC12_customer_welcome_skip`, "1");
   } catch (_) {}
   const LIGHT = P.get("theme") === "light";
   const WELCOME = P.get("welcome") === "1" || !!P.get("named");
+  const BAR = P.get("bar") === "1";
   const now = Date.now();
   const iso = (ms) => new Date(now + ms).toISOString();
   const base = { id: "p1", campaign_type: "score_pool", title: "Polla · Colombia vs Argentina", prize: "Botella de aguardiente", team_a: "Colombia", team_b: "Argentina",
@@ -41,8 +45,15 @@
     if (p === `/companies/${CID}/branding`) return json({ branding: LIGHT ? { primary_color: "#ff8a1c", secondary_color: "#0f766e", background_color: "#ffffff", text_color: "#111827" }
       : { primary_color: "#6b5d00", secondary_color: "#aea924", background_color: "#14110a", text_color: "#ffffff" } });
     if (p.endsWith("/qr-tables/access")) return json({ ok: true, access: { active: true, expires_at: iso(3600000) }, company_name: "The Time Machine",
-      ui: WELCOME ? { bar_menu: false, welcome_name: true, welcome_text: "¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?", welcome_custom: false, language: "es", name_max: 30 } : { bar_menu: false } });
-    if (p.endsWith("/qr-tables/account")) return json({ ok: true, account: { total: 0, orders_count: 0, accounts: [], items: [], current_account: P.get("named") ? { name: P.get("named") } : null } });
+      ui: WELCOME ? { bar_menu: BAR, welcome_name: true, welcome_text: "¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?", welcome_custom: false, language: "es", name_max: 30 } : { bar_menu: BAR } });
+    if (p.endsWith("/qr-tables/account")) {
+      const named = P.get("named") || "";
+      return json({ ok: true, account: { total: 86000, orders_count: 3, accounts_count: 2, items: [{ name: "Cerveza Club Colombia", quantity: 6, unit_price: 9000, subtotal: 54000 }, { name: "Coctel de la casa", quantity: 1, unit_price: 32000, subtotal: 32000 }],
+        accounts: [{ name: named || "Persona 2", total: 54000, orders_count: 2, is_current: true, items: [{ name: "Cerveza Club Colombia", quantity: 6, unit_price: 9000, subtotal: 54000 }] },
+          { name: "Persona 1", total: 32000, orders_count: 1, items: [{ name: "Coctel de la casa", quantity: 1, unit_price: 32000, subtotal: 32000 }] }],
+        current_account: { name: named || "Persona 2" } },
+        ...(WELCOME ? { guest: { name: named, display_name: named || "Persona 2", named: !!named } } : {}) });
+    }
     if (p.endsWith("/qr-tables/access/verify")) return json({ ok: true, access: { active: true, expires_at: iso(3600000) } });
     if (p.includes("/inventory-lite")) return json({ inventory: [{ id: "i1", name: "Cerveza Club Colombia", price: 9000, stock: 40, category: "Cervezas" }, { id: "i2", name: "Aguardiente media", price: 48000, stock: 10, category: "Licores" }] });
     if (p.includes("/loyalty-campaigns/active")) return json({ ok: true, campaign: null, participant: null, vote_campaign: null, vote_response: null, ...cases[CASE] });
@@ -91,7 +102,21 @@
     const dlg = document.getElementById("qrWelcome056B");
     const welcomeLow = dlg ? [...dlg.querySelectorAll("*")].filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && !el.closest(".qr-btn") && !el.closest(".qr-logo"))
       .map((el) => ({ text: el.textContent.trim().slice(0, 24), ratio: ratio(el) })).filter((x) => x.ratio < 4.5) : [];
-    out.textContent = JSON.stringify({ mounted: !!host, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low, overlaps,
+    const head = document.querySelector(".qrw-head");
+    const top = [...document.querySelectorAll(".qrw-head *, .qrw-cards summary *")].filter((el) => el.offsetParent !== null);
+    const headBad = top.filter((el) => {
+      const cs = getComputedStyle(el);
+      return !(cs.textOverflow === "ellipsis" && cs.overflow === "hidden") && el.scrollWidth > el.clientWidth + 1;
+    }).map((el) => String(el.className || el.tagName));
+    const headLow = top.filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && !el.closest(".qr-logo"))
+      .map((el) => ({ text: el.textContent.trim().slice(0, 24), ratio: ratio(el) })).filter((x) => x.ratio < 4.5);
+    const cards = [...document.querySelectorAll(".qrw-card")].map((c) => Math.round(c.getBoundingClientRect().top));
+    out.textContent = JSON.stringify({ head: head ? head.textContent.replace(/\s+/g, " ").trim() : "", old_head: !!document.querySelector(".qrb-head"), head_bad: headBad, head_low: headLow,
+      side_by_side: cards.length === 2 && cards[0] === cards[1], hint: (document.querySelector(".qrw-hint") || {}).textContent || "",
+      green_box: /sigue abierta/.test((document.querySelector(".qr-msg") || {}).textContent || ""), change_name: /Cambiar nombre/.test(document.body.textContent),
+      detail_open: !!document.querySelector('.qrw-card[open] #qrTableAccountBreakdown033C .qr-person-account'),
+      cards_text: [...document.querySelectorAll(".qrw-card summary")].map((x) => x.textContent.replace(/\s+/g, " ").trim()),
+      mounted: !!host, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low, overlaps,
       eyebrow: eyebrow ? { text: eyebrow.textContent.trim(), ratio: ratio(eyebrow) } : null, welcome: !!dlg, welcome_text: dlg ? dlg.textContent.replace(/\s+/g, " ").trim() : "",
       welcome_low: welcomeLow, chip: (document.querySelector(".qr-welcome-chip") || {}).textContent || "",
       text: host ? host.textContent.replace(/\s+/g, " ").trim().slice(0, 600) : "" });
@@ -99,8 +124,10 @@
     if (host && P.get("scroll") !== "0") host.scrollIntoView({ block: "start" });
   }
   const ready = (n = 0) => {
-    const wantWelcome = P.get("welcome") === "1";
+    const wantWelcome = P.get("welcome") === "1" && P.get("skip") !== "1";
     if (n < 40 && (!document.getElementById("qrCampaignHost025F") || (wantWelcome && !document.getElementById("qrWelcome056B")))) return setTimeout(() => ready(n + 1), 250);
+    if (P.get("hint") === "1") { const b = document.querySelector("[data-open-hint]"); if (b) b.click(); }
+    if (P.get("detail") === "1") { const d = document.querySelector('[data-bar-line="account"]'); if (d) d.open = true; }
     return setTimeout(measure, 600);
   };
   window.addEventListener("load", () => setTimeout(ready, 1500));

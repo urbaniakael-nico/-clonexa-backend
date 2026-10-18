@@ -146,7 +146,7 @@ function barmanBoard(orders) {
     'cxHspTableKey024Y', 'cxHspItemKey024Y', 'cxHspItemSubtotal024Y', 'cxHspIsBarAccount031D',
     'cxHspIsBarOnlyOrder031D', 'cxHspGroupAccounts024Y', 'cxHspMergedTableCards024Y',
     'cxHspCloseControls030A', 'cxHspTableSlots034B', 'cxHspTableStart034B', 'cxHspOrderTime034B',
-    'cxHspOrderCustomers034B', 'cxHspNewOrderBlock034B', 'cxHspTableQuickAdd034B', 'cxHspTableCard034B',
+    'cxHspOrderCustomers034B', 'cxHspNewOrderBlock034B', 'cxHspTableQuickAdd034B', 'cxHspTableCard034B', 'cxQrGuestFixBtn056C',
   ];
   const context = vm.createContext({
     document: { getElementById: () => null },
@@ -156,6 +156,7 @@ function barmanBoard(orders) {
   const qrTables = [{ label: 'Mesa 5', table_key: 'mesa 5', access_active: true }];
   vm.runInContext(
     `var cxHspOrders024R = ${JSON.stringify(orders)}; var cxHspQrTables034B = ${JSON.stringify(qrTables)};\n`
+      + 'var cxQrGuestFixEnabled056C = false;\n'
       + names.map(fn).join('\n'),
     context,
   );

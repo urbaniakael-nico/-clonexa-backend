@@ -77,7 +77,7 @@ function welcome(ui, extra = {}) {
     const document = { addEventListener() {}, getElementById() { return null; } };
     const window = { localStorage: { getItem: (k) => ${JSON.stringify(extra.skip ? '1' : null)}, setItem() {} } };
     ${QR.slice(start, end)}
-    out.api = { welcomeOn056B, welcomePhrase056B, welcomeCleanName056B, welcomeLabel056B, welcomeChip056B, welcomeNameKnown056B, welcomeAsYouHtml056B };`;
+    out.api = { welcomeOn056B, welcomePhrase056B, welcomeCleanName056B, welcomeLabel056B, welcomeChip056B, welcomeNameKnown056B, welcomeAsYouHtml056B, welcomeNamed056C, welcomeBarTop056C, state };`;
   const out = {};
   vm.runInContext(src, vm.createContext({ out, String, Number, JSON, Element: function () {} }));
   return out.api;
@@ -92,11 +92,12 @@ test('bienvenida: frase con [bar], nombre opcional sin HTML y de 30, "Laura · M
   assert.equal(W.welcomeCleanName056B('  <b>Laura</b>   <script>x</script>María de los Ángeles Restrepo Vélez '), 'Laura x María de los Ángeles R');
   assert.equal(W.welcomeCleanName056B('<<>>'), '');
   assert.equal(W.welcomeNameKnown056B(), false, 'sin nombre: se pide al activar');
-  assert.match(W.welcomeChip056B(), /👤 Invitado · Mesa 4[\s\S]*Poner mi nombre/);
+  assert.match(W.welcomeChip056B(), /👤 Invitado · Mesa 4[\s\S]*Agregar mi nombre/);
   const named = welcome(UI, { name: 'Laura' });
   assert.equal(named.welcomeLabel056B(), 'Laura · Mesa 4');
   assert.equal(named.welcomeNameKnown056B(), true, 'con nombre ya no se pide al pedir');
-  assert.match(named.welcomeAsYouHtml056B(), /Pides como[\s\S]*Laura · Mesa 4[\s\S]*Cambiar nombre/);
+  assert.match(named.welcomeAsYouHtml056B(), /Pides como[\s\S]*Laura · Mesa 4/);
+  assert.doesNotMatch(named.welcomeAsYouHtml056B() + named.welcomeChip056B(), /Cambiar nombre|data-welcome-open/, 'nombre fijo: no se cambia desde el QR');
   const skipped = welcome(UI, { skip: true, myName: 'Persona 2' });
   assert.equal(skipped.welcomeNameKnown056B(), true, '"Ahora no": tampoco se vuelve a pedir');
   assert.equal(skipped.welcomeLabel056B(), 'Persona 2 · Mesa 4', 'queda con el nombre por defecto');
@@ -112,7 +113,7 @@ test('QR: la bienvenida se engancha solo con ui.welcome_name y el pedido deja de
   assert.match(QR, /state\.ui = \{ bar_menu: access\.ui\?\.bar_menu === true \};\n      if \(access\.ui\?\.welcome_name === true\) \{/);
   assert.match(QR, /if \(welcomeOn056B\(\)\) setTimeout\(\(\) => \{ showWelcome056B\(\)\.catch\(\(\) => \{\}\); \}, 0\);/, 'apenas se activa la mesa');
   assert.equal((QR.match(/\$\{welcomeNameKnown056B\(\) \? welcomeAsYouHtml056B\(\) : `<label class="qr-field">/g) || []).length, 2, 'carta de bar y QR clásico');
-  assert.match(QR, /rememberCustomerName\(name\);\n    closeWelcome056B\(\);\n    try \{ await refreshTableAccount\(\); \} catch \(_\) \{\}/, 'el nombre va a la sesión del invitado');
+  assert.match(QR, /state\.namePending056C = name;  \/\/ se manda UNA vez; despues el nombre queda fijo\n    try \{\n      await refreshTableAccount\(\);/, 'el nombre va a la sesión del invitado una sola vez');
   assert.match(QR, /value="\$\{h\(document\.getElementById\("qrTeam024Z"\)\?\.value \|\| \(welcomeOn056B\(\) \? state\.customerName : ""\) \|\| ""\)\}"/, 'retos con el nombre ya escrito');
   assert.match(welcome(UI, { name: '<img src=x>' }).welcomeChip056B(), /&lt;img src=x&gt; · Mesa 4/, 'el nombre siempre escapado');
 });
@@ -169,7 +170,7 @@ test('textos por t(): inglés y francés', () => {
   for (const m of block.matchAll(/wt056B\("([^"]+)"/g)) keys.add(m[1]);
   for (const m of SETTINGS.matchAll(/wt056B\("([^"]+)"/g)) keys.add(m[1]);
   for (const m of GAMES.matchAll(/^\s+(?:close|cancel): \[("[^\]]+)\],?$/gm)) for (const s of m[1].matchAll(/"([^"]+)"/g)) keys.add(s[1]);
-  ['¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?', 'Este juego fue cancelado', 'Juego cancelado: la pantalla del bar quedó en espera.',
+  ['La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrará cuando el bar cierre la mesa.', '¡Bienvenido a [bar]! 🎶 Qué bueno tenerte esta noche. ¿Cómo te llamas?', 'Este juego fue cancelado', 'Juego cancelado: la pantalla del bar quedó en espera.',
     'Juego terminado: la pantalla muestra el podio.', 'La ronda ya terminó.'].forEach((k) => keys.add(k));
   assert.ok(keys.size > 20);
   assert.deepEqual([...keys].filter((k) => !(k in D.en) || !(k in D.fr)), []);

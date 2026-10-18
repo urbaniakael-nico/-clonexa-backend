@@ -957,7 +957,11 @@ async def _register_qr_guest(
     table_number: str,
     account_id: str,
     typed_name: str = "",
+    name_lock: str = "",
 ) -> dict[str, Any] | None:
+    """name_lock (qr_welcome_name): con nombre puesto queda FIJO en esta sesion de
+    mesa. "reject" = intentar cambiarlo desde el QR responde 409; "keep" = se
+    ignora y se usa el fijo (un pedido nunca se bloquea por esto)."""
     account_id = _clean(account_id)[:120]
     access = await _fetch_active_table_access(db, company_id, table_number)
     if not account_id or not access:
@@ -997,6 +1001,10 @@ async def _register_qr_guest(
         guest = dict(created.mappings().first())
         return {**guest, "display_name": _qr_guest_display_name(guest), "renamed": bool(typed_name)}
     guest = dict(guest)
+    if name_lock and typed_name and _clean(guest.get("name")) and typed_name != _clean(guest.get("name")):
+        if name_lock == "reject":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="nombre_fijo")
+        return {**guest, "display_name": _qr_guest_display_name(guest), "renamed": False}
     if typed_name and typed_name != _clean(guest.get("name")):
         await db.execute(
             text(
@@ -4785,6 +4793,112 @@ async def _qr_welcome_ui(db: AsyncSession, company_id: uuid.UUID) -> dict[str, A
             "language": loc.get("language") or "es", "name_max": QR_WELCOME_NAME_MAX}
 
 
+class HospitalityGuestRenameIn(BaseModel):
+    table: str = Field(min_length=1, max_length=120)
+    account_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(default="", max_length=200)
+
+
+async def _qr_guest_editor(company_id: uuid.UUID, request: Request, authorization: str | None = Header(default=None),
+                           db: AsyncSession = Depends(get_db)) -> dict:
+    """Solo el bar corrige nombres: Admin V2, o usuario de la empresa con rol de dueno/admin o barman."""
+    from app.web.admin_v2_routes import _active_session
+
+    if await _active_session(request, db):
+        return {"role": "admin", "name": "Admin V2"}
+    from app.api.v1.endpoints.loyalty_games import effective_role
+
+    user = await require_company_user_for_tenant(db, authorization, company_id)
+    role = await effective_role(db, company_id, user)
+    if role not in ("admin", "barman"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el dueño, el admin o el barman corrigen el nombre de un invitado.")
+    return {"role": role, "name": str(getattr(user, "email", "") or "usuario")}
+
+
+@router.get("/companies/{company_id}/qr-guests/config")
+async def qr_guests_config(company_id: uuid.UUID, db: AsyncSession = Depends(get_db), _who: dict = Depends(_qr_guest_editor)) -> dict[str, Any]:
+    """El panel muestra "Corregir nombre" solo si esto responde 200 (qr_welcome_name)."""
+    if not (await _qr_welcome(db, company_id))["on"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bienvenida_no_activa")
+    return {"ok": True, "name_max": QR_WELCOME_NAME_MAX}
+
+
+@router.post("/companies/{company_id}/qr-guests/rename")
+async def rename_qr_guest(company_id: uuid.UUID, payload: HospitalityGuestRenameIn, db: AsyncSession = Depends(get_db),
+                          who: dict = Depends(_qr_guest_editor)) -> dict[str, Any]:
+    """El bar corrige el nombre de un invitado de una mesa abierta. Queda en la
+    bitacora (anterior, nuevo, quien y cuando) y se ve en el QR, la barra, la
+    cocina, los retos y juegos de la mesa y Reportes (pedidos de esta sesion)."""
+    await _ensure_storage(db)
+    if not (await _qr_welcome(db, company_id))["on"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bienvenida_no_activa")
+    name = _qr_welcome_name(payload.name)
+    if not name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="nombre_requerido")
+    table_number = _clean(payload.table)
+    table_key = _table_key(table_number)
+    account_id = _clean(payload.account_id)[:120]
+    access = await _fetch_active_table_access(db, company_id, table_number)
+    if not access:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mesa_no_activa")
+    params = {"company_id": str(company_id), "access_id": str(access["id"]), "account_id": account_id}
+    row = (await db.execute(text("""
+        SELECT guest_number, name FROM hospitality_table_guests
+        WHERE company_id = :company_id AND access_id = :access_id AND account_id = :account_id
+        FOR UPDATE
+    """), params)).mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invitado_no_encontrado")
+    old_display = _qr_guest_display_name(dict(row))
+    old_name = _clean(row["name"])
+    if name == old_name:
+        return {"ok": True, "changed": False, "name": name, "old_name": old_name}
+    await db.execute(text("""
+        UPDATE hospitality_table_guests SET name = :name, updated_at = NOW()
+        WHERE company_id = :company_id AND access_id = :access_id AND account_id = :account_id
+    """), {**params, "name": name})
+    # Pedidos de esta sesion de mesa (abiertos y cerrados): barra, cocina y Reportes.
+    orders = (await db.execute(text("""
+        SELECT id, people FROM hospitality_orders
+        WHERE company_id = :company_id AND table_key = :table_key AND metadata->>'account_id' = :account_id AND created_at >= :since
+    """), {"company_id": str(company_id), "table_key": table_key, "account_id": account_id, "since": access["activated_at"]})).mappings().all()
+    for order in orders:
+        people = _json(order["people"], [])
+        people = people if isinstance(people, list) else []
+        for person in people:
+            if isinstance(person, dict) and _clean(person.get("account_id")) == account_id:
+                person["name"] = name
+                person["customer_key"] = _customer_key(name)
+        await db.execute(text("""
+            UPDATE hospitality_orders
+            SET people = CAST(:people AS jsonb), customer_name = :customer_name,
+                metadata = CASE WHEN metadata ? 'guest_name' THEN jsonb_set(metadata, '{guest_name}', to_jsonb(CAST(:guest_name AS text))) ELSE metadata END,
+                updated_at = NOW()
+            WHERE id = :order_id AND company_id = :company_id
+        """), {"people": json.dumps(people, ensure_ascii=False), "customer_name": name, "guest_name": name, "order_id": str(order["id"]), "company_id": str(company_id)})
+    # Retos y juegos de esta mesa que llevan el nombre anterior.
+    rename = {"company_id": str(company_id), "table_key": table_key, "old": old_display, "new": name}
+    for sql in (
+        """UPDATE hospitality_loyalty_participants p SET team_name = :new, updated_at = NOW() FROM hospitality_loyalty_campaigns c
+           WHERE p.company_id = :company_id AND p.table_key = :table_key AND p.team_name = :old AND c.id = p.campaign_id AND c.status = 'active'""",
+        """UPDATE hospitality_loyalty_predictions p SET team_name = :new, updated_at = NOW() FROM hospitality_loyalty_campaigns c
+           WHERE p.company_id = :company_id AND p.table_key = :table_key AND p.team_name = :old AND c.id = p.campaign_id AND c.status = 'active'""",
+        """UPDATE hospitality_loyalty_votes p SET voter_name = :new, updated_at = NOW() FROM hospitality_loyalty_campaigns c
+           WHERE p.company_id = :company_id AND p.table_key = :table_key AND p.voter_name = :old AND c.id = p.campaign_id AND c.status = 'active'""",
+    ):
+        await db.execute(text(sql), rename)
+    if (await db.execute(text("SELECT to_regclass('loyalty_game_players')"))).scalar():
+        await db.execute(text("""UPDATE loyalty_game_players p SET display_name = LEFT(:new, 20), updated_at = NOW() FROM loyalty_game_rounds r
+            WHERE p.company_id = :company_id AND p.table_key = :table_key AND p.display_name = :old AND r.id = p.round_id
+              AND r.status IN ('registration', 'playing')"""), rename)
+    await db.execute(text("""
+        INSERT INTO hospitality_guest_name_log (company_id, access_id, table_key, account_id, old_name, new_name, changed_by, changed_at)
+        VALUES (:company_id, :access_id, :table_key, :account_id, :old_name, :new_name, :changed_by, NOW())
+    """), {**params, "table_key": table_key, "old_name": old_display, "new_name": name, "changed_by": who["name"][:200]})
+    await db.commit()
+    return {"ok": True, "changed": True, "name": name, "old_name": old_display, "orders": len(orders)}
+
+
 class HospitalityQrWelcomeIn(BaseModel):
     text: str = Field(default="", max_length=400)
 
@@ -4998,11 +5112,14 @@ async def get_hospitality_table_account(
     table_number = _clean(payload.table) or "Mesa"
     await _require_table_access(db, company_id, table_number, payload.access_code)
     account_id = _clean(payload.account_id)
+    guest = None
+    welcome_on = False
     if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
         typed = _qr_typed_name(payload.customer)
-        if typed and (await _qr_welcome(db, company_id))["on"]:
+        welcome_on = (await _qr_welcome(db, company_id))["on"]
+        if typed and welcome_on:
             typed = _qr_welcome_name(typed)
-        guest = await _register_qr_guest(db, company_id, table_number, account_id, typed)
+        guest = await _register_qr_guest(db, company_id, table_number, account_id, typed, "reject" if welcome_on else "")
         if guest and guest["renamed"]:
             await _rename_qr_guest_orders(db, company_id, table_number, account_id, guest["display_name"])
         if guest:
@@ -5025,12 +5142,16 @@ async def get_hospitality_table_account(
         [dict(row) for row in result.mappings().all()],
         payload.account_id,
     )
-    return {
+    out = {
         "ok": True,
         "company_id": str(company_id),
         "table": table_number,
         "account": account,
     }
+    if welcome_on and guest:
+        # El QR toma el nombre del servidor (fijo; el bar puede haberlo corregido).
+        out["guest"] = {"name": _clean(guest.get("name")), "display_name": guest["display_name"], "named": bool(_clean(guest.get("name")))}
+    return out
 
 
 @router.get("/companies/{company_id}/qr-tables")
@@ -5939,7 +6060,7 @@ async def create_hospitality_order(
             typed = _qr_typed_name(payload.customer)
             if typed and welcome_on:
                 typed = _qr_welcome_name(typed)
-            guest = await _register_qr_guest(db, company_id, table_number, account_id, typed)
+            guest = await _register_qr_guest(db, company_id, table_number, account_id, typed, "keep" if welcome_on else "")
             if guest:
                 customer_name = guest["display_name"]
                 guest_name = customer_name if welcome_on else ""

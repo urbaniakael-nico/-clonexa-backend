@@ -2126,6 +2126,30 @@
     "No se pudo guardar la frase.": "La phrase n'a pas pu être enregistrée.",
   });
 
+  // QR: nombre fijo y encabezado nuevo con la bienvenida (056C).
+  Object.assign(EN, {
+    "Agregar mi nombre": "Add my name",
+    "Tu nombre ya quedó guardado en esta mesa. Si hay un error, pídele al bar que lo corrija.": "Your name is already saved for this table. If it's wrong, ask the bar to fix it.",
+    "Mesa abierta": "Table open",
+    "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrará cuando el bar cierre la mesa.": "The table is still open. You can keep ordering; this access closes when the bar closes the table.",
+    "Cuenta de la mesa": "Table bill",
+    "Ver detalle": "See details",
+    "Música": "Music",
+    "¿Qué deseas escuchar?": "What would you like to hear?",
+    "Pedir canción": "Request a song",
+  });
+  Object.assign(FR, {
+    "Agregar mi nombre": "Ajouter mon prénom",
+    "Tu nombre ya quedó guardado en esta mesa. Si hay un error, pídele al bar que lo corrija.": "Ton prénom est déjà enregistré pour cette table. S'il y a une erreur, demande au bar de le corriger.",
+    "Mesa abierta": "Table ouverte",
+    "La mesa sigue abierta. Puedes continuar ordenando; este acceso se cerrará cuando el bar cierre la mesa.": "La table est toujours ouverte. Tu peux continuer à commander ; cet accès se fermera quand le bar fermera la table.",
+    "Cuenta de la mesa": "Addition de la table",
+    "Ver detalle": "Voir le détail",
+    "Música": "Musique",
+    "¿Qué deseas escuchar?": "Qu'aimerais-tu écouter ?",
+    "Pedir canción": "Demander une chanson",
+  });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

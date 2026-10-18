@@ -81,7 +81,8 @@ test('QR: lista de la polla sin encimarse y "Polla activa" AA (claro y oscuro); 
       assert.deepEqual(w.welcome_low, [], 'bienvenida con contraste AA');
       assert.equal(w.page_overflow, false);
       assert.equal(r['con-nombre-375'].welcome, false, 'con nombre ya no se vuelve a pedir');
-      assert.match(r['con-nombre-375'].chip, /Laura · Mesa 4[\s\S]*Cambiar nombre/);
+      assert.match(r['con-nombre-375'].chip, /Laura · Mesa 4/);
+      assert.doesNotMatch(r['con-nombre-375'].chip, /Cambiar nombre|Agregar mi nombre/, 'nombre fijo');
       assert.equal(r['sin-interruptor-375'].welcome, false);
       assert.equal(r['sin-interruptor-375'].chip, '', 'sin el interruptor, el QR de siempre');
 

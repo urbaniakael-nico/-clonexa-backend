@@ -19,7 +19,7 @@ const NAMES = [
   'cxHspIsBarOnlyOrder031D', 'cxHspGroupAccounts024Y', 'cxHspMergedTableCards024Y',
   'cxHspClosedReference031R', 'cxHspClosedTableGroups031R', 'cxHspCloseControls030A',
   'cxHspTableSlots034B', 'cxHspTableStart034B', 'cxHspOrderTime034B', 'cxHspOrderCustomers034B',
-  'cxHspNewOrderBlock034B', 'cxHspTableQuickAdd034B', 'cxHspTableCard034B', 'cxHspClosedStrip034B',
+  'cxHspNewOrderBlock034B', 'cxHspTableQuickAdd034B', 'cxHspTableCard034B', 'cxHspClosedStrip034B', 'cxQrGuestFixBtn056C',
 ];
 
 function board(orders, qrTables) {
@@ -30,6 +30,7 @@ function board(orders, qrTables) {
   });
   vm.runInContext(
     `var cxHspOrders024R = ${JSON.stringify(orders)}; var cxHspQrTables034B = ${JSON.stringify(qrTables)};\n`
+      + 'var cxQrGuestFixEnabled056C = false;\n'
       + NAMES.map(fn).join('\n'),
     context,
   );

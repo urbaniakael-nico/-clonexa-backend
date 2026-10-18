@@ -247,6 +247,112 @@
   }
   /* CLONEXA_055B_LOYALTY_GAMES_END */
 
+  /* CLONEXA_056C_GUEST_NAME_FIX_START: con qr_welcome_name el nombre del invitado
+     queda fijo en el QR; solo el bar (dueno, admin o barman) lo corrige aqui. El
+     boton aparece solo si el servidor responde 200 (interruptor y rol). */
+  let cxQrGuestFixCheck056C = null;
+  let cxQrGuestFixEnabled056C = false;
+  function cxQrGuestFixOn056C() {
+    const companyId = companyIdFromUrl();
+    if (!companyId) return Promise.resolve(false);
+    if (!cxQrGuestFixCheck056C) {
+      cxQrGuestFixCheck056C = fetch(`${API}/hospitality/companies/${encodeURIComponent(companyId)}/qr-guests/config`, { headers: authHeaders() })
+        .then((res) => res.ok)
+        .catch(() => false)
+        .then((ok) => { cxQrGuestFixEnabled056C = ok; return ok; });
+    }
+    return cxQrGuestFixCheck056C;
+  }
+
+  function cxQrGuestFixBtn056C(table = "", person = {}) {
+    if (!cxQrGuestFixEnabled056C || !String(person.account_id || "").trim()) return "";
+    return `<button class="hsp-guest-fix-056c" type="button" data-guest-fix-table="${h(table)}" data-guest-fix-account="${h(person.account_id)}" data-guest-fix-name="${h(person.name || "")}">✏️ Corregir nombre</button>`;
+  }
+
+  function cxQrGuestFixStyles056C() {
+    if (document.getElementById("cxQrGuestFixStyles056C")) return;
+    const style = document.createElement("style");
+    style.id = "cxQrGuestFixStyles056C";
+    style.textContent = `
+      .hsp-guest-fix-056c{margin:4px 9px 9px;min-height:34px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(3,7,18,.45);color:var(--cx-text,#fff);font:inherit;font-size:12px;font-weight:900;cursor:pointer}
+      .hsp-guest-dlg-back-056c{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:16px;background:rgba(3,2,10,.72)}
+      .hsp-guest-dlg-056c{width:min(420px,100%);display:grid;gap:10px;padding:18px;border-radius:18px;border:1px solid rgba(255,255,255,.16);background:#0d1220;color:#f8fafc;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+      .hsp-guest-dlg-056c h2{margin:0;font-size:18px}
+      .hsp-guest-dlg-056c p{margin:0;font-size:13.5px;line-height:1.4}
+      .hsp-guest-dlg-056c label{display:grid;gap:6px;font-size:12px;font-weight:900}
+      .hsp-guest-dlg-056c input{min-height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:#05080f;color:#fff;padding:8px 12px;font:inherit;font-size:16px}
+      .hsp-guest-dlg-actions-056c{display:flex;gap:8px;flex-wrap:wrap}
+      .hsp-guest-dlg-actions-056c button{min-height:44px;padding:0 16px;border-radius:12px;font:inherit;font-weight:900;cursor:pointer}
+      .hsp-guest-dlg-ok-056c{border:0;background:#facc15;color:#111827}
+      .hsp-guest-dlg-no-056c{border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff}
+      .hsp-guest-dlg-msg-056c{min-height:18px;font-size:12.5px;font-weight:800;color:#fca5a5}`;
+    document.head.appendChild(style);
+  }
+
+  function cxQrGuestFixOpen056C(table, accountId, name) {
+    cxQrGuestFixStyles056C();
+    document.getElementById("cxQrGuestDlg056C")?.remove();
+    const box = document.createElement("div");
+    box.id = "cxQrGuestDlg056C";
+    box.className = "hsp-guest-dlg-back-056c";
+    box.innerHTML = `
+      <form class="hsp-guest-dlg-056c" role="dialog" aria-modal="true" aria-labelledby="cxQrGuestDlgT056C" data-guest-fix-form>
+        <h2 id="cxQrGuestDlgT056C">Corregir nombre · ${h(table)}</h2>
+        <p>Ahora: <b>${h(name || "Invitado")}</b>. El invitado no puede cambiarlo desde su QR; el cambio se ve en el QR, la barra, la cocina, los retos y juegos y Reportes, y queda en la bitácora.</p>
+        <label>Nombre correcto<input name="name" maxlength="30" autocomplete="off" required value="${h(name || "")}"></label>
+        <div class="hsp-guest-dlg-msg-056c" role="status"></div>
+        <div class="hsp-guest-dlg-actions-056c">
+          <button class="hsp-guest-dlg-ok-056c" type="submit">Sí, corregir</button>
+          <button class="hsp-guest-dlg-no-056c" type="button" data-guest-fix-cancel>Cancelar</button>
+        </div>
+      </form>`;
+    box.dataset.table = table;
+    box.dataset.account = accountId;
+    document.body.appendChild(box);
+    setTimeout(() => box.querySelector("input")?.focus(), 30);
+  }
+
+  async function cxQrGuestFixSave056C(form) {
+    const box = form.closest("#cxQrGuestDlg056C");
+    const msg = form.querySelector(".hsp-guest-dlg-msg-056c");
+    const name = String(form.elements.namedItem("name")?.value || "").trim();
+    if (!name) { msg.textContent = "Escribe el nombre."; return; }
+    try {
+      const res = await fetch(`${API}/hospitality/companies/${encodeURIComponent(companyIdFromUrl())}/qr-guests/rename`, {
+        method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ table: box.dataset.table, account_id: box.dataset.account, name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        msg.textContent = res.status === 403 ? "Tu rol no puede corregir nombres." : res.status === 404 ? "La mesa o el invitado ya no están activos." : String(data.detail || "No se pudo guardar.");
+        return;
+      }
+      box.remove();
+      if (typeof cxHspLoadOrders024R === "function") cxHspLoadOrders024R().catch?.(() => {});
+    } catch (_) {
+      msg.textContent = "No se pudo guardar. Revisa la conexión.";
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const t = event.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest("[data-guest-fix-account]");
+    if (btn) {
+      event.preventDefault();
+      cxQrGuestFixOpen056C(btn.getAttribute("data-guest-fix-table") || "", btn.getAttribute("data-guest-fix-account") || "", btn.getAttribute("data-guest-fix-name") || "");
+      return;
+    }
+    if (t.closest("[data-guest-fix-cancel]") || t.id === "cxQrGuestDlg056C") document.getElementById("cxQrGuestDlg056C")?.remove();
+  });
+  document.addEventListener("submit", (event) => {
+    const form = event.target && event.target.closest ? event.target.closest("[data-guest-fix-form]") : null;
+    if (!form) return;
+    event.preventDefault();
+    cxQrGuestFixSave056C(form);
+  });
+  /* CLONEXA_056C_GUEST_NAME_FIX_END */
+
   /* CLONEXA_056A_LOYALTY_RETOS_START: Retos para las mesas (interruptor
      loyalty_retos_v2 del modulo loyalty). Fidelizacion abre la pantalla nueva
      solo si el servidor responde que el interruptor esta encendido (404 = la
@@ -23946,6 +24052,7 @@ function inventoryCreatePayload() {
         <summary><span>${h(person.name || "Cliente")}</span><strong>${h(cxHspMoney024R(person.total || 0))}</strong></summary>
         ${(Array.isArray(person.items) ? person.items : []).map((item) => `
           <div class="hsp-table-line-034b sub"><span>${h(item.quantity)} x ${h(item.name || "Producto")}</span><strong>${h(cxHspMoney024R(item.total || 0))}</strong></div>`).join("")}
+        ${cxQrGuestFixBtn056C(slot.label || "", person)}
       </details>`).join("");
 
     let footer = "";
@@ -24351,6 +24458,7 @@ function inventoryCreatePayload() {
           </summary>
           <div class="hsp-account-products-033h">${personProducts || `<div class="hsp-empty-024r">Sin productos</div>`}</div>
           ${references.length ? `<div class="hsp-account-orders-033h">Pedidos: ${h(references.join(" · "))}</div>` : ""}
+          ${cxQrGuestFixBtn056C(order.table_number || "", person)}
         </details>
       `;
     }).join("");
@@ -24747,6 +24855,7 @@ function inventoryCreatePayload() {
     cxLoyGamesDecorate055B("orders");
 
     cxHspRenderOrdersBoard024R(summary);
+    cxQrGuestFixOn056C().then((on) => { if (on) cxHspRenderOrdersBoard024R(summary); });
     cxHspSyncAlertButton030B();
     cxHspSyncBarDestination031F();
     cxHspArmStoredAlerts030D();
