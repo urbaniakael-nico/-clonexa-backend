@@ -183,3 +183,6 @@
   .wf-root .wf-csv { width: 100%; }
   .wf-stats { gap: 4px 14px; }
 }
+/* 056F: PIN del CRM VELVET-LAB (solo con crm_velvet_lab). */
+.wf-pin { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid currentColor; color: var(--cx-text, inherit); opacity: .9; }
+.wf-pin.is-on { font-weight: 800; }

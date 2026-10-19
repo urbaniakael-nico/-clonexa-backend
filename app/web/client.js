@@ -33854,11 +33854,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxWorkforceV2Css051B";
           link.rel = "stylesheet";
-          link.href = "/client-static/workforce_v2.css?v=051B";
+          link.href = "/client-static/workforce_v2.css?v=056F";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/workforce_v2.js?v=051B";
+        script.src = "/client-static/workforce_v2.js?v=056F";
         script.onload = () => resolve();
         script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
         document.head.appendChild(script);

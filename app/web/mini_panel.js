@@ -5,6 +5,11 @@
   const params = new URLSearchParams(window.location.search);
   const companyId = params.get("company_id") || params.get("companyId") || "";
   const panelType = (params.get("type") || params.get("panel_type") || "sales").toLowerCase();
+  // 056F: el CRM VELVET-LAB tiene su propia pantalla (tableta del taller).
+  if (["crm_lab", "crmlab", "crm-lab"].includes(panelType)) {
+    window.location.replace(`/mini-panel/crm-lab?company_id=${encodeURIComponent(params.get("company_id") || params.get("companyId") || "")}`);
+    return;
+  }
   const isLogin = window.location.pathname.includes("/login");
   const storageKey = `clonexa_mini_panel_token_${companyId}_${panelType}`;
   const legacyStorageKey024B = storageKey;

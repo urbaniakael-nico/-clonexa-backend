@@ -36,6 +36,7 @@ for _module_name, _prefix, _tags in [
     ("shifts_v1", "/turnos", ["turnos"]),
     ("loyalty_games", "/loyalty-games", ["loyalty_games"]),
     ("loyalty_retos", "/loyalty-retos", ["loyalty_retos"]),
+    ("crm_lab", "/crm-lab", ["crm_lab"]),
     ("billing_reminder", "/billing-reminder", ["billing_reminder"]),
     ("bots", "/bots", ["bots"]),
     ("modules", "/modules", ["modules"]),

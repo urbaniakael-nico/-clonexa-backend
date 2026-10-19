@@ -165,6 +165,11 @@ def _cx_panel_type_019d(value: Any) -> str:
         "cajero": "caja",
         "cajera": "caja",
         "cashier": "caja",
+        # 056F: CRM VELVET-LAB (interruptor crm_velvet_lab).
+        "crm_lab": "crm_lab",
+        "crmlab": "crm_lab",
+        "crm-lab": "crm_lab",
+        "velvet_lab": "crm_lab",
     }
     clean = aliases.get(panel_type, panel_type)
     if clean not in MINI_PANEL_ALLOWED_TYPES_019C:
@@ -184,6 +189,7 @@ def _cx_minipanel_type_label_019d(panel_type: str) -> str:
         "mesero": "Mesero",
         "cocina": "Cocina",
         "caja": "Caja",
+        "crm_lab": "CRM VELVET-LAB",
     }.get(panel_type, panel_type)
 
 
@@ -299,6 +305,12 @@ async def mini_panel_login(
 ) -> Dict[str, Any]:
     panel_type = _cx_panel_type_019d(payload.panel_type)
     company = await _cx_company_or_404_019d(db, company_id)
+
+    if panel_type == "crm_lab":
+        from app.services import crm_lab as _crm_lab
+
+        if not await _crm_lab.is_on(db, company_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CRM VELVET-LAB no está activo para esta empresa.")
 
     if panel_type in WAITER_ORDERING_PANEL_TYPES_026K:
         await _cx_require_waiter_ordering_module_026k(db, company_id)
@@ -471,7 +483,7 @@ async def mini_panel_session(
 
 MINI_PANEL_ALLOWED_TYPES_019C = {
     "sales", "store", "inventory", "logistics", "call_center", "external", "other",
-    "mesero", "cocina", "caja",
+    "mesero", "cocina", "caja", "crm_lab",
 }
 SALES_ROLE_TOKENS_019C = {"vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor comercial"}
 
@@ -999,6 +1011,12 @@ async def _cx_create_minipanel_user_from_employee_026j(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El empleado debe tener rol cajero, tienda, punto de venta o retail.",
         )
+
+    if clean_type == "crm_lab":
+        from app.services import crm_lab as _crm_lab
+
+        if not await _crm_lab.is_on(db, company_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CRM VELVET-LAB no está activo para esta empresa.")
 
     existing = await _cx_find_minipanel_user_019c(db, company_id, payload.employee_id, clean_type)
     if existing:

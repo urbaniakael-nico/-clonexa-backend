@@ -27,7 +27,7 @@
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
     sessionPolicy: null, sessions: null, experience: null, brand: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
-    activity: null, audit: null, billing: null, roles: null, rolesDraft: null, userQuery: "", sess: { open: false, query: "", page: 1 },
+    activity: null, audit: null, billing: null, roles: null, crmLab: null, rolesDraft: null, userQuery: "", sess: { open: false, query: "", page: 1 },
     board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
   let ctx = null;
@@ -76,6 +76,8 @@
     billing: (id) => apiGet(`/admin-v2/api/billing/companies/${encodeURIComponent(id)}`).catch((error) => ({ unavailable: error.message })),
     // Roles de empleado por empresa (registro unico role_catalog.json).
     roles: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/employee-roles`),
+    // 056F: CRM VELVET-LAB (interruptor crm_velvet_lab); apagado responde 404 = no se muestra.
+    crmLab: (id) => apiGet(`${API}/crm-lab/companies/${encodeURIComponent(id)}/panel-user`).catch(() => ({ off: true })),
     async telegram(id) {                                                                             // T01 + T02
       const base = await apiGet(`${API}/bots/companies/${id}/telegram`);
       try { return { ...(base || {}), ...((await apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`)) || {}) }; }
@@ -99,6 +101,8 @@
     // pedidos por mesero de Admin V2 (W09); solo "segments", completo.
     setSegment: (id, segments, type, on) => apiPost(`${API}/companies/${encodeURIComponent(id)}/modules/waiter_ordering/activate`,
       window.CxFicha.segmentBody(segments, type, on)),
+    // 056F: usuario UNICO del CRM VELVET-LAB (clave temporal que se cambia al entrar).
+    createCrmUser: (id) => apiPost(`${API}/crm-lab/companies/${encodeURIComponent(id)}/panel-user`, {}),
     // U02
     createUser: (id, fullName, email, password) => apiPost(`${API}/companies/${id}/users`, {
       name: fullName, full_name: fullName, email, password, temporary_password: password, role: "company_admin", status: "active", must_change_password: true,
@@ -340,7 +344,28 @@
     </div>
     <p class="vp-login-hint">Solo encender, apagar y asignar módulos a los paneles. La configuración operativa (categorías, estaciones, porciones, imágenes, metas) no vive en la consola.
       ${waiterLink(c)}</p>
+    ${crmCard(c)}
     ${F().picker(model.modules, model.board)}`;
+  }
+
+  // 056F: CRM VELVET-LAB · un usuario compartido en la tableta del taller; los PIN
+  // de cada colaborador los asigna el dueño o admin en Personal.
+  function crmCard(c) {
+    const crm = model.crmLab;
+    if (!crm || crm.off) return "";
+    const link = `${origin()}${crm.link || `/mini-panel/login?company_id=${encodeURIComponent(c.id)}&type=crm_lab`}`;
+    return `<section class="vp-panel vp-section" aria-label="CRM VELVET-LAB" data-vpf-crm>
+      <h2>CRM VELVET-LAB</h2>
+      <p class="vp-login-hint">Tableta del taller: un solo usuario del panel; cada colaborador entra con su PIN (se asigna en Personal).</p>
+      <article class="vp-panel-card ${crm.exists ? "is-on" : ""}">
+        <header><b>Usuario del panel</b><span class="vp-state-pill ${crm.exists ? "is-on" : ""}">${crm.exists ? "Creado" : "Sin crear"}</span></header>
+        ${crm.exists ? `<small>Usuario: <span class="vp-mono">${h(crm.username)}</span></small>` : ""}
+        <div class="vp-actions">${crm.exists
+          ? `<button class="vp-btn vp-btn-sm" type="button" data-vpf-copy="${h(link)}">Copiar link</button>
+             <button class="vp-btn vp-btn-sm" type="button" data-vpf-reset="${h(crm.user_id)}">Regenerar clave</button>`
+          : `<button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpf-crm-create>Crear usuario del CRM</button>`}</div>
+      </article>
+    </section>`;
   }
 
   function userRows(users) {
@@ -687,7 +712,7 @@
   }
 
   // ------------------------------------------------------------ carga
-  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity"],
+  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity", "crmLab"],
     accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], roles: ["roles"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], facturacion: ["billing"], auditoria: [] };
 
   async function ensure(keys, force = false) {
@@ -793,6 +818,13 @@
       const action = mod.getAttribute("data-action");
       ask(action === "activate" ? "Encender módulo" : "Apagar módulo", `${action === "activate" ? "Encender" : "Apagar"} el módulo ${code} en ${c.name}?`,
         () => act(() => writes.toggleModule(id, code, action), `Módulo ${code} ${action === "activate" ? "encendido" : "apagado"}.`, ["modules"]));
+      return;
+    }
+    if (t.closest("[data-vpf-crm-create]")) {
+      ask("Crear usuario del CRM", "Se crea el usuario único de la tableta con una clave temporal (se cambia al entrar).", async () => {
+        const data = await act(() => writes.createCrmUser(id), "Usuario del CRM creado.", ["crmLab"]);
+        if (data && data.temporary_password) { model.modal = { type: "password", password: data.temporary_password }; draw(); }
+      });
       return;
     }
     if (boardClick(t, c)) return;

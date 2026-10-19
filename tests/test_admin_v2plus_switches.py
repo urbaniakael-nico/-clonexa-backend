@@ -55,7 +55,7 @@ async def test_activate_changes_only_the_sent_key_and_only_that_company(monkeypa
 def test_registry_is_valid_and_matches_the_approved_inventory():
     data = sr.registry()
     keys = {s["key"] for s in data["switches"]}
-    assert len(keys) == 23 and {"references_v2", "workforce_v2", "payroll_v2", "reports_v2", "loyalty_games", "loyalty_retos_v2", "qr_welcome_name"} <= keys
+    assert len(keys) == 24 and {"references_v2", "workforce_v2", "payroll_v2", "reports_v2", "loyalty_games", "loyalty_retos_v2", "qr_welcome_name"} <= keys
     delicate = {s["key"] for s in data["switches"] if s.get("delicate")}
     assert {"sales_ledger", "cashier_redesign", "checkout_v2"} <= delicate
     assert sr.required_modules() == ["domicilios_whatsapp", "hospitality", "loyalty", "payroll", "qr", "references", "reports", "waiter_ordering", "workforce"]
@@ -148,7 +148,7 @@ def test_switches_endpoint_requires_admin_v2_session(client):
     assert client.db.sql == []
     client.mp.setattr(ep.v2, "_active_session", AsyncMock(return_value=True))
     body = client.c.get("/admin-v2/api/switches").json()
-    assert len(body["registry"]["switches"]) == 23 and len(body["companies"]) == 2
+    assert len(body["registry"]["switches"]) == 24 and len(body["companies"]) == 2
 
 
 def test_switches_script_is_served():

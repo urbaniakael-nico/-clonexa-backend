@@ -445,8 +445,10 @@ async def insert_attendance_event(
     detail: str = "",
     metadata: dict[str, Any] | None = None,
     source_ref: str | None = None,
+    source_channel: str = "telegram",
 ) -> None:
-    event_metadata = {"source": "company_bot_v1"}
+    """source_channel: "telegram" (el bot, como siempre) o "crm_lab" (CRM VELVET-LAB, 056F)."""
+    event_metadata = {"source": "company_bot_v1" if source_channel == "telegram" else source_channel}
     event_metadata.update(metadata or {})
 
     await db.execute(
@@ -476,8 +478,8 @@ async def insert_attendance_event(
                 :employee_name,
                 :employee_role,
                 :status_after,
-                'telegram',
-                'telegram',
+                :source_channel,
+                :source_channel,
                 :source_ref,
                 'workforce',
                 :detail,
@@ -494,7 +496,8 @@ async def insert_attendance_event(
             "employee_name": employee["employee_name"],
             "employee_role": employee.get("employee_role") or "",
             "status_after": status_after,
-            "source_ref": source_ref or f"company_bot_v1:{event_type}",
+            "source_ref": source_ref or (f"company_bot_v1:{event_type}" if source_channel == "telegram" else f"{source_channel}:{event_type}"),
+            "source_channel": source_channel,
             "detail": detail,
             "metadata_json": json.dumps(event_metadata, ensure_ascii=False),
         },
@@ -571,6 +574,7 @@ async def open_reference_session(
     telegram_user_id: str,
     reference: dict[str, Any],
     close_status: str,
+    source_channel: str = "telegram",
 ) -> None:
     await db.execute(
         text("""
@@ -616,7 +620,7 @@ async def open_reference_session(
                 :reference_name,
                 now(),
                 'active',
-                'telegram',
+                :source_channel,
                 now(),
                 now()
             )
@@ -628,6 +632,7 @@ async def open_reference_session(
             "telegram_user_id": telegram_user_id,
             "reference_id": reference["id"],
             "reference_name": reference["name"],
+            "source_channel": source_channel,
         },
     )
 
@@ -753,6 +758,7 @@ async def save_production_close(
     telegram_user_id: str,
     reference: dict[str, Any],
     quantity_finished: int,
+    source_channel: str = "telegram",
 ) -> None:
     await db.execute(
         text("""
@@ -781,7 +787,7 @@ async def save_production_close(
                 :size,
                 :quantity_finished,
                 now(),
-                'telegram',
+                :source_channel,
                 now()
             )
         """),
@@ -794,6 +800,7 @@ async def save_production_close(
             "reference_name": reference["name"],
             "size": reference["size"],
             "quantity_finished": quantity_finished,
+            "source_channel": source_channel,
         },
     )
 

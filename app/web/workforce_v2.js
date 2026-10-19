@@ -20,7 +20,8 @@
   const MONEY = ["hourly_rate_regular", "hourly_rate_extra", "deduction_1", "deduction_2"];
   const CSV_HEAD = ["Nombre", "Documento", "Rol", "Telefono", "Correo", "Telegram ID", "Fecha ingreso", "Hora ordinaria", "Hora extra", "Descuento 1", "Descuento 2", "Estado"];
 
-  const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false };
+  // pins: null = CRM VELVET-LAB apagado (el servidor responde 404) y no se muestra nada de PIN.
+  const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null };
   let ctx = null;
   let bound = false;
 
@@ -183,11 +184,23 @@
     const items = [`<button type="button" role="menuitem" class="wf-menu-item" data-wf2-edit="${h(id)}">Editar</button>`];
     if (s !== "active") items.push(`<button type="button" role="menuitem" class="wf-menu-item" data-wf2-act="activate" data-id="${h(id)}">Activar</button>`);
     if (s === "active") items.push(`<button type="button" role="menuitem" class="wf-menu-item" data-wf2-act="deactivate" data-id="${h(id)}">Inactivar</button>`);
+    // 056F: PIN del CRM VELVET-LAB (solo con el interruptor crm_velvet_lab).
+    if (model.pins && s === "active") {
+      const has = !!(model.pins[id] && model.pins[id].has_pin);
+      items.push(`<button type="button" role="menuitem" class="wf-menu-item" data-wf2-pin="${h(id)}">${has ? "Reiniciar PIN CRM" : "Asignar PIN CRM"}</button>`);
+      if (has) items.push(`<button type="button" role="menuitem" class="wf-menu-item" data-wf2-pin-clear="${h(id)}">Quitar PIN CRM</button>`);
+    }
     if (s !== "archived") items.push(`<button type="button" role="menuitem" class="wf-menu-item wf-menu-danger" data-wf2-delete="${h(id)}">Eliminar</button>`);
     return `<div class="wf-menu ${open ? "is-open" : ""}">
       <button class="client-btn wf-menu-btn" type="button" aria-haspopup="menu" aria-expanded="${open}" data-wf2-menu="${h(id)}" aria-label="Acciones de ${h(e.full_name || "empleado")}">Acciones <span aria-hidden="true">▾</span></button>
       ${open ? `<div class="wf-menu-list" role="menu">${items.join("")}</div>` : ""}
     </div>`;
+  }
+
+  function pinBadge(e) {
+    if (!model.pins || statusOf(e) !== "active") return "";
+    const has = !!(model.pins[String(e.id)] && model.pins[String(e.id)].has_pin);
+    return `<span class="wf-pin ${has ? "is-on" : ""}">${has ? "PIN CRM ✓" : "Sin PIN CRM"}</span>`;
   }
 
   const dash = (v) => (v === null || v === undefined || String(v).trim() === "" ? '<span class="wf-sub">—</span>' : h(v));
@@ -205,7 +218,7 @@
           <th class="wf-th" scope="col">Ingreso</th><th class="wf-th wf-num" scope="col">Hora ordinaria · extra</th><th class="wf-th wf-num" scope="col">Descuentos</th></tr>
       </thead>
       <tbody>${list.map((e) => `<tr class="wf-row wf-row-${statusOf(e)}" data-wf2-row="${h(e.id)}">
-        <td class="wf-namecell"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span></td>
+        <td class="wf-namecell"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span>${pinBadge(e)}</td>
         <td class="wf-role">${rolePill(e)}</td>
         <td class="wf-contact">${pairLine("Doc.", dash(e.document_id))}${pairLine("Tel.", dash(e.phone))}${pairLine("Correo", `<span class="wf-wrap">${dash(e.email)}</span>`)}${pairLine("Telegram", dash(e.telegram_user_id))}</td>
         <td class="wf-date">${dash(e.hire_date)}</td>
@@ -221,7 +234,7 @@
     const line = (label, value) => `<div class="wf-card-line"><span class="wf-card-label">${h(label)}</span><span class="wf-card-value">${value}</span></div>`;
     return `<div class="wf-cards">${list.map((e) => `<article class="wf-card wf-row-${statusOf(e)}" data-wf2-card="${h(e.id)}">
       <div class="wf-card-head"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span>${statusPill(e)}</div>
-      <div class="wf-card-role">${rolePill(e)}</div>
+      <div class="wf-card-role">${rolePill(e)}${pinBadge(e)}</div>
       <div class="wf-card-group"><span class="wf-card-title">Persona</span>
         ${line("Documento", dash(e.document_id))}${line("Teléfono", dash(e.phone))}${line("Correo", dash(e.email))}${line("Telegram ID", dash(e.telegram_user_id))}</div>
       <div class="wf-card-group"><span class="wf-card-title">Contrato</span>
@@ -241,6 +254,14 @@
         <p>Se archiva para auditoría: deja de aparecer en Activos, su historial se conserva y se puede volver a activar.</p>${err}
         <div class="wf-modal-actions"><button class="wf-btn-danger" type="button" data-wf2-delete-go="${h(md.id)}" ${model.busy ? "disabled" : ""}>Eliminar</button>
           <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></div></div>`;
+    }
+    if (md.type === "pin") {
+      return `<div class="wf-modal" data-wf2-modal><form class="wf-modal-card" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle" data-wf2-pinform="${h(md.id)}">
+        <h2 id="wf2ModalTitle">PIN CRM de ${h(md.name)}</h2>
+        <p>4 dígitos. Lo usa en la tableta del taller (CRM VELVET-LAB). Se guarda cifrado: nadie puede verlo después, solo reiniciarlo.</p>${err}
+        <label class="wf-field"><span>PIN nuevo</span><input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" minlength="4" autocomplete="off" required></label>
+        <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar PIN</button>
+          <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></form></div>`;
     }
     const e = md.employee || {};
     const field = (name, label, attrs = "") => `<label class="wf-field"><span>${h(label)}</span><input name="${name}" value="${h(e[name] ?? "")}" ${attrs}></label>`;
@@ -321,7 +342,48 @@
   }
 
   // ------------------------------------------------------------ datos
+  async function loadPins() {
+    try {
+      const data = await ctx.personalApi(`/crm-lab/companies/${encodeURIComponent(ctx.companyId)}/pins`);
+      model.pins = (data && data.pins) || {};
+    } catch (_) {
+      model.pins = null;
+    }
+  }
+
+  async function savePin(form) {
+    const id = form.getAttribute("data-wf2-pinform");
+    const pin = String(form.elements.pin.value || "").trim();
+    if (!/^\d{4}$/.test(pin)) { model.modal.error = "El PIN debe tener 4 dígitos."; draw(); return; }
+    model.busy = true;
+    draw();
+    try {
+      await ctx.personalApi(`/crm-lab/companies/${encodeURIComponent(ctx.companyId)}/employees/${encodeURIComponent(id)}/pin`, { method: "PUT", body: JSON.stringify({ pin }) });
+      model.modal = null;
+      model.notice = "PIN CRM guardado.";
+      await loadPins();
+    } catch (error) {
+      if (model.modal) model.modal.error = errorText(error);
+    } finally {
+      model.busy = false;
+      draw();
+    }
+  }
+
+  async function clearPin(id) {
+    model.menu = "";
+    try {
+      await ctx.personalApi(`/crm-lab/companies/${encodeURIComponent(ctx.companyId)}/employees/${encodeURIComponent(id)}/pin`, { method: "DELETE" });
+      model.notice = "PIN CRM quitado.";
+      await loadPins();
+    } catch (error) {
+      model.error = errorText(error);
+    }
+    draw();
+  }
+
   async function load() {
+    loadPins().then(() => { if (model.loaded) draw(); });
     try {
       const data = await ctx.personalApi(`/employees?company_id=${encodeURIComponent(ctx.companyId)}&include_archived=true`);
       model.employees = arr(data);
@@ -409,6 +471,10 @@
     if (a) { const action = a.getAttribute("data-wf2-act"); act(a.getAttribute("data-id"), action, action === "activate" ? "Empleado activado." : "Empleado inactivado."); return; }
     const del = t.closest("[data-wf2-delete]");
     if (del) { const e = byId(del.getAttribute("data-wf2-delete")) || {}; model.menu = ""; model.modal = { type: "delete", id: String(e.id || ""), name: e.full_name || "este empleado" }; draw(); return; }
+    const pinBtn = t.closest("[data-wf2-pin]");
+    if (pinBtn) { const e = byId(pinBtn.getAttribute("data-wf2-pin")) || {}; model.menu = ""; model.notice = ""; model.modal = { type: "pin", id: String(e.id || ""), name: e.full_name || "" }; draw(); return; }
+    const pinClear = t.closest("[data-wf2-pin-clear]");
+    if (pinClear) { clearPin(pinClear.getAttribute("data-wf2-pin-clear")); return; }
     const go = t.closest("[data-wf2-delete-go]");
     if (go) { act(go.getAttribute("data-wf2-delete-go"), "archive", "Empleado eliminado (archivado para auditoría)."); return; }
     if (t.closest("[data-wf2-close]") || (t.matches && t.matches("[data-wf2-modal]"))) { model.modal = null; draw(); }
@@ -423,6 +489,7 @@
 
   function onSubmit(event) {
     const form = event.target;
+    if (form && form.matches && inside(form) && form.matches("[data-wf2-pinform]")) { event.preventDefault(); savePin(form); return; }
     if (!form || !form.matches || !inside(form) || !form.matches("[data-wf2-form]")) return;
     event.preventDefault();
     save(form);
@@ -441,6 +508,7 @@
     model.menu = "";
     model.notice = "";
     model.error = "";
+    model.pins = null;
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
       document.addEventListener("input", onInput);

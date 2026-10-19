@@ -216,6 +216,9 @@ def register_client_portal(app: FastAPI) -> None:
         "/mini-panel/cocina/login": "hsp_kitchen.html",
         "/mini-panel/caja": "hsp_cashier.html",
         "/mini-panel/caja/login": "hsp_cashier.html",
+        # 056F: CRM VELVET-LAB (interruptor crm_velvet_lab; el API lo valida).
+        "/mini-panel/crm-lab": "crm_lab.html",
+        "/mini-panel/crm-lab/login": "crm_lab.html",
     }
     for _path, _file in _WAITER_ORDERING_PAGES.items():
         if any(getattr(route, "path", None) == _path for route in app.routes):
