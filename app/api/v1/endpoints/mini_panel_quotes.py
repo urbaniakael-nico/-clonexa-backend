@@ -10,7 +10,10 @@ from decimal import Decimal
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,6 +24,19 @@ except Exception:  # pragma: no cover
 
 
 router = APIRouter()
+
+
+async def require_quotes_session(company_id: uuid.UUID, request: Request, authorization: str | None = Header(default=None),
+                                 db: AsyncSession = Depends(get_db)) -> None:
+    """CLONEXA_056I (todas las empresas): estas rutas dejaban pasar llamadas SIN sesion
+    (solo con el company_id). Ahora: Admin V2 o su vista previa de ESA empresa, usuario
+    del portal o JWT de mini panel de ESA empresa (401 sin sesion, 403 otra empresa)."""
+    from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_user
+
+    await require_admin_v2_or_tenant_company_user(company_id, request, authorization, db)
+
+
+router.dependencies.append(Depends(require_quotes_session))
 
 QUOTE_ALIASES = {
     "cotizacion",

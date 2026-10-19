@@ -97,4 +97,4 @@ def test_callers_keep_working_contract():
     assert "a.href = cxProdDownloadUrl018E(filters);" not in portal, "la descarga CSV ya no es un enlace sin sesion"
     assert "cxDownloadWithSession056D(cxProdDownloadUrl018E(filters)" in portal
     assert "cxDownloadWithSession056D(`${API}/references-v1/companies/" in portal
-    assert "const res = await fetch(url, { headers: authHeaders() });" in portal
+    assert "const res = await fetch(url, { headers: authHeaders(), credentials: \"same-origin\" });" in portal

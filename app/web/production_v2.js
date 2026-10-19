@@ -57,13 +57,14 @@
   async function load() {
     model.loading = true; model.error = ""; draw();
     try {
-      const res = await fetch(`${base()}/insights?${query()}`, { headers: headers() });
-      if (res.status === 403 || res.status === 401) { model.denied = true; model.data = null; return; }
+      const res = await fetch(`${base()}/insights?${query()}`, { headers: headers(), credentials: "same-origin" });
+      if (res.status === 401) { model.error = T("No pudimos cargar Producción: sesión vencida, vuelve a entrar."); return; }
+      if (res.status === 403) { model.denied = true; model.data = null; return; }
       if (!res.ok) throw new Error(`${res.status}`);
       model.denied = false;
       model.data = await res.json();
     } catch (_) {
-      model.error = T("No se pudo cargar Producción.");
+      model.error = T("No pudimos cargar Producción. Revisa la conexión e intenta de nuevo.");
     } finally { model.loading = false; draw(); }
   }
 
@@ -71,7 +72,7 @@
     model.busy = kind; model.error = ""; draw();
     const tab = kind === "view" ? window.open("", "_blank") : null;
     try {
-      const res = await fetch(`${base()}/export.pdf?${query({ disposition: kind === "view" ? "inline" : "attachment" })}`, { headers: headers() });
+      const res = await fetch(`${base()}/export.pdf?${query({ disposition: kind === "view" ? "inline" : "attachment" })}`, { headers: headers(), credentials: "same-origin" });
       if (!res.ok) throw new Error(T("No se pudo generar el PDF."));
       const url = URL.createObjectURL(await res.blob());
       if (kind === "view") { if (tab) tab.location.href = url; else window.open(url, "_blank"); }
@@ -223,7 +224,8 @@
         <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Cerradas vs enviadas a Bombón"))}</h2>${series(d)}</section>
         <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Tiempo del equipo por referencia"))}</h2>${share(d.team_time)}</section>
       </div>`;
-    return `<div class="pp-root" data-pp-root>${head()}${bar()}${model.error ? `<div class="pp-notice" role="alert">${h(model.error)}</div>` : ""}${body}</div>`;
+    const notice = model.error ? `<div class="pp-notice" role="alert">${h(model.error)} <button type="button" class="pp-btn" data-pp-retry>${h(T("Reintentar"))}</button></div>` : "";
+    return `<div class="pp-root" data-pp-root>${head()}${bar()}${notice}${body}</div>`;
   }
 
   function draw() { if (!ctx) return; const host = ctx.host(); if (host) host.innerHTML = view(); }
@@ -234,6 +236,7 @@
     if (!ctx || !t || !t.closest || !t.closest("[data-pp-root]")) return;
     const attr = (a) => { const el = t.closest(`[${a}]`); return el ? el.getAttribute(a) : null; };
     let v;
+    if (attr("data-pp-retry") !== null) { load(); return; }
     if ((v = attr("data-pp-preset"))) { model.preset = v; load(); return; }
     if ((v = attr("data-pp-pdf"))) { pdf(v); return; }
     if ((v = attr("data-pp-lot"))) { model.open = model.open === v ? "" : v; draw(); }

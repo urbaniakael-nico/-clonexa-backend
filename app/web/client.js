@@ -10016,7 +10016,7 @@ function inventoryCreatePayload() {
   // 056D: las exportaciones piden sesion; se bajan con fetch + Authorization.
   async function cxDownloadWithSession056D(url, filename) {
     try {
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await fetch(url, { headers: authHeaders(), credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const href = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
@@ -10623,101 +10623,53 @@ function inventoryCreatePayload() {
     `;
   }
 
-  /* CLONEXA_056G_PRODUCTION_V2_START: tablero nuevo de Producción solo con el
-     interruptor production_v2 (settings del modulo production, apagado por
-     defecto). Sin el interruptor o si su archivo no carga, la pantalla de siempre. */
-  function cxProductionV2On056G() {
-    const item = activeClientModules().find((m) => m.code === "production");
-    const raw = (item && item.raw) || {};
-    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
-    return settings.production_v2 === true;
+  /* CLONEXA_056I_V2_MOUNT_START: UNA sola forma de montar las pantallas v2 nuevas
+     (Producción v2 y Cotizaciones v2). Usan la MISMA sesión que el resto del portal:
+     authToken() de este bloque + cookie del mismo sitio (Admin V2 o vista previa).
+     056G/056H pasaban cxReportsToken053C, que vive en OTRO bloque de este archivo:
+     ReferenceError al montar y el área principal quedaba en blanco.
+     Si el archivo no carga: pantalla de siempre. Si el montaje falla: aviso con
+     Reintentar dentro del módulo, nunca en blanco. */
+  function cxT056I(text, vars) {
+    if (window.CxI18n && typeof window.CxI18n.t === "function") return window.CxI18n.t(text, vars);
+    return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars && vars[k] !== undefined ? String(vars[k]) : m));
   }
 
-  let cxProductionV2Loading056G = null;
-  function cxProductionV2Load056G() {
-    if (window.CxProductionV2) return Promise.resolve();
-    if (!cxProductionV2Loading056G) {
-      cxProductionV2Loading056G = new Promise((resolve, reject) => {
-        if (!document.getElementById("cxProductionV2Css056G")) {
+  const cxV2Loading056I = {};
+  function cxV2Load056I(name, globalName) {
+    if (window[globalName]) return Promise.resolve();
+    if (!cxV2Loading056I[name]) {
+      cxV2Loading056I[name] = new Promise((resolve, reject) => {
+        const cssId = `cxV2Css056I_${name}`;
+        if (!document.getElementById(cssId)) {
           const link = document.createElement("link");
-          link.id = "cxProductionV2Css056G";
+          link.id = cssId;
           link.rel = "stylesheet";
-          link.href = "/client-static/production_v2.css?v=056G";
+          link.href = `/client-static/${name}.css?v=056I`;
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/production_v2.js?v=056G";
+        script.src = `/client-static/${name}.js?v=056I`;
         script.onload = () => resolve();
-        script.onerror = () => { cxProductionV2Loading056G = null; reject(new Error("production_v2")); };
+        script.onerror = () => { delete cxV2Loading056I[name]; reject(new Error(name)); };
         document.head.appendChild(script);
       });
     }
-    return cxProductionV2Loading056G;
+    return cxV2Loading056I[name];
   }
 
-  async function cxProductionV2Mount056G() {
-    try { await cxProductionV2Load056G(); } catch (_) { return false; }
-    if (!window.CxProductionV2 || typeof window.CxProductionV2.mount !== "function") return false;
+  function cxV2ErrorText056I(error) {
+    const msg = String((error && error.message) || error || "");
+    if (/\b401\b|sesi[oó]n/i.test(msg)) return "sesión vencida, vuelve a entrar";
+    return msg || "error inesperado";
+  }
+
+  async function cxV2Mount056I({ name, globalName, activeCode, label }) {
+    try { await cxV2Load056I(name, globalName); } catch (_) { return false; }
+    const mod = window[globalName];
+    if (!mod || typeof mod.mount !== "function") return false;
     const company = state.company || {};
-    $("app").innerHTML = `
-      <main class="client-shell">
-        <div class="client-layout">
-          <aside class="client-sidebar">
-            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
-            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
-            <div class="client-muted">${h(company.slug || "tenant")}</div>
-            <nav class="client-nav">${renderClientNav("production")}</nav>
-            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
-          </aside>
-          <section class="client-main"><div id="cxProductionV2Host056G"></div></section>
-        </div>
-      </main>`;
-    await window.CxProductionV2.mount({
-      companyId: state.companyId, apiBase: API, token: cxReportsToken053C,
-      host: () => document.getElementById("cxProductionV2Host056G"),
-    });
-    return true;
-  }
-  /* CLONEXA_056G_PRODUCTION_V2_END */
-
-  /* CLONEXA_056H_QUOTES_V2_START: Cotizaciones y cuentas de cobro v2 solo con el
-     interruptor quotes_v2 (settings del modulo de cotizaciones, apagado por
-     defecto). Sin el interruptor o si su archivo no carga, la pantalla de siempre. */
-  function cxQuotesV2On056H() {
-    const aliases = ["cotizacion", "cotizaciones", "quote", "quotes", "quotation", "quotations", "cotizar", "presupuesto", "presupuestos"];
-    return activeClientModules().some((m) => {
-      const raw = (m && m.raw) || {};
-      const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
-      return aliases.includes(String(m.code || "").toLowerCase()) && settings.quotes_v2 === true;
-    });
-  }
-
-  let cxQuotesV2Loading056H = null;
-  function cxQuotesV2Load056H() {
-    if (window.CxQuotesV2) return Promise.resolve();
-    if (!cxQuotesV2Loading056H) {
-      cxQuotesV2Loading056H = new Promise((resolve, reject) => {
-        if (!document.getElementById("cxQuotesV2Css056H")) {
-          const link = document.createElement("link");
-          link.id = "cxQuotesV2Css056H";
-          link.rel = "stylesheet";
-          link.href = "/client-static/quotes_v2.css?v=056H";
-          document.head.appendChild(link);
-        }
-        const script = document.createElement("script");
-        script.src = "/client-static/quotes_v2.js?v=056H";
-        script.onload = () => resolve();
-        script.onerror = () => { cxQuotesV2Loading056H = null; reject(new Error("quotes_v2")); };
-        document.head.appendChild(script);
-      });
-    }
-    return cxQuotesV2Loading056H;
-  }
-
-  async function cxQuotesV2Mount056H(activeCode) {
-    try { await cxQuotesV2Load056H(); } catch (_) { return false; }
-    if (!window.CxQuotesV2 || typeof window.CxQuotesV2.mount !== "function") return false;
-    const company = state.company || {};
+    const hostId = `cxV2Host056I_${name}`;
     $("app").innerHTML = `
       <main class="client-shell">
         <div class="client-layout">
@@ -10728,16 +10680,53 @@ function inventoryCreatePayload() {
             <nav class="client-nav">${renderClientNav(activeCode)}</nav>
             <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
           </aside>
-          <section class="client-main"><div id="cxQuotesV2Host056H"></div></section>
+          <section class="client-main"><div id="${hostId}"></div></section>
         </div>
       </main>`;
-    await window.CxQuotesV2.mount({
-      companyId: state.companyId, apiBase: API, token: cxReportsToken053C,
-      host: () => document.getElementById("cxQuotesV2Host056H"),
-    });
+    const host = () => document.getElementById(hostId);
+    const attempt = async () => {
+      try {
+        await mod.mount({ companyId: state.companyId, apiBase: API, token: authToken, host });
+      } catch (error) {
+        const box = host();
+        if (!box) return;
+        box.innerHTML = `<section class="client-panel" role="alert"><h2 class="client-title">${h(cxT056I(label))}</h2>
+          <p>${h(cxT056I("No pudimos cargar {m}: {e}", { m: cxT056I(label), e: cxT056I(cxV2ErrorText056I(error)) }))}</p>
+          <button type="button" class="client-btn" data-cx-v2-retry="${h(name)}">${h(cxT056I("Reintentar"))}</button></section>`;
+        const retry = box.querySelector("[data-cx-v2-retry]");
+        if (retry) retry.addEventListener("click", attempt);
+      }
+    };
+    await attempt();
     return true;
   }
-  /* CLONEXA_056H_QUOTES_V2_END */
+
+  /* Producción v2: solo con el interruptor production_v2 (settings del modulo production). */
+  function cxProductionV2On056G() {
+    const item = activeClientModules().find((m) => m.code === "production");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.production_v2 === true;
+  }
+
+  function cxProductionV2Mount056G() {
+    return cxV2Mount056I({ name: "production_v2", globalName: "CxProductionV2", activeCode: "production", label: "Producción" });
+  }
+
+  /* Cotizaciones v2: solo con el interruptor quotes_v2 (settings del modulo de cotizaciones). */
+  function cxQuotesV2On056H() {
+    const aliases = ["cotizacion", "cotizaciones", "quote", "quotes", "quotation", "quotations", "cotizar", "presupuesto", "presupuestos"];
+    return activeClientModules().some((m) => {
+      const raw = (m && m.raw) || {};
+      const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+      return aliases.includes(String(m.code || "").toLowerCase()) && settings.quotes_v2 === true;
+    });
+  }
+
+  function cxQuotesV2Mount056H(activeCode) {
+    return cxV2Mount056I({ name: "quotes_v2", globalName: "CxQuotesV2", activeCode, label: "Cotizaciones" });
+  }
+  /* CLONEXA_056I_V2_MOUNT_END */
 
   async function renderProductionModule(filters = cxProdDefaultFilters018E()) {
     if (!isClientModuleActive("production")) {
@@ -13655,13 +13644,15 @@ function inventoryCreatePayload() {
   }
 
   async function cxUniversalApi021D(path, options = {}) {
+    // 056I: con la sesion del portal (token) o la cookie del mismo sitio (Admin V2 / vista previa).
     const response = await fetch(`${API}${path}`, {
       method: options.method || "GET",
-      headers: {
+      credentials: "same-origin",
+      headers: authHeaders({
         "Content-Type": "application/json",
         "X-CLONEXA-CLIENT-MODULE": "1",
         ...(options.headers || {}),
-      },
+      }),
       body: options.body,
     });
 
@@ -15266,7 +15257,7 @@ function inventoryCreatePayload() {
         "assistant",
         `
           Listo. Esta es la ${h(label)} ${h(number)} que solicitaste.
-          <a class="cxai-download-027a" href="${h(pdfUrl)}" target="_blank" rel="noopener">Descargar PDF</a>
+          <button class="cxai-download-027a" type="button" data-client-quote-pdf="${h(quote.id)}" data-document-type="${h(flow.documentType)}" data-pdf-url="${h(pdfUrl)}">Descargar PDF</button>
           <div class="cxai-chip-wrap-027a"><button class="cxai-chip-027a" type="button" data-client-module="cotizaciones">Ver historial</button></div>
         `,
         true
@@ -20736,7 +20727,8 @@ function inventoryCreatePayload() {
     if (quotePdf) {
       const id = quotePdf.dataset.clientQuotePdf;
       const docType = quotePdf.dataset.documentType || "quote";
-      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=${encodeURIComponent(docType)}`, "_blank", "noopener");
+      const pdfUrl056I = quotePdf.dataset.pdfUrl || `${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=${encodeURIComponent(docType)}`;
+      await cxDownloadWithSession056D(pdfUrl056I, `${docType === "account" ? "cuenta-de-cobro" : "cotizacion"}-${id.slice(0, 8)}.pdf`);
       return;
     }
 
@@ -20744,7 +20736,7 @@ function inventoryCreatePayload() {
     if (quoteConvert) {
       const id = quoteConvert.dataset.clientQuoteConvert;
       await cxUniversalApi021D(`/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/convert?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}`, { method: "POST", body: JSON.stringify({}) });
-      window.open(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=account`, "_blank", "noopener");
+      await cxDownloadWithSession056D(`${API}/mini-panel-quotes/companies/${encodeURIComponent(state.companyId)}/${encodeURIComponent(id)}/pdf?panel_type=${encodeURIComponent(cxClientQuotePanelForAction021F(id))}&document_type=account`, `cuenta-de-cobro-${id.slice(0, 8)}.pdf`);
       await renderClientUniversalQuotesModule021D("cotizaciones");
       return;
     }

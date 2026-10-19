@@ -61,12 +61,11 @@ async def panel(company_id: UUID, request: Request, authorization: Optional[str]
 async def owner(company_id: UUID, request: Request, authorization: Optional[str] = Header(default=None),
                 db: AsyncSession = Depends(get_db)) -> dict:
     """Dueno o admin de la empresa (o Admin V2): asignan y reinician los PIN."""
-    from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_admin
-    from app.web.admin_v2_routes import _active_session
+    from app.api.v1.endpoints.companies import admin_v2_or_company_preview, require_admin_v2_or_tenant_company_admin
 
     await require_admin_v2_or_tenant_company_admin(company_id, request, authorization, db)
     name = "Admin V2"
-    if not await _active_session(request, db):
+    if not await admin_v2_or_company_preview(request, db, company_id):
         from app.api.deps import extract_bearer_token
         from app.services.auth_service import get_current_company_user
 

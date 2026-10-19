@@ -68,8 +68,9 @@
   async function api(path, opts = {}) {
     const t = ctx.token();
     const res = await fetch(`${base()}${path}`, { method: opts.method || "GET", body: opts.body ? JSON.stringify(opts.body) : undefined,
-      headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(t ? { Authorization: `Bearer ${t}` } : {}) } });
-    if (res.status === 401 || res.status === 403) { model.denied = true; throw new Error(T("Cotizaciones es solo del dueño o administrador.")); }
+      credentials: "same-origin", headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(t ? { Authorization: `Bearer ${t}` } : {}) } });
+    if (res.status === 401) throw new Error(T("No pudimos cargar Cotizaciones: sesión vencida, vuelve a entrar."));
+    if (res.status === 403) { model.denied = true; throw new Error(T("Cotizaciones es solo del dueño o administrador.")); }
     if (!res.ok) {
       let detail = "";
       try { detail = (await res.json()).detail; } catch (_) {}
@@ -303,7 +304,7 @@
     if (model.denied) return `<div class="qv-root" data-qv-root>${head()}<section class="client-panel"><p class="qv-muted">${h(T("Cotizaciones es solo del dueño o administrador."))}</p></section></div>`;
     const body = model.step === 1 ? step1() : model.step === 2 ? step2() : step3();
     return `<div class="qv-root" data-qv-root>${head()}<div class="qv-layout"><section class="client-panel qv-main">${steps()}
-      ${model.error ? `<div class="qv-notice" role="alert">${h(model.error)}</div>` : ""}${body}${nav()}</section>${history()}</div></div>`;
+      ${model.error ? `<div class="qv-notice" role="alert">${h(model.error)} <button type="button" class="qv-btn" data-qv-retry>${h(T("Reintentar"))}</button></div>` : ""}${body}${nav()}</section>${history()}</div></div>`;
   }
 
   function draw() { if (!ctx) return; const host = ctx.host(); if (host) host.innerHTML = view(); }
@@ -335,6 +336,7 @@
       else draw();
       return;
     }
+    if (attr("data-qv-retry") !== null) { run("init", init); return; }
     if (attr("data-qv-new-client") !== null) { model.client = blankClient(); draw(); return; }
     if (attr("data-qv-next") !== null) { if (!canNext()) return; if (model.step === 1) buildLines(); model.step += 1; draw(); return; }
     if (attr("data-qv-back") !== null) { model.step -= 1; draw(); return; }
@@ -414,10 +416,12 @@
     model.from = model.from || monthStart();
     model.to = model.to || today();
     draw();
-    await run("init", async () => {
-      await loadDefaults();
-      await Promise.all([loadHistory(), model.origin === "production" ? loadProduction() : Promise.resolve()]);
-    });
+    await run("init", init);
+  }
+
+  async function init() {
+    await loadDefaults();
+    await Promise.all([loadHistory(), model.origin === "production" ? loadProduction() : Promise.resolve()]);
   }
 
   window.CxQuotesV2 = { mount, model, view, summary, payload, buildLines, canNext, money };

@@ -41,19 +41,27 @@ async def require_admin_v2_api_session(request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=401, detail="Sesion de Admin V2 requerida.")
 
 
+async def admin_v2_or_company_preview(request: Request, db: AsyncSession, company_id: UUID) -> bool:
+    """CLONEXA_056I: Admin V2, o la vista previa "Entrar como empresa" de la consola
+    (cookie firmada por Admin V2, valida SOLO para esa empresa y con vencimiento)."""
+    from app.web.admin_v2_routes import _active_company_preview
+    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
+
+    if await _admin_v2_session_active(request, db):
+        return True
+    return getattr(request, "cookies", None) is not None and _active_company_preview(request, company_id)
+
+
 async def require_admin_v2_or_tenant_company_user(
     company_id: UUID,
     request: Request,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Admin V2, or any logged-in staff member of that exact company (their
-    own /client token from POST /auth/login) -- for endpoints a company's own
-    users legitimately need (e.g. loading their own basic profile), not just
-    superadmin-only ones."""
-    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
-
-    if await _admin_v2_session_active(request, db):
+    """Admin V2 (o su vista previa de ESA empresa), or any logged-in staff member
+    of that exact company (their own /client token from POST /auth/login, or the
+    mini panel JWT) -- for endpoints a company's own users legitimately need."""
+    if await admin_v2_or_company_preview(request, db, company_id):
         return
     await require_company_user_for_tenant(db, authorization, company_id)
 
@@ -71,12 +79,10 @@ async def require_admin_v2_or_tenant_company_admin(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Admin V2, or an admin/owner of that exact company -- for endpoints that
-    act on behalf of the business (e.g. linking its WhatsApp or sending a
-    message from it), which a mesero/caja/cocina session must not reach."""
-    from app.web.admin_v2_routes import _active_session as _admin_v2_session_active
-
-    if await _admin_v2_session_active(request, db):
+    """Admin V2 (o su vista previa de ESA empresa), or an admin/owner of that exact
+    company -- for endpoints that act on behalf of the business (e.g. linking its
+    WhatsApp or sending a message from it), which a mesero/caja/cocina session must not reach."""
+    if await admin_v2_or_company_preview(request, db, company_id):
         return
     await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=COMPANY_ADMIN_ROLES)
 # CLONEXA_SEC_2026_09_22_ADMIN_GUARD_END
