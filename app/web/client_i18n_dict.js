@@ -2150,6 +2150,20 @@
     "Pedir canción": "Demander une chanson",
   });
 
+  // Nómina: turnos en lista (056E).
+  Object.assign(EN, {
+    "Pausas": "Breaks",
+    "Horas ordinarias": "Regular hours",
+    "Referencias": "References",
+    "Referencias trabajadas": "References worked",
+  });
+  Object.assign(FR, {
+    "Pausas": "Pauses",
+    "Horas ordinarias": "Heures normales",
+    "Referencias": "Références",
+    "Referencias trabajadas": "Références travaillées",
+  });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

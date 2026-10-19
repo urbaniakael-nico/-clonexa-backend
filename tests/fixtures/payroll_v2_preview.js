@@ -79,6 +79,7 @@
     },
   };
   const D = DATA[KEY];
+  if (P.get("list") === "1") D.activity.ui = { shift_list: true };  // payroll_shift_list
   const totals = D.rows.reduce((t, r) => ({ people: t.people + 1, regular_minutes: t.regular_minutes + r.regular_minutes, extra_minutes: t.extra_minutes + r.extra_minutes,
     gross_amount: t.gross_amount + r.gross_amount, discount_amount: t.discount_amount + r.discount_amount, net_amount: t.net_amount + r.net_amount }),
   { people: 0, regular_minutes: 0, extra_minutes: 0, gross_amount: 0, discount_amount: 0, net_amount: 0 });

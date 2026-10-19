@@ -285,6 +285,66 @@
     </li>`;
   }
 
+  // ------------------------------------------------------------ 056E: desglose en lista (payroll_shift_list)
+  // Solo presentacion: cada turno es una tarjeta (fecha y rango arriba; Pausas, Horas
+  // ordinarias, Horas extra y Referencias en filas) y al final una tarjeta de TOTAL.
+  const listOn = () => !!(model.activity && model.activity.ui && model.activity.ui.shift_list === true);
+  const T = (text) => (typeof window !== "undefined" && window.CxI18n && typeof window.CxI18n.t === "function" ? window.CxI18n.t(text) : text);
+
+  function dayLong(iso) {
+    const d = new Date(iso || "");
+    if (Number.isNaN(d.getTime())) return "—";
+    const loc = (typeof window !== "undefined" && window.CxI18n && window.CxI18n.locale()) || "es-CO";
+    const text = new Intl.DateTimeFormat(loc, { timeZone: tzOf(), weekday: "short", day: "numeric", month: "short" }).format(d).replace(/\./g, "");
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function shiftRefs(c, s) {
+    const a = model.activity || {};
+    if (!(a.modules || {}).references) return [];
+    const names = arr((a.references || {})[c.id]).filter((r) => overlaps(r.start, r.end, s.start, s.end)).map((r) => r.reference);
+    arr((a.reference_closures || {})[c.id]).filter((x) => within(x.at, s.start, s.end)).forEach((x) => names.push(x.reference));
+    return [...new Set(names.filter(Boolean))];
+  }
+
+  function shiftCard(c, s) {
+    const refs = shiftRefs(c, s);
+    const acts = activityFor(model.activity, c.id, s).filter((a) => a.kind !== "references");
+    return `<li class="pv-shift pv-scard">
+      <div class="pv-scard-top"><span class="pv-scard-when"><b>${h(dayLong(s.start))}</b> · ${h(clock(s.start))} → ${h(clock(s.end))}</span>
+        <strong class="pv-shift-value">${h(money(s.gross_amount))}</strong></div>
+      <dl class="pv-scard-rows">
+        <div><dt>${h(T("Pausas"))}</dt><dd>${h(hours(s.pause_minutes))}</dd></div>
+        <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hours(s.regular_minutes))}</dd></div>
+        <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hours(s.extra_minutes))}</dd></div>
+        <div><dt>${h(T("Referencias"))}</dt><dd>${refs.length ? h(refs.join(", ")) : "—"}</dd></div>
+      </dl>
+      ${acts.map((a) => `<div class="pv-act pv-act-${a.kind}"><span>${h(a.text)}</span>${a.extra ? `<span class="pv-sub">${h(a.extra)}</span>` : ""}${a.map ? `<a class="pv-map" href="${h(a.map)}" target="_blank" rel="noopener noreferrer">Ver en el mapa</a>` : ""}</div>`).join("")}
+    </li>`;
+  }
+
+  // TOTAL = suma de los turnos que se ven arriba (mismos numeros de la nomina).
+  function shiftTotals(c) {
+    const refs = new Set();
+    let regular = 0;
+    let extra = 0;
+    c.shifts.forEach((s) => { regular += num(s.regular_minutes); extra += num(s.extra_minutes); shiftRefs(c, s).forEach((r) => refs.add(r)); });
+    return { shifts: c.shifts.length, regular, extra, refs: [...refs] };
+  }
+
+  function totalCard(c) {
+    const t = shiftTotals(c);
+    return `<li class="pv-shift pv-scard pv-scard-total" aria-label="${h(T("Total"))}">
+      <div class="pv-scard-top"><span class="pv-scard-when"><b>${h(T("TOTAL"))}</b></span></div>
+      <dl class="pv-scard-rows">
+        <div><dt>${h(T("Turnos"))}</dt><dd>${h(t.shifts)}</dd></div>
+        <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hours(t.regular))}</dd></div>
+        <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hours(t.extra))}</dd></div>
+        <div><dt>${h(T("Referencias trabajadas"))}</dt><dd>${t.refs.length ? `${h(t.refs.length)} · ${h(t.refs.join(", "))}` : "0"}</dd></div>
+      </dl>
+    </li>`;
+  }
+
   function pendingRow(u, index) {
     return `<li class="pv-shift is-pending">
       <button type="button" class="pv-pending-btn" data-pv-confirm="${h(index)}">
@@ -304,8 +364,9 @@
         <span>Bruto ${h(money(c.gross))} · descuentos ${h(money(c.discount))}</span></div>
       <ul class="pv-shifts">
         ${c.pending.map((u) => pendingRow(u, pendingIndex(u))).join("")}
-        ${c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).map((s) => shiftRow(c, s)).join("")}
+        ${c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).map((s) => (listOn() ? shiftCard(c, s) : shiftRow(c, s))).join("")}
         ${!c.shifts.length && !c.pending.length ? `<li class="pv-sub">Sin turnos en el periodo.</li>` : ""}
+        ${listOn() && c.shifts.length ? totalCard(c) : ""}
       </ul>
     </section>`;
   }
@@ -571,5 +632,5 @@
     return true;
   }
 
-  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials };
+  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong };
 })();

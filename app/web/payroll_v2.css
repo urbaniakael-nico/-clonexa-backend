@@ -115,6 +115,7 @@
 }
 .pv-detail-head { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--pv-line); }
 .pv-shifts { list-style: none; margin: 0; padding: 0; display: grid; }
+.pv-shifts:has(.pv-scard) { gap: 10px; }
 .pv-shift { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--pv-line); }
 .pv-shift:last-child { border-bottom: 0; }
 .pv-shift-main, .pv-pending-btn { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; font-size: 14px; }
@@ -172,3 +173,15 @@
   .pv-modal { padding: 0; place-items: stretch; }
   .pv-modal-card { width: 100%; max-height: 100vh; height: 100%; border-radius: 0; border-width: 0; }
 }
+
+/* 056E · payroll_shift_list: desglose de turnos en lista vertical (solo presentacion). */
+.pv-shifts .pv-scard { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--pv-line); border-radius: var(--pv-r);
+  background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text)); min-width: 0; }
+.pv-scard-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.pv-scard-when { min-width: 0; overflow-wrap: anywhere; }
+.pv-scard-rows { margin: 0; display: grid; gap: 4px; }
+.pv-scard-rows > div { display: grid; grid-template-columns: minmax(120px, 40%) minmax(0, 1fr); gap: 10px; padding: 6px 0; border-top: 1px solid var(--pv-line); }
+.pv-scard-rows dt { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.pv-scard-rows dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.pv-scard-total { border-width: 2px; border-color: var(--pv-accent-bg, var(--cx-primary)); }
+@media (max-width: 480px) { .pv-scard-rows > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }

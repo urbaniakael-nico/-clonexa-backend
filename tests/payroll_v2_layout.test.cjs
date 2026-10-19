@@ -41,7 +41,7 @@ function serve() {
     if (url.pathname === '/__frames.html') {
       const key = url.searchParams.get('theme');
       const c = COMPANIES[key];
-      const frames = WIDTHS.flatMap((w) => [['open', `&open=${c.open}`], ['modal', '&modal=1']].map(([k, q]) => `<iframe data-k="${w}-${k}" style="width:${w}px;height:1600px;border:0;display:block" src="/client.html?company_id=${c.id}&theme=${key}${q}"></iframe>`));
+      const frames = WIDTHS.flatMap((w) => [['open', `&open=${c.open}`], ['modal', '&modal=1'], ['list', `&open=${c.open}&list=1`]].map(([k, q]) => `<iframe data-k="${w}-${k}" style="width:${w}px;height:1600px;border:0;display:block" src="/client.html?company_id=${c.id}&theme=${key}${q}"></iframe>`));
       return send(`<!doctype html><html><body style="margin:0">${frames.join('')}<pre id="all"></pre><script>
         setTimeout(() => { const out = {}; document.querySelectorAll('iframe').forEach((f) => { const d = f.contentDocument && f.contentDocument.getElementById('layout'); out[f.dataset.k] = d ? JSON.parse(d.textContent) : null; });
           document.getElementById('all').textContent = JSON.stringify(out); }, 14000);</script></body></html>`, 'text/html');
@@ -71,7 +71,7 @@ test('Nómina v2: sin textos cortados, AA, sin CSV y solo los datos de cada empr
       assert.ok(m && m[1], `${key}: sin resultado de la medición`);
       const results = JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
       for (const w of WIDTHS) {
-        for (const k of ['open', 'modal']) {
+        for (const k of ['open', 'modal', 'list']) {
           const r = results[`${w}-${k}`];
           assert.ok(r && r.mounted, `${key} ${w}px ${k}: la pantalla nueva no se dibujó`);
           assert.equal(r.cards >= 3, true, `${key} ${w}px ${k}: faltan mini tarjetas`);

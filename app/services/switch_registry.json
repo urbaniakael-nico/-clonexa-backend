@@ -65,6 +65,7 @@
      "delicate": false, "requires_modules": ["qr"]},
     {"key": "loyalty_retos_v2", "label": "Retos para las mesas", "module": "loyalty", "group": "Fidelización",
      "description": "Pantalla nueva de Sorteos de consumo: reto de consumo, polla de marcador y concurso con asistente de 3 pasos, uno activo por tipo, cierre de pronósticos, marcador final, ganador según el tipo (sorteo seguro en Sí/No y V/F), desempate de la polla con Juego en vivo, historial y premio pendiente/entregado. El ranking de consumo no cambia y los retos que ya existían siguen.",
-     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Fidelización y cómo se cierran pollas y concursos (ganador y premio)."}
+     "delicate": true, "delicate_reason": "Cambia la pantalla completa de Fidelización y cómo se cierran pollas y concursos (ganador y premio)."},
+    {"key": "payroll_shift_list", "label": "Nómina: turnos en lista", "module": "payroll", "group": "Nómina", "description": "En la tarjeta del colaborador de Nómina v2 cada turno es una tarjeta (fecha y rango, pausas, horas ordinarias, horas extra y referencias) con una tarjeta de TOTAL al final. Solo cambia la presentación; el cálculo no cambia.", "delicate": false}
   ]
 }

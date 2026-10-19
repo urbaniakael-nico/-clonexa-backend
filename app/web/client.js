@@ -8890,11 +8890,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxPayrollV2Css052B";
           link.rel = "stylesheet";
-          link.href = "/client-static/payroll_v2.css?v=052B";
+          link.href = "/client-static/payroll_v2.css?v=056E";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=052B";
+        script.src = "/client-static/payroll_v2.js?v=056E";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);

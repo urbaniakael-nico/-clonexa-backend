@@ -64,6 +64,24 @@ async def _modules(db: AsyncSession, company_id: UUID) -> set[str]:
     return {str(r["code"]) for r in result.mappings().all()}
 
 
+SHIFT_LIST_FLAG = "payroll_shift_list"
+
+
+async def shift_list_on(db: AsyncSession, company_id: UUID) -> bool:
+    """Interruptor payroll_shift_list (modulo payroll): desglose de turnos en lista. Solo presentacion."""
+    row = (await db.execute(text("""
+        SELECT cm.enabled, cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+        WHERE cm.company_id = CAST(:company_id AS uuid) AND LOWER(m.code) = 'payroll' LIMIT 1
+    """), {"company_id": str(company_id)})).mappings().first()
+    settings = row["settings"] if row else None
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings)
+        except ValueError:
+            settings = {}
+    return bool(row and row["enabled"] and isinstance(settings, dict) and settings.get(SHIFT_LIST_FLAG) is True)
+
+
 def _bounds(period_start: date, period_end: date) -> tuple[datetime, datetime]:
     start_dt, end_dt = core.period_datetime_bounds(period_start, period_end)
     # Mismo margen que el calculo: turnos que empiezan antes o terminan despues del corte.
@@ -87,6 +105,8 @@ async def period_activity(db: AsyncSession, company_id: UUID, period_start: date
     modules = await _modules(db, company_id)
     out: dict[str, Any] = {"modules": {"gps": "gps" in modules, "references": "references" in modules, "panels": False, "orders": False},
                            "documents": {}, "gps": {}, "references": {}, "reference_closures": {}, "panels": {}}
+    if await shift_list_on(db, company_id):
+        out["ui"] = {"shift_list": True}  # sin el interruptor la respuesta queda igual
 
     docs = await db.execute(text("""
         SELECT id::text AS id, COALESCE(document_id, '') AS document_id
