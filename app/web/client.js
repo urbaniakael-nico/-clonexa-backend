@@ -10013,6 +10013,24 @@ function inventoryCreatePayload() {
       {};
   }
 
+  // 056D: las exportaciones piden sesion; se bajan con fetch + Authorization.
+  async function cxDownloadWithSession056D(url, filename) {
+    try {
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const href = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 4000);
+    } catch (_) {
+      alert("No se pudo descargar el archivo. Vuelve a iniciar sesión e inténtalo de nuevo.");
+    }
+  }
+
   function cxProdDownloadUrl018E(filters = {}) {
     const params = new URLSearchParams();
     params.set("preset", filters.preset || "7d");
@@ -21180,12 +21198,8 @@ function inventoryCreatePayload() {
     if (event.target.closest("[data-references-export]")) {
       const query = cxReferencesQuery022E();
       const suffix = query ? `?${query}` : "";
-      const a = document.createElement("a");
-      a.href = `${API}/references-v1/companies/${encodeURIComponent(state.companyId)}/export.csv${suffix}`;
-      a.download = `clonexa_referencias_${state.companyId || "empresa"}_${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      cxDownloadWithSession056D(`${API}/references-v1/companies/${encodeURIComponent(state.companyId)}/export.csv${suffix}`,
+        `clonexa_referencias_${state.companyId || "empresa"}_${new Date().toISOString().slice(0, 10)}.csv`);
       return;
     }
   }, true);
@@ -36277,12 +36291,7 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-production-export]")) {
         const filters = cxProdReadFilters018E();
-        const a = document.createElement("a");
-        a.href = cxProdDownloadUrl018E(filters);
-        a.download = `clonexa_production_${state.companyId || "company"}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        await cxDownloadWithSession056D(cxProdDownloadUrl018E(filters), `clonexa_production_${state.companyId || "company"}.csv`);
         return;
       }
 

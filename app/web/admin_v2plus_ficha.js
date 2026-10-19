@@ -18,10 +18,14 @@
   function fold(value) {
     return String(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
+  // 056D: también ignora plurales ("mini_panels", "paneles" → "mini panel").
+  function stem(word) {
+    return word.length > 4 ? word.replace(/(es|s)$/, "") : word;
+  }
   function matches(query, ...fields) {
-    const words = fold(query).split(" ").filter(Boolean);
+    const words = fold(query).split(" ").filter(Boolean).map(stem);
     if (!words.length) return true;
-    const hay = fold(fields.join(" "));
+    const hay = fold(fields.join(" ")).split(" ").map(stem).join(" ");
     const squashed = hay.replace(/ /g, "");
     return words.every((w) => hay.includes(w) || squashed.includes(w));
   }
@@ -58,7 +62,7 @@
 
   function filterModules(modules, query = "", filter = "todos") {
     return moduleList(modules).filter((m) => (filter === "encendidos" ? m.enabled : filter === "apagados" ? !m.enabled : true))
-      .filter((m) => matches(query, m.name, m.code, m.category, categoryLabel(m.category)));
+      .filter((m) => matches(query, m.name, m.code, m.category, categoryLabel(m.category), m.code === "mini_panel" ? "mini paneles minipanel" : ""));
   }
 
   function groupByCategory(list) {
@@ -347,7 +351,7 @@
       </article>`;
     }).join("");
 
-    const general = !present ? `<div class="vp-empty" data-vpf-no-mini>Esta empresa no tiene encendido el módulo de mini paneles (mini_panel). Enciéndelo en la lista de módulos para usar los paneles generales.</div>`
+    const general = !present ? `<div class="vp-empty" data-vpf-no-mini>Esta empresa no tiene encendido el módulo de mini paneles (mini_panel). <button class="vp-btn vp-btn-sm" type="button" data-vpf-module="mini_panel" data-action="activate">Encender módulo</button></div>`
       : GENERAL_PANELS.map((def) => {
         const panel = (config.panels && config.panels[def.type]) || {};
         const on = config.enabled === true && panel.enabled === true;

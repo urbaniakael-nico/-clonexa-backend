@@ -12,7 +12,10 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +23,24 @@ from app.api.deps import get_db
 from app.api.v1.endpoints.payroll import calculate_period_snapshot
 
 router = APIRouter()
+
+
+async def require_company_session(
+    company_id: UUID,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """CLONEXA_SEC_2026_10_19 (todas las empresas): estas rutas no pedian sesion.
+    Admin V2, o un usuario de ESA empresa (portal o JWT de mini panel). El bot de
+    Telegram no pasa por aqui: usa la base directo (bot_flows) o llama la funcion."""
+    from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_user
+
+    await require_admin_v2_or_tenant_company_user(company_id, request, authorization, db)
+
+
+router.dependencies.append(Depends(require_company_session))
+
 BUSINESS_TIMEZONE = ZoneInfo("America/Bogota")
 
 

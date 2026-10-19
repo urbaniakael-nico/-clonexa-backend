@@ -311,8 +311,13 @@ async def test_bot_my_shifts_and_buttons_only_with_module(pg_url, outbox, monkey
     async with maker() as db:
         cid, p = await _setup_company(db)
         other, q = await _setup_company(db, on=False)
-        await svc.build_draft(db, cid, WEEK)
-        await svc.publish(db, cid, WEEK)
+        # "Mis turnos" muestra la semana EN CURSO (zona de la empresa): se publica esa.
+        from zoneinfo import ZoneInfo
+
+        today = datetime.now(ZoneInfo("America/Bogota")).date()
+        this_week = today - timedelta(days=today.weekday())
+        await svc.build_draft(db, cid, this_week)
+        await svc.publish(db, cid, this_week)
         employee = SimpleNamespace(id=uuid.UUID(p["op1"]), full_name="Operario 1")
         monkeypatch.setattr(bots, "_find_employee_by_telegram", AsyncMock(return_value=employee))
         bot = SimpleNamespace(company_id=uuid.UUID(cid))
