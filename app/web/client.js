@@ -10680,6 +10680,65 @@ function inventoryCreatePayload() {
   }
   /* CLONEXA_056G_PRODUCTION_V2_END */
 
+  /* CLONEXA_056H_QUOTES_V2_START: Cotizaciones y cuentas de cobro v2 solo con el
+     interruptor quotes_v2 (settings del modulo de cotizaciones, apagado por
+     defecto). Sin el interruptor o si su archivo no carga, la pantalla de siempre. */
+  function cxQuotesV2On056H() {
+    const aliases = ["cotizacion", "cotizaciones", "quote", "quotes", "quotation", "quotations", "cotizar", "presupuesto", "presupuestos"];
+    return activeClientModules().some((m) => {
+      const raw = (m && m.raw) || {};
+      const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+      return aliases.includes(String(m.code || "").toLowerCase()) && settings.quotes_v2 === true;
+    });
+  }
+
+  let cxQuotesV2Loading056H = null;
+  function cxQuotesV2Load056H() {
+    if (window.CxQuotesV2) return Promise.resolve();
+    if (!cxQuotesV2Loading056H) {
+      cxQuotesV2Loading056H = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxQuotesV2Css056H")) {
+          const link = document.createElement("link");
+          link.id = "cxQuotesV2Css056H";
+          link.rel = "stylesheet";
+          link.href = "/client-static/quotes_v2.css?v=056H";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/quotes_v2.js?v=056H";
+        script.onload = () => resolve();
+        script.onerror = () => { cxQuotesV2Loading056H = null; reject(new Error("quotes_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxQuotesV2Loading056H;
+  }
+
+  async function cxQuotesV2Mount056H(activeCode) {
+    try { await cxQuotesV2Load056H(); } catch (_) { return false; }
+    if (!window.CxQuotesV2 || typeof window.CxQuotesV2.mount !== "function") return false;
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav(activeCode)}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main"><div id="cxQuotesV2Host056H"></div></section>
+        </div>
+      </main>`;
+    await window.CxQuotesV2.mount({
+      companyId: state.companyId, apiBase: API, token: cxReportsToken053C,
+      host: () => document.getElementById("cxQuotesV2Host056H"),
+    });
+    return true;
+  }
+  /* CLONEXA_056H_QUOTES_V2_END */
+
   async function renderProductionModule(filters = cxProdDefaultFilters018E()) {
     if (!isClientModuleActive("production")) {
       render();
@@ -14303,6 +14362,7 @@ function inventoryCreatePayload() {
   /* CLONEXA_022B_CLIENT_QUOTES_CONSOLIDATION_SOURCE_END */
 
   async function renderClientUniversalQuotesModule021D(activeCode = "cotizaciones") {
+    if (cxQuotesV2On056H() && await cxQuotesV2Mount056H(activeCode)) return;
     ensureUniversalModuleStyles021D();
 
     let filter = window.__cxUniversalQuotesFilter021D || "active";
