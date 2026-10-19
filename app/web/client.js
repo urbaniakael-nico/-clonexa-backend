@@ -10623,11 +10623,69 @@ function inventoryCreatePayload() {
     `;
   }
 
+  /* CLONEXA_056G_PRODUCTION_V2_START: tablero nuevo de Producción solo con el
+     interruptor production_v2 (settings del modulo production, apagado por
+     defecto). Sin el interruptor o si su archivo no carga, la pantalla de siempre. */
+  function cxProductionV2On056G() {
+    const item = activeClientModules().find((m) => m.code === "production");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.production_v2 === true;
+  }
+
+  let cxProductionV2Loading056G = null;
+  function cxProductionV2Load056G() {
+    if (window.CxProductionV2) return Promise.resolve();
+    if (!cxProductionV2Loading056G) {
+      cxProductionV2Loading056G = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxProductionV2Css056G")) {
+          const link = document.createElement("link");
+          link.id = "cxProductionV2Css056G";
+          link.rel = "stylesheet";
+          link.href = "/client-static/production_v2.css?v=056G";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/production_v2.js?v=056G";
+        script.onload = () => resolve();
+        script.onerror = () => { cxProductionV2Loading056G = null; reject(new Error("production_v2")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxProductionV2Loading056G;
+  }
+
+  async function cxProductionV2Mount056G() {
+    try { await cxProductionV2Load056G(); } catch (_) { return false; }
+    if (!window.CxProductionV2 || typeof window.CxProductionV2.mount !== "function") return false;
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("production")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main"><div id="cxProductionV2Host056G"></div></section>
+        </div>
+      </main>`;
+    await window.CxProductionV2.mount({
+      companyId: state.companyId, apiBase: API, token: cxReportsToken053C,
+      host: () => document.getElementById("cxProductionV2Host056G"),
+    });
+    return true;
+  }
+  /* CLONEXA_056G_PRODUCTION_V2_END */
+
   async function renderProductionModule(filters = cxProdDefaultFilters018E()) {
     if (!isClientModuleActive("production")) {
       render();
       return;
     }
+    if (cxProductionV2On056G() && await cxProductionV2Mount056G()) return;
 
     cxProdEnsureStyles018E();
 
