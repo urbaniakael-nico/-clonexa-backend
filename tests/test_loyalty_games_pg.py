@@ -212,10 +212,13 @@ async def test_memory_round_end_to_end(pg_url):
 
 
 async def _legacy_round(db, cid: str, kind: str, qids: list, status: str = "registration") -> str:
-    """Una ronda creada ANTES de este cambio: sin config (reglas de siempre)."""
+    """Una ronda creada ANTES de este cambio: sin config (reglas de siempre). El dia de juego es
+    el dia de negocio de la empresa (como lo guarda el servicio), no CURRENT_DATE del servidor
+    (UTC): de noche en Bogota ya es el dia siguiente en UTC y la prueba fallaba por la hora."""
+    day = await svc.game_day(db, cid)
     return (await db.execute(text("""INSERT INTO loyalty_game_rounds (company_id, kind, status, prize, seed, game_day, duration_seconds, question_ids)
-        VALUES (CAST(:c AS uuid), :k, :st, 'Premio', 424242, CURRENT_DATE, :d, CAST(:q AS jsonb)) RETURNING id::text"""),
-                                  {"c": cid, "k": kind, "st": status, "d": 120 if kind == "memory" else 180, "q": json.dumps(qids)})).scalar()
+        VALUES (CAST(:c AS uuid), :k, :st, 'Premio', 424242, :day, :d, CAST(:q AS jsonb)) RETURNING id::text"""),
+                                  {"c": cid, "k": kind, "st": status, "day": day, "d": 120 if kind == "memory" else 180, "q": json.dumps(qids)})).scalar()
 
 
 @pytest.mark.asyncio

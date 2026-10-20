@@ -2164,6 +2164,18 @@
     "Referencias trabajadas": "Références travaillées",
   });
 
+  // Nómina: tabla compacta de turnos (056J).
+  Object.assign(EN, { "Fecha": "Date", "Horario": "Schedule", "Valor": "Amount", "ext": "OT", "turno": "shift", "turnos": "shifts" });
+  Object.assign(FR, { "Fecha": "Date", "Horario": "Horaire", "Valor": "Montant", "ext": "sup", "turno": "service", "turnos": "services" });
+
+  // CRM VELVET-LAB: primero la referencia (056J).
+  Object.assign(EN, { "¿En qué vas a trabajar?": "What will you work on?", "Elige una referencia para iniciar": "Choose a reference to start",
+    "Elige una referencia para iniciar.": "Choose a reference to start.", "▶ Iniciar turno en {ref}": "▶ Start shift on {ref}", "Pasos": "Steps",
+    "Referencias activas": "Active references", "Iniciar": "Start" });
+  Object.assign(FR, { "¿En qué vas a trabajar?": "Sur quoi vas-tu travailler ?", "Elige una referencia para iniciar": "Choisis une référence pour commencer",
+    "Elige una referencia para iniciar.": "Choisis une référence pour commencer.", "▶ Iniciar turno en {ref}": "▶ Commencer le service sur {ref}", "Pasos": "Étapes",
+    "Referencias activas": "Références actives", "Iniciar": "Commencer" });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

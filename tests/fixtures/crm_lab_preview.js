@@ -29,7 +29,9 @@
     { reference_id: "r-l", name: "PANT SET", size: "L", pending: 0, meta: 20 },
   ];
   const person = { employee_id: "e1", name: "Ana María Restrepo Villalobos", status: "working", reference: { id: "r-s", name: "PANT SET", started_at: ago(83) }, sizes };
-  const refs = ["Body básico", "Mystic jacket con capota larga", "PANT SET", "Short denim", "Top encaje"].map((name, i) => ({ id: `ref-${i}`, name, sizes_count: 3 }));
+  const refs = ["Body básico", "Mystic jacket con capota larga", "PANT SET", "Short denim", "Top encaje"].map((name, i) => ({ id: `ref-${i}`, name, sizes_count: 3, pending: [12, 0, 48, 7, 130][i] }));
+  // 056J: ?view=start|startpick · persona SIN turno: primero la referencia.
+  const fresh = { employee_id: "e5", name: "Eva Ríos", status: "sin_turno", reference: null, sizes: [] };
 
   window.fetch = async (url, opts = {}) => {
     const u = String(url);
@@ -37,7 +39,7 @@
     window.__crmCalls.push(`${opts.method || "GET"} ${u.replace(/.*\/api\/v1/, "")}`);
     if (u.includes("/board")) return json(board);
     if (u.includes("/references")) return json({ items: refs });
-    if (u.includes("/unlock")) return json({ employee_token: "emp", person });
+    if (u.includes("/unlock")) return json({ employee_token: "emp", person: VIEW.startsWith("start") ? fresh : person });
     if (u.includes("/action")) {
       const body = JSON.parse(opts.body || "{}");
       if (VIEW === "over" && body.action === "close" && !body.confirm) return json({ detail: { code: "supera_el_pendiente", pending: 6 } }, 409);
@@ -98,6 +100,7 @@
     let extra = {};
     if (VIEW === "pin") { click('[data-crm-pick="e1"]'); await wait(50); click('[data-crm-key="1"]'); click('[data-crm-key="2"]'); }
     if (VIEW === "nopin") click('[data-crm-pick="e4"]');
+    if (VIEW === "startpin") { click('[data-crm-pick="e5"]'); await wait(50); click('[data-crm-key="1"]'); }
     if (["person", "refs", "close", "over", "idle"].includes(VIEW)) {
       click('[data-crm-pick="e1"]');
       for (const k of ["1", "2", "3", "4"]) { await until(`[data-crm-key="${k}"]:not([disabled])`); click(`[data-crm-key="${k}"]`); }
@@ -105,6 +108,15 @@
       await until('[data-crm-act]:not([disabled])');
     }
     if (VIEW === "refs") { click('[data-crm-act="pick_switch"]'); await until("[data-crm-ref]"); }
+    if (VIEW === "start" || VIEW === "startpick") {
+      click('[data-crm-pick="e5"]');
+      await until(".crm-steps");
+      extra.pin_steps = !!document.querySelector('.crm-steps li.is-on[aria-current="step"]');
+      for (const k of ["1", "2", "3", "4"]) { await until(`[data-crm-key="${k}"]:not([disabled])`); click(`[data-crm-key="${k}"]`); }
+      await until("[data-crm-startref]");
+      extra.start_disabled = !!document.querySelector("[data-crm-startgo][disabled]");
+      if (VIEW === "startpick") { click('[data-crm-startref="ref-1"]'); await until("[data-crm-startgo]:not([disabled])"); extra.start_label = document.querySelector("[data-crm-startgo]").textContent.trim(); }
+    }
     if (VIEW === "close" || VIEW === "over") {
       click('[data-crm-act="pick_close"]');
       await until('[data-crm-size="r-m"]');

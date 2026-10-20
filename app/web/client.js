@@ -8890,11 +8890,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxPayrollV2Css052B";
           link.rel = "stylesheet";
-          link.href = "/client-static/payroll_v2.css?v=056E";
+          link.href = "/client-static/payroll_v2.css?v=056J";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=056E";
+        script.src = "/client-static/payroll_v2.js?v=056J";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);
@@ -10645,11 +10645,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = cssId;
           link.rel = "stylesheet";
-          link.href = `/client-static/${name}.css?v=056I`;
+          link.href = `/client-static/${name}.css?v=056J`;
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = `/client-static/${name}.js?v=056I`;
+        script.src = `/client-static/${name}.js?v=056J`;
         script.onload = () => resolve();
         script.onerror = () => { delete cxV2Loading056I[name]; reject(new Error(name)); };
         document.head.appendChild(script);

@@ -106,3 +106,18 @@ html, body { margin: 0; background: var(--crm-bg); color: var(--crm-text); font-
   .crm-search { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* 056J: sin turno, primero la referencia (1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar). */
+.crm-steps { list-style: none; margin: 0 0 4px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.crm-steps li { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--crm-line); font-size: 13px; font-weight: 700; text-align: center; min-width: 0; overflow-wrap: anywhere; }
+.crm-steps li.is-on { background: var(--crm-accent); color: var(--crm-on-accent); border-color: transparent; }
+.crm-steps li.is-done { border-color: var(--crm-accent); }
+.crm-start .crm-search { max-width: none; width: 100%; }
+.crm-refpick { max-height: 46vh; overflow-y: auto; }
+.crm-refopt { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 56px; }
+.crm-refopt b { min-width: 0; overflow-wrap: anywhere; }
+.crm-refopt small { white-space: nowrap; font-weight: 700; }
+.crm-refopt.is-on { background: var(--crm-accent); color: var(--crm-on-accent); border-color: transparent; }
+.crm-startgo { width: 100%; }
+.crm-startgo:disabled { opacity: .6; cursor: not-allowed; }
+@media (max-width: 480px) { .crm-steps li { font-size: 11.5px; padding: 6px; } }

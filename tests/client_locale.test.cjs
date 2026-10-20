@@ -80,7 +80,7 @@ test('portal: cada formateador de dinero gana la guarda (COP igual) y Reportes d
     assert.ok(CLIENT.includes(`function ${name}(value) {\n    if (typeof window !== "undefined" && window.CxLocale) return window.CxLocale.parse(value);`), name);
   }
   assert.match(CLIENT, /await window\.CxLocale\.load\(state\.companyId, \(path\) => api\(path\)\);/, 'se carga una vez al entrar');
-  assert.match(readFileSync('app/web/client.html', 'utf8').replace(/\r\n/g, '\n'), /client_locale\.js\?v=052C"><\/script>\n  <script src="\/client-static\/client_i18n_dict\.js\?v=052D"><\/script>\n  <script src="\/client-static\/client_i18n_core\.js\?v=052D"><\/script>\n  <script src="\/client-static\/client\.js/);
+  assert.match(readFileSync('app/web/client.html', 'utf8').replace(/\r\n/g, '\n'), /client_locale\.js\?v=052C"><\/script>\n  <script src="\/client-static\/client_i18n_dict\.js\?v=[0-9A-Z]+"><\/script>\n  <script src="\/client-static\/client_i18n_core\.js\?v=052D"><\/script>\n  <script src="\/client-static\/client\.js/);
   assert.doesNotMatch(CLIENT, /NÃ³mina|rÃ©f/, 'sin letras dañadas');
 });
 

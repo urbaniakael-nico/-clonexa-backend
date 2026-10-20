@@ -177,8 +177,17 @@ async def log(db: AsyncSession, company_id: str, employee_id: Optional[str], emp
 
 # ---------------------------------------------------------------- lectura
 async def references(db: AsyncSession, company_id: str) -> list[dict]:
-    """Referencias activas para el bot (bot_active), las mismas que ofrece Telegram."""
-    return await bot.references(db, company_id)
+    """Referencias activas para el bot (bot_active), las mismas que ofrece Telegram,
+    sin las archivadas y con su pendiente (meta - cerrado, el calculo de Referencias v2)."""
+    from app.services import references_v2
+
+    items = await bot.references(db, company_id)
+    live = {r[0] for r in (await db.execute(text("""
+        SELECT DISTINCT name FROM product_references
+        WHERE company_id = :c AND bot_active IS TRUE AND COALESCE(archived, false) IS FALSE
+    """), {"c": company_id})).all()}
+    pending = {g["key"]: int(g["pending"]) for g in await references_v2.reference_groups(db, company_id)}
+    return [{**r, "pending": pending.get(references_v2.group_key(r["name"]), 0)} for r in items if r["name"] in live]
 
 
 async def team(db: AsyncSession, company_id: str, now: Optional[datetime] = None) -> dict:
@@ -272,7 +281,11 @@ async def act(db: AsyncSession, company_id: str, employee_id: str, action: str, 
     if action == "start_shift":
         if status in WORKING:
             raise CrmError("turno_ya_iniciado")
-        ref = await ref_or_404(payload.get("reference_id")) if payload.get("reference_id") else None
+        # 056J: desde el CRM el turno se inicia SIEMPRE en una referencia (turno y sesion en
+        # la misma transaccion: si algo falla no se confirma ninguno). El bot no pasa por aqui.
+        if not payload.get("reference_id"):
+            raise CrmError("elige_una_referencia", 400)
+        ref = await ref_or_404(payload.get("reference_id"))
         await bot.insert_attendance_event(db, company_id=company_id, employee=employee, event_type="check_in", event_label="Inicio de turno",
                                           status_after="working", detail=f"Referencia inicial: {ref['name']}" if ref else "",
                                           metadata=meta, source_channel=CHANNEL)

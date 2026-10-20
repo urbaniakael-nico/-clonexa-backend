@@ -20,7 +20,7 @@
     logistics: "Logística", call_center: "Call Center", external: "Externo", other: "Otro" };
   const SORTS = [["total", "Total a pagar"], ["time", "Tiempo trabajado"], ["name", "Nombre"]];
 
-  const model = { period: null, cfg: null, snapshot: null, activity: null, query: "", filter: "all", sort: "total", open: "",
+  const model = { period: null, cfg: null, snapshot: null, activity: null, query: "", filter: "all", sort: "total", open: "", openShift: "",
     modal: null, notice: "", error: "", loading: false, cols: 4 };
   let ctx = null;
   let bound = false;
@@ -307,22 +307,6 @@
     return [...new Set(names.filter(Boolean))];
   }
 
-  function shiftCard(c, s) {
-    const refs = shiftRefs(c, s);
-    const acts = activityFor(model.activity, c.id, s).filter((a) => a.kind !== "references");
-    return `<li class="pv-shift pv-scard">
-      <div class="pv-scard-top"><span class="pv-scard-when"><b>${h(dayLong(s.start))}</b> · ${h(clock(s.start))} → ${h(clock(s.end))}</span>
-        <strong class="pv-shift-value">${h(money(s.gross_amount))}</strong></div>
-      <dl class="pv-scard-rows">
-        <div><dt>${h(T("Pausas"))}</dt><dd>${h(hours(s.pause_minutes))}</dd></div>
-        <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hours(s.regular_minutes))}</dd></div>
-        <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hours(s.extra_minutes))}</dd></div>
-        <div><dt>${h(T("Referencias"))}</dt><dd>${refs.length ? h(refs.join(", ")) : "—"}</dd></div>
-      </dl>
-      ${acts.map((a) => `<div class="pv-act pv-act-${a.kind}"><span>${h(a.text)}</span>${a.extra ? `<span class="pv-sub">${h(a.extra)}</span>` : ""}${a.map ? `<a class="pv-map" href="${h(a.map)}" target="_blank" rel="noopener noreferrer">Ver en el mapa</a>` : ""}</div>`).join("")}
-    </li>`;
-  }
-
   // TOTAL = suma de los turnos que se ven arriba (mismos numeros de la nomina).
   function shiftTotals(c) {
     const refs = new Set();
@@ -332,17 +316,54 @@
     return { shifts: c.shifts.length, regular, extra, refs: [...refs] };
   }
 
-  function totalCard(c) {
+  // 056J: tabla compacta. Horas "X h YY" (ordinarias + extra); extra solo como
+  // etiqueta si es mayor a 0; pausas solo en el detalle (ya estan descontadas).
+  function hhmm(minutes) {
+    const m = Math.max(0, Math.round(num(minutes)));
+    return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+  }
+
+  function dayShort(iso) {
+    return dayLong(iso).replace(/,/g, "").replace(/\s+de\s+/g, " ");
+  }
+
+  const shiftKey = (c, s) => `${c.id}|${s.start}`;
+
+  function shiftRowsTable(c, s) {
+    const key = shiftKey(c, s);
+    const open = model.openShift === key;
+    const refs = shiftRefs(c, s);
+    const acts = activityFor(model.activity, c.id, s).filter((a) => a.kind !== "references");
+    const ext = num(s.extra_minutes) > 0 ? `<small class="pv-ext">+${h(hhmm(s.extra_minutes))} ${h(T("ext"))}</small>` : "";
+    return `<tr class="pv-trow ${open ? "is-open" : ""}" data-pv-srow="${h(key)}">
+        <td data-label="${h(T("Fecha"))}"><button type="button" class="pv-tbtn" data-pv-srow="${h(key)}" aria-expanded="${open}">${h(dayShort(s.start))}</button></td>
+        <td data-label="${h(T("Horario"))}">${h(clock(s.start))} – ${h(clock(s.end))}</td>
+        <td data-label="${h(T("Horas"))}">${h(hhmm(num(s.regular_minutes) + num(s.extra_minutes)))}${ext}</td>
+        <td data-label="${h(T("Referencias"))}" class="pv-tref">${refs.length ? h(refs.join(", ")) : "—"}</td>
+        <td data-label="${h(T("Valor"))}" class="pv-tnum">${h(money(s.gross_amount))}</td>
+      </tr>
+      ${open ? `<tr class="pv-tdetail"><td colspan="5"><dl class="pv-tkv">
+        <div><dt>${h(T("Pausas"))}</dt><dd>${h(hhmm(s.pause_minutes))}</dd></div>
+        <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hhmm(s.regular_minutes))}</dd></div>
+        <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hhmm(s.extra_minutes))}</dd></div></dl>
+        ${acts.map((a) => `<div class="pv-act pv-act-${a.kind}"><span>${h(a.text)}</span>${a.extra ? `<span class="pv-sub">${h(a.extra)}</span>` : ""}${a.map ? `<a class="pv-map" href="${h(a.map)}" target="_blank" rel="noopener noreferrer">Ver en el mapa</a>` : ""}</div>`).join("")}
+      </td></tr>` : ""}`;
+  }
+
+  function shiftTable(c) {
+    const shifts = c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     const t = shiftTotals(c);
-    return `<li class="pv-shift pv-scard pv-scard-total" aria-label="${h(T("Total"))}">
-      <div class="pv-scard-top"><span class="pv-scard-when"><b>${h(T("TOTAL"))}</b></span></div>
-      <dl class="pv-scard-rows">
-        <div><dt>${h(T("Turnos"))}</dt><dd>${h(t.shifts)}</dd></div>
-        <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hours(t.regular))}</dd></div>
-        <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hours(t.extra))}</dd></div>
-        <div><dt>${h(T("Referencias trabajadas"))}</dt><dd>${t.refs.length ? `${h(t.refs.length)} · ${h(t.refs.join(", "))}` : "0"}</dd></div>
-      </dl>
-    </li>`;
+    const value = shifts.reduce((sum, x) => sum + num(x.gross_amount), 0);
+    return `<div class="pv-thead-card"><span class="pv-avatar" aria-hidden="true">${h(initials(c.name))}</span>
+        <span class="pv-card-main"><span class="pv-name">${h(c.name)}</span><span class="pv-role">${h(c.role || "Sin rol")}${c.document ? ` · ${h(c.document)}` : ""}</span></span>
+        <span class="pv-card-nums"><span class="pv-net">${h(money(value))}</span><span class="pv-time">${h(t.shifts)} ${h(t.shifts === 1 ? T("turno") : T("turnos"))}</span></span></div>
+      ${shifts.length ? `<table class="pv-table"><thead><tr><th scope="col">${h(T("Fecha"))}</th><th scope="col">${h(T("Horario"))}</th><th scope="col">${h(T("Horas"))}</th>
+        <th scope="col">${h(T("Referencias"))}</th><th scope="col" class="pv-tnum">${h(T("Valor"))}</th></tr></thead>
+        <tbody>${shifts.map((s) => shiftRowsTable(c, s)).join("")}</tbody>
+        <tfoot><tr class="pv-ttotal"><th scope="row" data-label="${h(T("TOTAL"))}">${h(T("TOTAL"))} · ${h(t.shifts)} ${h(t.shifts === 1 ? T("turno") : T("turnos"))}</th><td></td>
+          <td data-label="${h(T("Horas"))}">${h(hhmm(t.regular + t.extra))}${t.extra > 0 ? `<small class="pv-ext-line">${h(T("ext"))} ${h(hhmm(t.extra))}</small>` : ""}</td>
+          <td data-label="${h(T("Referencias"))}" title="${h(t.refs.join(", "))}">${h(t.refs.length)}</td>
+          <td data-label="${h(T("Valor"))}" class="pv-tnum">${h(money(value))}</td></tr></tfoot></table>` : ""}`;
   }
 
   function pendingRow(u, index) {
@@ -359,15 +380,15 @@
   function detail(c) {
     const pendingIndex = (u) => arr(model.snapshot && model.snapshot.unverified_shifts).indexOf(u);
     return `<section class="pv-detail" id="pv-detail-${h(c.id)}" aria-label="Registro de ${h(c.name)}">
-      <div class="pv-detail-head"><span>${c.document ? `Documento ${h(c.document)}` : "Sin documento"}</span>
+      ${listOn() ? "" : `<div class="pv-detail-head"><span>${c.document ? `Documento ${h(c.document)}` : "Sin documento"}</span>
         <span>${h(c.closed)} ${c.closed === 1 ? "turno" : "turnos"}</span><span>Extras ${h(hours(c.extra))}</span>
-        <span>Bruto ${h(money(c.gross))} · descuentos ${h(money(c.discount))}</span></div>
+        <span>Bruto ${h(money(c.gross))} · descuentos ${h(money(c.discount))}</span></div>`}
       <ul class="pv-shifts">
         ${c.pending.map((u) => pendingRow(u, pendingIndex(u))).join("")}
-        ${c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).map((s) => (listOn() ? shiftCard(c, s) : shiftRow(c, s))).join("")}
+        ${listOn() ? "" : c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).map((s) => shiftRow(c, s)).join("")}
         ${!c.shifts.length && !c.pending.length ? `<li class="pv-sub">Sin turnos en el periodo.</li>` : ""}
-        ${listOn() && c.shifts.length ? totalCard(c) : ""}
       </ul>
+      ${listOn() ? shiftTable(c) : ""}
     </section>`;
   }
 
@@ -554,6 +575,8 @@
       }
       return;
     }
+    const srow = t.closest("[data-pv-srow]");
+    if (srow && !(t.closest("a"))) { const k = srow.getAttribute("data-pv-srow"); model.openShift = model.openShift === k ? "" : k; draw(); return; }
     const cardBtn = t.closest("[data-pv-card]");
     if (cardBtn) { const id = cardBtn.getAttribute("data-pv-card"); model.open = model.open === id ? "" : id; draw(); return; }
     const filter = t.closest("[data-pv-filter]");
@@ -632,5 +655,5 @@
     return true;
   }
 
-  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong };
+  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort };
 })();

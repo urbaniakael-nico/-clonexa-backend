@@ -225,10 +225,14 @@ def test_turno_con_las_mismas_funciones_del_bot(pg_url):
         cid = await company(db, "VelvetTurno")
         ana = await employee(db, cid, "Ana")
         refs_ = await reference(db, cid, "PANT SET")
-        out = await svc.act(db, cid, ana, "start_shift", {}, "CRM VELVET-LAB", "10.0.0.1", "tab-1")
-        assert out["status"] == "working"
+        with pytest.raises(svc.CrmError) as e:  # 056J: desde el CRM, primero la referencia
+            await svc.act(db, cid, ana, "start_shift", {}, "CRM VELVET-LAB", "10.0.0.1", "tab-1")
+        assert code(e) == "elige_una_referencia" and e.value.status == 400
+        await db.rollback()
+        out = await svc.act(db, cid, ana, "start_shift", {"reference_id": refs_["M"]}, "CRM VELVET-LAB", "10.0.0.1", "tab-1")
+        assert out["status"] == "working" and out["reference"]["name"] == "PANT SET", "turno y referencia en una sola accion"
         with pytest.raises(svc.CrmError) as e:
-            await svc.act(db, cid, ana, "start_shift", {}, "CRM", "", "")
+            await svc.act(db, cid, ana, "start_shift", {"reference_id": refs_["M"]}, "CRM", "", "")
         assert code(e) == "turno_ya_iniciado", "un segundo Iniciar no duplica"
         await db.rollback()
         assert (await svc.act(db, cid, ana, "pause", {}, "CRM"))["status"] == "on_break"
@@ -236,7 +240,6 @@ def test_turno_con_las_mismas_funciones_del_bot(pg_url):
             await svc.act(db, cid, ana, "pause", {}, "CRM")
         await db.rollback()
         assert (await svc.act(db, cid, ana, "resume", {}, "CRM"))["status"] == "working"
-        await svc.act(db, cid, ana, "start_reference", {"reference_id": refs_["M"]}, "CRM")
         out = await svc.act(db, cid, ana, "end_shift", {}, "CRM")
         assert out["status"] == "sin_turno" and out["reference"] is None
         events = (await db.execute(text("""SELECT event_type, status_after, source, source_channel, source_ref, metadata_json->>'source' AS ms,
@@ -248,7 +251,7 @@ def test_turno_con_las_mismas_funciones_del_bot(pg_url):
         sess = (await db.execute(text("SELECT status, source_channel, ended_at FROM reference_work_sessions WHERE employee_id = :e"), {"e": ana})).mappings().all()
         assert [(s["status"], s["source_channel"]) for s in sess] == [("ended_with_shift", "crm_lab")] and sess[0]["ended_at"]
         actions = (await db.execute(text("SELECT action, panel_user, device FROM crm_lab_log WHERE employee_id::text = :e ORDER BY created_at"), {"e": ana})).all()
-        assert [a[0] for a in actions] == ["start_shift", "pause", "resume", "start_reference", "end_shift"]
+        assert [a[0] for a in actions] == ["start_shift", "pause", "resume", "end_shift"]
         assert actions[0][1] == "CRM VELVET-LAB" and actions[0][2] == "tab-1", "quien, cuando y desde donde"
         with pytest.raises(svc.CrmError) as e:
             await svc.act(db, cid, ana, "start_reference", {"reference_id": refs_["M"]}, "CRM")
@@ -352,8 +355,7 @@ def test_filas_del_crm_iguales_a_las_del_bot_salvo_el_canal(pg_url):
         await bot.insert_attendance_event(db, company_id=cid, employee=emp, event_type="check_out", event_label="Finalización de turno", status_after="checked_out")
         await bot.close_active_reference_session(db, cid, tele, "ended_with_shift")
         await db.commit()
-        await svc.act(db, cid, crm, "start_shift", {}, "CRM")
-        await svc.act(db, cid, crm, "start_reference", {"reference_id": pant["M"]}, "CRM")
+        await svc.act(db, cid, crm, "start_shift", {"reference_id": pant["M"]}, "CRM")  # turno + referencia (como el bot)
         await svc.act(db, cid, crm, "close", {"size_reference_id": pant["M"], "quantity": 3}, "CRM")
         await svc.act(db, cid, crm, "end_shift", {}, "CRM")
 
@@ -382,7 +384,7 @@ def test_tablero_en_vivo_y_lista(pg_url):
         pant = await reference(db, cid, "PANT SET")
         await svc.set_pin(db, cid, ana, "1234", "dueña")
         await svc.act(db, cid, ana, "start_shift", {"reference_id": pant["S"]}, "CRM")
-        await svc.act(db, cid, bea, "start_shift", {}, "CRM")
+        await svc.act(db, cid, bea, "start_shift", {"reference_id": pant["M"]}, "CRM")
         await svc.act(db, cid, bea, "pause", {}, "CRM")
         board = await svc.team(db, cid)
         assert board["working"] == 1 and board["paused"] == 1
@@ -396,6 +398,49 @@ def test_tablero_en_vivo_y_lista(pg_url):
             assert not any("per_person" in k or "productiv" in k for k in p), "nunca metricas por persona"
         refs_ = await svc.references(db, cid)
         assert [r["name"] for r in refs_] == ["PANT SET"]
+        assert refs_[0]["pending"] == 30, "pendiente de la referencia (meta = suma de cortes - cerrado)"
+
+    run(pg_url, go)
+
+
+def test_iniciar_con_referencia_es_todo_o_nada(pg_url, monkeypatch):
+    """056J: turno (asistencia) y sesion de referencia en la misma transaccion; si la
+    sesion falla, no queda el turno abierto."""
+    async def go(db):
+        cid = await company(db, "VelvetAtomico")
+        ana = await employee(db, cid, "Ana")
+        pant = await reference(db, cid, "PANT SET")
+
+        async def boom(*a, **k):
+            raise RuntimeError("fallo simulado al abrir la referencia")
+
+        monkeypatch.setattr(bot, "open_reference_session", boom)
+        with pytest.raises(RuntimeError):
+            await svc.act(db, cid, ana, "start_shift", {"reference_id": pant["M"]}, "CRM")
+        await db.rollback()  # lo que hace la ruta al fallar: nada se confirma
+        monkeypatch.undo()
+        ev = (await db.execute(text("SELECT count(*) FROM workforce_attendance_events WHERE employee_id::text = :e"), {"e": ana})).scalar_one()
+        se = (await db.execute(text("SELECT count(*) FROM reference_work_sessions WHERE employee_id = :e"), {"e": ana})).scalar_one()
+        log = (await db.execute(text("SELECT count(*) FROM crm_lab_log WHERE employee_id::text = :e"), {"e": ana})).scalar_one()
+        assert (ev, se, log) == (0, 0, 0), "no queda nada a medias"
+        assert (await svc.person(db, cid, ana))["status"] == "sin_turno"
+        with pytest.raises(svc.CrmError) as e:  # referencia que no es de la empresa o inactiva: tampoco abre turno
+            await svc.act(db, cid, ana, "start_shift", {"reference_id": "no-existe"}, "CRM")
+        assert code(e) == "referencia_no_activa"
+        await db.rollback()
+        assert (await db.execute(text("SELECT count(*) FROM workforce_attendance_events WHERE employee_id::text = :e"), {"e": ana})).scalar_one() == 0
+
+    run(pg_url, go)
+
+
+def test_referencias_archivadas_no_salen(pg_url):
+    async def go(db):
+        cid = await company(db, "VelvetArch")
+        await reference(db, cid, "PANT SET", cut=5)
+        await reference(db, cid, "Vieja", cut=5)
+        await db.execute(text("UPDATE product_references SET archived = true WHERE company_id = :c AND name = 'Vieja'"), {"c": cid})
+        await db.commit()
+        assert [r["name"] for r in await svc.references(db, cid)] == ["PANT SET"]
 
     run(pg_url, go)
 
@@ -411,3 +456,14 @@ def test_interruptor_apagado(pg_url):
         assert await svc.is_on(db, on) is False, "con el modulo apagado tampoco"
 
     run(pg_url, go)
+
+
+def test_ruta_responde_400_sin_referencia():
+    """056J: la ruta /action convierte "elige_una_referencia" en 400 (y hace rollback)."""
+    from app.api.v1.endpoints import crm_lab as api
+
+    exc = api._err(svc.CrmError("elige_una_referencia", 400))
+    assert exc.status_code == 400 and "elige_una_referencia" in str(exc.detail)
+    import inspect
+    src = inspect.getsource(api.action)
+    assert "await db.rollback()" in src

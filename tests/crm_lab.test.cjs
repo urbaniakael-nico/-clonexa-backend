@@ -107,14 +107,40 @@ test('tableta: acciones según el estado y nada por persona', () => {
     Object.assign(C.st, { token: 't', view: 'person', person: { employee_id: 'e1', name: 'Ana', status, reference, sizes: [] }, board: { people: [] } });
     return [...C.view().matchAll(/data-crm-act="([a-z_]+)"/g)].map((m) => m[1]);
   };
-  assert.deepEqual(view('sin_turno', null), ['start_shift']);
+  assert.deepEqual(view('sin_turno', null), [], 'sin turno: primero la referencia (no hay Iniciar turno suelto)');
   assert.deepEqual(view('working', null), ['pause', 'end_shift', 'pick_start']);
   assert.deepEqual(view('working', { id: 'r', name: 'PANT SET' }), ['pause', 'end_shift', 'pick_switch', 'pick_close']);
   assert.deepEqual(view('on_break', { id: 'r', name: 'PANT SET' }), ['resume', 'end_shift', 'pick_switch', 'pick_close']);
   assert.doesNotMatch(CRM, /por persona|per_person|productividad/i);
-  for (const text of ['Iniciar turno', 'Pausa', 'Reanudar', 'Fin de turno', 'Iniciar referencia', 'Cambiar referencia', 'Cerrar prendas']) {
+  for (const text of ['Pausa', 'Reanudar', 'Fin de turno', 'Iniciar referencia', 'Cambiar referencia', 'Cerrar prendas']) {
     assert.ok(CRM.includes(`"${text}"`), `${text} pasa por t()`);
   }
+});
+
+test('sin turno: 1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar; sin referencia no se puede iniciar', () => {
+  const C = crm();
+  const refs = [{ id: 'r1', name: 'PANT SET', pending: 12 }, { id: 'r2', name: 'Choco-fresa', pending: 0 }];
+  Object.assign(C.st, { token: 't', view: 'list', pinFor: 'e1', pin: '', board: { people: [{ employee_id: 'e1', name: 'Ana', status: 'sin_turno', has_pin: true }] } });
+  let html = C.view();
+  assert.match(html, /<ol class="crm-steps"[\s\S]*class="is-on" aria-current="step">\s*1 · PIN/, 'paso 1 en el PIN');
+  Object.assign(C.st, { pinFor: null, view: 'person', refs, startRef: '', person: { employee_id: 'e1', name: 'Ana', status: 'sin_turno', reference: null, sizes: [] } });
+  html = C.view();
+  assert.match(html, /class="is-on" aria-current="step">\s*2 · ¿En qué vas a trabajar\?/);
+  assert.match(html, /<b>PANT SET<\/b><small>Pendiente 12<\/small>/, 'cada referencia con su pendiente');
+  assert.match(html, /data-crm-startgo disabled>\s*Elige una referencia para iniciar<\/button>/, 'deshabilitado hasta elegir');
+  C.st.startRef = 'r1';
+  html = C.view();
+  assert.match(html, /class="is-on" aria-current="step">\s*3 · Iniciar/);
+  assert.match(html, /data-crm-startgo >\s*▶ Iniciar turno en PANT SET<\/button>/);
+  assert.match(html, /aria-checked="true"\s*class="crm-btn crm-refopt is-on" data-crm-startref="r1"/);
+  // Con turno activo: el panel de siempre.
+  Object.assign(C.st, { person: { employee_id: 'e1', name: 'Ana', status: 'working', reference: { id: 'r', name: 'PANT SET' }, sizes: [] } });
+  html = C.view();
+  assert.doesNotMatch(html, /crm-steps|data-crm-startgo/);
+  assert.match(CRM, /if \(t\.closest\("\[data-crm-startgo\]"\)\) \{ if \(st\.startRef\) act\("start_shift", \{ reference_id: st\.startRef \}\); return; \}/);
+  assert.equal(C.ERRORS.elige_una_referencia, 'Elige una referencia para iniciar.');
+  C.backToList();
+  assert.equal(C.st.startRef, '', 'volver a la lista olvida la referencia elegida');
 });
 
 test('rutas: página propia y el mini panel general redirige crm_lab', () => {

@@ -27,6 +27,7 @@
     referencia_no_activa: "Esa referencia no está activa.",
     cantidad_invalida: "Escribe una cantidad válida.",
     colaborador_no_encontrado: "Colaborador no encontrado.",
+    elige_una_referencia: "Elige una referencia para iniciar.",
   };
   const IDLE_MS = 20000;
   const POLL_MS = 5000;
@@ -37,7 +38,7 @@
   const KEY = `clonexa_crm_lab_token_${CID}`;
   const DEVICE_KEY = `clonexa_crm_lab_device_${CID}`;
 
-  const st = { token: "", board: null, refs: [], view: "list", query: "", pinFor: null, pin: "", person: null, empToken: "", modal: null,
+  const st = { token: "", board: null, refs: [], view: "list", query: "", pinFor: null, pin: "", person: null, empToken: "", modal: null, startRef: "", refQuery: "",
     error: "", info: "", busy: false, login: { user: "", pass: "" }, mustChange: false, lastTouch: Date.now(), offset: 0 };
 
   function store(key, value) {
@@ -161,7 +162,7 @@
     }
     const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"];
     return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmPinT"><div class="crm-card crm-pin">
-      <h2 id="crmPinT">${h(p.name || "")}</h2><p>${h(T("Escribe tu PIN de 4 dígitos"))}</p>
+      ${p.status === "sin_turno" ? steps(1) : ""}<h2 id="crmPinT">${h(p.name || "")}</h2><p>${h(T("Escribe tu PIN de 4 dígitos"))}</p>
       <p class="crm-dots" aria-label="${h(T("{n} de 4 dígitos", { n: st.pin.length }))}">${[0, 1, 2, 3].map((i) => `<i class="${i < st.pin.length ? "is-on" : ""}"></i>`).join("")}</p>
       ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
       <div class="crm-keys">${keys.map((k) => `<button type="button" class="crm-key${k === "OK" ? " is-primary" : ""}" data-crm-key="${h(k)}" ${st.busy ? "disabled" : ""}
@@ -169,8 +170,35 @@
       <button type="button" class="crm-btn" data-crm-cancel>${h(T("Cancelar"))}</button></div></div>`;
   }
 
+  // 056J: sin turno, primero la referencia: 1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar.
+  function steps(current) {
+    const names = ["PIN", "¿En qué vas a trabajar?", "Iniciar"];
+    return `<ol class="crm-steps" aria-label="${h(T("Pasos"))}">${names.map((n, i) => `<li class="${i + 1 === current ? "is-on" : i + 1 < current ? "is-done" : ""}" ${i + 1 === current ? 'aria-current="step"' : ""}>
+      ${h(i + 1)} · ${h(T(n))}</li>`).join("")}</ol>`;
+  }
+
+  function startView() {
+    const p = st.person || {};
+    const q = st.refQuery.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const refs = st.refs.filter((r) => !q || String(r.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(q));
+    const chosen = st.refs.find((r) => r.id === st.startRef);
+    return `${header()}<section class="crm-card crm-personal crm-start" aria-labelledby="crmMe">
+      ${steps(chosen ? 3 : 2)}
+      <div class="crm-row"><h2 id="crmMe">${h(p.name || "")}</h2><span class="crm-pill is-sin_turno">${h(T(STATUS.sin_turno))}</span></div>
+      <h3>${h(T("¿En qué vas a trabajar?"))}</h3>
+      <input class="crm-search" type="search" placeholder="${h(T("Buscar referencia"))}" aria-label="${h(T("Buscar referencia"))}" value="${h(st.refQuery)}" data-crm-startsearch>
+      <ul class="crm-list crm-refpick" role="radiogroup" aria-label="${h(T("Referencias activas"))}">${refs.map((r) => `<li><button type="button" role="radio" aria-checked="${r.id === st.startRef}"
+        class="crm-btn crm-refopt${r.id === st.startRef ? " is-on" : ""}" data-crm-startref="${h(r.id)}"><b>${h(r.name)}</b><small>${h(T("Pendiente {n}", { n: r.pending || 0 }))}</small></button></li>`).join("")
+        || `<li class="crm-empty">${h(T("Sin referencias activas."))}</li>`}</ul>
+      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
+      <button type="button" class="crm-btn crm-big is-primary crm-startgo" data-crm-startgo ${!chosen || st.busy ? "disabled" : ""}>
+        ${h(chosen ? T("▶ Iniciar turno en {ref}", { ref: chosen.name }) : T("Elige una referencia para iniciar"))}</button>
+      <button type="button" class="crm-btn crm-done" data-crm-done>${h(T("Cancelar"))}</button></section>`;
+  }
+
   function personView() {
     const p = st.person || {};
+    if (p.status === "sin_turno") return startView();
     const ref = p.reference;
     const btn = (a, label, primary) => `<button type="button" class="crm-btn crm-big${primary ? " is-primary" : ""}" data-crm-act="${a}" ${st.busy ? "disabled" : ""}>${h(T(label))}</button>`;
     let shift = "";
@@ -227,7 +255,7 @@
     const root = typeof document !== "undefined" && document.getElementById("crmApp");
     if (!root) return;
     const active = document.activeElement;
-    const keepSearch = active && active.hasAttribute && (active.hasAttribute("data-crm-search") || active.hasAttribute("data-crm-refsearch") || active.hasAttribute("data-crm-qty"));
+    const keepSearch = active && active.hasAttribute && (active.hasAttribute("data-crm-search") || active.hasAttribute("data-crm-refsearch") || active.hasAttribute("data-crm-qty") || active.hasAttribute("data-crm-startsearch"));
     const attr = keepSearch ? [...active.attributes].map((a) => a.name).find((n) => n.startsWith("data-crm-")) : "";
     root.innerHTML = view();
     if (attr) { const el = root.querySelector(`[${attr}]`); if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; } }
@@ -250,7 +278,7 @@
   }
 
   function backToList() {
-    st.view = "list"; st.person = null; st.empToken = ""; st.modal = null; st.pinFor = null; st.pin = ""; st.error = ""; st.info = "";
+    st.view = "list"; st.person = null; st.empToken = ""; st.modal = null; st.pinFor = null; st.pin = ""; st.error = ""; st.info = ""; st.startRef = ""; st.refQuery = "";
   }
 
   async function act(action, extra = {}) {
@@ -275,7 +303,7 @@
     try {
       const out = await call(crm("/unlock"), "POST", { employee_id: st.pinFor, pin: st.pin });
       st.empToken = out.employee_token; st.person = out.person; st.view = "person"; st.pinFor = null;
-      if (!st.refs.length) await loadRefs();
+      await loadRefs();  // pendientes frescos para elegir referencia
     } catch (error) {
       st.error = error.code === "pin_incorrecto" && error.extra && error.extra.left !== undefined
         ? T("PIN incorrecto. Te quedan {n} intentos.", { n: error.extra.left }) : error.message;
@@ -312,6 +340,8 @@
       return;
     }
     if ((v = attr("data-crm-ref")) && st.modal) { act(st.modal.action, { reference_id: v }); return; }
+    if ((v = attr("data-crm-startref"))) { st.startRef = st.startRef === v ? "" : v; st.error = ""; draw(); return; }
+    if (t.closest("[data-crm-startgo]")) { if (st.startRef) act("start_shift", { reference_id: st.startRef }); return; }
     if ((v = attr("data-crm-size")) && st.modal) { st.modal.size = v; st.modal.over = 0; draw(); return; }
     if (t.closest("[data-crm-closego]") && st.modal) {
       act("close", { size_reference_id: st.modal.size, quantity: Number(st.modal.qty || 0), confirm: st.modal.over ? true : undefined });
@@ -325,6 +355,7 @@
     touch();
     if (t.hasAttribute && t.hasAttribute("data-crm-search")) { st.query = t.value; draw(); return; }
     if (t.hasAttribute && t.hasAttribute("data-crm-refsearch") && st.modal) { st.modal.query = t.value; draw(); return; }
+    if (t.hasAttribute && t.hasAttribute("data-crm-startsearch")) { st.refQuery = t.value; draw(); return; }
     if (t.hasAttribute && t.hasAttribute("data-crm-qty") && st.modal) { st.modal.qty = t.value; st.modal.over = 0; }
   }
 
@@ -382,7 +413,7 @@
   }
 
   if (typeof window !== "undefined") {
-    window.CxCrmLab = { st, view, hm, readableOn, contrast, backToList, IDLE_MS, ERRORS, STATUS };
+    window.CxCrmLab = { st, view, hm, readableOn, contrast, backToList, steps, IDLE_MS, ERRORS, STATUS };
     if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("DOMContentLoaded", start);
   }
 })();

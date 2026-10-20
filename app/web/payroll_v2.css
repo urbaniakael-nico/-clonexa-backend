@@ -174,14 +174,40 @@
   .pv-modal-card { width: 100%; max-height: 100vh; height: 100%; border-radius: 0; border-width: 0; }
 }
 
-/* 056E · payroll_shift_list: desglose de turnos en lista vertical (solo presentacion). */
-.pv-shifts .pv-scard { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--pv-line); border-radius: var(--pv-r);
-  background: var(--pv-surface, var(--cx-bg)); color: var(--pv-on-surface, var(--cx-text)); min-width: 0; }
-.pv-scard-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.pv-scard-when { min-width: 0; overflow-wrap: anywhere; }
-.pv-scard-rows { margin: 0; display: grid; gap: 4px; }
-.pv-scard-rows > div { display: grid; grid-template-columns: minmax(120px, 40%) minmax(0, 1fr); gap: 10px; padding: 6px 0; border-top: 1px solid var(--pv-line); }
-.pv-scard-rows dt { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
-.pv-scard-rows dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
-.pv-scard-total { border-width: 2px; border-color: var(--pv-accent-bg, var(--cx-primary)); }
-@media (max-width: 480px) { .pv-scard-rows > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+/* 056J · payroll_shift_list: tabla compacta de turnos dentro de la tarjeta (solo presentacion). */
+.pv-thead-card { display: flex; align-items: center; gap: 10px; padding: 6px 0 8px; min-width: 0; }
+.pv-thead-card .pv-card-main { flex: 1 1 auto; min-width: 0; }
+.pv-thead-card .pv-card-nums { display: grid; justify-items: end; gap: 2px; text-align: right; flex: none; }
+.pv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.3; table-layout: auto; }
+.pv-table th, .pv-table td { padding: 5px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--pv-line); }
+.pv-table thead th { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.pv-table .pv-tnum { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pv-table .pv-tref { overflow-wrap: anywhere; min-width: 0; }
+.pv-trow { cursor: pointer; }
+.pv-trow:hover td, .pv-trow.is-open td { background: color-mix(in srgb, var(--cx-text) 6%, transparent); }
+.pv-tbtn { all: unset; cursor: pointer; font-weight: 700; white-space: nowrap; }
+.pv-tbtn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
+.pv-ext { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--pv-line); white-space: nowrap; }
+.pv-ext-line { display: block; font-size: 10.5px; font-weight: 600; }
+.pv-tdetail td { padding: 4px 8px 8px; }
+.pv-tkv { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; }
+.pv-tkv div { display: flex; gap: 6px; }
+.pv-tkv dt { font-weight: 600; }
+.pv-tkv dd { margin: 0; font-weight: 700; }
+.pv-ttotal th, .pv-ttotal td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--pv-accent-bg, var(--cx-primary)); }
+@media (max-width: 560px) {
+  .pv-table thead { display: none; }
+  .pv-table, .pv-table tbody, .pv-table tfoot, .pv-table tr { display: block; width: 100%; }
+  .pv-table tr.pv-trow, .pv-table tr.pv-ttotal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--pv-line); }
+  .pv-table td, .pv-table th { min-width: 0; overflow-wrap: anywhere; }
+  .pv-table .pv-tref { grid-column: 1 / -1; }
+  .pv-table .pv-tnum { grid-column: 2; grid-row: 1; }
+  .pv-table td, .pv-table th { display: block; padding: 0; border: 0; }
+  .pv-table td[data-label]::before { content: attr(data-label) " "; font-size: 10.5px; font-weight: 600; opacity: .85; }
+  .pv-table .pv-tnum { text-align: right; }
+  .pv-table td:empty { display: none; }
+  .pv-ttotal { border-top: 2px solid var(--pv-accent-bg, var(--cx-primary)); }
+  .pv-ttotal th, .pv-ttotal td { border-top: 0; }
+  .pv-tdetail { display: block; }
+  .pv-tdetail td { display: block; }
+}

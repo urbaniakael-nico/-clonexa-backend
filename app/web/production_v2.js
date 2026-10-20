@@ -98,9 +98,9 @@
   }
 
   function bar() {
-    return `<section class="client-panel pp-bar">
+    return `<section class="client-panel pp-toolbar">
       <div class="pp-seg" role="group" aria-label="${h(T("Periodo"))}">${PRESETS.map(([k, l]) => `<button type="button" class="${model.preset === k ? "client-btn is-on" : ""}" data-pp-preset="${k}" aria-pressed="${model.preset === k}">${h(T(l))}</button>`).join("")}</div>
-      ${model.preset === "custom" ? `<label class="pp-field">${h(T("Desde"))}<input type="date" data-pp-from value="${h(model.from || today())}"></label><label class="pp-field">${h(T("Hasta"))}<input type="date" data-pp-to value="${h(model.to || today())}"></label>` : ""}
+      ${model.preset === "custom" ? `<div class="pp-dates"><label class="pp-field">${h(T("Desde"))}<input type="date" data-pp-from value="${h(model.from || today())}"></label><label class="pp-field">${h(T("Hasta"))}<input type="date" data-pp-to value="${h(model.to || today())}"></label></div>` : ""}
       <div class="pp-actions"><button type="button" class="pp-btn" data-pp-pdf="view" ${model.busy ? "disabled" : ""}>${h(T("Ver PDF"))}</button>
         <button type="button" class="client-btn pp-btn is-primary" data-pp-pdf="download" ${model.busy ? "disabled" : ""}>${h(T("Descargar PDF"))}</button></div></section>`;
   }

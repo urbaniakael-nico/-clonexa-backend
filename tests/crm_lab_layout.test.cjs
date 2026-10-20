@@ -18,7 +18,7 @@ const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Applica
 const CID = 'd63cf68c-be5b-4a30-aee4-341973018db1';
 const LOGIN_CID = '00000000-0000-4000-8000-000000000001';  // otra clave en localStorage: los iframes comparten origen
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json' };
-const VIEWS = ['list', 'pin', 'nopin', 'person', 'refs', 'close', 'over'];
+const VIEWS = ['list', 'pin', 'nopin', 'person', 'refs', 'close', 'over', 'start', 'startpick'];
 const CASES = [...VIEWS.flatMap((v) => [[`${v}-1280`, 1280, v], [`${v}-375`, 375, v]]), ['login-375', 375, 'login'], ['idle-1280', 1280, 'idle']];
 
 function serve() {
@@ -89,6 +89,11 @@ test('CRM VELVET-LAB: tableta (1280) y celular (375) sin desborde y con AA; PIN,
       assert.equal(r['idle-1280'].before_idle, true);
       assert.equal(r['idle-1280'].back_to_list, true, 'a los 20 s sin uso vuelve a la lista');
       assert.equal(r['idle-1280'].employee_token_cleared, true, 'y olvida el token del colaborador');
+      for (const k of ['start-1280', 'start-375']) {
+        assert.equal(r[k].pin_steps, true, `${k}: 1 · PIN marcado en el PIN`);
+        assert.equal(r[k].start_disabled, true, `${k}: sin referencia el botón está deshabilitado`);
+      }
+      assert.equal(r['startpick-375'].start_label, '▶ Iniciar turno en Mystic jacket con capota larga');
       const shots = process.env.CX_CRM_SHOTS;
       if (shots) {
         fs.mkdirSync(shots, { recursive: true });
