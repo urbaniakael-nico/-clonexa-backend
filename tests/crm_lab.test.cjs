@@ -117,7 +117,7 @@ test('tableta: acciones según el estado y nada por persona', () => {
   }
 });
 
-test('sin turno: 1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar; sin referencia no se puede iniciar', () => {
+test('sin turno: 1 · PIN → 2 · Referencia → 3 · Iniciar; sin referencia no se puede iniciar', () => {
   const C = crm();
   const refs = [{ id: 'r1', name: 'PANT SET', pending: 12 }, { id: 'r2', name: 'Choco-fresa', pending: 0 }];
   Object.assign(C.st, { token: 't', view: 'list', pinFor: 'e1', pin: '', board: { people: [{ employee_id: 'e1', name: 'Ana', status: 'sin_turno', has_pin: true }] } });
@@ -125,14 +125,16 @@ test('sin turno: 1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar; s
   assert.match(html, /<ol class="crm-steps"[\s\S]*class="is-on" aria-current="step">\s*1 · PIN/, 'paso 1 en el PIN');
   Object.assign(C.st, { pinFor: null, view: 'person', refs, startRef: '', person: { employee_id: 'e1', name: 'Ana', status: 'sin_turno', reference: null, sizes: [] } });
   html = C.view();
-  assert.match(html, /class="is-on" aria-current="step">\s*2 · ¿En qué vas a trabajar\?/);
+  assert.match(html, /class="is-on" aria-current="step">\s*2 · Referencia/);
+  assert.match(html, /<p class="crm-say">¿En qué vas a trabajar\?<\/p>/);
   assert.match(html, /<b>PANT SET<\/b><small>Pendiente 12<\/small>/, 'cada referencia con su pendiente');
   assert.match(html, /data-crm-startgo disabled>\s*Elige una referencia para iniciar<\/button>/, 'deshabilitado hasta elegir');
+  assert.match(html, /<div class="crm-foot"><button type="button" class="crm-btn is-primary crm-startgo"/, 'el botón Iniciar abajo a la izquierda');
   C.st.startRef = 'r1';
   html = C.view();
   assert.match(html, /class="is-on" aria-current="step">\s*3 · Iniciar/);
   assert.match(html, /data-crm-startgo >\s*▶ Iniciar turno en PANT SET<\/button>/);
-  assert.match(html, /aria-checked="true"\s*class="crm-btn crm-refopt is-on" data-crm-startref="r1"/);
+  assert.match(html, /aria-checked="true"\s*class="crm-refopt is-on" data-crm-startref="r1"/);
   // Con turno activo: el panel de siempre.
   Object.assign(C.st, { person: { employee_id: 'e1', name: 'Ana', status: 'working', reference: { id: 'r', name: 'PANT SET' }, sizes: [] } });
   html = C.view();
@@ -156,4 +158,69 @@ test('consola v2+: tarjeta CRM VELVET-LAB solo con el interruptor (404 = no se m
   assert.match(SRC, /createCrmUser: \(id\) => apiPost\(`\$\{API\}\/crm-lab\/companies\/\$\{encodeURIComponent\(id\)\}\/panel-user`, \{\}\)/);
   assert.match(SRC, /modulos: \["modules", "activity", "crmLab"\]/);
   assert.match(SRC, /data-vpf-reset="\$\{h\(crm\.user_id\)\}">Regenerar clave/);
+});
+
+test('056K: CRM en vivo ordenado por estado y alfabético, tarjetas con su etiqueta y cronómetro h:mm:ss', () => {
+  const C = crm();
+  const people = [
+    { employee_id: 's2', name: 'zoe', status: 'sin_turno' }, { employee_id: 'p1', name: 'Bea', status: 'on_break', reference_name: 'PANT', since: '2026-10-19T10:00:00Z', paused_since: '2026-10-19T11:00:00Z' },
+    { employee_id: 'w2', name: 'Carla', status: 'working', reference_name: 'Body', since: '2026-10-19T09:00:00Z' }, { employee_id: 's1', name: 'Álvaro', status: 'sin_turno' },
+    { employee_id: 'w1', name: 'ana', status: 'working', reference_name: 'PANT', since: '2026-10-19T08:00:00Z' },
+  ];
+  assert.deepEqual(Array.from(C.ordered(people), (p) => p.employee_id), ['w1', 'w2', 'p1', 's1', 's2']);
+  Object.assign(C.st, { token: 't', view: 'list', pinFor: null, person: null, query: '', board: { working: 2, paused: 1, people } });
+  const html = C.view();
+  assert.match(html, /class="crm-tile is-working" data-crm-pick="w1">\s*<span class="crm-tag">TRABAJANDO<\/span><span class="crm-name">ana<\/span><span class="crm-ref">PANT<\/span><span class="crm-clock" data-crm-clock="2026-10-19T08:00:00Z">/);
+  assert.match(html, /class="crm-tile is-on_break" data-crm-pick="p1">[\s\S]*?EN PAUSA[\s\S]*?data-crm-clock="2026-10-19T11:00:00Z"/, 'en pausa: el tiempo en pausa');
+  assert.match(html, /class="crm-tile is-sin_turno" data-crm-pick="s1">[\s\S]*?SIN TURNO[\s\S]*?Toca para iniciar/);
+  assert.match(html, /●<\/i> 2 trabajando[\s\S]*●<\/i> 1 en pausa/);
+  C.st.offset = 0;
+  assert.match(C.hms(new Date(Date.now() - (3600 + 125) * 1000).toISOString()), /^1:02:0[56]$/);
+  assert.equal(C.hms(''), '');
+  assert.match(CRM, /querySelectorAll\("\[data-crm-clock\]"\)\.forEach\(\(el\) => \{ el\.textContent = hms\(el\.getAttribute\("data-crm-clock"\)\); \}\)/, 'corre cada segundo en el navegador');
+});
+
+test('056K: colores del tema de la empresa (Velvet: TRABAJANDO aqua, acento morado) y AA; otro tema cambia los colores', () => {
+  const C = crm();
+  const velvet = C.palette({ primary: '#7c3aed', theme: { background: 'linear-gradient(135deg, #00ffe1, #a600ff)', primary: '#a600ff', secondary: '#8cff00', bg: '#00ffe1', warning: '' } });
+  assert.equal(velvet.page, 'linear-gradient(135deg, #00ffe1, #a600ff)', 'el mismo fondo del portal');
+  assert.equal(velvet.work, 'rgb(0,255,225)');
+  assert.equal(velvet.accent, 'rgb(166,0,255)');
+  assert.equal(velvet.pause, undefined, 'sin color de aviso en el tema: el ámbar de respaldo');
+  const other = C.palette({ theme: { background: 'linear-gradient(135deg, #050509, #1d4ed8)', primary: '#1d4ed8', secondary: '#f97316', bg: '#050509', warning: '#eab308' } });
+  for (const k of ['page', 'work', 'accent', 'bar', 'idle', 'surface']) assert.notEqual(other[k], velvet[k], k);
+  assert.equal(other.work, 'rgb(249,115,22)', 'fondo oscuro: TRABAJANDO con el secundario');
+  const n = (c) => c.match(/\d+/g).map(Number);
+  for (const p of [velvet, other]) {
+    for (const k of ['accent', 'bar', 'work', 'work-line', 'idle', 'idle-line', 'surface', 'key']) {
+      const on = p[`on-${k}`] === '#ffffff' ? [255, 255, 255] : [17, 17, 17];
+      assert.ok(C.contrast(on, n(p[k])) >= 4.5, `${k}: texto AA`);
+    }
+  }
+  assert.doesNotMatch(readFileSync('app/web/crm_lab.js', 'utf8').match(/function palette[\s\S]*?\r?\n  \}\r?\n/)[0], /#[0-9a-f]{6}/i, 'sin colores fijos en la paleta');
+});
+
+test('056K: pantalla completa solo con soporte; manifest para abrir sin barra', () => {
+  const C = crm();
+  assert.equal(C.fsOk(), false, 'sin document: sin botón');
+  Object.assign(C.st, { token: 't', view: 'list', pinFor: null, board: { people: [] } });
+  assert.doesNotMatch(C.view(), /data-crm-fs/);
+  assert.match(CRM, /document\.fullscreenEnabled \|\| document\.webkitFullscreenEnabled/);
+  assert.match(CRM, /el\.requestFullscreen \|\| el\.webkitRequestFullscreen/);
+  assert.match(CRM, /"Salir de pantalla completa"/);
+  const html = readFileSync('app/web/crm_lab.html', 'utf8');
+  assert.match(html, /<link rel="manifest" href="\/client-static\/crm_lab\.webmanifest\?v=056K">/);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
+  assert.match(html, /viewport-fit=cover/);
+  const m = JSON.parse(readFileSync('app/web/crm_lab.webmanifest', 'utf8'));
+  assert.equal(m.display, 'fullscreen');
+  assert.equal(m.orientation, 'any');
+  assert.ok(m.start_url.startsWith('/mini-panel/crm-lab') && m.scope === '/mini-panel/crm-lab');
+  assert.ok(m.icons.some((i) => i.sizes === '512x512'));
+  assert.match(CRM, /COMPANY_KEY = "clonexa_crm_lab_company"/, 'desde la pantalla de inicio recuerda la empresa');
+  assert.match(readFileSync('app/web/client_routes.py', 'utf8'), /allowed_names=frozenset\(\{"crm_lab\.webmanifest"\}\)/);
+  const CSS = readFileSync('app/web/crm_lab.css', 'utf8');
+  assert.match(CSS, /height: 100dvh/);
+  assert.match(CSS, /env\(safe-area-inset-top\)/);
+  assert.match(CSS, /@media \(orientation: portrait\) \{\s*\.crm-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });

@@ -4,6 +4,8 @@
 // Cerrar prendas por talla y cantidad). El servidor usa las MISMAS funciones del bot
 // de Telegram (source_channel = crm_lab). A los 20 s sin uso vuelve a la lista.
 // Liviano: un solo pedido al tablero cada 5 s. Textos por t().
+// 056K: pantalla principal = CRM en vivo (tarjetas por estado con cronómetro), colores
+// del tema publicado de la empresa, pantalla completa y todo dentro del alto real.
 (() => {
   "use strict";
 
@@ -33,7 +35,9 @@
   const POLL_MS = 5000;
 
   const P = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
-  const CID = P.get("company_id") || "";
+  // Desde la pantalla de inicio (manifest) el enlace llega sin company_id: la última empresa de este equipo.
+  const COMPANY_KEY = "clonexa_crm_lab_company";
+  const CID = P.get("company_id") || (() => { try { return window.localStorage.getItem(COMPANY_KEY) || ""; } catch (_) { return ""; } })();
   const API = "/api/v1";
   const KEY = `clonexa_crm_lab_token_${CID}`;
   const DEVICE_KEY = `clonexa_crm_lab_device_${CID}`;
@@ -60,11 +64,6 @@
     const m = Math.max(0, Math.round(Number(minutes) || 0));
     return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
   }
-  function since(iso) {
-    if (!iso) return "";
-    const ms = Date.now() + st.offset - new Date(iso).getTime();
-    return hm(ms / 60000);
-  }
 
   async function call(path, method = "GET", body = undefined, withEmployee = false) {
     const headers = { "X-Device-Id": device() };
@@ -87,7 +86,7 @@
   }
   const crm = (path) => `/crm-lab/companies/${encodeURIComponent(CID)}${path}`;
 
-  // ------------------------------------------------------------ marca (panel inicial) y AA
+  // ------------------------------------------------------------ tema del portal y AA
   function rgb(hex) {
     const m = String(hex || "").trim().replace("#", "");
     const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
@@ -96,166 +95,244 @@
   function lum(c) { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
   function contrast(a, b) { const x = lum(a) + 0.05; const y = lum(b) + 0.05; return Math.max(x, y) / Math.min(x, y); }
   function readableOn(bg) { return contrast([255, 255, 255], bg) >= contrast([17, 17, 17], bg) ? "#ffffff" : "#111111"; }
+  const mix = (a, b, t) => a.map((v, i) => Math.round(v * (1 - t) + b[i] * t));
+  const css = (c) => `rgb(${c.join(",")})`;
+  const WHITE = [255, 255, 255];
+  const BLACK = [0, 0, 0];
+
+  // 056K: variables --crm-* desde el tema que ve el portal (brand.theme del servidor:
+  // fondo de branding_background, colores principal, secundario y de fondo). Cada color
+  // trae su texto encima (blanco o negro por contraste) y su borde oscuro. Sin tema,
+  // los colores del panel inicial (brand.primary / brand.secondary).
+  function palette(b) {
+    const th = (b && b.theme) || {};
+    const primary = rgb(th.primary || (b && b.primary)) || [124, 58, 237];
+    const second = rgb(th.secondary || (b && b.secondary)) || mix(primary, WHITE, 0.5);
+    const base = rgb(th.bg) || mix(primary, WHITE, 0.8);
+    // TRABAJANDO: el color de fondo del tema si es claro (Velvet: aqua); si es oscuro, el secundario.
+    const work = lum(base) >= 0.3 ? base : lum(second) >= 0.3 ? second : mix(second, WHITE, 0.55);
+    const out = { page: th.background || `linear-gradient(135deg, ${css(base)}, ${css(primary)})`, font: th.font || "inherit" };
+    const tone = (name, c, line = true) => {
+      out[name] = css(c);
+      out[`on-${name}`] = readableOn(c);
+      if (line) { const l = mix(c, BLACK, 0.6); out[`${name}-line`] = css(l); out[`on-${name}-line`] = readableOn(l); }
+    };
+    tone("accent", primary);
+    tone("bar", mix(primary, BLACK, 0.55), false);
+    tone("work", work);
+    const warning = rgb(th.warning);
+    if (warning) tone("pause", warning);
+    tone("idle", mix(base, WHITE, 0.84));
+    tone("surface", mix(base, WHITE, 0.9));
+    tone("key", mix(base, WHITE, 0.6), false);
+    return out;
+  }
+
   function applyBrand(b) {
     if (!b || typeof document === "undefined") return;
     const root = document.documentElement.style;
-    const primary = rgb(b.primary) || [124, 58, 237];
-    root.setProperty("--crm-accent", `rgb(${primary.join(",")})`);
-    root.setProperty("--crm-on-accent", readableOn(primary));
-    const second = rgb(b.secondary);
-    if (second) { root.setProperty("--crm-accent-2", `rgb(${second.join(",")})`); root.setProperty("--crm-on-accent-2", readableOn(second)); }
+    const vars = palette(b);
+    Object.keys(vars).forEach((k) => root.setProperty(`--crm-${k}`, vars[k]));
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", vars.bar);
     if (b.language && b.language !== "es" && window.CxI18n && window.CxI18n.setLanguage) window.CxI18n.setLanguage(b.language);
   }
 
+  // ------------------------------------------------------------ utilidades de la pantalla
+  const fold = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Cronómetro h:mm:ss (corre en el navegador entre actualizaciones del tablero).
+  function hms(iso) {
+    if (!iso) return "";
+    const s = Math.max(0, Math.floor((Date.now() + st.offset - new Date(iso).getTime()) / 1000));
+    return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }
+  // Trabajando, luego en pausa, luego sin turno; dentro de cada grupo, alfabético.
+  const RANK = { working: 0, on_break: 1, sin_turno: 2 };
+  function ordered(people) {
+    return [...arr(people)].sort((a, b) => (RANK[a.status] ?? 3) - (RANK[b.status] ?? 3) || String(a.name).localeCompare(String(b.name), "es", { sensitivity: "base" }));
+  }
+
+  // Pantalla completa (Fullscreen API y su variante webkit). Sin soporte, no hay botón.
+  function fsOk() { return typeof document !== "undefined" && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled); }
+  function fsOn() { return typeof document !== "undefined" && !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  function fsToggle() {
+    const d = document;
+    const el = d.documentElement;
+    try {
+      const out = fsOn() ? (d.exitFullscreen || d.webkitExitFullscreen).call(d) : (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+      if (out && out.catch) out.catch(() => {});
+    } catch (_) {}
+  }
+
   // ------------------------------------------------------------ vistas
-  function header() {
+  function logo() {
     const b = (st.board && st.board.brand) || {};
-    const logo = b.logo_url ? `<img class="crm-logo" src="${h(b.logo_url)}" alt="">` : `<span class="crm-logo crm-logo-txt">${h(String(b.name || "V").slice(0, 1))}</span>`;
-    return `<header class="crm-head">${logo}<div><p class="crm-company">${h(b.name || "")}</p><h1>CRM VELVET-LAB</h1></div>
-      ${st.token ? `<button type="button" class="crm-link" data-crm-logout>${h(T("Salir del panel"))}</button>` : ""}</header>`;
+    return b.logo_url ? `<img class="crm-logo" src="${h(b.logo_url)}" alt="">` : `<span class="crm-logo crm-logo-txt" aria-hidden="true">${h(String(b.name || "V").slice(0, 1))}</span>`;
+  }
+
+  // Barra superior compacta: logo, empresa, CRM VELVET-LAB, chips y pantalla completa.
+  function header() {
+    const b = st.board || {};
+    const on = fsOn();
+    const fs = fsOk() ? `<button type="button" class="crm-fs" data-crm-fs aria-pressed="${on}" aria-label="${h(T(on ? "Salir de pantalla completa" : "Pantalla completa"))}">
+      <span aria-hidden="true">${on ? "✕" : "⛶"}</span><span class="crm-fs-txt">${h(T(on ? "Salir de pantalla completa" : "Pantalla completa"))}</span></button>` : "";
+    const chips = st.token && !st.mustChange && st.board ? `<p class="crm-chips">
+      <span class="crm-chip is-working"><i aria-hidden="true">●</i> ${h(T("{n} trabajando", { n: b.working || 0 }))}</span>
+      <span class="crm-chip is-on_break"><i aria-hidden="true">●</i> ${h(T("{n} en pausa", { n: b.paused || 0 }))}</span></p>` : "";
+    return `<header class="crm-top">${logo()}<div class="crm-brand"><p class="crm-company">${h((b.brand && b.brand.name) || "")}</p><h1>CRM VELVET-LAB</h1></div>${chips}${fs}</header>`;
   }
 
   function loginView() {
-    return `${header()}<form class="crm-card crm-login" data-crm-login>
+    return `${header()}<div class="crm-scroll"><form class="crm-card crm-login" data-crm-login>
       <h2>${h(T("Ingreso del panel"))}</h2>
       <label>${h(T("Usuario"))}<input name="user" autocomplete="username" value="${h(st.login.user)}" required></label>
       <label>${h(T("Clave"))}<input name="pass" type="password" autocomplete="current-password" required></label>
-      <button type="submit" class="crm-btn is-primary" ${st.busy ? "disabled" : ""}>${h(T("Entrar"))}</button></form>`;
+      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
+      <button type="submit" class="crm-btn is-primary" ${st.busy ? "disabled" : ""}>${h(T("Entrar"))}</button></form></div>`;
   }
 
   function changeView() {
-    return `${header()}<form class="crm-card crm-login" data-crm-change>
+    return `${header()}<div class="crm-scroll"><form class="crm-card crm-login" data-crm-change>
       <h2>${h(T("Cambia la clave del panel"))}</h2>
       <label>${h(T("Clave actual"))}<input name="cur" type="password" autocomplete="current-password" required></label>
       <label>${h(T("Clave nueva"))}<input name="next" type="password" autocomplete="new-password" minlength="8" required></label>
-      <button type="submit" class="crm-btn is-primary" ${st.busy ? "disabled" : ""}>${h(T("Guardar"))}</button></form>`;
+      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
+      <button type="submit" class="crm-btn is-primary" ${st.busy ? "disabled" : ""}>${h(T("Guardar"))}</button></form></div>`;
   }
 
-  function liveStrip() {
-    const b = st.board || {};
-    const live = arr(b.live);
-    return `<section class="crm-live" aria-label="${h(T("En vivo"))}">
-      <p class="crm-counts"><b>${h(b.working || 0)}</b> ${h(T("trabajando"))} · <b>${h(b.paused || 0)}</b> ${h(T("en pausa"))}</p>
-      <ul class="crm-ribbon">${live.map((p) => `<li class="is-${h(p.status)}"><i aria-hidden="true"></i><b>${h(p.name)}</b>
-        <span>${h(p.reference_name || T("Sin referencia"))}</span><small data-crm-since="${h(p.since || "")}">${h(since(p.since))}</small></li>`).join("")
-        || `<li class="crm-empty">${h(T("Nadie trabajando ahora."))}</li>`}</ul></section>`;
+  const TAG = { working: "TRABAJANDO", on_break: "EN PAUSA", sin_turno: "SIN TURNO" };
+  function tile(p) {
+    const status = TAG[p.status] ? p.status : "sin_turno";
+    // En pausa, el tiempo en pausa; trabajando, el mismo dato de siempre (referencia o turno).
+    const clock = status === "on_break" ? p.paused_since || p.since : p.since;
+    const body = status === "sin_turno" ? `<span class="crm-hint">${h(T("Toca para iniciar"))}</span>`
+      : `<span class="crm-ref">${h(p.reference_name || T("Sin referencia"))}</span><span class="crm-clock" data-crm-clock="${h(clock || "")}">${h(hms(clock))}</span>`;
+    return `<li><button type="button" class="crm-tile is-${status}" data-crm-pick="${h(p.employee_id)}">
+      <span class="crm-tag">${h(T(TAG[status]))}</span><span class="crm-name">${h(p.name)}</span>${body}</button></li>`;
   }
 
-  function listView() {
-    const q = st.query.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-    const people = arr(st.board && st.board.people).filter((p) => !q || String(p.name).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").includes(q));
-    return `${header()}${liveStrip()}<section class="crm-card" aria-labelledby="crmPeople">
-      <div class="crm-row"><h2 id="crmPeople">${h(T("Colaboradores"))}</h2>
-        <input class="crm-search" type="search" placeholder="${h(T("Buscar colaborador"))}" aria-label="${h(T("Buscar colaborador"))}" value="${h(st.query)}" data-crm-search></div>
-      <ul class="crm-people">${people.map((p) => `<li><button type="button" class="crm-person is-${h(p.status)}" data-crm-pick="${h(p.employee_id)}">
-        <span class="crm-name">${h(p.name)}</span><span class="crm-pill is-${h(p.status)}">${h(T(STATUS[p.status] || p.status))}</span>
-        ${p.reference_name ? `<small>${h(p.reference_name)} · ${h(since(p.since))}</small>` : ""}</button></li>`).join("")
-        || `<li class="crm-empty">${h(T("Sin colaboradores activos."))}</li>`}</ul></section>`;
+  // Pantalla principal = CRM en vivo: barra, buscador y cuadrícula por estado.
+  function boardView() {
+    const q = fold(st.query.trim());
+    const people = ordered(st.board && st.board.people).filter((p) => !q || fold(p.name).includes(q));
+    return `${header()}<div class="crm-tools">
+      <input class="crm-search" type="search" placeholder="${h(T("Buscar colaborador"))}" aria-label="${h(T("Buscar colaborador"))}" value="${h(st.query)}" data-crm-search>
+      <button type="button" class="crm-link" data-crm-logout>${h(T("Salir del panel"))}</button></div>
+      ${st.error && !st.pinFor && st.view !== "person" ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
+      <ul class="crm-grid" aria-label="${h(T("Colaboradores"))}">${people.map(tile).join("") || `<li class="crm-empty">${h(T("Sin colaboradores activos."))}</li>`}</ul>`;
+  }
+
+  // Ventana sobre la pantalla principal: a la izquierda pasos, persona e instrucción
+  // (y abajo los botones); a la derecha el teclado o la lista. En vertical, una columna.
+  function dialog(side, main, foot, cls = "") {
+    return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmWinT"><div class="crm-win${cls ? ` ${cls}` : ""}">
+      <div class="crm-side">${side}</div>${main ? `<div class="crm-main">${main}</div>` : ""}<div class="crm-foot">${foot}</div></div></div>`;
+  }
+
+  function who(p, tag = "") {
+    const initials = String(p.name || "?").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+    return `<div class="crm-who"><span class="crm-avatar" aria-hidden="true">${h(initials || "?")}</span><div><h2 id="crmWinT">${h(p.name || "")}</h2>${tag}</div></div>`;
+  }
+
+  const messages = () => `${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}${st.info ? `<p class="crm-ok" role="status">${h(st.info)}</p>` : ""}`;
+
+  // Teclado 3 x 4 (1-9, Borrar, 0, OK). attr: data-crm-key (PIN) o data-crm-qkey (cantidad).
+  function keypad(attr, okAttrs, okLabel, cls = "") {
+    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"];
+    return `<div class="crm-keys${cls}">${keys.map((k) => {
+      if (k === "OK") return `<button type="button" class="crm-key is-primary" ${okAttrs}>${h(okLabel)}</button>`;
+      return `<button type="button" class="crm-key${k === "⌫" ? " is-soft" : ""}" ${attr}="${h(k)}" ${st.busy ? "disabled" : ""} aria-label="${h(k === "⌫" ? T("Borrar") : k)}">${h(k === "⌫" ? T("Borrar") : k)}</button>`;
+    }).join("")}</div>`;
   }
 
   function pinView() {
     const p = arr(st.board && st.board.people).find((x) => x.employee_id === st.pinFor) || {};
     if (!p.has_pin) {
-      return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmPinT"><div class="crm-card crm-pin">
-        <h2 id="crmPinT">${h(p.name || "")}</h2><p class="crm-warn">${h(T("Pide tu PIN al administrador."))}</p>
-        <button type="button" class="crm-btn" data-crm-cancel>${h(T("Volver"))}</button></div></div>`;
+      return dialog(`${who(p)}<p class="crm-warn">${h(T("Pide tu PIN al administrador."))}</p>`, "",
+        `<button type="button" class="crm-btn" data-crm-cancel>${h(T("Volver"))}</button>`, "is-single");
     }
-    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"];
-    return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmPinT"><div class="crm-card crm-pin">
-      ${p.status === "sin_turno" ? steps(1) : ""}<h2 id="crmPinT">${h(p.name || "")}</h2><p>${h(T("Escribe tu PIN de 4 dígitos"))}</p>
+    const side = `${p.status === "sin_turno" ? steps(1) : ""}${who(p)}<p class="crm-say">${h(T("Escribe tu PIN de 4 dígitos"))}</p>
       <p class="crm-dots" aria-label="${h(T("{n} de 4 dígitos", { n: st.pin.length }))}">${[0, 1, 2, 3].map((i) => `<i class="${i < st.pin.length ? "is-on" : ""}"></i>`).join("")}</p>
-      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
-      <div class="crm-keys">${keys.map((k) => `<button type="button" class="crm-key${k === "OK" ? " is-primary" : ""}" data-crm-key="${h(k)}" ${st.busy ? "disabled" : ""}
-        aria-label="${h(k === "⌫" ? T("Borrar") : k === "OK" ? T("Entrar") : k)}">${h(k === "OK" ? T("Entrar") : k)}</button>`).join("")}</div>
-      <button type="button" class="crm-btn" data-crm-cancel>${h(T("Cancelar"))}</button></div></div>`;
+      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}`;
+    const pad = keypad("data-crm-key", `data-crm-key="OK" ${st.busy ? "disabled" : ""} aria-label="${h(T("Entrar"))}"`, "OK");
+    return dialog(side, pad, `<button type="button" class="crm-btn crm-cancel" data-crm-cancel>${h(T("✕ Cancelar"))}</button>`, "is-pin");
   }
 
-  // 056J: sin turno, primero la referencia: 1 · PIN → 2 · ¿En qué vas a trabajar? → 3 · Iniciar.
+  // Sin turno, primero la referencia: 1 · PIN → 2 · Referencia → 3 · Iniciar.
   function steps(current) {
-    const names = ["PIN", "¿En qué vas a trabajar?", "Iniciar"];
+    const names = ["PIN", "Referencia", "Iniciar"];
     return `<ol class="crm-steps" aria-label="${h(T("Pasos"))}">${names.map((n, i) => `<li class="${i + 1 === current ? "is-on" : i + 1 < current ? "is-done" : ""}" ${i + 1 === current ? 'aria-current="step"' : ""}>
       ${h(i + 1)} · ${h(T(n))}</li>`).join("")}</ol>`;
   }
 
+  // Buscador más cuadrícula de referencias activas con su pendiente.
+  function refGrid(attr, selected, query, searchAttr, radio) {
+    const q = fold(String(query || "").trim());
+    const refs = st.refs.filter((r) => !q || fold(r.name).includes(q));
+    return `<input class="crm-search" type="search" placeholder="${h(T("Buscar referencia"))}" aria-label="${h(T("Buscar referencia"))}" value="${h(query || "")}" ${searchAttr}>
+      <ul class="crm-refs"${radio ? ` role="radiogroup" aria-label="${h(T("Referencias activas"))}"` : ""}>${refs.map((r) => `<li><button type="button"${radio ? ` role="radio" aria-checked="${r.id === selected}"` : ""}
+        class="crm-refopt${r.id === selected ? " is-on" : ""}" ${attr}="${h(r.id)}"><b>${h(r.name)}</b><small>${h(T("Pendiente {n}", { n: r.pending || 0 }))}</small></button></li>`).join("")
+        || `<li class="crm-empty">${h(T("Sin referencias activas."))}</li>`}</ul>`;
+  }
+
   function startView() {
     const p = st.person || {};
-    const q = st.refQuery.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const refs = st.refs.filter((r) => !q || String(r.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(q));
     const chosen = st.refs.find((r) => r.id === st.startRef);
-    return `${header()}<section class="crm-card crm-personal crm-start" aria-labelledby="crmMe">
-      ${steps(chosen ? 3 : 2)}
-      <div class="crm-row"><h2 id="crmMe">${h(p.name || "")}</h2><span class="crm-pill is-sin_turno">${h(T(STATUS.sin_turno))}</span></div>
-      <h3>${h(T("¿En qué vas a trabajar?"))}</h3>
-      <input class="crm-search" type="search" placeholder="${h(T("Buscar referencia"))}" aria-label="${h(T("Buscar referencia"))}" value="${h(st.refQuery)}" data-crm-startsearch>
-      <ul class="crm-list crm-refpick" role="radiogroup" aria-label="${h(T("Referencias activas"))}">${refs.map((r) => `<li><button type="button" role="radio" aria-checked="${r.id === st.startRef}"
-        class="crm-btn crm-refopt${r.id === st.startRef ? " is-on" : ""}" data-crm-startref="${h(r.id)}"><b>${h(r.name)}</b><small>${h(T("Pendiente {n}", { n: r.pending || 0 }))}</small></button></li>`).join("")
-        || `<li class="crm-empty">${h(T("Sin referencias activas."))}</li>`}</ul>
-      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
-      <button type="button" class="crm-btn crm-big is-primary crm-startgo" data-crm-startgo ${!chosen || st.busy ? "disabled" : ""}>
+    const side = `${steps(chosen ? 3 : 2)}${who(p, `<span class="crm-tag is-sin_turno">${h(T(TAG.sin_turno))}</span>`)}
+      <p class="crm-say">${h(T("¿En qué vas a trabajar?"))}</p>${messages()}`;
+    const foot = `<button type="button" class="crm-btn is-primary crm-startgo" data-crm-startgo ${!chosen || st.busy ? "disabled" : ""}>
         ${h(chosen ? T("▶ Iniciar turno en {ref}", { ref: chosen.name }) : T("Elige una referencia para iniciar"))}</button>
-      <button type="button" class="crm-btn crm-done" data-crm-done>${h(T("Cancelar"))}</button></section>`;
+      <button type="button" class="crm-btn crm-cancel" data-crm-done>${h(T("✕ Cancelar"))}</button>`;
+    return dialog(side, refGrid("data-crm-startref", st.startRef, st.refQuery, "data-crm-startsearch", true), foot, "crm-personal crm-start");
   }
 
   function personView() {
     const p = st.person || {};
     if (p.status === "sin_turno") return startView();
+    const m = st.modal;
     const ref = p.reference;
-    const btn = (a, label, primary) => `<button type="button" class="crm-btn crm-big${primary ? " is-primary" : ""}" data-crm-act="${a}" ${st.busy ? "disabled" : ""}>${h(T(label))}</button>`;
+    const tag = `<span class="crm-tag is-${h(p.status)}">${h(T(TAG[p.status] || ""))}</span>`;
+    if (m && m.kind === "refs") {
+      const side = `${who(p, tag)}<p class="crm-say">${h(T(m.action === "switch_reference" ? "Cambiar referencia" : "Iniciar referencia"))}</p>${messages()}`;
+      return dialog(side, refGrid("data-crm-ref", "", m.query, "data-crm-refsearch", false),
+        `<button type="button" class="crm-btn crm-cancel" data-crm-close>${h(T("✕ Cancelar"))}</button>`, "crm-personal");
+    }
+    if (m && m.kind === "close") {
+      const sizes = arr(p.sizes);
+      const sel = sizes.find((s) => s.reference_id === m.size);
+      const side = `${who(p, tag)}<p class="crm-say">${h(T("Cerrar prendas"))} · ${h((ref || {}).name || "")}</p>
+        <p class="crm-qtyline">${h(T("Talla"))} <b>${h(sel ? sel.size : "—")}</b> · ${h(T("Cantidad"))} <output class="crm-qty" data-crm-qtyshow>${h(m.qty || "0")}</output></p>
+        ${m.over ? `<p class="crm-warn" role="alert">${h(T("Supera el pendiente de esa talla ({n}). ¿Confirmas?", { n: m.over }))}</p>` : ""}${messages()}`;
+      const main = `<div class="crm-sizes" role="group" aria-label="${h(T("Elige la talla"))}">${sizes.map((s) => `<button type="button" class="crm-size${m.size === s.reference_id ? " is-on" : ""}" data-crm-size="${h(s.reference_id)}" aria-pressed="${m.size === s.reference_id}">
+          <b>${h(s.size)}</b><small>${h(T("Pendiente {n}", { n: s.pending }))}</small></button>`).join("") || `<p class="crm-empty">${h(T("Esta referencia no tiene tallas activas."))}</p>`}</div>
+        ${keypad("data-crm-qkey", `data-crm-closego ${!sel || st.busy ? "disabled" : ""}`, T(m.over ? "Sí, confirmar" : "Cerrar"), " is-qty")}`;
+      return dialog(side, main, `<button type="button" class="crm-btn crm-cancel" data-crm-close>${h(T("✕ Cancelar"))}</button>`, "crm-personal is-close");
+    }
+    const btn = (a, label, primary) => `<button type="button" class="crm-btn${primary ? " is-primary" : ""}" data-crm-act="${a}" ${st.busy ? "disabled" : ""}>${h(T(label))}</button>`;
     let shift = "";
-    if (p.status === "sin_turno") shift = btn("start_shift", "Iniciar turno", true);
     if (p.status === "working") shift = `${btn("pause", "Pausa")}${btn("end_shift", "Fin de turno")}`;
     if (p.status === "on_break") shift = `${btn("resume", "Reanudar", true)}${btn("end_shift", "Fin de turno")}`;
-    const work = p.status === "sin_turno" ? `<p class="crm-muted">${h(T("Inicia tu turno para registrar referencias."))}</p>`
-      : ref ? `${btn("pick_switch", "Cambiar referencia")}${btn("pick_close", "Cerrar prendas", true)}` : btn("pick_start", "Iniciar referencia", true);
-    return `${header()}<section class="crm-card crm-personal" aria-labelledby="crmMe">
-      <div class="crm-row"><h2 id="crmMe">${h(p.name || "")}</h2><span class="crm-pill is-${h(p.status)}">${h(T(STATUS[p.status] || ""))}</span></div>
-      ${ref ? `<p class="crm-now">🧵 <b>${h(ref.name)}</b> · ${h(since(ref.started_at))}</p>` : ""}
-      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}${st.info ? `<p class="crm-ok" role="status">${h(st.info)}</p>` : ""}
-      <h3>${h(T("Turno"))}</h3><div class="crm-actions">${shift}</div>
-      <h3>${h(T("Referencia"))}</h3><div class="crm-actions">${work}</div>
-      <button type="button" class="crm-btn crm-done" data-crm-done>${h(T("Listo · siguiente colaborador"))}</button></section>${modalView()}`;
-  }
-
-  function modalView() {
-    const m = st.modal;
-    if (!m) return "";
-    if (m.kind === "refs") {
-      const q = (m.query || "").toLowerCase();
-      const refs = st.refs.filter((r) => !q || String(r.name).toLowerCase().includes(q));
-      return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmRefT"><div class="crm-card crm-sheet">
-        <h2 id="crmRefT">${h(T(m.action === "switch_reference" ? "Cambiar referencia" : "Iniciar referencia"))}</h2>
-        <input class="crm-search" type="search" placeholder="${h(T("Buscar referencia"))}" aria-label="${h(T("Buscar referencia"))}" value="${h(m.query || "")}" data-crm-refsearch>
-        <ul class="crm-list">${refs.map((r) => `<li><button type="button" class="crm-btn" data-crm-ref="${h(r.id)}">${h(r.name)}</button></li>`).join("")
-          || `<li class="crm-empty">${h(T("Sin referencias activas."))}</li>`}</ul>
-        <button type="button" class="crm-btn" data-crm-close>${h(T("Cancelar"))}</button></div></div>`;
-    }
-    const sizes = arr(st.person && st.person.sizes);
-    const sel = sizes.find((s) => s.reference_id === m.size);
-    return `<div class="crm-modal" role="dialog" aria-modal="true" aria-labelledby="crmCloseT"><div class="crm-card crm-sheet">
-      <h2 id="crmCloseT">${h(T("Cerrar prendas"))} · ${h((st.person.reference || {}).name || "")}</h2>
-      <p>${h(T("Elige la talla"))}</p>
-      <div class="crm-sizes">${sizes.map((s) => `<button type="button" class="crm-size${m.size === s.reference_id ? " is-on" : ""}" data-crm-size="${h(s.reference_id)}" aria-pressed="${m.size === s.reference_id}">
-        <b>${h(s.size)}</b><small>${h(T("Pendiente {n}", { n: s.pending }))}</small></button>`).join("") || `<p class="crm-empty">${h(T("Esta referencia no tiene tallas activas."))}</p>`}</div>
-      <label class="crm-qty">${h(T("Cantidad"))}<input type="number" min="1" max="100000" inputmode="numeric" value="${h(m.qty || "")}" data-crm-qty></label>
-      ${m.over ? `<p class="crm-warn" role="alert">${h(T("Supera el pendiente de esa talla ({n}). ¿Confirmas?", { n: m.over }))}</p>` : ""}
-      ${st.error ? `<p class="crm-error" role="alert">${h(st.error)}</p>` : ""}
-      <div class="crm-actions"><button type="button" class="crm-btn is-primary crm-big" data-crm-closego ${!sel || st.busy ? "disabled" : ""}>${h(T(m.over ? "Sí, confirmar" : "Cerrar prendas"))}</button>
-        <button type="button" class="crm-btn" data-crm-close>${h(T("Cancelar"))}</button></div></div></div>`;
+    const work = ref ? `${btn("pick_switch", "Cambiar referencia")}${btn("pick_close", "Cerrar prendas", true)}` : btn("pick_start", "Iniciar referencia", true);
+    const side = `${who(p, tag)}
+      ${ref ? `<p class="crm-now"><span>🧵 <b>${h(ref.name)}</b></span><span class="crm-clock" data-crm-clock="${h(ref.started_at || "")}">${h(hms(ref.started_at))}</span></p>` : `<p class="crm-say">${h(T("Sin referencia"))}</p>`}
+      ${messages()}`;
+    return dialog(side, `<div class="crm-acts">${shift}${work}</div>`,
+      `<button type="button" class="crm-btn crm-done" data-crm-done>${h(T("Listo · siguiente colaborador"))}</button>`, "crm-personal");
   }
 
   function view() {
-    if (!CID) return `<section class="crm-card"><p>${h(T("Falta la empresa en el enlace."))}</p></section>`;
+    if (!CID) return `<div class="crm-scroll"><section class="crm-card crm-login"><p>${h(T("Falta la empresa en el enlace."))}</p></section></div>`;
     if (!st.token) return loginView();
     if (st.mustChange) return changeView();
-    if (st.view === "person" && st.person) return personView();
-    return `${listView()}${st.pinFor ? pinView() : ""}`;
+    if (st.view === "person" && st.person) return `${boardView()}${personView()}`;
+    return `${boardView()}${st.pinFor ? pinView() : ""}`;
   }
 
   function draw() {
     const root = typeof document !== "undefined" && document.getElementById("crmApp");
     if (!root) return;
     const active = document.activeElement;
-    const keepSearch = active && active.hasAttribute && (active.hasAttribute("data-crm-search") || active.hasAttribute("data-crm-refsearch") || active.hasAttribute("data-crm-qty") || active.hasAttribute("data-crm-startsearch"));
+    const keepSearch = active && active.hasAttribute && (active.hasAttribute("data-crm-search") || active.hasAttribute("data-crm-refsearch") || active.hasAttribute("data-crm-startsearch"));
     const attr = keepSearch ? [...active.attributes].map((a) => a.name).find((n) => n.startsWith("data-crm-")) : "";
     root.innerHTML = view();
     if (attr) { const el = root.querySelector(`[${attr}]`); if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; } }
@@ -321,6 +398,7 @@
     touch();
     const attr = (a) => { const el = t.closest(`[${a}]`); return el ? el.getAttribute(a) : null; };
     let v;
+    if (t.closest("[data-crm-fs]")) { fsToggle(); return; }
     if (t.closest("[data-crm-logout]")) { st.token = ""; store(KEY, ""); backToList(); draw(); return; }
     if ((v = attr("data-crm-pick"))) { st.pinFor = v; st.pin = ""; st.error = ""; draw(); return; }
     if (t.closest("[data-crm-cancel]")) { st.pinFor = null; st.pin = ""; st.error = ""; draw(); return; }
@@ -343,6 +421,11 @@
     if ((v = attr("data-crm-startref"))) { st.startRef = st.startRef === v ? "" : v; st.error = ""; draw(); return; }
     if (t.closest("[data-crm-startgo]")) { if (st.startRef) act("start_shift", { reference_id: st.startRef }); return; }
     if ((v = attr("data-crm-size")) && st.modal) { st.modal.size = v; st.modal.over = 0; draw(); return; }
+    if ((v = attr("data-crm-qkey")) && st.modal) {
+      const qty = String(st.modal.qty || "");
+      st.modal.qty = v === "⌫" ? qty.slice(0, -1) : `${qty}${v}`.replace(/^0+/, "").slice(0, 6);
+      st.modal.over = 0; draw(); return;
+    }
     if (t.closest("[data-crm-closego]") && st.modal) {
       act("close", { size_reference_id: st.modal.size, quantity: Number(st.modal.qty || 0), confirm: st.modal.over ? true : undefined });
       return;
@@ -356,7 +439,6 @@
     if (t.hasAttribute && t.hasAttribute("data-crm-search")) { st.query = t.value; draw(); return; }
     if (t.hasAttribute && t.hasAttribute("data-crm-refsearch") && st.modal) { st.modal.query = t.value; draw(); return; }
     if (t.hasAttribute && t.hasAttribute("data-crm-startsearch")) { st.refQuery = t.value; draw(); return; }
-    if (t.hasAttribute && t.hasAttribute("data-crm-qty") && st.modal) { st.modal.qty = t.value; st.modal.over = 0; }
   }
 
   async function onSubmit(e) {
@@ -396,7 +478,7 @@
     setInterval(() => {
       // A los 20 s sin uso vuelve a la lista (para el siguiente colaborador).
       if ((st.view === "person" || st.pinFor) && Date.now() - st.lastTouch > IDLE_MS) { backToList(); draw(); }
-      document.querySelectorAll("[data-crm-since]").forEach((el) => { el.textContent = since(el.getAttribute("data-crm-since")); });
+      document.querySelectorAll("[data-crm-clock]").forEach((el) => { el.textContent = hms(el.getAttribute("data-crm-clock")); });
     }, 1000);
   }
 
@@ -406,6 +488,12 @@
     document.addEventListener("input", onInput);
     document.addEventListener("submit", onSubmit);
     document.addEventListener("keydown", touch);
+    document.addEventListener("fullscreenchange", draw);
+    document.addEventListener("webkitfullscreenchange", draw);
+    if (CID) {
+      try { window.localStorage.setItem(COMPANY_KEY, CID); } catch (_) {}
+      if (!P.get("company_id") && window.history && window.history.replaceState) window.history.replaceState(null, "", `${location.pathname}?company_id=${encodeURIComponent(CID)}`);
+    }
     st.token = store(KEY);
     if (st.token) await loadBoard();
     draw();
@@ -413,7 +501,7 @@
   }
 
   if (typeof window !== "undefined") {
-    window.CxCrmLab = { st, view, hm, readableOn, contrast, backToList, steps, IDLE_MS, ERRORS, STATUS };
+    window.CxCrmLab = { st, view, hm, hms, ordered, palette, readableOn, contrast, backToList, steps, fsOk, IDLE_MS, ERRORS, STATUS };
     if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("DOMContentLoaded", start);
   }
 })();

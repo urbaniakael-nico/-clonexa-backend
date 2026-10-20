@@ -109,3 +109,25 @@ async def test_ingreso_del_crm_exige_el_interruptor(monkeypatch):
 
 def test_link_del_panel():
     assert api._link(CID) == f"/mini-panel/login?company_id={CID}&type=crm_lab"
+
+
+@pytest.mark.asyncio
+async def test_tema_del_portal_para_el_crm(monkeypatch):
+    """056K: sin marca publicada, la marca guardada de la empresa (Velvet: holografico,
+    fondo aqua, principal morado); el fondo es el mismo que arma el portal."""
+    import app.api.v1.endpoints.companies as companies
+    from app.services import brand_store, portal_base_css
+
+    api._THEME.clear()
+    velvet = {"primary_color": "#a600ff", "secondary_color": "#8cff00", "background_color": "#00ffe1", "text_color": "#000000",
+              "background_style": "holografico", "card_style": "glass_premium", "font_family": "Sora", "theme_mode": "dark"}
+    monkeypatch.setattr(brand_store, "published_tokens", AsyncMock(return_value=None))
+    monkeypatch.setattr(companies, "_get_company_or_404", AsyncMock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(companies, "_read_company_branding", lambda c: velvet)
+    out = await api.theme(None, CID)
+    assert out["primary"] == "#a600ff" and out["bg"] == "#00ffe1" and out["secondary"] == "#8cff00"
+    assert out["background"].endswith("linear-gradient(135deg, #00ffe1, #a600ff)")
+    from app.services import brand_theme
+    assert out["background"] == " ".join(portal_base_css.branding_background(brand_theme.normalize_branding(velvet)).split())
+    assert out["font"].startswith("Sora")
+    api._THEME.clear()

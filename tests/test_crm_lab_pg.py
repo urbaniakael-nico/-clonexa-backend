@@ -393,6 +393,7 @@ def test_tablero_en_vivo_y_lista(pg_url):
         assert by["Ana"]["status"] == "working" and by["Ana"]["reference_name"] == "PANT SET" and by["Ana"]["elapsed_minutes"] == 0
         assert by["Ana"]["has_pin"] is True and by["Caro"]["has_pin"] is False
         assert by["Bea"]["status"] == "on_break" and by["Caro"]["status"] == "sin_turno"
+        assert by["Bea"]["paused_since"] and by["Ana"]["paused_since"] is None and by["Caro"]["paused_since"] is None, "056K: tiempo en pausa solo en pausa"
         assert [p["name"] for p in board["live"]] == ["Ana", "Bea"]
         for p in board["people"]:
             assert not any("per_person" in k or "productiv" in k for k in p), "nunca metricas por persona"

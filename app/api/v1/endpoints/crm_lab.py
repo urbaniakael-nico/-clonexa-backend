@@ -87,10 +87,49 @@ async def board(company_id: UUID, who: dict = Depends(panel), db: AsyncSession =
 
 
 async def brand(db: AsyncSession, company_id: UUID) -> dict:
-    """Nombre, logo (panel_logo), colores, idioma y zona del panel inicial; en cache 60 s."""
+    """Nombre, logo (panel_logo), colores, idioma y zona del panel inicial; en cache 60 s.
+    056K: mas el tema del portal (theme) para pintar el CRM con los mismos colores."""
     from app.api.v1.endpoints.loyalty_games import brand as base_brand
 
-    return await base_brand(db, company_id)
+    out = dict(await base_brand(db, company_id))
+    out["theme"] = await theme(db, company_id)
+    return out
+
+
+_THEME: dict[str, tuple[float, dict]] = {}
+
+
+async def theme(db: AsyncSession, company_id: UUID) -> dict:
+    """El tema que ve el portal: marca publicada del Estudio de marca o, sin ella, la
+    marca guardada de la empresa; el fondo sale de la misma funcion del portal
+    (branding_background). En cache 60 s."""
+    import time
+
+    from app.services import brand_store, brand_theme, portal_base_css
+
+    key = str(company_id)
+    hit = _THEME.get(key)
+    if hit and time.monotonic() - hit[0] < 60:
+        return hit[1]
+    warning = ""
+    try:
+        tokens = await brand_store.published_tokens(db, key)
+        if tokens:
+            values = brand_theme.normalize_branding(brand_theme.portal_values(tokens))
+            warning = str(tokens["theme"]["colors"].get("warning") or "")
+        else:
+            from app.api.v1.endpoints.companies import _get_company_or_404, _read_company_branding
+
+            values = brand_theme.normalize_branding(_read_company_branding(await _get_company_or_404(db, company_id)))
+    except Exception:
+        await db.rollback()
+        values = brand_theme.normalize_branding({})
+    out = {"background": " ".join(portal_base_css.branding_background(values).split()),
+           "primary": values["primary_color"], "secondary": values["secondary_color"], "bg": values["background_color"],
+           "text": values["text_color"], "warning": warning,
+           "font": portal_base_css.FONT_PROFILES.get(values["font_family"], portal_base_css.FONT_PROFILES["Inter"])[0]}
+    _THEME[key] = (time.monotonic(), out)
+    return out
 
 
 @router.get("/companies/{company_id}/references")

@@ -2176,6 +2176,12 @@
     "Elige una referencia para iniciar.": "Choisis une référence pour commencer.", "▶ Iniciar turno en {ref}": "▶ Commencer le service sur {ref}", "Pasos": "Étapes",
     "Referencias activas": "Références actives", "Iniciar": "Commencer" });
 
+  // CRM VELVET-LAB: CRM en vivo y pantalla completa (056K).
+  Object.assign(EN, { "{n} trabajando": "{n} working", "{n} en pausa": "{n} on break", "Pantalla completa": "Full screen", "Salir de pantalla completa": "Exit full screen",
+    "TRABAJANDO": "WORKING", "EN PAUSA": "ON BREAK", "SIN TURNO": "NO SHIFT", "Toca para iniciar": "Tap to start", "✕ Cancelar": "✕ Cancel", "Borrar": "Delete" });
+  Object.assign(FR, { "{n} trabajando": "{n} au travail", "{n} en pausa": "{n} en pause", "Pantalla completa": "Plein écran", "Salir de pantalla completa": "Quitter le plein écran",
+    "TRABAJANDO": "AU TRAVAIL", "EN PAUSA": "EN PAUSE", "SIN TURNO": "SANS SERVICE", "Toca para iniciar": "Touche pour commencer", "✕ Cancelar": "✕ Annuler", "Borrar": "Effacer" });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

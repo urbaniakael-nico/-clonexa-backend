@@ -198,6 +198,8 @@ async def team(db: AsyncSession, company_id: str, now: Optional[datetime] = None
                COALESCE(s.status, 'sin_turno') AS status,
                (SELECT max(COALESCE(ev.occurred_at, ev.created_at)) FROM workforce_attendance_events ev
                  WHERE ev.company_id = e.company_id AND ev.employee_id = e.id AND ev.event_type = 'check_in') AS shift_started,
+               (SELECT max(COALESCE(ev.occurred_at, ev.created_at)) FROM workforce_attendance_events ev
+                 WHERE ev.company_id = e.company_id AND ev.employee_id = e.id AND ev.event_type = 'break_start') AS break_started,
                r.reference_id, r.reference_name, r.started_at AS reference_started,
                (p.employee_id IS NOT NULL) AS has_pin
         FROM employees e
@@ -219,6 +221,8 @@ async def team(db: AsyncSession, company_id: str, now: Optional[datetime] = None
         people.append({"employee_id": r["employee_id"], "name": r["name"], "role": r["role"], "status": status, "has_pin": bool(r["has_pin"]),
                        "reference_id": r["reference_id"] if status in WORKING else None, "reference_name": r["reference_name"] if status in WORKING else None,
                        "since": since.isoformat() if since else None,
+                       # 056K: solo para mostrar el tiempo en pausa en la tarjeta (mismo evento de Pausa del bot).
+                       "paused_since": r["break_started"].isoformat() if status == "on_break" and r["break_started"] else None,
                        "elapsed_minutes": int((now - since).total_seconds() // 60) if since else None})
     working = sum(1 for p in people if p["status"] == "working")
     paused = sum(1 for p in people if p["status"] == "on_break")

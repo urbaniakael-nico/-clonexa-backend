@@ -1,0 +1,16 @@
+{
+  "name": "CRM VELVET-LAB",
+  "short_name": "VELVET-LAB",
+  "id": "/mini-panel/crm-lab",
+  "start_url": "/mini-panel/crm-lab?source=home",
+  "scope": "/mini-panel/crm-lab",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#00ffe1",
+  "theme_color": "#4b0073",
+  "icons": [
+    { "src": "/assets/brand/clonexa-icono-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/brand/clonexa-icono-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

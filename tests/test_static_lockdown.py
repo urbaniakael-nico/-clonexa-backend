@@ -190,3 +190,13 @@ def test_console_page_is_no_store():
     finally:
         plus._active_session = original
         app_main.app.dependency_overrides.pop(get_db, None)
+
+
+def test_crm_lab_manifest_is_the_only_extra_name():
+    """056K: el manifest del CRM VELVET-LAB (pantalla de inicio sin barra) sale por
+    /client-static; ningun otro .webmanifest ni las demas reglas cambian."""
+    r = client.get("/client-static/crm_lab.webmanifest")
+    assert r.status_code == 200
+    assert r.json()["display"] == "fullscreen" and r.json()["start_url"].startswith("/mini-panel/crm-lab")
+    assert client.get("/client-static/otro.webmanifest").status_code == 404
+    assert client.get("/client-static/client_routes.py").status_code == 404

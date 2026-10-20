@@ -64,7 +64,8 @@ def register_client_portal(app: FastAPI) -> None:
     if not any(getattr(route, "name", None) == "clonexa_client_static" for route in app.routes):
         # Solo estaticos publicos de la raiz de app/web (lista blanca); antes
         # servia la carpeta completa, codigo Python incluido.
-        app.mount("/client-static", SafeStaticFiles(directory=str(web_dir)), name="clonexa_client_static")
+        # 056K: el manifest del CRM VELVET-LAB (pantalla de inicio sin barra) es el unico nombre extra.
+        app.mount("/client-static", SafeStaticFiles(directory=str(web_dir), allowed_names=frozenset({"crm_lab.webmanifest"})), name="clonexa_client_static")
 
     if not any(getattr(route, "path", None) == "/login" for route in app.routes):
         @app.get("/login", response_class=HTMLResponse)
