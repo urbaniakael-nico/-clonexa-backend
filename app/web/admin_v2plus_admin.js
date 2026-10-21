@@ -50,6 +50,9 @@
       return `${API}/landing-analytics/summary?${params.toString()}`;
     },
     landing(filters) { return apiGet(consoleApi.landingUrl(filters)); },
+    // Redes sociales de Nexa (solo Admin V2): cifras que manda n8n + embudo a la landing.
+    socialUrl: (days) => `${API}/social-metrics/summary?days=${encodeURIComponent(days || "30")}`,
+    social(days) { return apiGet(consoleApi.socialUrl(days)); },
     passkeys: () => apiGet("/admin-v2plus/api/passkeys"),
     deletePasskey: (id) => request(`/admin-v2plus/api/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" }),
   };
@@ -61,7 +64,8 @@
   const model = {
     access: { tab: "maestro", companies: null, users: {}, modules: {}, query: "", kind: "registrada", onlyNoOwner: false, sessions: null, passkeys: null, loading: false },
     health: { status: null, security: null, error: "", audit: null },
-    landing: { data: null, filters: { days: "30", source: "", campaign: "", device: "" }, error: "", loading: false },
+    landing: { data: null, filters: { days: "30", source: "", campaign: "", device: "" }, error: "", loading: false, tab: "visitas" },
+    social: { days: "30", data: null, error: "", query: "" },
     modal: null, notice: "", error: "", view: "",
   };
   let ctx = null;
@@ -190,15 +194,52 @@
   }
 
   // ------------------------------------------------------------ Landing
+  // Redes de Nexa: mismo criterio que social_metrics.network_of en el servidor
+  // (utm_source con el nombre de la red, o el dominio del referrer sin www./m.).
+  const SOCIAL = [
+    { key: "instagram", label: "Instagram", domains: ["instagram.com", "l.instagram.com"] },
+    { key: "facebook", label: "Facebook", domains: ["facebook.com", "l.facebook.com", "lm.facebook.com"] },
+    { key: "youtube", label: "YouTube", domains: ["youtube.com", "youtu.be"] },
+    { key: "linkedin", label: "LinkedIn", domains: ["linkedin.com", "lnkd.in"] },
+    { key: "tiktok", label: "TikTok", domains: ["tiktok.com"] },
+  ];
+  const LANDING_URL = "https://clonexa-landing-production.up.railway.app/";
+  const socialLink = (key) => `${LANDING_URL}?utm_source=${key}&utm_medium=social&utm_campaign=nexa-bio`;
+  function socialNetworkOf(source) {
+    const s = String(source ?? "").trim().toLowerCase();
+    const direct = SOCIAL.find((n) => n.key === s);
+    if (direct) return direct;
+    const bare = s.split(":")[0].replace(/^www\./, "").replace(/^m\./, "");
+    return SOCIAL.find((n) => n.domains.includes(bare)) || null;
+  }
+  // Fuentes de la pestaña Visitas: los dominios de una red se suman bajo su nombre
+  // (m.facebook.com + www.facebook.com = Facebook). Solo presentación.
+  function groupSources(rows) {
+    const out = new Map();
+    arr(rows).forEach((r) => {
+      const net = socialNetworkOf(r.label);
+      const label = net ? net.label : r.label;
+      out.set(label, (out.get(label) || 0) + Number(r.total || 0));
+    });
+    return Array.from(out, ([label, total]) => ({ label, total })).sort((a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label)));
+  }
+
   function landingView() {
+    const L = model.landing;
+    const tabs = [["visitas", "Visitas"], ["redes", "Redes sociales"]];
+    return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · LANDING</p><h1 class="vp-title">Landing</h1></div></header>${banner()}
+      <nav class="vp-chips" role="tablist">${tabs.map(([k, l]) => `<button class="vp-chip ${L.tab === k ? "is-active" : ""}" type="button" role="tab" aria-selected="${L.tab === k}" data-vpx-landing-tab="${k}">${l}</button>`).join("")}</nav>
+      ${L.tab === "redes" ? socialPane() : visitsPane()}`;
+  }
+
+  function visitsPane() {
     const L = model.landing;
     const d = L.data;
     const o = (d && d.options) || {};
     const t = (d && d.totals) || {};
     const list = (title, rows) => `<section class="vp-panel vp-section"><h2>${h(title)}</h2>${arr(rows).length ? `<ul class="vp-actions-list vp-zone-scroll">${arr(rows).map((r) => `<li class="vp-action vp-toggle-row"><b>${h(r.label)}</b><span class="vp-mono">${h(r.total)}</span></li>`).join("")}</ul>` : `<div class="vp-empty">Sin datos.</div>`}</section>`;
     const sel = (name, label, values, all) => `<label class="vp-field">${h(label)}<select name="${name}"><option value="">${h(all)}</option>${arr(values).map((v) => { const val = typeof v === "string" ? v : (v.label || v.value); return `<option ${L.filters[name] === val ? "selected" : ""}>${h(val)}</option>`; }).join("")}</select></label>`;
-    return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · LANDING</p><h1 class="vp-title">Landing</h1></div></header>${banner()}
-      <form class="vp-panel vp-section vp-form-grid" data-vpx-landing-form>
+    return `<form class="vp-panel vp-section vp-form-grid" data-vpx-landing-form>
         <label class="vp-field">Periodo<select name="days">${[["7", "7 días"], ["30", "30 días"], ["90", "90 días"], ["365", "1 año"]].map(([v, l]) => `<option value="${v}" ${L.filters.days === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         ${sel("source", "Fuente", o.sources, "Todas")}${sel("campaign", "Campaña", o.campaigns, "Todas")}${sel("device", "Dispositivo", o.devices, "Todos")}
         <div class="vp-actions"><button class="vp-btn vp-btn-primary" type="submit">Filtrar</button><button class="vp-btn" type="button" data-vpx-landing-reset>Limpiar filtros</button></div>
@@ -206,8 +247,111 @@
       ${L.error ? `<div class="vp-alert" role="alert"><span>${h(L.error)}</span></div>` : ""}
       ${!d ? `<p class="vp-loading">Cargando analítica…</p>` : `<section class="vp-cards">${[["Visitas", t.total_visits], ["Visitantes únicos", t.unique_visitors], ["Sesiones", t.sessions], ["Últimas 24 h", t.last_24h]].map(([l, v]) => `<div class="vp-panel vp-card"><span>${h(l)}</span><strong>${h(v ?? 0)}</strong></div>`).join("")}
         <div class="vp-panel vp-card"><span>Última visita</span><strong class="vp-card-small">${h(t.last_visit_at ? since(t.last_visit_at) : "—")}</strong></div></section>
-        <div class="vp-sum-grid">${list("Fuentes", d.sources)}${list("Campañas", d.campaigns)}${list("Páginas", d.paths)}${list("Dispositivos", d.devices)}${list("Ubicación", d.geo)}
+        <div class="vp-sum-grid">${list("Fuentes", groupSources(d.sources))}${list("Campañas", d.campaigns)}${list("Páginas", d.paths)}${list("Dispositivos", d.devices)}${list("Ubicación", d.geo)}
         <section class="vp-panel vp-section"><h2>Visitas recientes</h2><ul class="vp-actions-list vp-zone-scroll">${arr(d.recent).map((r) => `<li class="vp-action"><b>${h(r.path || "/")}</b><small>${h(since(r.created_at))} · ${h(r.source || "directo")}${r.campaign ? ` · ${h(r.campaign)}` : ""} · ${h(r.device || "")}</small></li>`).join("") || `<li class="vp-empty">Sin visitas.</li>`}</ul></section></div>`}`;
+  }
+
+  // ------------------------------------------------------ Redes sociales
+  const ICONS = {
+    instagram: `<rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.4" cy="6.6" r="1.3" fill="currentColor"/>`,
+    facebook: `<path fill="currentColor" d="M13.5 21v-7.5H16l.4-3h-2.9V8.6c0-.9.3-1.5 1.5-1.5h1.5V4.4c-.3 0-1.2-.1-2.2-.1-2.2 0-3.7 1.3-3.7 3.8v2.4H8v3h2.6V21z"/>`,
+    youtube: `<rect x="2" y="5" width="20" height="14" rx="4" fill="currentColor"/><path class="vp-soc-cut" d="M10 9l5.2 3-5.2 3z"/>`,
+    linkedin: `<rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor"/><path class="vp-soc-cut" d="M6.8 10h2.5v7.2H6.8zM8.05 6a1.45 1.45 0 110 2.9 1.45 1.45 0 010-2.9zM10.9 10h2.4v1c.4-.7 1.3-1.2 2.4-1.2 2 0 2.7 1.3 2.7 3.3v4.1h-2.5v-3.6c0-.9-.2-1.7-1.1-1.7-1 0-1.4.7-1.4 1.7v3.6h-2.5z"/>`,
+    tiktok: `<path fill="currentColor" d="M14.2 3h2.9c.2 1.8 1.4 3.2 3.1 3.5v2.9a6.6 6.6 0 01-3.1-.9v6a5.6 5.6 0 11-5.6-5.6c.3 0 .6 0 .9.1v3a2.6 2.6 0 101.8 2.5z"/>`,
+  };
+  const icon = (key) => `<svg class="vp-soc-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[key] || ""}</svg>`;
+  const num = (v) => (v === null || v === undefined || v === "" ? "—" : Number(v).toLocaleString("es-CO"));
+  const shortDate = (iso) => { const [y, m, d] = String(iso || "").slice(0, 10).split("-"); return d ? `${d}/${m}` : "—"; };
+  function postDate(iso) {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleDateString("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "short", year: "numeric" }); } catch (_) { return String(iso).slice(0, 10); }
+  }
+
+  // Vistas por día (7 días) o por semana (bloques de 7 días que terminan hoy),
+  // apiladas por red. Devuelve [{label, total, parts: [{key, value}]}].
+  function viewBuckets(networks, days) {
+    const series = arr(networks).map((n) => ({ key: n.network, points: arr(n.series) }));
+    const length = series.length ? series[0].points.length : 0;
+    const size = Number(days) <= 7 ? 1 : 7;
+    const out = [];
+    for (let end = length; end > 0; end -= size) {
+      const start = Math.max(0, end - size);
+      const parts = series.map((s) => ({ key: s.key, value: s.points.slice(start, end).reduce((t, p) => t + Number(p.views || 0), 0) })).filter((p) => p.value > 0);
+      const first = series.length ? series[0].points[start] : null;
+      out.unshift({ label: first ? shortDate(first.date) : "", total: parts.reduce((t, p) => t + p.value, 0), parts });
+    }
+    return out;
+  }
+
+  function viewsChart(networks, days) {
+    const buckets = viewBuckets(networks, days);
+    const max = Math.max(0, ...buckets.map((b) => b.total));
+    if (!max) return `<div class="vp-empty">Aún sin vistas diarias.</div>`;
+    const W = 600, H = 200, gap = 6, bw = (W - gap * (buckets.length - 1)) / buckets.length;
+    const bars = buckets.map((b, i) => {
+      let y = H;
+      return b.parts.map((p) => { const ph = (p.value / max) * (H - 4); y -= ph;
+        return `<rect class="vp-soc-mark is-${h(p.key)}" x="${(i * (bw + gap)).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${ph.toFixed(1)}"><title>${h(b.label)} · ${h(p.key)}: ${h(num(p.value))}</title></rect>`; }).join("");
+    }).join("");
+    return `<div class="vp-soc-chart"><span class="vp-soc-max">${h(num(max))}</span><svg class="vp-soc-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Vistas ${Number(days) <= 7 ? "por día" : "por semana"}">${bars}</svg>
+      <div class="vp-soc-axis"><span>${h(buckets[0].label)}</span><span>${h(buckets[buckets.length - 1].label)}</span></div></div>`;
+  }
+
+  function followersChart(networks) {
+    const lines = arr(networks).map((n) => ({ key: n.network, pts: arr(n.series).map((p, i) => [i, p.followers]).filter((p) => p[1] !== null && p[1] !== undefined) })).filter((l) => l.pts.length);
+    if (!lines.length) return `<div class="vp-empty">Aún sin seguidores registrados.</div>`;
+    const length = Math.max(1, arr(networks[0] && networks[0].series).length - 1);
+    const values = lines.flatMap((l) => l.pts.map((p) => Number(p[1])));
+    const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1;
+    const W = 600, H = 200;
+    const xy = ([i, v]) => `${((i / length) * W).toFixed(1)},${(H - 6 - ((Number(v) - lo) / span) * (H - 12)).toFixed(1)}`;
+    const paths = lines.map((l) => `<polyline class="vp-soc-line is-${h(l.key)}" points="${(l.pts.length === 1 ? [l.pts[0], [length, l.pts[0][1]]] : l.pts).map(xy).join(" ")}" vector-effect="non-scaling-stroke"><title>${h(l.key)}: ${h(num(l.pts[l.pts.length - 1][1]))}</title></polyline>`).join("");
+    const series = arr(networks[0] && networks[0].series);
+    return `<div class="vp-soc-chart"><span class="vp-soc-max">${h(num(hi))}</span><svg class="vp-soc-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Seguidores por día">${paths}</svg>
+      <div class="vp-soc-axis"><span>${h(shortDate(series[0] && series[0].date))}</span><span>mín. ${h(num(lo))}</span><span>${h(shortDate(series.length && series[series.length - 1].date))}</span></div></div>`;
+  }
+
+  function netCard(n) {
+    const pending = n.network === "tiktok";
+    const ch = n.followers_change;
+    const delta = ch === null || ch === undefined ? "" : `<span class="vp-soc-delta ${ch > 0 ? "is-up" : ch < 0 ? "is-down" : ""}">${ch > 0 ? "▲" : ch < 0 ? "▼" : "="} ${h(num(Math.abs(ch)))}</span>`;
+    const body = n.has_data
+      ? `<div class="vp-soc-followers"><strong>${h(num(n.followers))}</strong>${delta}</div><small>seguidores</small>
+        <dl class="vp-soc-kv"><div><dt>Vistas</dt><dd>${h(num(n.views))}</dd></div><div><dt>Interacciones</dt><dd>${h(num(n.engagements))}</dd></div><div><dt>Publicaciones</dt><dd>${h(num(n.posts))}</dd></div></dl>`
+      : `<p class="vp-soc-nodata">${pending ? "Pendiente de aprobación" : "Aún sin datos"}</p>`;
+    return `<article class="vp-panel vp-soc-net is-${h(n.network)}${n.has_data ? "" : " is-empty"}"><header>${icon(n.network)}<b>${h(n.label)}</b></header>${body}</article>`;
+  }
+
+  function socialPane() {
+    const S = model.social;
+    const d = S.data;
+    const bar = `<section class="vp-panel vp-section vp-soc-bar"><div class="vp-chips" role="group" aria-label="Periodo">${["7", "30", "90"].map((v) => `<button class="vp-chip ${S.days === v ? "is-active" : ""}" type="button" aria-pressed="${S.days === v}" data-vpx-social-days="${v}">${v} días</button>`).join("")}</div>
+      ${d ? `<small class="vp-mono-muted">${h(shortDate(d.start))} – ${h(shortDate(d.end))}</small>` : ""}</section>`;
+    const links = `<section class="vp-panel vp-section"><h2>Enlaces con etiqueta</h2><p class="vp-login-hint">Para la bio o la descripción de cada red. Las visitas que entren por aquí se cuentan en el embudo.</p>
+      <ul class="vp-quick-list">${SOCIAL.map((n) => `<li><span class="vp-soc-linkname">${icon(n.key)}<span><b>${h(n.label)}</b><small class="vp-mono-muted vp-soc-url">${h(socialLink(n.key))}</small></span></span><button class="vp-btn vp-btn-sm" type="button" data-vpx-copy="${h(socialLink(n.key))}">Copiar</button></li>`).join("")}</ul></section>`;
+    if (!d) return `${bar}${S.error ? `<div class="vp-alert" role="alert"><span>${h(S.error)}</span></div>` : `<p class="vp-loading">Cargando redes…</p>`}${links}`;
+    const nets = arr(d.networks);
+    const f = d.funnel || {};
+    const pct = (a, b) => (b ? `${(Math.round((a / b) * 1000) / 10).toLocaleString("es-CO")} %` : "—");
+    const posts = arr(d.posts).filter((p) => matches(S.query, p.tema, p.label, p.network, p.utm_campaign));
+    const small = (title, rows, label, empty) => `<section class="vp-panel vp-section"><h2>${h(title)}</h2>${arr(rows).length ? `<ul class="vp-actions-list">${arr(rows).map((r) => `<li class="vp-action vp-toggle-row"><b>${h(label(r))}</b><span class="vp-mono">${h(num(r.visits))} · ${h(num(r.unique_visitors))} únicos</span></li>`).join("")}</ul>` : `<div class="vp-empty">${h(empty)}</div>`}</section>`;
+    return `${bar}${S.error ? `<div class="vp-alert" role="alert"><span>${h(S.error)}</span></div>` : ""}
+      <section class="vp-soc-nets">${nets.map(netCard).join("")}</section>
+      <section class="vp-panel vp-section"><h2>Embudo</h2><ol class="vp-soc-funnel">
+        <li><span>Vistas en redes</span><strong>${h(num(f.social_views || 0))}</strong></li>
+        <li><span>Visitas a la landing desde redes</span><strong>${h(num(f.landing_visits || 0))}</strong><small>${h(pct(f.landing_visits || 0, f.social_views || 0))} de las vistas</small></li>
+        <li><span>Visitantes únicos</span><strong>${h(num(f.unique_visitors || 0))}</strong><small>${h(pct(f.unique_visitors || 0, f.landing_visits || 0))} de las visitas</small></li></ol></section>
+      <div class="vp-soc-charts"><section class="vp-panel vp-section"><h2>Vistas ${Number(S.days) <= 7 ? "por día" : "por semana"}</h2>${viewsChart(nets, S.days)}</section>
+        <section class="vp-panel vp-section"><h2>Seguidores</h2>${followersChart(nets)}</section></div>
+      <div class="vp-soc-legend">${nets.map((n) => `<span class="is-${h(n.network)}"><i></i>${h(n.label)}</span>`).join("")}</div>
+      <div class="vp-soc-charts">${small("Visitas a la landing por red", d.landing_by_network, (r) => r.label || r.network, "Ninguna visita desde redes todavía.")}${small("Campañas de Nexa", d.landing_by_campaign, (r) => r.campaign, "Ninguna visita con campaña nexa-* todavía.")}</div>
+      <section class="vp-panel vp-section"><div class="vp-toolbar"><h2>Publicaciones</h2><input class="vp-search" type="search" placeholder="Buscar tema, red o campaña" value="${h(S.query)}" data-vpx-social-search aria-label="Buscar publicación"></div>
+        ${posts.length ? `<div class="vp-table-wrap"><table class="vp-table vp-table-compact vp-soc-posts"><thead><tr><th>Fecha</th><th>Red</th><th>Tema</th><th>Vistas</th><th>Likes</th><th>Comentarios</th><th>Compartidos</th><th><span class="sr-only">Enlace</span></th></tr></thead><tbody>
+          ${posts.map((p) => `<tr><td data-label="Fecha" class="vp-mono">${h(postDate(p.published_at))}</td><td data-label="Red"><span class="vp-soc-netname is-${h(p.network)}">${icon(p.network)}${h(p.label || p.network)}</span></td><td data-label="Tema">${h(p.tema || "—")}</td>
+            <td data-label="Vistas" class="vp-mono">${h(num(p.views))}</td><td data-label="Likes" class="vp-mono">${h(num(p.likes))}</td><td data-label="Comentarios" class="vp-mono">${h(num(p.comments))}</td><td data-label="Compartidos" class="vp-mono">${h(num(p.shares))}</td>
+            <td>${/^https?:\/\//i.test(String(p.url || "")) ? `<a class="vp-btn vp-btn-sm" href="${h(p.url)}" target="_blank" rel="noopener noreferrer">Ver</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+          : `<div class="vp-empty">${arr(d.posts).length ? "Ninguna publicación coincide." : "Aún no hay publicaciones en este periodo."}</div>`}</section>
+      ${links}`;
   }
 
   // ------------------------------------------------------- Estudio de marca
@@ -250,7 +394,7 @@
     return body + modal(model.modal);
   }
 
-  const FOCUS = ["[data-vpx-search]"];
+  const FOCUS = ["[data-vpx-search]", "[data-vpx-social-search]"];
   function draw() {
     if (!ctx || !ctx.active() || !ctx.root()) return;
     const active = document.activeElement;
@@ -299,6 +443,12 @@
   async function loadLanding() {
     const L = model.landing;
     try { L.data = await consoleApi.landing(L.filters); L.error = ""; } catch (error) { L.error = error.message; }
+    draw();
+  }
+
+  async function loadSocial() {
+    const S = model.social;
+    try { S.data = await consoleApi.social(S.days); S.error = ""; } catch (error) { S.error = error.message; }
     draw();
   }
 
@@ -365,12 +515,18 @@
     if (pk) { ask("Quitar huella", "Quitar esta llave de acceso? Ese equipo ya no podrá entrar con huella.", () => act(() => consoleApi.deletePasskey(pk.getAttribute("data-vpx-passkey-delete")), "Huella quitada.", async (d) => { a.passkeys = (d && d.passkeys) || []; }), { danger: true }); return; }
     if (t.closest("[data-vpx-audit-all]")) { model.modal = { type: "audit", title: "Auditoría · todos los registros" }; draw(); return; }
     if (t.closest("[data-vpx-health-refresh]")) { loadHealth(); if (ctx.reloadOverview) ctx.reloadOverview(); return; }
-    if (t.closest("[data-vpx-landing-reset]")) { model.landing.filters = { days: "30", source: "", campaign: "", device: "" }; loadLanding(); }
+    if (t.closest("[data-vpx-landing-reset]")) { model.landing.filters = { days: "30", source: "", campaign: "", device: "" }; loadLanding(); return; }
+    const ltab = t.closest("[data-vpx-landing-tab]");
+    if (ltab) { model.landing.tab = ltab.getAttribute("data-vpx-landing-tab"); draw(); if (model.landing.tab === "redes" && !model.social.data) loadSocial(); return; }
+    const sdays = t.closest("[data-vpx-social-days]");
+    if (sdays) { model.social.days = sdays.getAttribute("data-vpx-social-days"); model.social.data = null; draw(); loadSocial(); }
   }
 
   function onInput(event) {
     const t = event.target;
-    if (!ctx || !ctx.active() || !t || !t.matches || !t.matches("[data-vpx-search]")) return;
+    if (!ctx || !ctx.active() || !t || !t.matches) return;
+    if (t.matches("[data-vpx-social-search]")) { model.social.query = t.value; draw(); return; }
+    if (!t.matches("[data-vpx-search]")) return;
     model.access.query = t.value;
     draw();
   }
@@ -420,7 +576,7 @@
   window.CxConsoleSections = window.CxConsoleSections || {};
   window.CxConsoleSections.access = make("access", () => loadAccess());
   window.CxConsoleSections.health = make("health", loadHealth);
-  window.CxConsoleSections.landing = make("landing", loadLanding);
+  window.CxConsoleSections.landing = make("landing", () => { loadLanding(); if (model.landing.tab === "redes") loadSocial(); });
   window.CxConsoleSections.brand = make("brand", null);
-  window.CxConsoleAdmin = { model, view, consoleApi, owners, maestroTab, healthView, landingView, brandView };
+  window.CxConsoleAdmin = { model, view, consoleApi, owners, maestroTab, healthView, landingView, brandView, socialPane, groupSources, socialNetworkOf, viewBuckets, socialLink };
 })();

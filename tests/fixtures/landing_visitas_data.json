@@ -1,0 +1,8 @@
+{"days":30,"filters":{"source":"","campaign":"","device":""},"totals":{"total_visits":42,"unique_visitors":30,"sessions":33,"last_24h":5,"last_visit_at":"2026-10-21T15:00:00+00:00"},
+"sources":[{"label":"directo","total":30},{"label":"google.com","total":7},{"label":"chatgpt.com","total":5}],
+"campaigns":[{"label":"sin campana","total":40},{"label":"octubre","total":2}],
+"paths":[{"label":"/","total":40},{"label":"/precios","total":2}],
+"devices":[{"label":"mobile","total":30},{"label":"desktop","total":12}],
+"geo":[{"label":"Bogota / Colombia","total":42}],
+"recent":[{"created_at":"2026-10-21T15:00:00+00:00","source":"directo","campaign":"","path":"/","device":"mobile"},{"created_at":"2026-10-21T14:00:00+00:00","source":"google.com","campaign":"octubre","path":"/precios","device":"desktop"}],
+"options":{"sources":[{"label":"directo","total":30},{"label":"google.com","total":7}],"campaigns":[{"label":"sin campana","total":40}],"devices":[{"label":"mobile","total":30}]}}

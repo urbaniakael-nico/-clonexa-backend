@@ -64,6 +64,7 @@ for _module_name, _prefix, _tags in [
     ("delivery_whatsapp", "/domicilios", ["domicilios"]),
     ("field", "/field", ["field"]),
     ("landing_analytics", "/landing-analytics", ["landing_analytics"]),
+    ("social_metrics", "/social-metrics", ["social_metrics"]),
     ("assemblies", "/assemblies", ["assemblies"]),
     ("shoplink", "/shoplink", ["shoplink"]),
     ("marketplace", "/marketplace", ["marketplace"]),
