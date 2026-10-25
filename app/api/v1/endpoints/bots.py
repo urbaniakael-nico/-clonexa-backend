@@ -57,9 +57,16 @@ from app.services.whatsapp_agent_access import is_agent_phone_authorized, list_a
 from app.services.whatsapp_customer_line import customer_line_reply
 
 try:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet, MultiFernet
 except Exception:  # pragma: no cover
     Fernet = None
+    MultiFernet = None
+
+# Rotacion de la clave de los tokens de bots (sin tocar las sesiones):
+# CLONEXA_BOT_TOKEN_KEY cifra (sin ella, JWT_SECRET_KEY como siempre) y
+# CLONEXA_BOT_TOKEN_KEY_PREVIOUS (separadas por coma) solo descifran.
+BOT_TOKEN_KEY_ENV = "CLONEXA_BOT_TOKEN_KEY"
+BOT_TOKEN_KEY_PREVIOUS_ENV = "CLONEXA_BOT_TOKEN_KEY_PREVIOUS"
 
 
 router = APIRouter()
@@ -99,12 +106,43 @@ def mask_token(token: str | None) -> str | None:
     return f"{value[:8]}****{value[-6:]}"
 
 
+def _fernet_for(secret: str):
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def _bot_token_secrets() -> list[str]:
+    """Clave que cifra primero; despues las anteriores, que solo descifran."""
+    primary = os.getenv(BOT_TOKEN_KEY_ENV, "").strip() or get_settings().JWT_SECRET_KEY or "clonexa-local-secret"
+    previous = [s.strip() for s in os.getenv(BOT_TOKEN_KEY_PREVIOUS_ENV, "").split(",") if s.strip()]
+    return [primary] + [s for s in previous if s != primary]
+
+
 def _fernet():
     if Fernet is None:
         return None
-    secret = get_settings().JWT_SECRET_KEY or "clonexa-local-secret"
-    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
-    return Fernet(key)
+    # MultiFernet cifra con la primera y descifra con cualquiera.
+    return MultiFernet([_fernet_for(s) for s in _bot_token_secrets()])
+
+
+def reencrypt_token(stored: str | None) -> str | None:
+    """Vuelve a cifrar un token guardado con la clave primaria (None si no aplica)."""
+    if not stored or not stored.startswith("fernet:"):
+        return None
+    fernet = _fernet()
+    if fernet is None:
+        raise HTTPException(status_code=500, detail="Token encryption backend unavailable")
+    return "fernet:" + fernet.rotate(stored.removeprefix("fernet:").encode("utf-8")).decode("utf-8")
+
+
+def token_uses_primary_key(stored: str | None) -> bool:
+    if not stored or not stored.startswith("fernet:"):
+        return False
+    try:
+        _fernet_for(_bot_token_secrets()[0]).decrypt(stored.removeprefix("fernet:").encode("utf-8"))
+        return True
+    except Exception:
+        return False
 
 
 def encrypt_token(token: str) -> str:
