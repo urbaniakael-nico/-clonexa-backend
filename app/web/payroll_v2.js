@@ -312,8 +312,15 @@
     const refs = new Set();
     let regular = 0;
     let extra = 0;
-    c.shifts.forEach((s) => { regular += num(s.regular_minutes); extra += num(s.extra_minutes); shiftRefs(c, s).forEach((r) => refs.add(r)); });
-    return { shifts: c.shifts.length, regular, extra, refs: [...refs] };
+    let connected = 0;
+    let pauses = 0;
+    let worked = 0;
+    c.shifts.forEach((s) => {
+      regular += num(s.regular_minutes); extra += num(s.extra_minutes); shiftRefs(c, s).forEach((r) => refs.add(r));
+      const t = shiftTimes(s);
+      connected += t.connected; pauses += t.pauses; worked += t.worked;
+    });
+    return { shifts: c.shifts.length, regular, extra, refs: [...refs], connected, pauses, worked };
   }
 
   // 056J: tabla compacta. Horas "X h YY" (ordinarias + extra); extra solo como
@@ -329,21 +336,31 @@
 
   const shiftKey = (c, s) => `${c.id}|${s.start}`;
 
+  // 056L: Conectado | Pausas | Trabajado del servidor (app/services/shift_times.py:
+  // trabajado = conectado - pausas). Solo presentacion: el pago no cambia.
+  function shiftTimes(s) {
+    const worked = s.worked_minutes != null ? num(s.worked_minutes) : num(s.regular_minutes) + num(s.extra_minutes);
+    const pauses = num(s.pause_minutes);
+    return { connected: s.connected_minutes != null ? num(s.connected_minutes) : worked + pauses, pauses, worked };
+  }
+
   function shiftRowsTable(c, s) {
     const key = shiftKey(c, s);
     const open = model.openShift === key;
     const refs = shiftRefs(c, s);
     const acts = activityFor(model.activity, c.id, s).filter((a) => a.kind !== "references");
     const ext = num(s.extra_minutes) > 0 ? `<small class="pv-ext">+${h(hhmm(s.extra_minutes))} ${h(T("ext"))}</small>` : "";
+    const times = shiftTimes(s);
     return `<tr class="pv-trow ${open ? "is-open" : ""}" data-pv-srow="${h(key)}">
         <td data-label="${h(T("Fecha"))}"><button type="button" class="pv-tbtn" data-pv-srow="${h(key)}" aria-expanded="${open}">${h(dayShort(s.start))}</button></td>
         <td data-label="${h(T("Horario"))}">${h(clock(s.start))} – ${h(clock(s.end))}</td>
-        <td data-label="${h(T("Horas"))}">${h(hhmm(num(s.regular_minutes) + num(s.extra_minutes)))}${ext}</td>
+        <td data-label="${h(T("Conectado"))}">${h(hhmm(times.connected))}</td>
+        <td data-label="${h(T("Pausas"))}">${h(hhmm(times.pauses))}</td>
+        <td data-label="${h(T("Trabajado"))}" class="pv-tworked"><b>${h(hhmm(times.worked))}</b>${ext}</td>
         <td data-label="${h(T("Referencias"))}" class="pv-tref">${refs.length ? h(refs.join(", ")) : "—"}</td>
         <td data-label="${h(T("Valor"))}" class="pv-tnum">${h(money(s.gross_amount))}</td>
       </tr>
-      ${open ? `<tr class="pv-tdetail"><td colspan="5"><dl class="pv-tkv">
-        <div><dt>${h(T("Pausas"))}</dt><dd>${h(hhmm(s.pause_minutes))}</dd></div>
+      ${open ? `<tr class="pv-tdetail"><td colspan="7"><dl class="pv-tkv">
         <div><dt>${h(T("Horas ordinarias"))}</dt><dd>${h(hhmm(s.regular_minutes))}</dd></div>
         <div><dt>${h(T("Horas extra"))}</dt><dd>${h(hhmm(s.extra_minutes))}</dd></div></dl>
         ${acts.map((a) => `<div class="pv-act pv-act-${a.kind}"><span>${h(a.text)}</span>${a.extra ? `<span class="pv-sub">${h(a.extra)}</span>` : ""}${a.map ? `<a class="pv-map" href="${h(a.map)}" target="_blank" rel="noopener noreferrer">Ver en el mapa</a>` : ""}</div>`).join("")}
@@ -357,11 +374,13 @@
     return `<div class="pv-thead-card"><span class="pv-avatar" aria-hidden="true">${h(initials(c.name))}</span>
         <span class="pv-card-main"><span class="pv-name">${h(c.name)}</span><span class="pv-role">${h(c.role || "Sin rol")}${c.document ? ` · ${h(c.document)}` : ""}</span></span>
         <span class="pv-card-nums"><span class="pv-net">${h(money(value))}</span><span class="pv-time">${h(t.shifts)} ${h(t.shifts === 1 ? T("turno") : T("turnos"))}</span></span></div>
-      ${shifts.length ? `<table class="pv-table"><thead><tr><th scope="col">${h(T("Fecha"))}</th><th scope="col">${h(T("Horario"))}</th><th scope="col">${h(T("Horas"))}</th>
+      ${shifts.length ? `<table class="pv-table"><thead><tr><th scope="col">${h(T("Fecha"))}</th><th scope="col">${h(T("Horario"))}</th><th scope="col">${h(T("Conectado"))}</th><th scope="col">${h(T("Pausas"))}</th><th scope="col">${h(T("Trabajado"))}</th>
         <th scope="col">${h(T("Referencias"))}</th><th scope="col" class="pv-tnum">${h(T("Valor"))}</th></tr></thead>
         <tbody>${shifts.map((s) => shiftRowsTable(c, s)).join("")}</tbody>
         <tfoot><tr class="pv-ttotal"><th scope="row" data-label="${h(T("TOTAL"))}">${h(T("TOTAL"))} · ${h(t.shifts)} ${h(t.shifts === 1 ? T("turno") : T("turnos"))}</th><td></td>
-          <td data-label="${h(T("Horas"))}">${h(hhmm(t.regular + t.extra))}${t.extra > 0 ? `<small class="pv-ext-line">${h(T("ext"))} ${h(hhmm(t.extra))}</small>` : ""}</td>
+          <td data-label="${h(T("Conectado"))}">${h(hhmm(t.connected))}</td>
+          <td data-label="${h(T("Pausas"))}">${h(hhmm(t.pauses))}</td>
+          <td data-label="${h(T("Trabajado"))}" class="pv-tworked"><b>${h(hhmm(t.worked))}</b>${t.extra > 0 ? `<small class="pv-ext-line">${h(T("ext"))} ${h(hhmm(t.extra))}</small>` : ""}</td>
           <td data-label="${h(T("Referencias"))}" title="${h(t.refs.join(", "))}">${h(t.refs.length)}</td>
           <td data-label="${h(T("Valor"))}" class="pv-tnum">${h(money(value))}</td></tr></tfoot></table>` : ""}`;
   }

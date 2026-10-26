@@ -27,8 +27,13 @@
     otro: { background: "linear-gradient(135deg, #050509, #1d4ed8)", primary: "#1d4ed8", secondary: "#f97316", bg: "#050509", text: "#f8fafc", warning: "#eab308", font: "Inter, system-ui, sans-serif" },
   };
   const people = [
-    { employee_id: "e1", name: "Ana María Restrepo Villalobos", status: "working", has_pin: true, reference_name: "PANT SET", since: ago(83) },
-    { employee_id: "e2", name: "Bea Gómez", status: "on_break", has_pin: true, reference_name: "Mystic jacket con capota larga", since: ago(52), paused_since: ago(12) },
+    { employee_id: "e1", name: "Ana María Restrepo Villalobos", status: "working", has_pin: true, reference_name: "PANT SET", since: ago(83),
+      // 056L: tiempos del servidor (trabajado = conectado - pausas; referencia actual y anterior)
+      connected_seconds: 14400, pause_seconds: 2100, worked_seconds: 12300, current_pause_seconds: null, reference_started_at: ago(70),
+      reference_worked_seconds: 4200, previous_reference: { name: "Mystic jacket con capota larga", worked_seconds: 4800 } },
+    { employee_id: "e2", name: "Bea Gómez", status: "on_break", has_pin: true, reference_name: "Mystic jacket con capota larga", since: ago(52), paused_since: ago(12),
+      connected_seconds: 3120, pause_seconds: 3120 - 2400, worked_seconds: 2400, current_pause_seconds: 720, reference_started_at: ago(52),
+      reference_worked_seconds: 2400, previous_reference: null },
     { employee_id: "e3", name: "Carla Díaz", status: "working", has_pin: true, reference_name: "Body básico", since: ago(140) },
     { employee_id: "e4", name: "Daniela Ruiz (prueba)", status: "sin_turno", has_pin: false, reference_name: null, since: null },
     { employee_id: "e5", name: "Eva Ríos", status: "sin_turno", has_pin: true, reference_name: null, since: null },

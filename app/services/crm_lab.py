@@ -20,6 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints import company_bots_v1 as bot
+from app.services import shift_times
 
 MODULE = "references"
 FLAG = "crm_velvet_lab"
@@ -213,6 +214,9 @@ async def team(db: AsyncSession, company_id: str, now: Optional[datetime] = None
         WHERE e.company_id::text = :c AND lower(COALESCE(e.status, 'active')) IN ('active', 'activo')
         ORDER BY lower(COALESCE(e.full_name, ''))
     """), {"c": company_id})).mappings().all()
+    live = {r["employee_id"]: r["shift_started"] for r in rows
+            if str(r["status"] or "").lower() in WORKING and r["shift_started"]}
+    clocks = await _shift_clocks(db, company_id, live, rows, now)
     people = []
     for r in rows:
         status = str(r["status"] or "").lower()
@@ -223,11 +227,69 @@ async def team(db: AsyncSession, company_id: str, now: Optional[datetime] = None
                        "since": since.isoformat() if since else None,
                        # 056K: solo para mostrar el tiempo en pausa en la tarjeta (mismo evento de Pausa del bot).
                        "paused_since": r["break_started"].isoformat() if status == "on_break" and r["break_started"] else None,
-                       "elapsed_minutes": int((now - since).total_seconds() // 60) if since else None})
+                       "elapsed_minutes": int((now - since).total_seconds() // 60) if since else None,
+                       **(clocks.get(r["employee_id"], {}) if status in WORKING else {})})
     working = sum(1 for p in people if p["status"] == "working")
     paused = sum(1 for p in people if p["status"] == "on_break")
     return {"now": now.isoformat(), "working": working, "paused": paused, "people": people,
             "live": [p for p in people if p["status"] in WORKING]}
+
+
+async def _shift_clocks(db: AsyncSession, company_id: str, live: dict[str, datetime], rows: Any, now: datetime) -> dict[str, dict]:
+    """Tiempos del turno abierto de cada colaborador (definicion unica de shift_times):
+    trabajado, pausas y conectado; la referencia actual (trabajado desde que empezo, sin
+    pausas) y la duracion de la anterior del mismo turno. El navegador solo anima."""
+    if not live:
+        return {}
+    ids = list(live)
+    lo = min(live.values())
+    events = (await db.execute(text("""
+        SELECT employee_id::text AS employee_id, event_type, COALESCE(occurred_at, created_at) AS at
+        FROM workforce_attendance_events
+        WHERE company_id::text = :c AND employee_id::text = ANY(:ids) AND event_type IN ('break_start', 'break_end')
+          AND COALESCE(occurred_at, created_at) >= :lo
+        ORDER BY COALESCE(occurred_at, created_at) ASC
+    """), {"c": company_id, "ids": ids, "lo": lo})).mappings().all()
+    work = (await db.execute(text("""
+        SELECT employee_id, COALESCE(reference_name, '') AS reference_name, started_at, ended_at, status
+        FROM reference_work_sessions
+        WHERE company_id = :c AND employee_id = ANY(:ids) AND COALESCE(ended_at, now()) >= :lo
+        ORDER BY started_at ASC
+    """), {"c": company_id, "ids": ids, "lo": lo})).mappings().all()
+    status_of = {r["employee_id"]: str(r["status"] or "").lower() for r in rows}
+    current_ref = {r["employee_id"]: r["reference_started"] for r in rows}
+    out: dict[str, dict] = {}
+    for employee_id, shift_start in live.items():
+        breaks: list[shift_times.Break] = []
+        opened: Optional[datetime] = None
+        for ev in events:
+            if ev["employee_id"] != employee_id or ev["at"] < shift_start:
+                continue
+            if ev["event_type"] == "break_start" and opened is None:
+                opened = ev["at"]
+            elif ev["event_type"] == "break_end" and opened is not None:
+                breaks.append((opened, ev["at"]))
+                opened = None
+        on_break = status_of.get(employee_id) == "on_break"
+        if opened is not None and on_break:
+            breaks.append((opened, None))  # la pausa abierta cuenta hasta ahora
+        times = shift_times.shift_times(shift_start, breaks, now=now)
+        item: dict[str, Any] = {**times, "shift_started_at": shift_start.isoformat(),
+                                "current_pause_seconds": max(0, int((now - opened).total_seconds())) if opened is not None and on_break else None,
+                                "reference_started_at": None, "reference_worked_seconds": None, "previous_reference": None}
+        ref_start = current_ref.get(employee_id)
+        if ref_start:
+            begin = max(ref_start, shift_start)
+            item["reference_started_at"] = begin.isoformat()
+            item["reference_worked_seconds"] = shift_times.worked_seconds_between(begin, now, breaks, now)
+        done = [w for w in work if str(w["employee_id"]) == employee_id and w["status"] != "active" and w["ended_at"]
+                and w["ended_at"] >= shift_start and w["ended_at"] <= now]
+        if done:
+            last = max(done, key=lambda w: w["ended_at"])
+            item["previous_reference"] = {"name": last["reference_name"],
+                                          "worked_seconds": shift_times.worked_seconds_between(max(last["started_at"], shift_start), last["ended_at"], breaks, now)}
+        out[employee_id] = item
+    return out
 
 
 async def sizes(db: AsyncSession, company_id: str, reference_id: str) -> list[dict]:

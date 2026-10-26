@@ -19,6 +19,7 @@ from app.api.v1.endpoints.company_users import require_company_user_not_role
 from app.services import payroll_colombia as co_engine_049a
 from app.services import payroll_periods as periods_049l
 from app.services import session_cutoff as session_cutoff_049d
+from app.services import shift_times
 from app.web.admin_v2_routes import _active_session as active_admin_v2_session
 
 from app.services import company_locale as cx_locale_052c  # moneda/zona de la empresa (Fase A)
@@ -1460,6 +1461,8 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
             "mini_panel_session_id": event_session_id,
             # Nomina v2 (solo informativo, no entra al calculo): pausas del turno.
             "pause_minutes": round(int(shift.get("pauses_seconds") or 0) / 60),
+            # Conectado / Pausas / Trabajado (definicion unica de app.services.shift_times).
+            **shift_times.shift_minutes(shift["start"], shift["end"], int(shift.get("pauses_seconds") or 0)),
         })
 
     for session in mini_panel_sessions:
@@ -1522,6 +1525,8 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
             "mini_panel_session_id": str(session.get("id")) if session.get("id") else None,
             # Nomina v2 (solo informativo, no entra al calculo): pausas del turno.
             "pause_minutes": round(_cx_payroll_int_023o(session.get("break_seconds")) / 60),
+            **(shift_times.shift_minutes(session_start, session_end or session_as_of, _cx_payroll_int_023o(session.get("break_seconds")))
+               if session_start else {}),
         })
 
     rows = []

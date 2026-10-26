@@ -67,6 +67,12 @@ body { background: var(--crm-page); background-color: var(--crm-bar); color: var
 .crm-ref { max-width: 100%; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crm-clock { margin-top: auto; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .crm-hint { margin-top: auto; font-size: 14px; font-weight: 700; }
+/* 056L: pausas y referencia en letra pequeña (mismo color de la tarjeta: AA), cronómetro grande = trabajado */
+.crm-meta { max-width: 100%; font-size: 12.5px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crm-meta.is-pausing { font-weight: 800; white-space: normal; }
+.crm-meta-t { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.crm-meta-ref { display: flex; align-items: baseline; white-space: nowrap; }
+.crm-meta-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .crm-empty { grid-column: 1 / -1; list-style: none; padding: 12px 14px; border-radius: 12px; background: var(--crm-surface); color: var(--crm-on-surface); font-weight: 700; }
 
 /* Ventana (PIN, referencia, persona con turno) */

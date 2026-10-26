@@ -201,11 +201,38 @@
   }
 
   const TAG = { working: "TRABAJANDO", on_break: "EN PAUSA", sin_turno: "SIN TURNO" };
+
+  // 056L: tiempos del turno calculados en el servidor (worked/pause/connected_seconds al
+  // momento de board.now); el navegador solo anima el segundero de lo que corre.
+  function secs(s, withSeconds) {
+    const v = Math.max(0, Math.floor(Number(s) || 0));
+    const base = `${Math.floor(v / 3600)}:${String(Math.floor(v / 60) % 60).padStart(2, "0")}`;
+    return withSeconds ? `${base}:${String(v % 60).padStart(2, "0")}` : base;
+  }
+  function since(s) { return new Date(new Date((st.board && st.board.now) || Date.now()).getTime() - Math.max(0, Number(s) || 0) * 1000).toISOString(); }
+  function ticking(s, running, withSeconds, cls) {
+    return running ? `<span class="${cls}" data-crm-clock="${h(since(s))}"${withSeconds ? "" : ' data-crm-fmt="hm"'}>${h(secs(s, withSeconds))}</span>`
+      : `<span class="${cls}">${h(secs(s, withSeconds))}</span>`;
+  }
+
+  function timedBody(p, status) {
+    const running = status === "working";
+    const pause = status === "on_break"
+      ? `<span class="crm-meta is-pausing">${h(T("En pausa"))} ${ticking(p.current_pause_seconds, true, false, "crm-meta-t")} · ${h(T("total pausas"))} ${ticking(p.pause_seconds, true, false, "crm-meta-t")}</span>`
+      : `<span class="crm-meta">${h(T("Pausa"))} ${ticking(p.pause_seconds, false, false, "crm-meta-t")}</span>`;
+    // El nombre de la referencia se recorta; su tiempo siempre se ve.
+    const ref = p.reference_name ? `<span class="crm-meta crm-meta-ref"><span class="crm-meta-n">${h(T("Ref."))} ${h(p.reference_name)}</span>&nbsp;·&nbsp;${ticking(p.reference_worked_seconds, running, false, "crm-meta-t")}</span>`
+      : `<span class="crm-meta crm-meta-ref">${h(T("Sin referencia"))}</span>`;
+    const prev = p.previous_reference ? `<span class="crm-meta crm-meta-ref"><span class="crm-meta-n">${h(T("Anterior"))}: ${h(T("Ref."))} ${h(p.previous_reference.name)}</span>&nbsp;·&nbsp;<span class="crm-meta-t">${h(secs(p.previous_reference.worked_seconds))}</span></span>` : "";
+    return `${pause}${ref}${prev}${ticking(p.worked_seconds, running, true, "crm-clock")}`;
+  }
+
   function tile(p) {
     const status = TAG[p.status] ? p.status : "sin_turno";
     // En pausa, el tiempo en pausa; trabajando, el mismo dato de siempre (referencia o turno).
     const clock = status === "on_break" ? p.paused_since || p.since : p.since;
     const body = status === "sin_turno" ? `<span class="crm-hint">${h(T("Toca para iniciar"))}</span>`
+      : p.worked_seconds != null ? timedBody(p, status)
       : `<span class="crm-ref">${h(p.reference_name || T("Sin referencia"))}</span><span class="crm-clock" data-crm-clock="${h(clock || "")}">${h(hms(clock))}</span>`;
     return `<li><button type="button" class="crm-tile is-${status}" data-crm-pick="${h(p.employee_id)}">
       <span class="crm-tag">${h(T(TAG[status]))}</span><span class="crm-name">${h(p.name)}</span>${body}</button></li>`;
@@ -478,7 +505,10 @@
     setInterval(() => {
       // A los 20 s sin uso vuelve a la lista (para el siguiente colaborador).
       if ((st.view === "person" || st.pinFor) && Date.now() - st.lastTouch > IDLE_MS) { backToList(); draw(); }
-      document.querySelectorAll("[data-crm-clock]").forEach((el) => { el.textContent = hms(el.getAttribute("data-crm-clock")); });
+      document.querySelectorAll("[data-crm-clock]").forEach((el) => {
+        const text = hms(el.getAttribute("data-crm-clock"));
+        el.textContent = el.getAttribute("data-crm-fmt") === "hm" ? text.replace(/:\d{2}$/, "") : text;
+      });
     }, 1000);
   }
 

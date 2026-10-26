@@ -177,7 +177,7 @@ test('056K: CRM en vivo ordenado por estado y alfabético, tarjetas con su etiqu
   C.st.offset = 0;
   assert.match(C.hms(new Date(Date.now() - (3600 + 125) * 1000).toISOString()), /^1:02:0[56]$/);
   assert.equal(C.hms(''), '');
-  assert.match(CRM, /querySelectorAll\("\[data-crm-clock\]"\)\.forEach\(\(el\) => \{ el\.textContent = hms\(el\.getAttribute\("data-crm-clock"\)\); \}\)/, 'corre cada segundo en el navegador');
+  assert.match(CRM, /querySelectorAll\("\[data-crm-clock\]"\)\.forEach\(\(el\) => \{\s*const text = hms\(el\.getAttribute\("data-crm-clock"\)\);/, 'corre cada segundo en el navegador');
 });
 
 test('056K: colores del tema de la empresa (Velvet: TRABAJANDO aqua, acento morado) y AA; otro tema cambia los colores', () => {
@@ -223,4 +223,32 @@ test('056K: pantalla completa solo con soporte; manifest para abrir sin barra', 
   assert.match(CSS, /height: 100dvh/);
   assert.match(CSS, /env\(safe-area-inset-top\)/);
   assert.match(CSS, /@media \(orientation: portrait\) \{\s*\.crm-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+});
+
+test('056L: cronómetro grande = TRABAJADO del turno (no se reinicia al cambiar de referencia); pausas y referencias en letra pequeña', () => {
+  const C = crm();
+  const now = '2026-10-27T01:00:00.000Z';
+  const people = [
+    { employee_id: 'w1', name: 'Ana', status: 'working', reference_name: '1300', since: '2026-10-26T23:50:00Z',
+      connected_seconds: 14400, pause_seconds: 2100, worked_seconds: 12300, current_pause_seconds: null,
+      reference_started_at: '2026-10-26T23:50:00Z', reference_worked_seconds: 4200, previous_reference: { name: '1234', worked_seconds: 3600 } },
+    { employee_id: 'p1', name: 'Bea', status: 'on_break', reference_name: '1200', since: '2026-10-27T00:00:00Z', paused_since: '2026-10-27T00:40:00Z',
+      connected_seconds: 3600, pause_seconds: 1200, worked_seconds: 2400, current_pause_seconds: 1200,
+      reference_started_at: '2026-10-27T00:00:00Z', reference_worked_seconds: 2400, previous_reference: null },
+  ];
+  Object.assign(C.st, { token: 't', view: 'list', pinFor: null, person: null, query: '', offset: 0, board: { now, working: 1, paused: 1, people } });
+  const html = C.view().replace(/\s+/g, ' ');
+  const ana = html.match(/data-crm-pick="w1">.*?<\/button>/)[0];
+  assert.match(ana, /<span class="crm-meta">Pausa <span class="crm-meta-t">0:35<\/span><\/span>/, 'total de pausas, discreto y quieto mientras trabaja');
+  assert.match(ana, /<span class="crm-meta-n">Ref\. 1300<\/span>&nbsp;·&nbsp;<span class="crm-meta-t" data-crm-clock="2026-10-26T23:50:00.000Z" data-crm-fmt="hm">1:10<\/span>/, 'la referencia actual corre (sin pausas)');
+  assert.match(ana, /<span class="crm-meta-n">Anterior: Ref\. 1234<\/span>&nbsp;·&nbsp;<span class="crm-meta-t">1:00<\/span>/, 'duración de la referencia anterior');
+  assert.match(ana, /<span class="crm-clock" data-crm-clock="2026-10-26T21:35:00.000Z">3:25:00<\/span>/, 'trabajado = conectado - pausas y corre');
+  const bea = html.match(/data-crm-pick="p1">.*?<\/button>/)[0];
+  assert.match(bea, /class="crm-meta is-pausing">En pausa <span class="crm-meta-t" data-crm-clock="2026-10-27T00:40:00.000Z" data-crm-fmt="hm">0:20<\/span> · total pausas <span class="crm-meta-t" data-crm-clock="2026-10-27T00:40:00.000Z" data-crm-fmt="hm">0:20<\/span>/, 'en pausa: la línea de pausa corre');
+  assert.match(bea, /Ref\. 1200<\/span>&nbsp;·&nbsp;<span class="crm-meta-t">0:40<\/span>/, 'la referencia queda congelada en pausa');
+  assert.match(bea, /<span class="crm-clock">0:40:00<\/span>/, 'el cronómetro grande queda congelado en el trabajado');
+  assert.doesNotMatch(bea, /Anterior/);
+  // Sin los campos nuevos (servidor viejo): la tarjeta de siempre.
+  C.st.board = { now, working: 1, paused: 0, people: [{ employee_id: 'x', name: 'Old', status: 'working', reference_name: 'PANT', since: '2026-10-27T00:00:00Z' }] };
+  assert.match(C.view(), /<span class="crm-ref">PANT<\/span><span class="crm-clock" data-crm-clock="2026-10-27T00:00:00Z">/);
 });

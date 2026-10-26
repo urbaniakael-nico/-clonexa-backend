@@ -2182,6 +2182,12 @@
   Object.assign(FR, { "{n} trabajando": "{n} au travail", "{n} en pausa": "{n} en pause", "Pantalla completa": "Plein écran", "Salir de pantalla completa": "Quitter le plein écran",
     "TRABAJANDO": "AU TRAVAIL", "EN PAUSA": "EN PAUSE", "SIN TURNO": "SANS SERVICE", "Toca para iniciar": "Touche pour commencer", "✕ Cancelar": "✕ Annuler", "Borrar": "Effacer" });
 
+  // Tiempos del turno: conectado, pausas y trabajado (056L).
+  Object.assign(EN, { "Conectado": "Connected", "Trabajado": "Worked", "Pausa": "Break", "total pausas": "total breaks",
+    "Ref.": "Ref.", "Anterior": "Previous" });
+  Object.assign(FR, { "Conectado": "Connecté", "Trabajado": "Travaillé", "Pausa": "Pause", "total pausas": "total pauses",
+    "Ref.": "Réf.", "Anterior": "Précédente" });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();

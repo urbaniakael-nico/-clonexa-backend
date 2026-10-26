@@ -125,3 +125,40 @@ def test_auto_close_saves_once_with_the_same_totals_and_period_type(pg_url, monk
             await engine.dispose()
 
     asyncio.run(run())
+
+
+def test_056L_turno_trae_conectado_pausas_y_trabajado_sin_cambiar_el_pago(pg_url, monkeypatch):
+    """Solo presentacion: Conectado | Pausas | Trabajado (trabajado = conectado - pausas)
+    en cada turno; ordinarias, extra y valor siguen saliendo del calculo de siempre."""
+    async def no_storage(db):
+        return None
+
+    monkeypatch.setattr(payroll, "ensure_payroll_storage", no_storage)
+
+    async def run():
+        engine = create_async_engine(pg_url)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with maker() as db:
+                cid, emp = str(uuid.uuid4()), str(uuid.uuid4())
+                await db.execute(text("INSERT INTO companies (id, name) VALUES (CAST(:c AS uuid), 'Tiempos')"), {"c": cid})
+                await db.execute(text("INSERT INTO employees (id, company_id, full_name, role, hourly_rate_regular, hourly_rate_extra) VALUES "
+                                      "(CAST(:e AS uuid), CAST(:c AS uuid), 'Katerine', 'operaria', 6000, 9000)"), {"e": emp, "c": cid})
+                # 12:00 -> 22:30 UTC conectada (10 h 30), pausas 14:00-14:30 y 18:00-18:15 (45 min).
+                for kind, at, st in (("check_in", "2026-10-20T12:00:00", "working"), ("break_start", "2026-10-20T14:00:00", "on_break"),
+                                     ("break_end", "2026-10-20T14:30:00", "working"), ("break_start", "2026-10-20T18:00:00", "on_break"),
+                                     ("break_end", "2026-10-20T18:15:00", "working"), ("check_out", "2026-10-20T22:30:00", "checked_out")):
+                    await db.execute(text("INSERT INTO workforce_attendance_events (company_id, employee_id, event_type, status_after, occurred_at) VALUES "
+                                          "(CAST(:c AS uuid), CAST(:e AS uuid), :k, :s, :t)"), {"c": cid, "e": emp, "k": kind, "s": st, "t": utc(at)})
+                await db.commit()
+                snap = await payroll.calculate_period_snapshot(db, uuid.UUID(cid), date(2026, 10, 19), date(2026, 10, 21))
+                row = next(r for r in snap["rows"] if str(r["employee_id"]) == emp)
+                [shift] = row["shifts"]
+                assert (shift["connected_minutes"], shift["pause_minutes"], shift["worked_minutes"]) == (630, 45, 585)
+                assert shift["regular_minutes"] + shift["extra_minutes"] == shift["worked_minutes"], "se paga el tiempo trabajado (pausas excluidas)"
+                assert (shift["regular_minutes"], shift["extra_minutes"]) == (480, 105)
+                assert shift["gross_amount"] == "63750.00", "8 h x 6000 + 1 h 45 x 9000: el pago no cambia"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())

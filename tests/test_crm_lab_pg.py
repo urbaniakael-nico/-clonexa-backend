@@ -468,3 +468,76 @@ def test_ruta_responde_400_sin_referencia():
     import inspect
     src = inspect.getsource(api.action)
     assert "await db.rollback()" in src
+
+
+# ---------------------------------------------------------------- 056L: tiempos del turno
+def test_tablero_tiempos_trabajado_pausas_y_referencias(pg_url):
+    """Turno que cruza medianoche con 2 pausas y 2 cambios de referencia, y otro con la
+    pausa abierta. Trabajado = conectado - pausas (no se reinicia al cambiar de
+    referencia); la referencia actual cuenta sin pausas y la anterior trae su duracion."""
+    t = lambda h, m=0, day=26: datetime(2026, 10, day, h, m, tzinfo=timezone.utc)  # noqa: E731
+    now = t(1, 0, day=27)
+
+    async def go(db):
+        cid = await company(db, "VelvetTiempos")
+        other = await company(db, "OtraTiempos")
+        ana = await employee(db, cid, "Ana")
+        bea = await employee(db, cid, "Bea")
+        ajena = await employee(db, other, "Ajena")
+
+        async def ev(eid, kind, at, c=cid):
+            await db.execute(text("""INSERT INTO workforce_attendance_events (company_id, employee_id, event_type, event_label, status_after, occurred_at, created_at)
+                VALUES (CAST(:c AS uuid), CAST(:e AS uuid), :k, :k, 'x', :at, :at)"""), {"c": c, "e": eid, "k": kind, "at": at})
+
+        async def status(eid, value, c=cid):
+            await db.execute(text("""INSERT INTO workforce_attendance_status (company_id, employee_id, status) VALUES (CAST(:c AS uuid), CAST(:e AS uuid), :s)"""),
+                             {"c": c, "e": eid, "s": value})
+
+        async def ref(eid, name, start, end, st, c=cid):
+            await db.execute(text("""INSERT INTO reference_work_sessions (id, company_id, employee_id, reference_name, started_at, ended_at, status)
+                VALUES (:i, :c, :e, :n, :s, :f, :st)"""), {"i": str(uuid.uuid4()), "c": c, "e": eid, "n": name, "s": start, "f": end, "st": st})
+
+        # Ana: un turno anterior (no cuenta), luego 21:00 -> 01:00 del dia siguiente.
+        await ev(ana, "check_in", t(8))
+        await ev(ana, "break_start", t(9))
+        await ev(ana, "break_end", t(10))
+        await ev(ana, "check_out", t(12))
+        await ref(ana, "1100", t(8), t(12), "ended_with_shift")
+        await ev(ana, "check_in", t(21))
+        await ev(ana, "break_start", t(21, 30))
+        await ev(ana, "break_end", t(21, 45))
+        await ev(ana, "break_start", t(23))
+        await ev(ana, "break_end", t(23, 20))
+        await ref(ana, "1200", t(21), t(22, 30), "switched")
+        await ref(ana, "1234", t(22, 30), t(23, 50), "switched")
+        await ref(ana, "1300", t(23, 50), None, "active")
+        await status(ana, "working")
+        # Bea: en pausa desde las 00:40 (pausa abierta).
+        await ev(bea, "check_in", t(0, 0, day=27))
+        await ev(bea, "break_start", t(0, 40, day=27))
+        await ref(bea, "1200", t(0, 0, day=27), None, "active")
+        await status(bea, "on_break")
+        # Otra empresa con su turno: no se mezcla.
+        await ev(ajena, "check_in", t(20), c=other)
+        await ev(ajena, "break_start", t(21, 30), c=other)
+        await status(ajena, "on_break", c=other)
+        await db.commit()
+
+        board = await svc.team(db, cid, now=now)
+        by = {p["name"]: p for p in board["people"]}
+        assert set(by) == {"Ana", "Bea"}
+        a = by["Ana"]
+        assert a["connected_seconds"] == 4 * 3600, "21:00 -> 01:00 (cruza medianoche)"
+        assert a["pause_seconds"] == 35 * 60, "15 + 20 min; la pausa del turno anterior no cuenta"
+        assert a["worked_seconds"] == a["connected_seconds"] - a["pause_seconds"] == 3 * 3600 + 25 * 60
+        assert a["current_pause_seconds"] is None
+        assert a["reference_name"] == "1300" and a["reference_worked_seconds"] == 70 * 60, "la referencia actual arranca en 0 al cambiar"
+        assert a["previous_reference"] == {"name": "1234", "worked_seconds": 60 * 60}, "22:30 -> 23:50 menos la pausa de 20 min"
+        assert a["shift_started_at"].startswith("2026-10-26T21:00")
+        b = by["Bea"]
+        assert (b["connected_seconds"], b["pause_seconds"], b["worked_seconds"]) == (3600, 1200, 2400), "la pausa abierta cuenta hasta ahora"
+        assert b["current_pause_seconds"] == 1200
+        assert b["reference_worked_seconds"] == 2400, "en pausa la referencia queda congelada"
+        assert b["previous_reference"] is None
+
+    run(pg_url, go)
