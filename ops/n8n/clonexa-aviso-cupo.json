@@ -1,0 +1,62 @@
+{
+  "name": "Clonexa - Aviso cupo",
+  "_doc": "Sin secretos. Un cliente pide más cupo de la carta en video: aviso por Telegram (mismo bot y forma de 'Nexa - Bot de comandos', chat 5126243056) y por Gmail. __CARTA_TOKEN_CRED__ = Header Auth 'Clonexa carta token'; __TELEGRAM_CRED__ y __GMAIL_CRED__ se copian de los flujos existentes al crear (ops/n8n/deploy_carta_flows.py).",
+  "nodes": [
+    {
+      "id": "b1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "clonexa-aviso-cupo",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clonexa-aviso-cupo",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "credentials": { "httpHeaderAuth": "__CARTA_TOKEN_CRED__" }
+    },
+    {
+      "id": "b2",
+      "name": "Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "jsCode": "const b = $json.body || $json;\nconst n = b.nuevos || {}; const c = b.cambios || {};\nconst texto = [\n  '📣 Pidieron más cupo de la carta en video',\n  `Empresa: ${b.empresa || b.company_id}`,\n  `Qué pidió: ${b.pidio || '-'}`,\n  `Quién: ${b.por || '-'}`,\n  `Mes ${b.mes}: ${n.used ?? '?'} de ${n.limit ?? '?'} platos nuevos y ${c.used ?? '?'} de ${c.limit ?? '?'} cambios`,\n  `Ficha en v2+: ${b.ficha_url || ''}`,\n].join('\\n');\nreturn [{ json: { texto, asunto: `Cupo carta en video: ${b.empresa || b.company_id}` } }];"
+      }
+    },
+    {
+      "id": "b3",
+      "name": "Telegram",
+      "type": "__TELEGRAM_NODE__",
+      "position": [480, -100],
+      "onError": "continueRegularOutput",
+      "parameters": "__TELEGRAM_PARAMS__",
+      "credentials": "__TELEGRAM_CRED__"
+    },
+    {
+      "id": "b4",
+      "name": "Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [480, 100],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "sendTo": "clonexasaas@gmail.com",
+        "subject": "={{ $json.asunto }}",
+        "emailType": "text",
+        "message": "={{ $json.texto }}",
+        "options": {}
+      },
+      "credentials": "__GMAIL_CRED__"
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Mensaje", "type": "main", "index": 0 }]] },
+    "Mensaje": { "main": [[{ "node": "Telegram", "type": "main", "index": 0 }, { "node": "Gmail", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

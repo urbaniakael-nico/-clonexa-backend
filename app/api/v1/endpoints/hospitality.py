@@ -5406,8 +5406,12 @@ async def hospitality_inventory_lite(
     if await _carta_on_049h(db, company_id):
         from app.api.v1.endpoints.carta import carta_inventory_lite
 
+        from app.services.menu_video import video_on as _carta_video_on
+
         return {"ok": True, "company_id": str(company_id), "inventory": (await carta_inventory_lite(db, company_id))[:limit],
-                "quantity_picker": await _quantity_picker_049w(db, company_id)}
+                "quantity_picker": await _quantity_picker_049w(db, company_id),
+                # Menu video: el QR abre la carta en video solo con el interruptor carta_video.
+                "carta_video": await _carta_video_on(db, company_id)}
 
     result = await db.execute(
         text(

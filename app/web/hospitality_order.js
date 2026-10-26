@@ -123,6 +123,8 @@
     const basePath = `/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`;
     const first = await api(`${basePath}&fresh=${Date.now()}`, { cache: "no-store" });
     state.quantityPicker = first.quantity_picker === true && !!window.CxQtyPicker;
+    // 057B: carta en video (interruptor carta_video de la empresa, apagado por defecto).
+    state.cartaVideo057B = first.carta_video === true && !!window.CxMenuVideoFeed;
     let rows = Array.isArray(first.inventory) ? first.inventory : [];
     if (rows.length) return rows;
     await new Promise((resolve) => window.setTimeout(resolve, 350));
@@ -2092,6 +2094,8 @@
   }
 
   function render() {
+    // 057B: despues de pintar (cualquiera sea el camino), la carta en video se monta o se esconde.
+    (typeof queueMicrotask === "function" ? queueMicrotask : (fn) => setTimeout(fn, 0))(cxMvSync057B);
     injectStyles();
     const b = brand();
     const companyName = state.company.name || state.company.company_name || "CLONEXA";
@@ -2169,6 +2173,7 @@
           const quantity = Number(selected?.quantity || 0);
           return `
             <article class="qr-card qr-product-card ${quantity > 0 ? "is-selected" : ""}">
+              ${item.photo_url ? `<img class="qr-product-photo-057b" src="${h(item.photo_url)}" alt="" loading="lazy">` : ""}
               <div class="qr-product-top">
                 <div class="qr-product-copy">
                   <div class="qr-product-name">${h(item.name)}</div>
@@ -2285,6 +2290,94 @@
         </button>
       </main>
     `;
+  }
+
+  // ---------------------------------------------------------------- 057B
+  // Carta en video: solo con carta_video encendido y la mesa desbloqueada.
+  // "Agregar" usa addItem (el MISMO carrito y envio a cocina/caja de siempre);
+  // el pedido se revisa y se envia en el mismo panel de la carta en lista.
+  let cxMvFeed057B = null;
+
+  function cxMvPrefKey057B() {
+    return `clonexa_qr_view_${String(state.companyId || "company")}`;
+  }
+
+  function cxMvWantsVideo057B() {
+    if (state.videoMode057B === undefined) {
+      let saved = "";
+      try { saved = String(window.localStorage.getItem(cxMvPrefKey057B()) || ""); } catch (_) {}
+      state.videoMode057B = saved !== "lista";
+    }
+    return state.videoMode057B;
+  }
+
+  function cxMvSetMode057B(video) {
+    state.videoMode057B = video;
+    try { window.localStorage.setItem(cxMvPrefKey057B(), video ? "video" : "lista"); } catch (_) {}
+    render();
+  }
+
+  function cxMvTextOn057B(color) {
+    const rgb = qrHexRgb(color);
+    if (!rgb) return "#111111";
+    const l = qrLum(rgb);
+    return (1.05 / (l + 0.05)) >= ((l + 0.05) / 0.0556) ? "#ffffff" : "#111111"; // el de mas contraste (AA)
+  }
+
+  function cxMvItems057B() {
+    return (state.inventory || []).filter((item) => item && item.id).map((item) => ({
+      id: String(item.id), name: item.name || "", price: Number(item.price || item.unit_price || item.sale_price || 0) || 0,
+      category: item.category_label || productCategory(item), description: item.description || "", photo_url: item.photo_url || "",
+      video_url: item.video_url || "", poster_url: item.poster_url || "", active: item.active !== false,
+    }));
+  }
+
+  function cxMvStyles057B() {
+    if (document.getElementById("cxMv057BStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxMv057BStyles";
+    style.textContent = ".qr-product-photo-057b{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;margin-bottom:10px;background:rgba(0,0,0,.25)}";
+    document.head.appendChild(style);
+  }
+
+  function cxMvSync057B() {
+    if ((state.inventory || []).some((item) => item && item.photo_url)) cxMvStyles057B();
+    const Feed = window.CxMenuVideoFeed;
+    const on = Boolean(Feed && state.cartaVideo057B && state.access?.unlocked && !state.loading && !isAssemblyMode() && (state.inventory || []).length);
+    const switchBtn = on ? Feed.switchButton(() => cxMvSetMode057B(true)) : document.querySelector("[data-cxmv-switch]");
+    if (!on) {
+      if (cxMvFeed057B) cxMvFeed057B.hide();
+      if (switchBtn) switchBtn.hidden = true;
+      return;
+    }
+    const video = cxMvWantsVideo057B();
+    const signature = JSON.stringify(cxMvItems057B().map((i) => [i.id, i.video_url, i.photo_url, i.active, i.price, i.name]));
+    if (video && (!cxMvFeed057B || cxMvFeed057B.signature !== signature)) {
+      const keep = cxMvFeed057B ? cxMvFeed057B.active : 0;
+      if (cxMvFeed057B) cxMvFeed057B.destroy();
+      const accent = brand().primary;
+      cxMvFeed057B = Feed.mount({
+        items: cxMvItems057B(), money, accent, accentText: cxMvTextOn057B(accent),
+        qty: (id) => Number(state.cart.get(String(id))?.quantity || 0),
+        onAdd: (id) => {
+          addItem(id);
+          // con el selector de cantidad (049W) su hoja va encima de la carta en video
+          const sheet = document.querySelector(".wtr-sheet-backdrop");
+          if (sheet && sheet.style) sheet.style.zIndex = "1100";
+        },
+        onCart: () => { state.cartOpen = true; render(); },
+        onList: () => cxMvSetMode057B(false),
+      });
+      cxMvFeed057B.signature = signature;
+      if (keep) cxMvFeed057B.activate(keep);
+    }
+    if (cxMvFeed057B) {
+      // el selector de cantidad (z 60) y la bienvenida (z 2000) ya quedan encima; el pedido se revisa en su panel
+      if (video && !state.cartOpen) cxMvFeed057B.show();
+      else cxMvFeed057B.hide();
+      cxMvFeed057B.update({ count: cartItemCount(), total: cartTotal(), message: state.message, error: state.error, qtyText: qtyText049W });
+    }
+    if (switchBtn) switchBtn.hidden = video;
   }
 
   function qtyText049W(quantity) {

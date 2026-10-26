@@ -1,0 +1,90 @@
+{
+  "empresa_demo": "Brasa & Maíz",
+  "nota": "Carta y precios 100 % inventados. Fotos de Pexels con su licencia gratuita.",
+  "fotos": [
+    {
+      "plato": "Empanadas de la casa",
+      "archivo": "empanadas-de-la-casa.jpg",
+      "fuente": "https://www.pexels.com/photo/8279586/",
+      "fotografo": "Los Muertos Crew",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Ceviche de pescado",
+      "archivo": "ceviche-de-pescado.jpg",
+      "fuente": "https://www.pexels.com/photo/1292984/",
+      "fotografo": "Silvia Trigo",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Nachos con guacamole",
+      "archivo": "nachos-con-guacamole.jpg",
+      "fuente": "https://www.pexels.com/photo/2092897/",
+      "fotografo": "Anthony Leong",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Hamburguesa de la casa",
+      "archivo": "hamburguesa-de-la-casa.jpg",
+      "fuente": "https://www.pexels.com/photo/2874989/",
+      "fotografo": "ver página",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Lomo a la parrilla",
+      "archivo": "lomo-a-la-parrilla.jpg",
+      "fuente": "https://www.pexels.com/photo/769289/",
+      "fotografo": "ver página",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Salmón a la plancha",
+      "archivo": "salmon-a-la-plancha.jpg",
+      "fuente": "https://www.pexels.com/photo/842142/",
+      "fotografo": "Malidate Van",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Spaghetti pomodoro",
+      "archivo": "spaghetti-pomodoro.jpg",
+      "fuente": "https://www.pexels.com/photo/4057736/",
+      "fotografo": "cottonbro studio",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Pollo asado",
+      "archivo": "pollo-asado.jpg",
+      "fuente": "https://www.pexels.com/photo/616353/",
+      "fotografo": "ver página",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Limonada de pepino",
+      "archivo": "limonada-de-pepino.jpg",
+      "fuente": "https://www.pexels.com/photo/6541793/",
+      "fotografo": "Geraud Pfeiffer",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Capuchino",
+      "archivo": "capuchino.jpg",
+      "fuente": "https://www.pexels.com/photo/312418/",
+      "fotografo": "ver página",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Torta de chocolate",
+      "archivo": "torta-de-chocolate.jpg",
+      "fuente": "https://www.pexels.com/photo/291528/",
+      "fotografo": "Abhinav Goswami",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    },
+    {
+      "plato": "Cheesecake de frutos rojos",
+      "archivo": "cheesecake-de-frutos-rojos.jpg",
+      "fuente": "https://www.pexels.com/photo/1126359/",
+      "fotografo": "Suzy Hazelwood",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
+    }
+  ]
+}

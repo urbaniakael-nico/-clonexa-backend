@@ -1,0 +1,118 @@
+{
+ "categorias": [
+  {
+   "nombre": "ENTRADAS",
+   "subcategorias": []
+  },
+  {
+   "nombre": "PLATOS FUERTES",
+   "subcategorias": []
+  },
+  {
+   "nombre": "BEBIDAS",
+   "subcategorias": []
+  },
+  {
+   "nombre": "POSTRES",
+   "subcategorias": []
+  }
+ ],
+ "platos": [
+  {
+   "categoria": "ENTRADAS",
+   "subcategoria": "",
+   "nombre": "Empanadas de la casa",
+   "descripcion": "Tres empanadas de maíz rellenas de carne y papa, con ají de la casa.",
+   "precio": 9000,
+   "opciones": ""
+  },
+  {
+   "categoria": "ENTRADAS",
+   "subcategoria": "",
+   "nombre": "Ceviche de pescado",
+   "descripcion": "Pescado blanco curado en limón con cebolla morada, cilantro y ají.",
+   "precio": 24000,
+   "opciones": ""
+  },
+  {
+   "categoria": "ENTRADAS",
+   "subcategoria": "",
+   "nombre": "Nachos con guacamole",
+   "descripcion": "Totopos crocantes, queso fundido, pico de gallo y guacamole.",
+   "precio": 21000,
+   "opciones": ""
+  },
+  {
+   "categoria": "PLATOS FUERTES",
+   "subcategoria": "",
+   "nombre": "Hamburguesa de la casa",
+   "descripcion": "Doble carne, queso cheddar, tocineta y salsa de la casa.",
+   "precio": 32000,
+   "opciones": "Término"
+  },
+  {
+   "categoria": "PLATOS FUERTES",
+   "subcategoria": "",
+   "nombre": "Lomo a la parrilla",
+   "descripcion": "300 gr de lomo con verduras salteadas y salsa de pimienta.",
+   "precio": 46000,
+   "opciones": "Término"
+  },
+  {
+   "categoria": "PLATOS FUERTES",
+   "subcategoria": "",
+   "nombre": "Salmón a la plancha",
+   "descripcion": "Filete de salmón con pimentones asados y crema de eneldo.",
+   "precio": 49000,
+   "opciones": ""
+  },
+  {
+   "categoria": "PLATOS FUERTES",
+   "subcategoria": "",
+   "nombre": "Spaghetti pomodoro",
+   "descripcion": "Pasta fresca con salsa de tomate, albahaca y parmesano.",
+   "precio": 28000,
+   "opciones": ""
+  },
+  {
+   "categoria": "PLATOS FUERTES",
+   "subcategoria": "",
+   "nombre": "Pollo asado",
+   "descripcion": "Medio pollo asado a las brasas con papa criolla.",
+   "precio": 34000,
+   "opciones": ""
+  },
+  {
+   "categoria": "BEBIDAS",
+   "subcategoria": "",
+   "nombre": "Limonada de pepino",
+   "descripcion": "Limonada natural con pepino y hierbabuena.",
+   "precio": 9500,
+   "opciones": ""
+  },
+  {
+   "categoria": "BEBIDAS",
+   "subcategoria": "",
+   "nombre": "Capuchino",
+   "descripcion": "Café de origen con leche espumada.",
+   "precio": 7000,
+   "opciones": ""
+  },
+  {
+   "categoria": "POSTRES",
+   "subcategoria": "",
+   "nombre": "Torta de chocolate",
+   "descripcion": "Torta húmeda de chocolate con cobertura de frutos rojos.",
+   "precio": 14000,
+   "opciones": ""
+  },
+  {
+   "categoria": "POSTRES",
+   "subcategoria": "",
+   "nombre": "Cheesecake de frutos rojos",
+   "descripcion": "Cheesecake horneado con mermelada de frutos rojos.",
+   "precio": 15000,
+   "opciones": ""
+  }
+ ]
+}

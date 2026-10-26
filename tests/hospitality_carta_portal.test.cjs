@@ -170,6 +170,7 @@ test('asistente: categoría -> subcategoría, receta con casillas y precio; plat
   assert.match(html, /<option value="">La de la categoría \(parrilla\)<\/option>/);
   await ctx.click('data-wz-toggle', 'requires_term');
   ctx.dom.typed = {};
+  await ctx.click('data-wz-next'); // 057A: paso 6 Foto (opcional)
   await ctx.click('data-wz-save');
   assert.ok(screens < 6, `se crea en ${screens} pasos`);
 
@@ -205,6 +206,7 @@ test('producto del inventario: un solo producto y el precio ya cargado en el ins
   ctx.dom.typed = { price: '4500' }; // lo ajusta
   await ctx.click('data-wz-next');
   ctx.dom.typed = {};
+  await ctx.click('data-wz-next'); // 057A: paso 6 Foto (opcional)
   await ctx.click('data-wz-save');
   const create = ctx.calls.find((c) => c.path === '/items');
   assert.equal(create.body.kind, 'directo');
@@ -227,6 +229,7 @@ test('sin receta se salta los ingredientes; sin estación en la categoría avisa
   await ctx.click('data-wz-next');
   assert.match(ctx.cxCarWizHtml049J(), /Su categoría no tiene estación/);
   ctx.dom.typed = {};
+  await ctx.click('data-wz-next'); // 057A: paso 6 Foto (opcional)
   await ctx.click('data-wz-save');
   assert.equal(ctx.calls.find((c) => c.path === '/items').body.kind, 'preparado');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.calls.find((c) => c.path === '/items/n3/recipe').body)), { lines: [] });
@@ -249,6 +252,7 @@ test('combo: se arma marcando platos de la carta o insumos y manda sus partes', 
   ctx.dom.typed = { price: '45000' };
   await ctx.click('data-wz-next');
   ctx.dom.typed = {};
+  await ctx.click('data-wz-next'); // 057A: paso 6 Foto (opcional)
   await ctx.click('data-wz-save');
   assert.equal(ctx.calls.find((c) => c.path === '/items').body.kind, 'combo');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.calls.find((c) => c.path === '/items/n4/recipe').body.lines)),
@@ -513,6 +517,7 @@ test('costo de la porción al escribir la cantidad: 3 gr de tomate de $4.000 el 
   await ctx.click('data-wz-next');
   ctx.dom.typed = {};
   ctx.respond = (path) => ({ ...UNITS_DATA, ...(path === '/items' ? { created_id: 'h1' } : {}) });
+  await ctx.click('data-wz-next'); // 057A: paso 6 Foto (opcional)
   await ctx.click('data-wz-save');
   const recipe = ctx.calls.find((c) => c.path === '/items/h1/recipe');
   assert.deepEqual(JSON.parse(JSON.stringify(recipe.body.lines)),
@@ -835,4 +840,124 @@ test('factura: se adjunta en la ventana de compra y se ve desde la nota de la ú
   assert.ok(upload, 'sube la factura de esa compra');
   assert.deepEqual(upload.form, [['invoice', file]]);
   assert.match(ctx.notices.at(-1)[1], /Compra registrada en Carne asada con su factura/);
+});
+
+// ---------------------------------------------------------------- 057A Foto
+function photoFile(ctx, role, name = 'plato.jpg') {
+  return ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-photo-file]'
+    ? { getAttribute: () => role, files: [{ name, size: 2000 }] } : null) } });
+}
+
+function withDish(id) {
+  const dish = { id, name: 'Limonada', display_name: 'Limonada', price: 9000, category_id: 'cat-bebidas', top_category_id: 'cat-bebidas',
+    category_label: 'BEBIDAS', kind: 'preparado', active: true, available: true, recipe: [], cost: null, margin: null };
+  return { ...DATA, items: [...DATA.items, dish] };
+}
+
+async function toPhotoStep(ctx, id = 'n9') {
+  ctx.respond = (path) => ({ ...withDish(id), ...(path === '/items' ? { created_id: id } : {}) });
+  await ctx.click('data-car-new');
+  await ctx.click('data-wz-cat', 'cat-bebidas');
+  ctx.dom.typed = { name: 'Limonada' };
+  await ctx.click('data-wz-next');
+  await ctx.click('data-wz-mode', 'sin');
+  ctx.dom.typed = {};
+  await ctx.click('data-wz-next');
+  ctx.dom.typed = { price: '9000' };
+  await ctx.click('data-wz-next');
+  ctx.dom.typed = {};
+  await ctx.click('data-wz-next');
+  assert.equal(ctx.cxCarWiz049J.step, 6);
+}
+
+test('057A carta simple: el paso Foto (6) sube la foto del plato sin cupo ni video', async () => {
+  const ctx = portal(DATA);
+  ctx.cxCarMedia057A = { carta_video: false, media: {} };
+  await toPhotoStep(ctx);
+  let html = ctx.cxCarWizHtml049J();
+  assert.match(html, /6\. Foto/);
+  assert.match(html, /Foto del plato[\s\S]*data-wz-photo-file="front"/);
+  assert.doesNotMatch(html, /data-wz-photo-file="side"|Te quedan|Estilo del video/);
+  assert.match(html, /data-wz-save/, 'el último paso guarda; la foto es opcional');
+  await photoFile(ctx, 'front');
+  html = ctx.cxCarWizHtml049J();
+  assert.match(html, /src="blob:x"[\s\S]*Toca para cambiarla/);
+  ctx.respond = (path) => (path.startsWith('/menu-video/') ? { carta_video: false, media: { n9: { has_photo: true, photo_url: '/menu-media/c1/a.webp' } } } : { ...withDish('n9'), created_id: 'n9' });
+  await ctx.click('data-wz-save');
+  const upload = ctx.calls.find((c) => c.form);
+  assert.equal(upload.path, '/menu-video/companies/c1/items/n9/photo');
+  assert.deepEqual(upload.form.map(([k]) => k), ['front', 'style']);
+  assert.match(ctx.cxCarPlatosHtml049J(), /Plato guardado[\s\S]*<img src="\/menu-media\/c1\/a\.webp"[\s\S]*Foto del plato/);
+});
+
+test('057A sin elegir foto se guarda igual y no sube nada; quitar la foto al guardar', async () => {
+  const ctx = portal(DATA);
+  ctx.cxCarMedia057A = { carta_video: false, media: { d1: { has_photo: true, photo_url: '/menu-media/c1/p.webp' } } };
+  await toPhotoStep(ctx);
+  await ctx.click('data-wz-save');
+  assert.ok(!ctx.calls.some((c) => c.form || c.path.startsWith('/menu-video/')), 'sin foto no sube nada');
+  // editar un plato con foto: "Quitar la foto" la borra al guardar
+  ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(DATA.items.find((d) => d.id === 'd1')), step: 6 };
+  assert.match(ctx.cxCarWizHtml049J(), /\/menu-media\/c1\/p\.webp[\s\S]*data-wz-photo-remove/);
+  await ctx.click('data-wz-photo-remove');
+  assert.match(ctx.cxCarWizHtml049J(), /La foto se quita al guardar/);
+  ctx.respond = (path) => (path.startsWith('/menu-video/') ? { carta_video: false, media: {} } : DATA);
+  await ctx.click('data-wz-save');
+  assert.ok(ctx.calls.some((c) => c.path === '/menu-video/companies/c1/items/d1/photo' && c.method === 'DELETE'));
+});
+
+test('057A carta en video: frente y perfil, estilo, cupo del mes; sin cupo "Solicitar más"', async () => {
+  const ctx = portal(DATA);
+  const quota = (left) => ({ month: '2026-10', new: { used: 3 - left, limit: 3, left }, changes: { used: 0, limit: 3, left: 3 } });
+  ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, quota: quota(2), styles: { zoom: 'Acercamiento', front_side: 'Frente a perfil', pan: 'Paneo' } };
+  await toPhotoStep(ctx);
+  let html = ctx.cxCarWizHtml049J();
+  assert.match(html, /data-wz-photo-file="front"[\s\S]*data-wz-photo-file="side"/);
+  assert.match(html, /Te quedan 2 de 3 este mes \(platos nuevos con foto y video\)\. Cambiar precio, nombre, descripción u opciones no gasta cupo\./);
+  await photoFile(ctx, 'front');
+  await photoFile(ctx, 'side', 'perfil.jpg');
+  html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Estilo del video<select data-wz-field="style">[\s\S]*Frente a perfil/);
+  ctx.dom.typed = { style: 'front_side' };
+  ctx.respond = (path) => (path.startsWith('/menu-video/')
+    ? { ...ctx.cxCarMedia057A, quota: quota(1), media: { n9: { has_photo: true, photo_url: '/m/f.webp' } }, jobs: { n9: { status: 'en_cola' } } }
+    : { ...withDish('n9'), created_id: 'n9' });
+  ctx.setTimeout = () => 0;
+  await ctx.click('data-wz-save');
+  const upload = ctx.calls.find((c) => c.form);
+  assert.deepEqual(upload.form.map(([k, v]) => (k === 'style' ? `${k}=${v}` : k)), ['front', 'side', 'style=front_side']);
+  assert.match(ctx.cxCarPlatosHtml049J(), /Creando el video del plato/);
+  // sin cupo: el botón cambia a "Solicitar más" y avisa por n8n
+  ctx.cxCarMedia057A = { ...ctx.cxCarMedia057A, quota: quota(0) };
+  await toPhotoStep(ctx, 'n10');
+  await photoFile(ctx, 'front');
+  html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Te quedan 0 de 3 este mes[\s\S]*Ya usaste tu cupo de este mes[\s\S]*data-car-quota-request[^>]*>Solicitar más/);
+  ctx.respond = (path) => (path === '/menu-video/companies/c1/quota/request' ? { ok: true, message: 'Te contactaremos para ampliar tu plan.' } : DATA);
+  await ctx.click('data-car-quota-request');
+  const asked = ctx.calls.find((c) => c.path === '/menu-video/companies/c1/quota/request');
+  assert.equal(asked.method, 'POST');
+  assert.match(ctx.cxCarWizHtml049J(), /Te contactaremos para ampliar tu plan\./);
+});
+
+test('057A el servidor dice sin cupo: el plato queda guardado y aparece "Solicitar más"', async () => {
+  const ctx = portal(DATA);
+  ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, quota: { month: '2026-10', new: { used: 2, limit: 3, left: 1 }, changes: { used: 0, limit: 3, left: 3 } }, styles: {} };
+  await toPhotoStep(ctx);
+  await photoFile(ctx, 'front');
+  ctx.apiForm = async (path, form) => { ctx.calls.push({ path, method: 'POST', form: form.parts });
+    throw new Error('409 Conflict {"detail":{"code":"sin_cupo","kind":"nuevo","message":"Ya usaste los 3 platos nuevos con foto de este mes. Puedes solicitar más cupo."}}'); };
+  await ctx.click('data-wz-save');
+  assert.equal(ctx.cxCarWiz049J, null, 'el plato se guardó');
+  assert.match(ctx.cxCarPlatosHtml049J(), /Plato guardado[\s\S]*Ya usaste los 3 platos nuevos[\s\S]*data-car-quota-request[^>]*>Solicitar más/);
+});
+
+test('057A platos importados: "Receta pendiente" en la tarjeta (no "Sin receta") y miniatura con foto', () => {
+  const ctx = portal(DATA);
+  const dish = { ...DATA.items.find((d) => d.id === 'd1'), recipe_pending: true, no_recipe: true };
+  ctx.cxCarMedia057A = { carta_video: true, media: { d1: { has_photo: true, photo_url: '/m/f.webp', poster_url: '/m/p.webp' } } };
+  const card = ctx.cxCarCardHtml049J(dish);
+  assert.match(card, /<img class="cx-car-thumb-057a" src="\/m\/p\.webp"/);
+  assert.match(card, /Receta pendiente/);
+  assert.doesNotMatch(card, /Sin receta/);
 });

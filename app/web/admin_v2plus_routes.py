@@ -139,6 +139,11 @@ async def admin_v2plus_audit_js():
     return _file("admin_v2plus_audit.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-menu-video.js", include_in_schema=False)
+async def admin_v2plus_menu_video_js():
+    return _file("admin_v2plus_menu_video.js", "application/javascript")
+
+
 @router.get("/admin-v2plus-billing.js", include_in_schema=False)
 async def admin_v2plus_billing_js():
     return _file("admin_v2plus_billing.js", "application/javascript")

@@ -218,11 +218,13 @@ async def carta_inventory_lite(db: AsyncSession, company_id: Any) -> list[dict]:
     dishes, lines = await load_dishes(db, company_id)
     categories = {c["id"]: c for c in await load_categories(db, company_id)}
     catalog = _catalog(dishes, lines)
+    media, extras, video = await _menu_media(db, company_id)
     out = []
     for dish in dishes:
         insumo = insumos.get(str(dish.get("inventory_item_id"))) if dish.get("kind") == "directo" else None
         price = float(Decimal(str(dish.get("price") or 0)))
         top, sub = resolve_category(dish, categories)
+        shown = media.get(str(dish["id"])) or {}
         out.append({
             "id": str(dish["id"]), "sku": (insumo or {}).get("sku") or "", "name": display_name(dish),
             "price": price, "unit_price": price,
@@ -231,8 +233,25 @@ async def carta_inventory_lite(db: AsyncSession, company_id: Any) -> list[dict]:
             "category_key": top["id"] if top else "", "category_label": top["label"] if top else "",
             "subcategory_key": sub["id"] if sub else "", "subcategory_label": sub["label"] if sub else "",
             **effective_kitchen(dish, top, sub), "carta_kind": dish.get("kind") or "directo",
+            # Menu video: foto del plato (todas) y, con carta_video, su clip y portada.
+            "description": (extras.get(str(dish["id"])) or {}).get("description", ""),
+            "photo_url": shown.get("photo_url", ""),
+            **({"video_url": shown.get("video_url", ""), "poster_url": shown.get("poster_url", "")} if video else {}),
         })
     return out
+
+
+async def _menu_media(db: AsyncSession, company_id: Any) -> tuple[dict, dict, bool]:
+    """Fotos/clips y descripcion de los platos. Si algo falla, la carta de
+    siempre (sin fotos): nunca rompe el menu."""
+    try:
+        from app.services import menu_video
+
+        video = await menu_video.video_on(db, company_id)
+        return await menu_video.media_map(db, company_id, video=video), await menu_video.dish_extras(db, company_id), video
+    except Exception as exc:
+        logging.getLogger("clonexa.carta").warning("Menu video no disponible: %s", type(exc).__name__)
+        return {}, {}, False
 
 
 async def _image_versions(db: AsyncSession, company_id: Any) -> dict[str, str]:
@@ -475,6 +494,7 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
     catalog = _catalog(dishes, lines)
     images = await _image_versions(db, company_id)
     settings = await _settings(db, company_id)
+    _media, extras, _video = await _menu_media(db, company_id)
     items = []
     for dish in dishes:
         dish_lines = lines.get(str(dish["id"]), [])
@@ -495,6 +515,9 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
             "recipe": _with_shares([_line_payload(l, insumos, catalog[0]) for l in dish_lines], dish.get("price")),
             **{k: summary[k] for k in ("cost", "margin", "margin_pct", "below_cost", "missing_cost", "no_recipe",
                                        "missing_equivalence", "cost_suspect")},
+            # Menu video: los platos que llegan de la carta importada quedan con "receta pendiente".
+            "description": (extras.get(str(dish["id"])) or {}).get("description", ""),
+            "recipe_pending": bool((extras.get(str(dish["id"])) or {}).get("recipe_pending")),
         })
     purchases = await load_last_purchases(db, company_id)
     return {"items": items, "insumos": [_insumo_payload(r, purchases.get(key)) for key, r in insumos.items()],
@@ -693,8 +716,20 @@ async def save_recipe(company_id: uuid.UUID, item_id: uuid.UUID, payload: Recipe
                "yield_pct": line.yield_pct if not line.component_item_id else 100, "position": position,
                "unit": "" if line.component_item_id else (engine.recipe_unit(line.unit)
                                                            or engine.default_recipe_unit(insumos.get(str(line.inventory_item_id or ""))))})
+    await _clear_recipe_pending(db, company_id, item_id)
     await db.commit()
     return await _carta_payload(db, company_id)
+
+
+async def _clear_recipe_pending(db: AsyncSession, company_id: uuid.UUID, item_id: uuid.UUID) -> None:
+    """Al guardar "¿Cómo se arma?" el plato deja de estar en receta pendiente."""
+    try:
+        async with db.begin_nested():
+            await db.execute(text("""
+                UPDATE carta_items SET recipe_pending = false WHERE id = CAST(:i AS uuid) AND company_id = CAST(:c AS uuid) AND recipe_pending
+            """), {"i": str(item_id), "c": str(company_id)})
+    except Exception as exc:  # columna aun sin migrar
+        logging.getLogger("clonexa.carta").warning("recipe_pending: %s", type(exc).__name__)
 
 
 # ----------------------------------------------------------- insumos ---
@@ -1052,6 +1087,13 @@ async def delete_dish(company_id: uuid.UUID, item_id: uuid.UUID, db: AsyncSessio
         DELETE FROM hospitality_product_images WHERE company_id = CAST(:c AS uuid) AND inventory_item_id = CAST(:id AS uuid)
           AND NOT EXISTS (SELECT 1 FROM inventory_items WHERE id = CAST(:id AS uuid) AND company_id = CAST(:c AS uuid))
     """), {"id": str(item_id), "c": str(company_id)})
+    try:
+        from app.services import menu_video
+
+        async with db.begin_nested():
+            await menu_video.remove_photos(db, str(company_id), str(item_id))
+    except Exception as exc:  # sin tabla o sin bucket: el plato igual se elimina
+        logging.getLogger("clonexa.carta").warning("Menu video al eliminar plato: %s", type(exc).__name__)
     await db.commit()
     return await _carta_payload(db, company_id)
 
@@ -1295,9 +1337,12 @@ async def public_carta(token: str, db: AsyncSession = Depends(get_db)) -> dict:
     from app.api.v1.endpoints.waiter_ordering import build_waiter_menu
 
     menu = await build_waiter_menu(db, company["id"])
+    media, extras, _video = await _menu_media(db, company["id"])
 
     def product(p: dict) -> dict:
         return {"id": str(p.get("id")), "name": p.get("name") or "", "price": p.get("price") or 0,
+                "photo_url": (media.get(str(p.get("id"))) or {}).get("photo_url", ""),
+                "description": (extras.get(str(p.get("id"))) or {}).get("description", ""),
                 "has_image": bool(p.get("has_image")), "image_item_id": p.get("image_item_id") or p.get("id"),
                 "subcategory_key": p.get("subcategory_key") or "", "is_portioned": bool(p.get("is_portioned")),
                 "portions": [{"label": x.get("label") or x.get("portion_label") or "", "price": x.get("price") or 0}

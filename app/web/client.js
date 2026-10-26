@@ -37127,7 +37127,8 @@ function inventoryCreatePayload() {
   var cxCarWiz049J = null; // asistente abierto; null = lista de tarjetas
   var cxCarUi049J = { confirmDelete: "", addingCategory: false, addingSub: "", summary: "", qr: null, qrConfirm: false,
     moving: false, selected: [], confirmCatDelete: "", newCategory: false };
-  const CX_CAR_STEPS_049J = ["Categoría", "Nombre", "¿Cómo se arma?", "Precio", "Opciones"];
+  // 057A: paso Foto para TODAS las empresas con Carta (con carta_video: frente y perfil, clip y cupo).
+  const CX_CAR_STEPS_049J = ["Categoría", "Nombre", "¿Cómo se arma?", "Precio", "Opciones", "Foto"];
   const CX_CAR_MODES_049J = {
     receta: ["Con ingredientes", "Churrasco, hamburguesa: descuenta cada ingrediente"],
     directo: ["Producto del inventario", "Gaseosa, cerveza: descuenta ese producto"],
@@ -37405,6 +37406,7 @@ function inventoryCreatePayload() {
       direct: direct ? { inventory_item_id: direct.id, insumo: direct.name, unit: direct.consumption_unit, quantity: dish.direct_qty || 1 } : null,
       allows_portions: !!dish?.allows_portions, requires_term: !!dish?.requires_term, active: dish ? !!dish.active : true,
       search: "", error: "", busy: false,
+      photoFront: null, photoSide: null, frontPreview: "", sidePreview: "", photoRemove: false, style: "auto",
     };
   }
 
@@ -37530,7 +37532,7 @@ function inventoryCreatePayload() {
 
   function cxCarWizHtml049J() {
     const wiz = cxCarWiz049J;
-    const bodies = [null, cxCarWizCategoryHtml049J, cxCarWizNameHtml049J, cxCarWizPartsHtml049J, cxCarWizPriceHtml049J, cxCarWizFinishHtml049J];
+    const bodies = [null, cxCarWizCategoryHtml049J, cxCarWizNameHtml049J, cxCarWizPartsHtml049J, cxCarWizPriceHtml049J, cxCarWizFinishHtml049J, cxCarWizPhotoHtml057A];
     const last = wiz.step === CX_CAR_STEPS_049J.length;
     return `
       <div class="cx-car-wiz-049j" data-car-wizard>
@@ -37559,7 +37561,8 @@ function inventoryCreatePayload() {
     if (!d.active) flags.push(`<em>Oculto</em>`);
     if (d.active && !d.available) flags.push(`<em class="bad">Sin existencias</em>`);
     if (d.below_cost) flags.push(`<em class="bad">Precio por debajo del costo</em>`);
-    if (d.no_recipe) flags.push(`<em class="bad">${d.kind === "combo" ? "Combo vacío" : "Sin receta"}</em>`);
+    if (d.recipe_pending) flags.push(`<em class="bad">Receta pendiente</em>`); // 057A: llegó de la carta importada
+    else if (d.no_recipe) flags.push(`<em class="bad">${d.kind === "combo" ? "Combo vacío" : "Sin receta"}</em>`);
     if (d.category_id && !d.effective_station) flags.push(`<em class="bad">Sin estación de cocina</em>`);
     if ((d.missing_cost || []).length) flags.push(`<em>Sin costo: ${h(d.missing_cost.join(", "))}</em>`);
     if ((d.missing_equivalence || []).length) flags.push(`<em class="bad">Falta equivalencia: ${h(d.missing_equivalence.join(", "))}</em>`);
@@ -37572,6 +37575,7 @@ function inventoryCreatePayload() {
     const moving = cxCarUi049J.moving;
     return `
       <article class="cx-car-card-049j ${d.below_cost ? "below" : ""} ${moving && cxCarUi049J.selected.includes(d.id) ? "picked" : ""}" data-car-card="${h(d.id)}">
+        ${cxCarThumbHtml057A(d)}
         <div class="cx-car-card-body-049j">
           ${moving ? `<label class="cx-car-pick-049k"><input type="checkbox" data-car-select="${h(d.id)}" ${cxCarUi049J.selected.includes(d.id) ? "checked" : ""}> Mover</label>` : ""}
           <b>${h(d.display_name || d.name)}</b>
@@ -37637,6 +37641,7 @@ function inventoryCreatePayload() {
           <dt>Margen</dt><dd>${cxCarMarginHtml049J(d)}</dd></dl>
         ${cxCarRecipeBreakdown049N(d)}
         ${cxCarFlagsHtml049J(d)}
+        ${cxCarPhotoSummaryHtml057A(d)}
         <div class="cx-car-actions-048t"><button class="client-btn primary" type="button" data-car-new>+ Crear otro plato</button><button class="client-btn" type="button" data-car-summary-close>Ver todos los platos</button></div>
       </div>`;
   }
@@ -37784,6 +37789,7 @@ function inventoryCreatePayload() {
               unit: l.unit || cxCarDefaultUnit049N(cxCarInsumo049N(l.inventory_item_id)) }));
         data = await cxCarApi048T(`/items/${encodeURIComponent(wiz.id)}/recipe`, { method: "PUT", body: JSON.stringify({ lines }) });
       }
+      await cxCarPhotoSave057A(wiz); // el plato ya quedó guardado: un error de la foto no lo deshace
       cxCar048T.data = data;
       cxCar048T.error = "";
       cxCarUi049J.summary = wiz.id;
@@ -37929,6 +37935,7 @@ function inventoryCreatePayload() {
       cxCar048T.message = "Código cambiado: imprime el QR nuevo.";
       return paint();
     }
+    if (await cxCarPhotoClick057A(target)) return true;
     // --- asistente
     if (!wiz) return false;
     if (target.closest("[data-wz-check]")) return true; // la casilla la maneja el evento change
@@ -38053,6 +38060,7 @@ function inventoryCreatePayload() {
 
   async function cxCarOnChange049J(event) {
     const wiz = cxCarWiz049J;
+    if (cxCarPhotoChange057A(event)) return;
     const check = event.target.closest?.("[data-wz-check]");
     if (check && wiz) {
       cxCarWizToggle049K(wiz, check.getAttribute("data-wz-check"), check.checked);
@@ -38107,6 +38115,7 @@ function inventoryCreatePayload() {
     try {
       cxCar048T.data = await cxCarApi048T("");
       cxCar048T.error = "";
+      await cxCarMediaLoad057A();
     } catch (error) {
       cxCar048T.error = cxCarErr048T(error);
     }
@@ -38121,6 +38130,7 @@ function inventoryCreatePayload() {
     cxCarStyles048T();
     cxCarStyles049J();
     cxCarStyles049N();
+    cxCarStyles057A();
     const company = state.company || {};
     $("app").innerHTML = `
       <main class="client-shell"><div class="client-layout">
@@ -39186,6 +39196,249 @@ function inventoryCreatePayload() {
     });
   }
   /* CX_INV_INSUMOS_049Q_END */
+  // 057A: Foto del plato (todas las empresas con Carta). Con carta_video: frente
+  // y perfil, remasterizado y clip de 3 s en el servidor (sin IA), vista previa
+  // y cupo mensual ("Te quedan X de 3 este mes"; sin cupo, "Solicitar más").
+  var cxCarMedia057A = null; // estado de /menu-video/.../portal (fotos, clips, cupo)
+  var cxCarMediaTimer057A = null;
+
+  function cxCarMediaApi057A(path = "", options = {}) {
+    return api(`/menu-video/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  async function cxCarMediaLoad057A() {
+    try { cxCarMedia057A = await cxCarMediaApi057A("/portal"); } catch (_) { cxCarMedia057A = cxCarMedia057A || null; }
+    cxCarMediaPoll057A();
+  }
+
+  function cxCarMediaOf057A(id) {
+    return (cxCarMedia057A && cxCarMedia057A.media && cxCarMedia057A.media[id]) || null;
+  }
+
+  function cxCarJobOf057A(id) {
+    return (cxCarMedia057A && cxCarMedia057A.jobs && cxCarMedia057A.jobs[id]) || null;
+  }
+
+  function cxCarVideoOn057A() {
+    return Boolean(cxCarMedia057A && cxCarMedia057A.carta_video);
+  }
+
+  function cxCarWorking057A(id) {
+    const job = cxCarJobOf057A(id);
+    return Boolean(job && (job.status === "en_cola" || job.status === "procesando"));
+  }
+
+  // Mientras un clip se crea, se refresca cada 4 s (solo el estado de las fotos).
+  function cxCarMediaPoll057A() {
+    if (cxCarMediaTimer057A) { clearTimeout(cxCarMediaTimer057A); cxCarMediaTimer057A = null; }
+    const jobs = (cxCarMedia057A && cxCarMedia057A.jobs) || {};
+    if (!Object.values(jobs).some((j) => j.status === "en_cola" || j.status === "procesando")) return;
+    cxCarMediaTimer057A = setTimeout(async () => {
+      cxCarMediaTimer057A = null;
+      if (!document.getElementById("cxCarRoot048T")) return;
+      await cxCarMediaLoad057A();
+      cxCarPaint048T();
+    }, 4000);
+  }
+
+  function cxCarQuotaKind057A(wiz) {
+    const media = wiz && wiz.id ? cxCarMediaOf057A(wiz.id) : null;
+    return media && media.has_photo ? "changes" : "new";
+  }
+
+  function cxCarQuotaText057A(kind) {
+    const q = cxCarMedia057A && cxCarMedia057A.quota;
+    if (!q) return "";
+    const b = q[kind];
+    return `Te quedan ${b.left} de ${b.limit} este mes${kind === "new" ? " (platos nuevos con foto y video)" : " (cambios de foto o video)"}.`;
+  }
+
+  function cxCarQuotaLeft057A(kind) {
+    const q = cxCarMedia057A && cxCarMedia057A.quota;
+    return q ? q[kind].left : 1;
+  }
+
+  function cxCarPhotoPick057A(role, label, preview, current) {
+    const url = preview || current || "";
+    return `
+      <label class="cx-car-photo-pick-057a ${url ? "has" : ""}">
+        ${url ? `<img src="${h(url)}" alt="${h(label)}">` : `<span class="cx-car-photo-empty-057a">📷</span>`}
+        <b>${h(label)}</b><small>${url ? "Toca para cambiarla" : "Toca para elegir la foto"}</small>
+        <input type="file" accept="image/jpeg,image/png,image/webp" data-wz-photo-file="${role}">
+      </label>`;
+  }
+
+  function cxCarWizPhotoHtml057A(wiz) {
+    const media = wiz.id ? cxCarMediaOf057A(wiz.id) : null;
+    const video = cxCarVideoOn057A();
+    const current = wiz.photoRemove ? null : media;
+    const picked = Boolean(wiz.photoFront || wiz.photoSide);
+    const kind = cxCarQuotaKind057A(wiz);
+    const blocked = video && picked && cxCarQuotaLeft057A(kind) <= 0;
+    const styles = (cxCarMedia057A && cxCarMedia057A.styles) || {};
+    return `
+      <h3>Foto del plato</h3>
+      <p class="cx-car-note-049k">${video
+        ? "Sube la foto de <b>frente</b> y, si quieres, la de <b>perfil</b>. Al guardar se mejora la luz y el color y se crea un video corto del plato para el QR (en nuestro servidor, sin costo de IA)."
+        : "La foto se ve en el QR de la carta. Es opcional: puedes guardar sin foto."}</p>
+      <div class="cx-car-photo-grid-057a">
+        ${cxCarPhotoPick057A("front", video ? "Frente" : "Foto", wiz.frontPreview, current && current.photo_url)}
+        ${video ? cxCarPhotoPick057A("side", "Perfil (opcional)", wiz.sidePreview, current && current.side_url) : ""}
+        ${video && current && current.video_url && !picked ? `<figure class="cx-car-photo-video-057a"><video src="${h(current.video_url)}" poster="${h(current.poster_url)}" autoplay muted loop playsinline></video><figcaption>Así se ve en el QR</figcaption></figure>` : ""}
+      </div>
+      ${video && picked ? `<label class="cx-car-big-049j">Estilo del video<select data-wz-field="style">${Object.entries({ auto: "Automático", ...styles }).map(([k, v]) => `<option value="${h(k)}" ${wiz.style === k ? "selected" : ""}>${h(v)}</option>`).join("")}</select></label>` : ""}
+      <div class="cx-car-actions-048t">
+        ${picked ? `<button class="client-btn" type="button" data-wz-photo-clear>Deshacer la foto elegida</button>` : ""}
+        ${media && media.has_photo && !wiz.photoRemove && !picked ? `<button class="client-btn danger" type="button" data-wz-photo-remove>Quitar la foto</button>` : ""}
+        ${wiz.photoRemove ? `<span class="cx-car-note-049k">La foto se quita al guardar. <button class="client-btn" type="button" data-wz-photo-keep>No quitar</button></span>` : ""}
+      </div>
+      ${video ? `<p class="cx-car-quota-057a ${cxCarQuotaLeft057A(kind) <= 0 ? "out" : ""}" data-car-quota-left>${h(cxCarQuotaText057A(kind))} Cambiar precio, nombre, descripción u opciones no gasta cupo.</p>` : ""}
+      ${blocked ? `<div class="cx-car-quota-out-057a"><p>Ya usaste tu cupo de este mes. Puedes guardar el plato sin cambiar la foto o pedir más cupo.</p><button class="client-btn primary" type="button" data-car-quota-request>Solicitar más</button></div>` : ""}`;
+  }
+
+  function cxCarPhotoErr057A(error) {
+    const text = String(error?.message || error || "");
+    try {
+      const detail = JSON.parse(text.slice(text.indexOf("{"))).detail;
+      if (detail && typeof detail === "object") return { quota: detail.code === "sin_cupo", message: detail.message || "No se pudo guardar la foto." };
+      if (detail) return { quota: false, message: String(detail) };
+    } catch (_) {}
+    return { quota: false, message: text || "No se pudo guardar la foto." };
+  }
+
+  async function cxCarPhotoSave057A(wiz) {
+    cxCarUi049J.photoError = null;
+    if (!wiz.id) return;
+    try {
+      if (wiz.photoRemove && !wiz.photoFront && !wiz.photoSide) {
+        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/photo`, { method: "DELETE" });
+        return;
+      }
+      if (!wiz.photoFront && !wiz.photoSide) return;
+      const form = new FormData();
+      if (wiz.photoFront) form.append("front", wiz.photoFront);
+      if (wiz.photoSide) form.append("side", wiz.photoSide);
+      form.append("style", wiz.style || "auto");
+      cxCarMedia057A = await apiForm(`/menu-video/companies/${encodeURIComponent(state.companyId)}/items/${encodeURIComponent(wiz.id)}/photo`, form);
+      cxCarMediaPoll057A();
+    } catch (error) {
+      cxCarUi049J.photoError = cxCarPhotoErr057A(error);
+    }
+  }
+
+  function cxCarThumbHtml057A(d) {
+    const media = cxCarMediaOf057A(d.id);
+    if (!media || !media.photo_url) return "";
+    return `<img class="cx-car-thumb-057a" src="${h(media.poster_url || media.photo_url)}" alt="" loading="lazy">`;
+  }
+
+  function cxCarPhotoSummaryHtml057A(d) {
+    const err = cxCarUi049J.photoError;
+    const media = cxCarMediaOf057A(d.id);
+    const job = cxCarJobOf057A(d.id);
+    let body = "";
+    if (err) {
+      body = `<p class="cx-car-note-049k warn">${h(err.message)}</p>${err.quota ? `<button class="client-btn primary" type="button" data-car-quota-request>Solicitar más</button>` : ""}`;
+    } else if (cxCarUi049J.quotaAsked) {
+      body = `<p class="cx-car-note-049k">${h(cxCarUi049J.quotaAsked)}</p>`;
+    } else if (media && media.has_photo) {
+      const working = cxCarWorking057A(d.id);
+      const visual = media.video_url && !working
+        ? `<video src="${h(media.video_url)}" poster="${h(media.poster_url)}" autoplay muted loop playsinline></video>`
+        : `<img src="${h(media.photo_url)}" alt="${h(d.name)}">`;
+      body = `<figure class="cx-car-photo-video-057a">${visual}<figcaption>${working ? "Creando el video del plato… (menos de un minuto)"
+        : job && job.status === "error" ? `No se pudo crear el video: ${h(job.error)}` : cxCarVideoOn057A() ? "Así se ve en el QR" : "Foto del plato"}</figcaption></figure>
+        ${cxCarVideoOn057A() && !working ? `<div class="cx-car-actions-048t">${Object.entries((cxCarMedia057A && cxCarMedia057A.styles) || {}).map(([k, v]) => `<button class="client-btn" type="button" data-car-redo="${h(k)}" data-car-redo-id="${h(d.id)}">Rehacer: ${h(v)}</button>`).join("")}</div>` : ""}`;
+    }
+    return body ? `<div class="cx-car-photo-summary-057a">${body}</div>` : "";
+  }
+
+  async function cxCarPhotoClick057A(target) {
+    const ui = cxCarUi049J;
+    const wiz = cxCarWiz049J;
+    if (target.closest("[data-car-quota-request]")) {
+      try {
+        const out = await cxCarMediaApi057A("/quota/request", { method: "POST", body: JSON.stringify({ detalle: "Más cupo de platos nuevos y cambios de foto/video" }) });
+        ui.quotaAsked = out.message || "Te contactaremos para ampliar tu plan.";
+        ui.photoError = null;
+        if (wiz) wiz.error = ui.quotaAsked;
+      } catch (error) {
+        if (wiz) wiz.error = cxCarPhotoErr057A(error).message;
+        else ui.photoError = cxCarPhotoErr057A(error);
+      }
+      cxCarPaint048T();
+      return true;
+    }
+    const redo = target.closest("[data-car-redo]");
+    if (redo) {
+      try {
+        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(redo.getAttribute("data-car-redo-id"))}/redo`,
+          { method: "POST", body: JSON.stringify({ style: redo.getAttribute("data-car-redo") }) });
+        cxCarMediaPoll057A();
+      } catch (error) {
+        ui.photoError = cxCarPhotoErr057A(error);
+      }
+      cxCarPaint048T();
+      return true;
+    }
+    if (!wiz) return false;
+    if (target.closest("[data-wz-photo-remove]")) { wiz.photoRemove = true; cxCarPaint048T(); return true; }
+    if (target.closest("[data-wz-photo-keep]")) { wiz.photoRemove = false; cxCarPaint048T(); return true; }
+    if (target.closest("[data-wz-photo-clear]")) {
+      [wiz.frontPreview, wiz.sidePreview].forEach((u) => { if (u) try { URL.revokeObjectURL(u); } catch (_) {} });
+      Object.assign(wiz, { photoFront: null, photoSide: null, frontPreview: "", sidePreview: "" });
+      cxCarPaint048T();
+      return true;
+    }
+    return false;
+  }
+
+  function cxCarPhotoChange057A(event) {
+    const input = event.target.closest?.("[data-wz-photo-file]");
+    const wiz = cxCarWiz049J;
+    if (!input || !wiz) return false;
+    const file = input.files && input.files[0];
+    if (!file) return true;
+    if (file.size > 15 * 1024 * 1024) { wiz.error = "La foto pesa más de 15 MB."; cxCarPaint048T(); return true; }
+    const role = input.getAttribute("data-wz-photo-file") === "side" ? "Side" : "Front";
+    const old = wiz[`${role.toLowerCase()}Preview`];
+    if (old) try { URL.revokeObjectURL(old); } catch (_) {}
+    wiz[`photo${role}`] = file;
+    wiz[`${role.toLowerCase()}Preview`] = URL.createObjectURL(file);
+    wiz.photoRemove = false;
+    wiz.error = "";
+    cxCarPaint048T();
+    return true;
+  }
+
+  function cxCarStyles057A() {
+    if (document.getElementById("cxCar057AStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxCar057AStyles";
+    style.textContent = `
+      .cx-car-photo-grid-057a { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; margin:8px 0 12px; }
+      .cx-car-photo-pick-057a { position:relative; display:grid; gap:4px; justify-items:center; text-align:center; padding:12px; min-height:180px; border-radius:16px;
+        border:2px dashed color-mix(in srgb, currentColor 35%, transparent); background:color-mix(in srgb, currentColor 5%, transparent); cursor:pointer; }
+      .cx-car-photo-pick-057a.has { border-style:solid; }
+      .cx-car-photo-pick-057a:focus-within { outline:3px solid #22c55e; outline-offset:2px; }
+      .cx-car-photo-pick-057a input { position:absolute; inset:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+      .cx-car-photo-pick-057a img { width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:10px; }
+      .cx-car-photo-pick-057a small { opacity:.75; }
+      .cx-car-photo-empty-057a { display:grid; place-items:center; width:100%; aspect-ratio:3/4; font-size:34px; border-radius:10px; background:color-mix(in srgb, currentColor 6%, transparent); }
+      .cx-car-photo-video-057a { margin:0; display:grid; gap:6px; justify-items:center; }
+      .cx-car-photo-video-057a video, .cx-car-photo-video-057a img { width:min(220px, 100%); aspect-ratio:9/16; object-fit:cover; border-radius:18px; background:#000; }
+      .cx-car-photo-video-057a figcaption { font-size:13px; opacity:.8; text-align:center; }
+      .cx-car-photo-summary-057a { display:grid; gap:10px; justify-items:start; margin-top:10px; }
+      .cx-car-quota-057a { font-weight:700; margin:10px 0 0; }
+      .cx-car-quota-057a.out { color:#fca5a5; }
+      .cx-car-quota-out-057a { display:grid; gap:8px; justify-items:start; padding:12px; margin-top:10px; border-radius:14px; border:1px solid rgba(248,113,113,.6); }
+      .cx-car-quota-out-057a p { margin:0; }
+      .cx-car-thumb-057a { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; }
+      @media (max-width: 420px) { .cx-car-photo-grid-057a { grid-template-columns:1fr 1fr; } .cx-car-photo-pick-057a { min-height:150px; } }
+    `;
+    document.head.appendChild(style);
+  }
+
   /* CX_CARTA_048T_END */
 
 

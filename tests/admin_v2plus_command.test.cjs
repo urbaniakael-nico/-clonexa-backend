@@ -130,7 +130,7 @@ test('una sección sin archivo propio cae en "Próximamente" (hoy ninguna: Estud
 
 test('HTML y tema: menú completo, logo idéntico a Admin V2 y colores Catedral', () => {
   // Menú final (Fase 3), en este orden exacto y sin Facturación.
-  const order = ['Centro de mando', 'Empresas', 'Catálogo', 'Interruptores', 'Estudio de marca', 'Accesos y sesiones', 'Salud y seguridad', 'Facturación', 'Landing'];
+  const order = ['Centro de mando', 'Empresas', 'Catálogo', 'Interruptores', 'Estudio de marca', 'Menú video', 'Accesos y sesiones', 'Salud y seguridad', 'Facturación', 'Landing'];
   const nav = [...html.matchAll(/data-vp-view="[a-z]+">([^<]+)<\/button>/g)].map((m) => m[1]);
   assert.deepEqual(nav, order);
   assert.match(html, /data-vp-view="billing">Facturación<\/button>/, 'Facturación ocupa el lugar de Auditoría');

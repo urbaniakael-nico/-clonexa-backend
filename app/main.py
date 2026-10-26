@@ -602,6 +602,16 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.shifts").warning("No se pudo iniciar el vencimiento de cambios de turno: %s", exc)
 
     try:
+        # Menu video: 2 trabajadores de la cola de fotos y clips (ffmpeg, sin IA).
+        from app.services.menu_video import start_workers as start_menu_video_workers
+
+        start_menu_video_workers()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.menu_video").warning("No se pudo iniciar la cola de Menu video: %s", exc)
+
+    try:
         # Juegos en vivo: purga del HMAC del documento y los 4 digitos a los 30 dias (cada hora).
         from app.services.loyalty_games import start_purge_loop
 
@@ -687,4 +697,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Roles por empresa no pudo registrarse: %s", exc)
+try:
+    # Menu video: consola (solo Admin V2) y /menu-media (fotos y clips del bucket).
+    from app.web.menu_video_routes import router as menu_video_router
+    app.include_router(menu_video_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Menu video no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

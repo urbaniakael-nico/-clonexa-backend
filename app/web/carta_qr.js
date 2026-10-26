@@ -29,8 +29,9 @@
 
   function dishListHtml(products) {
     if (!products.length) return `<div class="cq-empty-list">Sin platos por ahora.</div>`;
+    // 057A: la foto del plato, solo si la tiene (sin foto se ve igual que antes)
     return `<ul class="cq-dishes">${products.map((p) => `
-      <li><span>${h(p.name)}</span><b>${p.is_portioned && (p.portions || []).length
+      <li>${p.photo_url ? `<img class="cq-dish-photo-057a" src="${h(p.photo_url)}" alt="" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:12px;flex:none;margin-right:10px">` : ""}<span>${h(p.name)}</span><b>${p.is_portioned && (p.portions || []).length
         ? (p.portions || []).map((x) => `${h(x.label)} ${h(money(x.price))}`).join(" · ")
         : h(money(p.price))}</b></li>`).join("")}</ul>`;
   }

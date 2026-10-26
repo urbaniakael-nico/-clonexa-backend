@@ -1,0 +1,88 @@
+{
+  "name": "Clonexa - Leer carta",
+  "_doc": "Sin secretos. Las credenciales se resuelven al crear el flujo (ops/n8n/deploy_carta_flows.py): __ANTHROPIC_CRED__ = la MISMA de 'Nexa - Publicar en todas' (Z3M4w25F42Snki5j); __CARTA_TOKEN_CRED__ = Header Auth 'Clonexa carta token' (X-Carta-Token, mismo valor que CARTA_IMPORT_TOKEN del backend).",
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "clonexa-leer-carta",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clonexa-leer-carta",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "responseCode": 202,
+        "options": {}
+      },
+      "credentials": { "httpHeaderAuth": "__CARTA_TOKEN_CRED__" }
+    },
+    {
+      "id": "a2",
+      "name": "Armar mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "jsCode": "const b = $json.body || $json;\nconst blocks = [];\nfor (const f of (b.archivos || []).slice(0, 10)) {\n  if (f.tipo === 'pdf') blocks.push({ type: 'document', source: { type: 'url', url: f.url } });\n  else if (f.tipo === 'imagen') blocks.push({ type: 'image', source: { type: 'url', url: f.url } });\n  else if (f.tipo === 'texto') blocks.push({ type: 'text', text: 'Texto de la página de la carta:\\n' + String(f.texto || '').slice(0, 60000) });\n}\nblocks.push({ type: 'text', text: 'Lee esta carta de restaurante y devuelve SOLO el JSON pedido.' });\nconst system = [\n  'Eres un lector de cartas de restaurante. Devuelve únicamente un objeto JSON válido, sin texto antes ni después, con esta forma exacta:',\n  '{\"categorias\":[{\"nombre\":\"\",\"subcategorias\":[{\"nombre\":\"\"}]}],\"platos\":[{\"categoria\":\"\",\"subcategoria\":\"\",\"nombre\":\"\",\"descripcion\":\"\",\"precio\":0,\"opciones\":\"\"}]}',\n  'Reglas: copia nombres y descripciones tal como aparecen (no inventes platos, precios ni descripciones). precio es un número en pesos sin símbolos ni separadores (12.500 -> 12500); si un plato no tiene precio, null. Si no hay subcategoría, usa \"\". opciones: tamaños, acompañantes o términos que la carta ofrezca para ese plato, separados por coma, o \"\". Si un plato tiene varios tamaños con precios distintos, crea un plato por tamaño (\"Limonada 12 oz\").'\n].join('\\n');\nreturn [{ json: { job_id: b.job_id, company_id: b.company_id, callback_url: b.callback_url,\n  request: { model: 'claude-sonnet-5-5', max_tokens: 8000, output_config: { effort: 'low' }, system, messages: [{ role: 'user', content: blocks }] } } }];"
+      }
+    },
+    {
+      "id": "a3",
+      "name": "Claude lee la carta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "__ANTHROPIC_AUTH__",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "anthropic-version", "value": "2023-06-01" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": { "timeout": 180000 }
+      },
+      "credentials": "__ANTHROPIC_CRED__"
+    },
+    {
+      "id": "a4",
+      "name": "Extraer JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "parameters": {
+        "jsCode": "const meta = $('Armar mensaje').first().json;\nconst r = $json || {};\nconst out = { job_id: meta.job_id, company_id: meta.company_id };\nif (r.error || !Array.isArray(r.content)) {\n  out.error = 'Claude no respondió: ' + String((r.error && (r.error.message || r.error)) || 'sin contenido').slice(0, 300);\n  return [{ json: { ...out, callback_url: meta.callback_url } }];\n}\nif (r.stop_reason === 'refusal') { out.error = 'Claude no pudo leer esta carta.'; return [{ json: { ...out, callback_url: meta.callback_url } }]; }\nconst text = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\\n').trim();\nconst raw = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\nconst start = raw.indexOf('{'); const end = raw.lastIndexOf('}');\ntry {\n  const data = JSON.parse(raw.slice(start, end + 1));\n  const named = (x) => x && String(x.nombre || '').trim();\n  out.categorias = (Array.isArray(data.categorias) ? data.categorias : []).filter(named).map((c) => ({ ...c, subcategorias: (c.subcategorias || []).filter(named) }));\n  out.platos = (Array.isArray(data.platos) ? data.platos : []).filter(named);\n  out.uso = r.usage || {};\n} catch (e) {\n  out.error = 'La respuesta no era JSON válido.';\n}\nreturn [{ json: { ...out, callback_url: meta.callback_url } }];"
+      }
+    },
+    {
+      "id": "a5",
+      "name": "Devolver a Clonexa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ job_id: $json.job_id, company_id: $json.company_id, categorias: $json.categorias || [], platos: $json.platos || [], error: $json.error || null }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "credentials": { "httpHeaderAuth": "__CARTA_TOKEN_CRED__" }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Armar mensaje", "type": "main", "index": 0 }]] },
+    "Armar mensaje": { "main": [[{ "node": "Claude lee la carta", "type": "main", "index": 0 }]] },
+    "Claude lee la carta": { "main": [[{ "node": "Extraer JSON", "type": "main", "index": 0 }]] },
+    "Extraer JSON": { "main": [[{ "node": "Devolver a Clonexa", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

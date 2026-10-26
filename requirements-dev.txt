@@ -1,3 +1,5 @@
 # Solo para pruebas locales (no se instala en Railway).
 # pgserver: Postgres embebido para tests/test_brand_pg.py (consultas reales con asyncpg).
 pgserver==0.1.4
+# imageio-ffmpeg: ffmpeg para las pruebas de Menu video en equipos sin ffmpeg (en Railway viene de apt).
+imageio-ffmpeg==0.6.0

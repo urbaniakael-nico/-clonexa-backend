@@ -138,7 +138,28 @@
       { method: "PUT", headers: auditNote({ ajuste: "corte_diario", motivo: reason }), body: JSON.stringify(body) }),
     // Mismo cuerpo que cxSessPolicyPanel048Q.
     policyBody: (raw) => ({ cutoff_time: raw.cutoff_time, alert_after_hours: Number(raw.alert_after_hours) }),
+    // Menú video: cupo mensual del cliente (platos nuevos y cambios de foto/video) y su registro.
+    quota: (cid) => request(`/admin-v2/api/menu-video/${encodeURIComponent(cid)}/quota`),
+    saveQuota: (cid, body, reason) => request(`/admin-v2/api/menu-video/${encodeURIComponent(cid)}/quota`,
+      { method: "PUT", headers: auditNote({ ajuste: "cupo_carta_video", motivo: reason }), body: JSON.stringify(body) }),
   };
+
+  const QUOTA_KIND = { nuevo: "Plato nuevo", cambio: "Cambio de foto/video", solicitud: "Pidió más cupo" };
+  function quotaCard(q) {
+    if (!q) return `<article class="vp-panel-card"><header><b>Carta en video · cupo mensual</b></header><p class="vp-loading">Cargando…</p></article>`;
+    if (q.error) return `<article class="vp-panel-card"><header><b>Carta en video · cupo mensual</b></header><div class="vp-alert" role="alert"><span>${h(q.error)}</span></div></article>`;
+    if (!q.available) return "";
+    const s = q.quota;
+    const log = arr(q.log).slice(0, 12);
+    return `<article class="vp-panel-card ${q.carta_video ? "is-on" : ""}"><header><b>Carta en video · cupo mensual</b><span class="vp-state-pill">${q.carta_video ? "carta_video encendido" : "carta_video apagado"}</span></header>
+      <p class="vp-login-hint">Mes ${h(s.month)} (hora de Bogotá): ${h(s.new.used)} de ${h(s.new.limit)} platos nuevos y ${h(s.changes.used)} de ${h(s.changes.limit)} cambios de foto/video. Precio, nombre, descripción y opciones no gastan cupo.</p>
+      <form class="vp-form-grid" data-vpw-quota-form>
+        <label class="vp-field">Platos nuevos con foto/video al mes<input type="number" name="quota_new" min="0" max="999" value="${h(s.new.limit)}"></label>
+        <label class="vp-field">Cambios de foto/video al mes<input type="number" name="quota_changes" min="0" max="999" value="${h(s.changes.limit)}"></label>
+        <button class="vp-btn vp-btn-primary" type="submit">Guardar cupo</button></form>
+      ${log.length ? `<table class="vp-table vp-table-compact vp-quota-log"><thead><tr><th>Fecha</th><th>Qué</th><th>Plato / detalle</th><th>Quién</th></tr></thead><tbody>${log.map((r) => `<tr><td>${h(String(r.created_at || "").slice(0, 10))}</td><td>${h(QUOTA_KIND[r.kind] || r.kind)}</td><td>${h(r.dish || r.detail || "")}</td><td>${h(r.actor || "")}</td></tr>`).join("")}</tbody></table>` : `<p class="vp-login-hint">Sin uso registrado todavía.</p>`}
+    </article>`;
+  }
 
   // ------------------------------------------------------------ estado
   const model = { data: null, error: "", notice: "", query: "", kind: "registrada", modal: null, focusKey: "", cfg: { companyId: "", qrRow: null, modules: null, policy: null, error: "" } };
@@ -222,7 +243,7 @@
       <button class="vp-btn vp-btn-primary" type="submit">Guardar corte</button></form>`;
     return `<section class="vp-panel vp-section"><h2>Configuración QR y corte diario</h2>${pick}${err}
       <div class="vp-card-grid"><article class="vp-panel-card"><header><b>Configuración QR</b></header>${qr}</article>
-      <article class="vp-panel-card"><header><b>Corte diario de sesiones</b><span class="vp-state-pill">${h((pol && pol.cutoff_time) || "00:00")}</span></header>${policy}</article></div></section>`;
+      <article class="vp-panel-card"><header><b>Corte diario de sesiones</b><span class="vp-state-pill">${h((pol && pol.cutoff_time) || "00:00")}</span></header>${policy}</article>${quotaCard(cfg.quota)}</div></section>`;
   }
 
   function modalView() {
@@ -280,13 +301,15 @@
 
   async function loadConfig(cid) {
     const cfg = model.cfg;
-    Object.assign(cfg, { companyId: cid, modules: null, qrRow: null, policy: null, error: "" });
+    Object.assign(cfg, { companyId: cid, modules: null, qrRow: null, policy: null, quota: null, error: "" });
     draw();
     if (!cid) return;
-    const [mods, pol] = await Promise.all([
+    const [mods, pol, quota] = await Promise.all([
       config.modules(cid).catch((e) => { cfg.error = e.message; return []; }),
       config.policy(cid).catch((e) => ({ error: e.message })),
+      config.quota(cid).catch((e) => ({ error: e.message })),
     ]);
+    cfg.quota = quota;
     if (cfg.companyId !== cid) return;
     cfg.modules = arr(mods);
     const rows = cfg.modules.map((row) => { const m = row.module && typeof row.module === "object" ? row.module : row; return { code: String(m.code || row.module_code || row.code || ""), enabled: row.enabled !== false, settings: row.settings || {} }; });
@@ -378,6 +401,15 @@
       model.modal = { type: "config", title: "Guardar configuración QR", companyName: company.name, reason: "",
         message: `${payload.table_count}${payload.include_bar ? " + barra" : ""} QR, capacidad ${payload.max_capacity}, tablero ${payload.orders_board === "mesas" ? "Mesas" : "Columnas"}.`,
         run: (reason) => config.saveQr(cid, moduleCode, payload, reason), done: `Configuración QR guardada solo en ${company.name}.` };
+      draw();
+    } else if (form.matches("[data-vpw-quota-form]")) {
+      event.preventDefault();
+      const raw = Object.fromEntries(new FormData(form).entries());
+      const body = { quota_new: Math.max(0, Math.round(Number(raw.quota_new) || 0)), quota_changes: Math.max(0, Math.round(Number(raw.quota_changes) || 0)) };
+      model.modal = { type: "config", title: "Guardar cupo de la carta en video", companyName: company.name, reason: "",
+        message: `${body.quota_new} platos nuevos y ${body.quota_changes} cambios de foto/video por mes.`,
+        run: async (reason) => { const r = await config.saveQuota(cid, body, reason); model.cfg.quota = { ...model.cfg.quota, ...r }; return r; },
+        done: `Cupo guardado solo en ${company.name}.` };
       draw();
     } else if (form.matches("[data-vpw-policy-form]")) {
       event.preventDefault();

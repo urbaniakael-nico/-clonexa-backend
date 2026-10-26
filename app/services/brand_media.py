@@ -319,6 +319,7 @@ def delete_company(company_id: Any) -> int:
         return 0
     store = backend()
     cid = _uuid(company_id)
-    keys = store.list(f"brand/{cid}/") + store.list(f"billing/{cid}/")
+    keys = (store.list(f"brand/{cid}/") + store.list(f"billing/{cid}/") + store.list(f"menuvideo/{cid}/")
+            + store.list(f"menuvideo-import/{cid}/"))
     store.delete(keys)
     return len(keys)
