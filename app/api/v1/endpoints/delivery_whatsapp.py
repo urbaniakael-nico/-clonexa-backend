@@ -264,7 +264,23 @@ async def public_delivery_carta(
         "whatsapp_location": bool(session.get("location")),
         "whatsapp_number": await _whatsapp_number(company_id),
         "checkout_v2": settings.get("checkout_v2") is True,
+        # 057C: con la Carta, la carta nueva del cliente (marca, fotos y videos)
+        **(await _carta_app(db, company_id)),
     }
+
+
+async def _carta_app(db: AsyncSession, company_id: uuid.UUID) -> dict[str, Any]:
+    from app.api.v1.endpoints.carta import carta_enabled
+
+    if not await carta_enabled(db, company_id):
+        return {}
+    try:
+        from app.services import carta_app
+
+        return {"app": await carta_app.payload(db, company_id)}
+    except Exception:
+        await db.rollback()
+        return {}
 
 
 @router.get("/public/{company_id}/payment-qr")

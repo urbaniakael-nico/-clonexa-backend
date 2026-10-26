@@ -1360,5 +1360,15 @@ async def public_carta(token: str, db: AsyncSession = Depends(get_db)) -> dict:
             categories.append({**art(category), "products": products,
                                "subcategories": [{**art(sub), "products": [product(p) for p in sub.get("products") or []]}
                                                  for sub in category.get("subcategories") or []]})
-    return {"company_id": str(company["id"]), "company_name": company["name"], "categories": categories,
-            "menu_emojis": bool(menu.get("menu_emojis"))}
+    out = {"company_id": str(company["id"]), "company_name": company["name"], "categories": categories,
+           "menu_emojis": bool(menu.get("menu_emojis"))}
+    # 057C: la carta QR nueva (marca de la empresa, fotos y videos); si algo
+    # falla, la pagina usa la carta de siempre con lo de arriba.
+    try:
+        from app.services import carta_app
+
+        out["app"] = await carta_app.payload(db, company["id"])
+    except Exception as exc:
+        logging.getLogger("clonexa.carta").warning("carta QR nueva no disponible: %s", type(exc).__name__)
+        await db.rollback()
+    return out

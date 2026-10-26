@@ -55,6 +55,7 @@
     try {
       state.data = await request(`${API}?s=${encodeURIComponent(code)}`);
       state.screen = "categories";
+      mountApp057C();
     } catch (error) {
       state.screen = "error";
       state.error = error.message;
@@ -388,7 +389,33 @@
       </section>`;
   }
 
+  // 057C: empresa con Carta: la carta nueva (marca, fotos y videos). "Continuar
+  // con la entrega" pasa las líneas al carrito de siempre y abre el checkout de
+  // siempre (nombre, dirección, pago): el envío del domicilio no cambia.
+  let app057C = null;
+  function mountApp057C() {
+    if (!state.data || !state.data.app || !window.CxCartaApp || app057C) return;
+    app057C = window.CxCartaApp.mount({ data: state.data.app, adapter: {
+      canOrder: true, where: "Domicilio", submitLabel: "Continuar con la entrega",
+      submit: async (lines) => {
+        state.cart = lines.map((l) => ({ inventory_item_id: l.id, menu_product_id: l.id, name: l.name, unit_price: l.price, quantity: l.quantity,
+          observations: l.note || "", quick_notes: l.quick_notes || [], term: l.term || "" }));
+        state.screen = "checkout";
+        render();
+        nav.push();
+        return { keepCart: true };
+      },
+    } });
+  }
+
+  function syncApp057C() {
+    if (!app057C) return;
+    if (["categories", "products"].includes(state.screen)) app057C.show();
+    else app057C.hide();
+  }
+
   function render() {
+    syncApp057C();
     let html = "";
     if (state.screen === "loading") html = `<section class="dom-center"><p>Cargando la carta...</p></section>`;
     else if (state.screen === "categories") html = screenCategories();

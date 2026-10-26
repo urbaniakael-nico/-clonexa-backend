@@ -916,8 +916,10 @@ async def publish(db: AsyncSession, company_id: Any, import_id: Any, table: dict
                "ckey": clean(dish["categoria"], 80).upper(), "cat": leaf_id, "d": describe(dish)})
         await copy_media(db, cid, dish["ref"], new_id)
         created.append(new_id)
+    previous = ((await get_import(db, cid, import_id)) or {}).get("summary") or {}
+    history = ([{k: previous.get(k) for k in ("new", "updated", "published_at")}] if previous.get("published_at") else []) + list(previous.get("history") or [])
     summary = {**plan["counts"], "new_categories": plan["new_categories"], "created_ids": created,
-               "published_at": datetime.now(timezone.utc).isoformat()}
+               "published_at": datetime.now(timezone.utc).isoformat(), "history": history[:20]}
     await db.execute(text("""
         UPDATE menu_video_imports SET status = 'publicada', summary = CAST(:s AS jsonb), published_at = now(), updated_at = now()
         WHERE id = CAST(:i AS uuid) AND company_id = CAST(:c AS uuid)

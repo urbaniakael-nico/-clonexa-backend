@@ -228,14 +228,31 @@
       </section>`;
   }
 
+  // 057C: "Publicado hoy 3:42 p. m.: 0 nuevos, 1 actualizado" (hora de Bogotá).
+  function whenText(iso, now = new Date()) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const opts = { timeZone: "America/Bogota" };
+    const day = (x) => x.toLocaleDateString("es-CO", { ...opts, year: "numeric", month: "2-digit", day: "2-digit" });
+    const time = d.toLocaleTimeString("es-CO", { ...opts, hour: "numeric", minute: "2-digit" });
+    if (day(d) === day(now)) return `hoy ${time}`;
+    return `${d.toLocaleDateString("es-CO", { ...opts, day: "numeric", month: "short" })}, ${time}`;
+  }
+
+  function lastPublished() {
+    const s = imp() && imp().summary;
+    return s && s.published_at ? s : null;
+  }
+
   function publishStep() {
     const p = model.plan;
-    const done = model.result || (imp() && imp().status === "publicada" ? imp().summary : null);
+    const done = lastPublished();
+    const changes = p ? Number(p.counts.new || 0) + Number(p.counts.updated || 0) : 0;
     return `
       <section class="vp-panel vp-section">
         <h2>5. Publicar en la empresa</h2>
         <p class="vp-mv-muted">Publicar <b>combina</b>, nunca borra: empareja por nombre dentro de la categoría; actualiza precio, descripción, foto y video; los platos nuevos quedan en su Carta con <b>receta pendiente</b> (el QR y los pedidos funcionan igual).</p>
-        ${done ? `<div class="vp-mv-done" role="status"><strong>Publicado</strong> ${h(done.new)} platos nuevos, ${h(done.updated)} actualizados, 0 borrados.</div>` : ""}
+        ${done ? `<div class="vp-mv-done" role="status"><strong>Publicado ${h(whenText(done.published_at))}:</strong> ${h(done.new)} ${done.new === 1 ? "nuevo" : "nuevos"}, ${h(done.updated)} ${done.updated === 1 ? "actualizado" : "actualizados"}, 0 borrados.</div>` : ""}
         ${!p ? `<p class="vp-loading">Calculando…</p>` : `
           <div class="vp-cards vp-mv-sum">
             <div class="vp-panel vp-card vp-card-ok"><span>Platos nuevos</span><strong>${h(p.counts.new)}</strong></div>
@@ -249,7 +266,9 @@
                ...arr(p.updated).map((d) => ({ ...d, what: `Actualiza ${arr(d.changes).join(", ")}` })),
                ...arr(p.unchanged).map((d) => ({ ...d, what: "Sin cambios" }))].map((d) => `<tr><td>${h(d.nombre)}</td><td>${h(d.categoria)}</td><td>${h(money(d.precio))}</td><td>${h(d.what)}</td></tr>`).join("")}
           </tbody></table></div>
-          <div class="vp-head-actions"><button type="button" class="vp-btn vp-btn-primary" data-mv-publish ${model.busy || done ? "disabled" : ""}>Publicar en ${h((model.data && model.data.company.name) || "la empresa")}</button></div>`}
+          <div class="vp-head-actions">${changes > 0
+            ? `<button type="button" class="vp-btn vp-btn-primary" data-mv-publish ${model.busy ? "disabled" : ""}>Publicar en ${h((model.data && model.data.company.name) || "la empresa")}</button>`
+            : `<button type="button" class="vp-btn" disabled>No hay cambios para publicar</button>`}</div>`}
       </section>`;
   }
 
@@ -429,10 +448,10 @@
       if (typeof window.confirm === "function" && !window.confirm(`¿Publicar en ${name}? Combina con su Carta: no borra nada.`)) return;
       const data = await run("Publicando…", () => api.publish(model.companyId, imp().id));
       if (data) {
-        model.result = data.summary;
-        model.notice = `Publicado: ${data.summary.new} platos nuevos, ${data.summary.updated} actualizados, 0 borrados.`;
         if (ctx && ctx.toast) ctx.toast("Carta publicada.");
-        applyState(await api.company(model.companyId));
+        applyState(await api.imp(model.companyId, imp().id)); // el aviso sale de la ÚLTIMA publicación
+        model.plan = data.plan || null; // el resumen se recalcula
+        if (!model.plan) await loadPlan();
         draw();
       }
     }
@@ -528,5 +547,5 @@
     },
     refreshPulse() {},
   };
-  window.CxConsoleMenuVideo = { model, api, view, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
+  window.CxConsoleMenuVideo = { model, api, view, whenText, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
 })();

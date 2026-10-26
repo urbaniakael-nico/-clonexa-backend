@@ -108,3 +108,21 @@ test('paso 5: combinar, nunca borrar', () => {
   assert.match(html, /Actualiza precio, foto\/video/);
   assert.match(html, /data-mv-publish[^>]*>Publicar en Brasa &amp; Maíz/);
 });
+
+test('057C paso 5: se puede volver a publicar; sin cambios "No hay cambios para publicar"; aviso de la última publicación', () => {
+  const published = { new: 12, updated: 0, deleted: 0, published_at: '2026-10-26T20:42:00Z', history: [] };
+  const M = setup(5, { import: { id: 'i1', status: 'publicada', summary: { ...published, new: 0, updated: 1, published_at: '2026-10-26T20:42:00Z',
+    history: [{ new: 12, updated: 0, published_at: '2026-10-26T19:00:00Z' }] }, table_data: { platos: [] } } });
+  M.model.plan = { counts: { new: 0, updated: 1, unchanged: 11, deleted: 0 }, new_categories: [], new: [],
+    updated: [{ nombre: 'Empanadas de la casa', categoria: 'ENTRADAS', precio: 9000, changes: ['foto/video'] }], unchanged: [] };
+  let html = M.publishStep();
+  assert.match(html, /<button type="button" class="vp-btn vp-btn-primary" data-mv-publish >Publicar en Brasa &amp; Maíz/, 'con 1 actualizado el botón está activo');
+  assert.match(html, /Publicado (hoy )?[^:]*3:42[^:]*p\.\s?m\.:<\/strong> 0 nuevos, 1 actualizado, 0 borrados\./);
+  assert.match(html, /Empanadas de la casa[\s\S]*Actualiza foto\/video/);
+  M.model.plan = { counts: { new: 0, updated: 0, unchanged: 12, deleted: 0 }, new_categories: [], new: [], updated: [], unchanged: [] };
+  html = M.publishStep();
+  assert.match(html, /<button type="button" class="vp-btn" disabled>No hay cambios para publicar<\/button>/);
+  assert.doesNotMatch(html, /data-mv-publish/);
+  assert.equal(M.whenText('2026-10-26T20:42:00Z', new Date('2026-10-26T22:00:00Z')).startsWith('hoy '), true);
+  assert.match(M.whenText('2026-10-20T20:42:00Z', new Date('2026-10-26T22:00:00Z')), /^20 (de )?oct/);
+});

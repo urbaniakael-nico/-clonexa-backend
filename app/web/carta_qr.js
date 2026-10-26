@@ -87,6 +87,12 @@
     } catch (error) {
       state.error = error.message || "No se pudo abrir la carta.";
     }
+    // 057C: la carta nueva (marca, fotos y videos). Si no llega, la de siempre.
+    if (state.data && state.data.app && window.CxCartaApp) {
+      document.title = (state.data.app.company && state.data.app.company.name) || "Carta";
+      window.CxCartaApp.mount({ data: state.data.app, adapter: { canOrder: false, where: "" } });
+      return;
+    }
     render();
   }
 

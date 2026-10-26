@@ -5411,7 +5411,9 @@ async def hospitality_inventory_lite(
         return {"ok": True, "company_id": str(company_id), "inventory": (await carta_inventory_lite(db, company_id))[:limit],
                 "quantity_picker": await _quantity_picker_049w(db, company_id),
                 # Menu video: el QR abre la carta en video solo con el interruptor carta_video.
-                "carta_video": await _carta_video_on(db, company_id)}
+                "carta_video": await _carta_video_on(db, company_id),
+                # 057C: la empresa usa la Carta: el QR abre la carta nueva
+                "carta_app": True}
 
     result = await db.execute(
         text(

@@ -221,6 +221,26 @@ async def request_more_quota(company_id: uuid.UUID, payload: QuotaRequestIn, req
     return {"ok": True, "notified": sent, "message": "Te contactaremos para ampliar tu plan.", **({"detail": why} if not sent else {})}
 
 
+# ------------------------------------------------- carta QR de la mesa ---
+class TableIn(BaseModel):
+    table: str = Field(default="Mesa", max_length=120)
+    access_code: str = Field(default="", max_length=12)
+
+
+@router.post("/qr/{company_id}/carta")
+async def table_carta(company_id: uuid.UUID, payload: TableIn, db: AsyncSession = Depends(get_db)) -> dict:
+    """057C: la carta nueva para el QR de la mesa. La credencial es la clave
+    de la mesa activa (la misma que exige el envio del pedido)."""
+    from app.api.v1.endpoints import hospitality as hsp
+    from app.api.v1.endpoints.carta import carta_enabled
+    from app.services import carta_app
+
+    await hsp._require_table_access(db, company_id, payload.table or "Mesa", payload.access_code)
+    if not await carta_enabled(db, company_id):
+        raise HTTPException(status_code=404, detail="Esta empresa no usa la Carta.")
+    return {**await carta_app.payload(db, company_id), "table": payload.table}
+
+
 # ------------------------------------------------------- regreso de n8n ---
 def require_carta_token(request: Request) -> None:
     expected = mv.token()

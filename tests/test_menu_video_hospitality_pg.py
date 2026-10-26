@@ -69,7 +69,12 @@ CREATE TABLE IF NOT EXISTS carta_items (id uuid PRIMARY KEY, company_id uuid NOT
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS carta_recipe_lines (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL,
   carta_item_id uuid NOT NULL REFERENCES carta_items(id) ON DELETE CASCADE, inventory_item_id uuid NULL, component_item_id uuid NULL,
-  quantity numeric(14,4) NOT NULL, yield_pct numeric(6,2) NOT NULL DEFAULT 100, position integer NOT NULL DEFAULT 0, unit varchar(12) NULL)
+  quantity numeric(14,4) NOT NULL, yield_pct numeric(6,2) NOT NULL DEFAULT 100, position integer NOT NULL DEFAULT 0, unit varchar(12) NULL);
+CREATE TABLE IF NOT EXISTS hospitality_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status varchar(40) NOT NULL DEFAULT 'pendiente', created_at timestamptz NOT NULL DEFAULT now(), cancelled_at timestamptz NULL);
+CREATE TABLE IF NOT EXISTS hospitality_table_access (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, table_key text NOT NULL,
+  table_number text, access_code text, status text, activated_at timestamptz DEFAULT now(), expires_at timestamptz, closes_with_table boolean DEFAULT false,
+  created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())
 """
 
 
@@ -178,7 +183,8 @@ def _dish(url, cid, name, price, category_id) -> str:
 @pytest.fixture
 def client(pg_url, monkeypatch):
     _run(pg_url, "TRUNCATE companies, modules, company_modules, inventory_items, carta_categories, carta_items, carta_recipe_lines, "
-                 "menu_media_assets, menu_dish_media, menu_media_jobs, menu_video_imports, menu_video_quota_log CASCADE", fetch=False)
+                 "menu_media_assets, menu_dish_media, menu_media_jobs, menu_video_imports, menu_video_quota_log, hospitality_orders, "
+                 "hospitality_table_access CASCADE", fetch=False)
 
     async def db_dep():
         engine = create_async_engine(pg_url, poolclass=NullPool)
@@ -515,3 +521,106 @@ def test_consola_recorrido_completo(client, pg_url, monkeypatch):
     assert all(i["video_url"].endswith(".mp4") for i in inventory), "lo publicado ya es lo que ve el QR"
     assert all(client.get(i["video_url"]).status_code == 200 for i in inventory)
     assert not _run(pg_url, "SELECT 1 FROM menu_video_quota_log"), "lo que hace Clonexa desde la consola no gasta el cupo del cliente"
+
+
+# ------------------------------------------------------- 057C carta QR nueva
+def _photo(client, cid, dish, seed=7):
+    r = client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo", files=_photo_files(seed))
+    assert r.status_code == 200, r.text
+
+
+def test_carta_qr_nueva_marca_lo_mas_pedido_y_agotado(client, pg_url, monkeypatch):
+    from app.api.v1.endpoints import waiter_ordering
+
+    # la carta de siempre (respaldo) no cambia: aqui no se prueba
+    monkeypatch.setattr(waiter_ordering, "build_waiter_menu", AsyncMock(return_value={"categories": [], "menu_emojis": False}))
+    cid = _company(pg_url, "Brasa", {"carta_video": True, "qr_token": "token-de-la-carta-brasa-0001"})
+    entradas = _category(pg_url, cid, "ENTRADAS")
+    fuertes = _category(pg_url, cid, "FUERTES")
+    lomo = _dish(pg_url, cid, "Lomo", 46000, fuertes)
+    sopa = _dish(pg_url, cid, "Sopa", 15000, entradas)
+    oculto = _dish(pg_url, cid, "Oculto", 9000, fuertes)
+    _run(pg_url, "UPDATE carta_items SET active = false WHERE id = CAST(:i AS uuid)", {"i": oculto}, fetch=False)
+    _run(pg_url, "UPDATE carta_items SET requires_term = true WHERE id = CAST(:i AS uuid)", {"i": lomo}, fetch=False)
+    _photo(client, cid, lomo)
+    _jobs(pg_url)
+    other = _company(pg_url, "Otra")
+    rows = ((cid, [{"menu_item_id": sopa, "quantity": 3}], "now()", "NULL"),
+            (cid, [{"product_id": lomo, "quantity": "1"}], "now()", "NULL"),
+            (cid, [{"menu_item_id": lomo, "quantity": 9}], "now()", "now()"),                       # anulado: no cuenta
+            (cid, [{"menu_item_id": lomo, "quantity": 9}], "now() - interval '40 days'", "NULL"),   # viejo
+            (other, [{"menu_item_id": lomo, "quantity": 50}], "now()", "NULL"))                      # otra empresa
+    for company, items, when, cancelled in rows:
+        _run(pg_url, f"INSERT INTO hospitality_orders (company_id, items, created_at, cancelled_at) VALUES (CAST(:c AS uuid), CAST(:i AS jsonb), {when}, {cancelled})",
+             {"c": company, "i": json.dumps(items)}, fetch=False)
+    body = client.get("/api/v1/carta/public/token-de-la-carta-brasa-0001").json()
+    assert isinstance(body["categories"], list), "lo de siempre sigue (respaldo)"
+    app = body["app"]
+    assert app["company"]["name"] == "Brasa" and app["video"] is True and app["terms"] == ["Crudo", "Medio", "3/4", "Bien cocinado"]
+    assert {"background", "primary", "bg", "font"} <= set(app["theme"]), "la marca del portal"
+    ids = [p["id"] for p in app["products"]]
+    assert oculto not in ids and set(ids) == {lomo, sopa}, "agotado u oculto: no aparece"
+    assert app["top"] == [sopa, lomo] and app["top_source"] == "ventas", "ventas de 30 días de ESA empresa, sin anulados"
+    by_key = {c["key"]: c for c in app["categories"]}
+    assert "/menu-media/" in by_key[fuertes]["image_url"], "sin imagen de categoría: la portada de su primer plato"
+    assert by_key[entradas]["image_url"] == "", "sin ninguna foto: la tarjeta usa los colores de la marca (nunca el ícono genérico)"
+    lomo_p = next(p for p in app["products"] if p["id"] == lomo)
+    assert lomo_p["requires_term"] is True and lomo_p["video_url"].endswith(".mp4")
+    assert '"cost' not in json.dumps(app) and '"stock' not in json.dumps(app), "nunca costos ni existencias"
+    _run(pg_url, "DELETE FROM hospitality_orders", fetch=False)
+    assert client.get("/api/v1/carta/public/token-de-la-carta-brasa-0001").json()["app"]["top"] == [lomo], "sin ventas: los platos con video"
+
+
+def test_carta_de_la_mesa_exige_la_clave(client, pg_url):
+    cid = _company(pg_url, "Brasa", {"carta_video": False})
+    _dish(pg_url, cid, "Lomo", 46000, _category(pg_url, cid, "FUERTES"))
+    url = f"/api/v1/menu-video/qr/{cid}/carta"
+    assert client.post(url, json={"table": "Mesa 4", "access_code": "ABC12"}).status_code == 403, "mesa no activada"
+    _run(pg_url, """INSERT INTO hospitality_table_access (company_id, table_key, table_number, access_code, status, expires_at)
+                    VALUES (CAST(:c AS uuid), 'mesa 4', 'Mesa 4', 'ABC12', 'active', now() + interval '1 hour')""", {"c": cid}, fetch=False)
+    assert client.post(url, json={"table": "Mesa 4", "access_code": "ZZZZZ"}).status_code == 403, "clave mala"
+    r = client.post(url, json={"table": "Mesa 4", "access_code": "abc12"})
+    assert r.status_code == 200, r.text
+    assert r.json()["table"] == "Mesa 4" and r.json()["video"] is False
+    assert all(p["video_url"] == "" for p in r.json()["products"]), "sin carta_video: fotos"
+    hsp._storage_ready = True
+    assert client.get(f"/api/v1/hospitality/companies/{cid}/inventory-lite").json()["carta_app"] is True
+
+
+def test_volver_a_publicar_cambio_de_video(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    imp = client.post(f"/admin-v2/api/menu-video/{cid}/imports", data={"manual": "true"}).json()["import"]
+    table = client.put(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/table", json={"table": CARTA}).json()["import"]["table_data"]
+    client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/photos", files=[("files", ("lomo-al-trapo.jpg", dish_photo(11), "image/jpeg"))])
+    client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/process", json={"style": "zoom"})
+    _jobs(pg_url)
+    first = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/publish").json()
+    assert first["summary"]["new"] == 2
+    assert first["plan"]["counts"] == {"new": 0, "updated": 0, "unchanged": 2, "deleted": 0}, "el resumen se recalcula"
+    again = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/publish")
+    assert again.status_code == 409 and again.json()["detail"] == "No hay cambios para publicar."
+    hsp._storage_ready = True
+    _admin(monkeypatch, False)
+    before = {i["name"]: i["video_url"] for i in client.get(f"/api/v1/hospitality/companies/{cid}/inventory-lite").json()["inventory"]}
+    _admin(monkeypatch)
+    # cambiar el video de 1 plato (foto nueva en la consola) y volver a publicar (el caso de la captura)
+    lomo = next(d for d in table["platos"] if d["nombre"] == "Lomo al trapo")
+    client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/photos", files=[("files", ("lomo-al-trapo.jpg", dish_photo(21), "image/jpeg"))])
+    client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/process", json={"refs": [lomo["ref"]], "style": "pan"})
+    _jobs(pg_url)
+    plan = client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/plan").json()["plan"]
+    assert plan["counts"] == {"new": 0, "updated": 1, "unchanged": 1, "deleted": 0}
+    assert plan["updated"][0]["nombre"] == "Lomo al trapo" and plan["updated"][0]["changes"] == ["foto/video"]
+    second = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/publish")
+    assert second.status_code == 200, second.text
+    summary = second.json()["summary"]
+    assert (summary["new"], summary["updated"]) == (0, 1)
+    assert summary["history"][0]["new"] == 2 and summary["published_at"] > summary["history"][0]["published_at"], "aviso con la ÚLTIMA publicación"
+    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["import"]["summary"]["updated"] == 1
+    _admin(monkeypatch, False)
+    after = {i["name"]: i["video_url"] for i in client.get(f"/api/v1/hospitality/companies/{cid}/inventory-lite").json()["inventory"]}
+    assert after["Lomo al trapo"] and after["Lomo al trapo"] != before["Lomo al trapo"], "el QR muestra el video nuevo"
+    assert client.get(after["Lomo al trapo"]).status_code == 200
+    assert client.get(before["Lomo al trapo"]).status_code == 404, "el video viejo ya no se sirve"
+    assert _run(pg_url, "SELECT COUNT(*) AS n FROM carta_items WHERE company_id = CAST(:c AS uuid)", {"c": cid})[0]["n"] == 2, "nunca duplica ni borra"

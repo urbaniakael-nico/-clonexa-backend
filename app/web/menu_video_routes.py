@@ -368,8 +368,7 @@ class TableIn(BaseModel):
 async def save_table(company_id: str, import_id: str, payload: TableIn, db: AsyncSession = Depends(get_db)):
     company = await _carta_company(db, company_id)
     current = await _import_or_404(db, company["id"], import_id)
-    if current["status"] == "publicada":
-        raise HTTPException(status_code=409, detail="Esta carta ya se publicó. Importa otra para seguir.")
+    # 057C: una carta ya publicada se puede seguir corrigiendo y volver a publicar (combinar).
     status = "lista" if current["status"] in ("leyendo", "error", "manual") else None
     await mv.save_table(db, company["id"], import_id, payload.table, status=status)
     await db.commit()
@@ -485,10 +484,12 @@ async def publish(company_id: str, import_id: str, request: Request, db: AsyncSe
     company = await _carta_company(db, company_id)
     cid = company["id"]
     current = await _import_or_404(db, cid, import_id)
-    if current["status"] == "publicada":
-        raise HTTPException(status_code=409, detail="Esta carta ya se publicó.")
     if not (current.get("table_data") or {}).get("platos"):
         raise HTTPException(status_code=422, detail="La tabla no tiene platos.")
+    # 057C: se puede publicar otra vez (combinar) mientras haya algo nuevo o actualizado.
+    plan_now = await mv.plan_publish(db, cid, current["table_data"])
+    if not plan_now["counts"]["new"] and not plan_now["counts"]["updated"]:
+        raise HTTPException(status_code=409, detail="No hay cambios para publicar.")
     try:
         summary = await mv.publish(db, cid, import_id, current["table_data"])
         await db.commit()
@@ -497,7 +498,7 @@ async def publish(company_id: str, import_id: str, request: Request, db: AsyncSe
         raise
     await _audit(request, company_name=company["name"], menu_video="publicar", nuevos=summary["new"],
                  actualizados=summary["updated"], borrados=0)
-    return _json({"ok": True, "summary": summary})
+    return _json({"ok": True, "summary": summary, "plan": await mv.plan_publish(db, cid, current["table_data"])})
 
 
 class QuotaIn(BaseModel):

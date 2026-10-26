@@ -125,6 +125,8 @@
     state.quantityPicker = first.quantity_picker === true && !!window.CxQtyPicker;
     // 057B: carta en video (interruptor carta_video de la empresa, apagado por defecto).
     state.cartaVideo057B = first.carta_video === true && !!window.CxMenuVideoFeed;
+    // 057C: empresa con Carta: la mesa abre la carta nueva (pedida con la clave de la mesa).
+    state.cartaApp057C = first.carta_app === true && !!window.CxCartaApp;
     let rows = Array.isArray(first.inventory) ? first.inventory : [];
     if (rows.length) return rows;
     await new Promise((resolve) => window.setTimeout(resolve, 350));
@@ -2340,7 +2342,75 @@
     document.head.appendChild(style);
   }
 
+  // ---------------------------------------------------------------- 057C
+  // Carta nueva en la mesa: la pide con la clave de la mesa, usa submitOrder
+  // (el MISMO envío: Cocina, cuenta de la mesa en Caja y cierre del día) y se
+  // refresca cada 30 s (lo agotado desaparece). "Cuenta de la mesa y más"
+  // muestra la pantalla de siempre (cuenta, canciones, retos).
+  let cxApp057C = null;
+  let cxAppBusy057C = false;
+  let cxAppTimer057C = null;
+
+  async function cxAppFetch057C() {
+    return api(`/menu-video/qr/${encodeURIComponent(state.companyId)}/carta`, {
+      method: "POST", body: JSON.stringify({ table: state.table, access_code: state.access.code || storedAccessCode() }),
+    });
+  }
+
+  function cxAppBack057C() {
+    let btn = document.querySelector("[data-cxa-back057c]");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("data-cxa-back057c", "");
+      btn.textContent = "← Volver a la carta";
+      btn.style.cssText = "position:fixed;left:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:45;min-height:48px;padding:0 18px;border-radius:999px;border:0;background:#111;color:#fff;font:inherit;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.4)";
+      btn.addEventListener("click", () => { state.classic057C = false; cxAppSync057C(); });
+      document.body.appendChild(btn);
+    }
+    return btn;
+  }
+
+  async function cxAppSync057C() {
+    const on = state.cartaApp057C && state.access?.unlocked && !state.loading && !isAssemblyMode();
+    const back = document.querySelector("[data-cxa-back057c]");
+    if (!on) { if (cxApp057C) cxApp057C.hide(); if (back) back.hidden = true; return true; }
+    if (state.classic057C) { if (cxApp057C) cxApp057C.hide(); cxAppBack057C().hidden = false; return true; }
+    if (back) back.hidden = true;
+    if (!cxApp057C && !cxAppBusy057C) {
+      cxAppBusy057C = true;
+      try {
+        const data = await cxAppFetch057C();
+        cxApp057C = window.CxCartaApp.mount({ data, adapter: {
+          canOrder: true, where: state.table, submitLabel: "Enviar a cocina",
+          account: () => ({ total: Number(state.tableAccount?.total || 0), orders: Number(state.tableAccount?.orders_count || 0) }),
+          extra: { label: "Cuenta de la mesa y más", run: () => { state.classic057C = true; cxAppSync057C(); render(); } },
+          submit: async (lines) => {
+            state.cart = new Map(lines.map((l, i) => [`${l.id}|${i}`, { id: l.id, name: l.name, sku: "", price: l.price, quantity: l.quantity, term: l.term, note: l.note, quick_notes: l.quick_notes }]));
+            await submitOrder();
+            if (state.error) throw new Error(state.error);
+            const number = (String(state.message || "").match(/:\s*([^\s.]+)\.?$/) || [])[1];
+            state.message = "";
+            return { message: number ? `Tu pedido llegó a cocina: ${number}. Queda en la cuenta de la mesa.` : "Tu pedido llegó a cocina. Queda en la cuenta de la mesa." };
+          },
+        } });
+        clearInterval(cxAppTimer057C);
+        cxAppTimer057C = setInterval(async () => {
+          try { if (cxApp057C) cxApp057C.update(await cxAppFetch057C()); } catch (_) {}
+        }, 30000);
+      } catch (_) {
+        state.cartaApp057C = false; // sin la carta nueva, la pantalla de siempre
+        cxAppBusy057C = false;
+        return false;
+      }
+      cxAppBusy057C = false;
+    }
+    if (cxApp057C) cxApp057C.show();
+    return true;
+  }
+
   function cxMvSync057B() {
+    if (state.cartaApp057C) { cxAppSync057C(); return; }
     if ((state.inventory || []).some((item) => item && item.photo_url)) cxMvStyles057B();
     const Feed = window.CxMenuVideoFeed;
     const on = Boolean(Feed && state.cartaVideo057B && state.access?.unlocked && !state.loading && !isAssemblyMode() && (state.inventory || []).length);
@@ -2543,6 +2613,10 @@
           name: item.name,
           quantity: item.quantity,
           unit_price: item.price,
+          // 057C: término, nota y notas rápidas por plato (campos que el pedido ya acepta; sin ellos, igual que antes)
+          ...(item.term ? { term: item.term } : {}),
+          ...(item.note ? { note: item.note } : {}),
+          ...(Array.isArray(item.quick_notes) && item.quick_notes.length ? { quick_notes: item.quick_notes } : {}),
         })),
       };
       const response = await api(`/hospitality/companies/${encodeURIComponent(state.companyId)}/orders`, {
