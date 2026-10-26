@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.v1.endpoints.materials import ensure_materials_storage, _generate_order_number, material_request_out
 from app.api.v1.endpoints.bots import decrypt_token
+from app.integrations.telegram.api import telegram_call
 
 router = APIRouter()
 logger = logging.getLogger("clonexa.materials_webapp")
@@ -154,13 +155,9 @@ async def _send_telegram_order_confirmation(
             f"Orden: {order_number}\n"
             "Queda pendiente en Materiales."
         )
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": telegram_user_id, "text": text_message},
-            )
+        await telegram_call(token, "sendMessage", payload={"chat_id": telegram_user_id, "text": text_message})
     except Exception as exc:  # No bloquear la orden si Telegram falla.
-        logger.warning("No se pudo enviar confirmación Telegram de orden %s: %s", order_number, exc)
+        logger.warning("No se pudo enviar confirmación Telegram de orden %s: %s", order_number, type(exc).__name__)
 
 
 async def _enabled_module_codes(db: AsyncSession, company_id: UUID) -> set[str]:

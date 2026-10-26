@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.integrations.telegram.api import telegram_call
 
 router = APIRouter()
 
@@ -53,11 +54,12 @@ def _is_int(value: str) -> bool:
 
 async def _tg_post(method: str, payload: dict[str, Any]) -> dict[str, Any]:
     token = _token()
-    url = f"https://api.telegram.org/bot{token}/{method}"
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, json=payload)
+    try:
+        response = await telegram_call(token, method, payload=payload)
         data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Telegram no responde ({type(exc).__name__}).") from exc
 
     if not data.get("ok"):
         raise HTTPException(status_code=502, detail={"telegram_error": data})

@@ -51,6 +51,12 @@
     return data;
   }
   const apiGet = (url) => request(url);
+  const BOT_READ_TIMEOUT_MS = 12000;
+  function withTimeout(promise, ms) {
+    let timer = null;
+    const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Telegram no responde")), ms); });
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+  }
   const apiPost = (url, body) => request(url, { method: "POST", body: JSON.stringify(body) });
   const apiPut = (url, body) => request(url, { method: "PUT", body: JSON.stringify(body) });
 
@@ -79,8 +85,9 @@
     // 056F: CRM VELVET-LAB (interruptor crm_velvet_lab); apagado responde 404 = no se muestra.
     crmLab: (id) => apiGet(`${API}/crm-lab/companies/${encodeURIComponent(id)}/panel-user`).catch(() => ({ off: true })),
     async telegram(id) {                                                                             // T01 + T02
-      const base = await apiGet(`${API}/bots/companies/${id}/telegram`);
-      try { return { ...(base || {}), ...((await apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`)) || {}) }; }
+      // Nunca se queda en "Cargando bot…": cada consulta tiene tope de tiempo.
+      const base = await withTimeout(apiGet(`${API}/bots/companies/${id}/telegram`), BOT_READ_TIMEOUT_MS);
+      try { return { ...(base || {}), ...((await withTimeout(apiGet(`${API}/company-bots-v1/companies/${id}/telegram/status`), BOT_READ_TIMEOUT_MS)) || {}) }; }
       catch (_) { return base || {}; }
     },
   };
@@ -520,7 +527,10 @@
   function tabBots(c) {
     const t = model.telegram;
     if (!t) return loading("bot");
+    const down = t.error || /no responde|timeout|connection/i.test(String(t.last_error || ""));
     return `<section class="vp-panel vp-section"><h2>Bot de Telegram</h2>
+      ${down ? `<div class="vp-alert" role="alert"><span>Telegram no responde${t.error && t.error !== "Telegram no responde" ? ` (${h(t.error)})` : ""}. El estado puede estar desactualizado.</span>
+        <button class="vp-btn vp-btn-sm" type="button" data-vpf-bot-retry>Reintentar</button></div>` : ""}
       <div class="vp-kv-grid"><div class="vp-kv"><span>Estado</span><strong>${h(t.configured ? (t.status || "configurado") : "sin configurar")}</strong></div>
         <div class="vp-kv"><span>Webhook</span><strong>${h(t.webhook_mode || "—")}</strong></div>
         <div class="vp-kv"><span>Última validación</span><strong>${h(t.last_validated_at || "Sin validar")}</strong></div>
@@ -721,6 +731,8 @@
       if (!force && model[key] !== null) return;
       try { model[key] = key === "packages" ? await reads.packages() : await reads[key](id); }
       catch (error) { model[key] = key === "telegram" ? { error: error.message } : (Array.isArray(model[key]) ? model[key] : []); model.error = `No se pudo cargar ${key}: ${error.message}`; }
+      // El bot se pinta apenas llega, sin esperar a las demás lecturas de la pestaña.
+      if (key === "telegram" && model.id === id) draw();
     }));
     if (model.id === id) draw();
   }
@@ -851,6 +863,7 @@
     const close = t.closest("[data-vpf-close-session]");
     if (close) { ask("Cerrar sesión", "Cerrar esta sesión?", () => act(() => writes.closeSession(id, close.getAttribute("data-vpf-close-session")), "Sesión cerrada.", ["sessions"])); return; }
     if (t.closest("[data-vpf-refresh-sessions]")) { ensure(["sessions"], true); return; }
+    if (t.closest("[data-vpf-bot-retry]")) { ensure(["telegram"], true); return; }
     if (t.closest("[data-vpf-bot-test]")) { act(async () => { model.telegram = await writes.testTelegram(id); }, "Prueba enviada a Telegram."); return; }
     if (t.closest("[data-vpf-bot-webhook]")) {
       const flow = String(((document.querySelector("[data-vpf-flow]") || {}).value) || (model.telegram && model.telegram.flow_code) || "base").trim();

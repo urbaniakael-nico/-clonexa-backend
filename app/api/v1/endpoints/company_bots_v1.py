@@ -1,13 +1,15 @@
 ﻿from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
+import time
 from typing import Any
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,10 +20,17 @@ from app.api.v1.endpoints.bots import (
     decrypt_token,
     get_telegram_instance,
 )
+from app.core.database import AsyncSessionLocal
+from app.integrations.telegram.api import telegram_call
 
 router = APIRouter()
+logger = logging.getLogger("clonexa.company_bots_v1")
 
 DEDICATED_FLOW_CODES = {"velvet_references", "field_operations"}
+
+# Un mensaje que Telegram entrega con mas de 10 min de atraso (reintentos o caida)
+# no debe iniciar turnos tarde: se responde 200 y se descarta.
+STALE_UPDATE_SECONDS = 600
 
 
 def clean(value: Any) -> str:
@@ -127,6 +136,58 @@ async def ensure_company_bot_storage(db: AsyncSession) -> None:
         )
     """))
 
+    # update_id ya procesados por bot (uno de Telegram por empresa); se guardan 24 h.
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS company_bot_telegram_updates (
+            company_id uuid NOT NULL,
+            update_id bigint NOT NULL,
+            received_at timestamptz NOT NULL DEFAULT now(),
+            PRIMARY KEY (company_id, update_id)
+        )
+    """))
+
+
+async def claim_telegram_update(db: AsyncSession, company_id: str, update_id: Any) -> bool:
+    """True si este update_id es nuevo para el bot de la empresa; False si ya llego."""
+    try:
+        update_number = int(update_id)
+    except (TypeError, ValueError):
+        return True
+
+    await db.execute(
+        text("""
+            DELETE FROM company_bot_telegram_updates
+            WHERE company_id = CAST(:company_id AS uuid)
+              AND received_at < now() - interval '24 hours'
+        """),
+        {"company_id": company_id},
+    )
+    result = await db.execute(
+        text("""
+            INSERT INTO company_bot_telegram_updates (company_id, update_id)
+            VALUES (CAST(:company_id AS uuid), :update_id)
+            ON CONFLICT DO NOTHING
+            RETURNING update_id
+        """),
+        {"company_id": company_id, "update_id": update_number},
+    )
+    claimed = result.first() is not None
+    await db.commit()
+    return claimed
+
+
+def update_age_seconds(update: dict[str, Any], now: float | None = None) -> float | None:
+    """Edad del mensaje segun su fecha. Un callback_query no trae fecha propia
+    (la de su mensaje es la del menu del bot), asi que no se puede medir."""
+    message = update.get("message") or update.get("edited_message")
+    if not isinstance(message, dict):
+        return None
+    try:
+        sent_at = int(message.get("date"))
+    except (TypeError, ValueError):
+        return None
+    return (time.time() if now is None else now) - sent_at
+
 
 async def active_modules(db: AsyncSession, company_id: str) -> set[str]:
     result = await db.execute(
@@ -214,10 +275,11 @@ def public_config(row: dict[str, Any] | None) -> dict[str, Any]:
 
 
 async def telegram_post(token: str, method: str, payload: dict[str, Any]) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(f"https://api.telegram.org/bot{token}/{method}", json=payload)
-
-    data = response.json()
+    try:
+        response = await telegram_call(token, method, payload=payload)
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Telegram no responde ({type(exc).__name__}).") from exc
 
     if not data.get("ok"):
         raise HTTPException(status_code=502, detail={"telegram_error": data})
@@ -237,7 +299,11 @@ async def send_message(token: str, chat_id: str | None, text_value: str, reply_m
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    await telegram_post(token, "sendMessage", payload)
+    # Si Telegram no responde, lo ya guardado en la base se queda; solo se avisa.
+    try:
+        await telegram_post(token, "sendMessage", payload)
+    except HTTPException as exc:
+        logger.warning("Telegram sendMessage no entregado (HTTP %s)", exc.status_code)
 
 
 async def answer_callback(token: str, callback_query_id: str | None) -> None:
@@ -1168,10 +1234,38 @@ async def activate_company_telegram_webhook(
     return response
 
 
+async def process_company_telegram_update(
+    company_id: str,
+    flow_code: str,
+    token: str,
+    update: dict[str, Any],
+) -> None:
+    """Procesa un update ya aceptado (Telegram ya recibio su 200), con sesion propia."""
+    try:
+        async with AsyncSessionLocal() as db:
+            if flow_code == "velvet_references":
+                await handle_velvet_references(db=db, token=token, company_id=company_id, update=update)
+                return
+
+            if flow_code == "field_operations":
+                bot = await get_telegram_instance(db, UUID(company_id))
+                if bot is None or not bot.bot_token_encrypted:
+                    return
+                await _process_telegram_update(db, bot=bot, token=token, update=update, send_replies=True)
+    except Exception as exc:
+        logger.warning(
+            "Telegram update %s de la empresa %s fallo en segundo plano (%s)",
+            update.get("update_id"),
+            company_id,
+            type(exc).__name__,
+        )
+
+
 @router.post("/telegram/webhook/{company_id}")
 async def company_telegram_webhook(
     company_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     x_telegram_bot_api_secret_token: str | None = Header(None),
 ) -> dict[str, Any]:
@@ -1199,46 +1293,33 @@ async def company_telegram_webhook(
 
     update = await request.json()
 
-    if flow_code == "velvet_references":
-        return await handle_velvet_references(
-            db=db,
-            token=token,
-            company_id=company_id,
-            update=update,
-        )
+    if flow_code not in DEDICATED_FLOW_CODES:
+        return {
+            "ok": True,
+            "ignored": "unsupported_flow",
+            "flow_code": flow_code,
+        }
 
     if flow_code == "field_operations":
         try:
-            company_uuid = UUID(company_id)
+            UUID(company_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="company_id inválido.") from exc
 
-        bot = await get_telegram_instance(db, company_uuid)
+    # Telegram recibe 200 de inmediato (nunca reintenta por lentitud); el trabajo,
+    # incluidas las respuestas al chat, sigue en segundo plano.
+    update_id = update.get("update_id") if isinstance(update, dict) else None
+    age = update_age_seconds(update) if isinstance(update, dict) else None
 
-        if bot is None or not bot.bot_token_encrypted:
-            return {"ok": True, "ignored": "bot_not_configured"}
+    if age is not None and age > STALE_UPDATE_SECONDS:
+        logger.warning("Telegram update %s de la empresa %s descartado: llego %d s tarde", update_id, company_id, int(age))
+        return {"ok": True, "ignored": "stale_update"}
 
-        item = await _process_telegram_update(
-            db,
-            bot=bot,
-            token=token,
-            update=update,
-            send_replies=True,
-        )
+    if not await claim_telegram_update(db, company_id, update_id):
+        return {"ok": True, "ignored": "duplicate_update"}
 
-        return {
-            "ok": item.ok,
-            "handled": item.action,
-            "message": item.message,
-            "flow_code": flow_code,
-            "item": item.model_dump(mode="json"),
-        }
-
-    return {
-        "ok": True,
-        "ignored": "unsupported_flow",
-        "flow_code": flow_code,
-    }
+    background_tasks.add_task(process_company_telegram_update, company_id, flow_code, token, update)
+    return {"ok": True, "queued": True, "flow_code": flow_code}
 
 
 @router.get("/companies/{company_id}/telegram/status")

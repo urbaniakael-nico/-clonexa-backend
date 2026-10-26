@@ -282,3 +282,25 @@ test('cada pestaña de la Ficha se dibuja sin errores, con y sin datos', () => {
   ui.model = { ...ui.model, modal: { type: 'clone', company, password: 'x' } };
   assert.match(ui.view(), /data-vpf-c-clone-form/);
 });
+
+test('Bots: si Telegram no responde se ve el estado con aviso, no "Cargando bot…"', () => {
+  const { ui } = load();
+  const company = { id: ID, name: 'Velvet', slug: 'velvet', status: 'active', settings_json: { kind: 'registrada' } };
+  ui.model = { ...ui.model, id: ID, company, tab: 'bots', modules: null, telegram: { error: 'Telegram no responde' } };
+  let html = ui.view();
+  assert.doesNotMatch(html, /Cargando bot/);
+  assert.match(html, /role="alert"><span>Telegram no responde\. El estado puede estar desactualizado/);
+  assert.match(html, /data-vpf-bot-retry>Reintentar/);
+  assert.match(html, /Bot de Telegram/);
+  ui.model = { ...ui.model, telegram: { configured: true, status: 'error', last_error: 'Telegram no responde (ReadTimeout)', webhook_mode: 'dedicated' } };
+  html = ui.view();
+  assert.match(html, /Telegram no responde\. El estado/);
+  assert.match(html, /Reinstalar webhook dedicado/);
+  ui.model = { ...ui.model, telegram: { configured: true, status: 'active', webhook_mode: 'dedicated' } };
+  assert.doesNotMatch(ui.view(), /data-vpf-bot-retry/);
+});
+
+test('Bots: cada lectura del bot tiene tope de tiempo', () => {
+  assert.match(source, /withTimeout\(apiGet\(`\$\{API\}\/bots\/companies\/\$\{id\}\/telegram`\), BOT_READ_TIMEOUT_MS\)/);
+  assert.match(source, /withTimeout\(apiGet\(`\$\{API\}\/company-bots-v1\/companies\/\$\{id\}\/telegram\/status`\), BOT_READ_TIMEOUT_MS\)/);
+});

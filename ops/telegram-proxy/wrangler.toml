@@ -1,0 +1,6 @@
+name = "clonexa-telegram-proxy"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# El secreto PROXY_KEY NO va aqui: se carga con `npx wrangler secret put PROXY_KEY`.

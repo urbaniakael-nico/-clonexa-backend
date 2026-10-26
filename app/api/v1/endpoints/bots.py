@@ -33,6 +33,7 @@ from app.api.v1.endpoints.payroll import calculate_period_snapshot, ensure_payro
 from app.api.v1.endpoints.production_v1 import production_summary
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.integrations.telegram.api import telegram_call
 from app.integrations.telegram.parser import parse_telegram_update
 from app.models.company_bot_instance import CompanyBotInstance
 from app.models.core import Company, Employee
@@ -1625,8 +1626,7 @@ async def _send_telegram_message(
     if reply_markup:
         payload["reply_markup"] = reply_markup
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
+        await telegram_call(token, "sendMessage", payload=payload)
     except httpx.HTTPError:
         # No bloquea captura de eventos si Telegram no acepta la respuesta.
         return
@@ -1636,11 +1636,7 @@ async def _send_telegram_chat_action(token: str, chat_id: str | None, action: st
     if not chat_id:
         return
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(
-                f"https://api.telegram.org/bot{token}/sendChatAction",
-                json={"chat_id": chat_id, "action": action},
-            )
+        await telegram_call(token, "sendChatAction", payload={"chat_id": chat_id, "action": action})
     except httpx.HTTPError:
         return
 
@@ -1652,8 +1648,7 @@ async def _answer_callback_query(token: str, callback_query_id: str | None, text
     if text_value:
         payload["text"] = text_value[:180]
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery", json=payload)
+        await telegram_call(token, "answerCallbackQuery", payload=payload)
     except httpx.HTTPError:
         return
 
@@ -5519,9 +5514,8 @@ async def _poll_telegram_updates_for_company(
             params["offset"] = int(offset)
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(f"https://api.telegram.org/bot{token}/getUpdates", params=params)
-                telegram_payload = response.json()
+            response = await telegram_call(token, "getUpdates", params=params, http_method="GET")
+            telegram_payload = response.json()
         except httpx.HTTPError as exc:
             error_text = f"Telegram polling error: {exc}"
             config["listener_error"] = error_text
@@ -6034,7 +6028,7 @@ async def test_company_telegram_bot(
     telegram_payload: dict[str, Any] = {}
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            response = await telegram_call(token, "getMe", http_method="GET")
             telegram_payload = response.json()
             if response.status_code >= 400 or not telegram_payload.get("ok"):
                 row.status = "error"
@@ -6067,7 +6061,7 @@ async def test_company_telegram_bot(
 
     except httpx.HTTPError as exc:
         row.status = "error"
-        row.last_error = f"Telegram connection error: {exc}"
+        row.last_error = f"Telegram no responde ({type(exc).__name__})"
         row.last_validated_at = utcnow()
         row.updated_at = utcnow()
         await db.commit()
@@ -6102,7 +6096,7 @@ async def start_company_telegram_listener(
     # Validación rápida. Si el token está mal, no arrancamos listener.
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            response = await telegram_call(token, "getMe", http_method="GET")
             payload = response.json()
             if response.status_code >= 400 or not payload.get("ok"):
                 row.status = "error"
@@ -6120,7 +6114,7 @@ async def start_company_telegram_listener(
             row.last_error = None
     except httpx.HTTPError as exc:
         row.status = "error"
-        row.last_error = f"Telegram connection error: {exc}"
+        row.last_error = f"Telegram no responde ({type(exc).__name__})"
         row.last_validated_at = utcnow()
         row.updated_at = utcnow()
         await db.commit()
