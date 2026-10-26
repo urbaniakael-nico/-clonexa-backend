@@ -31,6 +31,7 @@ DEDICATED_FLOW_CODES = {"velvet_references", "field_operations"}
 # Un mensaje que Telegram entrega con mas de 10 min de atraso (reintentos o caida)
 # no debe iniciar turnos tarde: se responde 200 y se descarta.
 STALE_UPDATE_SECONDS = 600
+STALE_UPDATE_REPLY = "Este mensaje llegó tarde, vuelve a intentarlo."
 
 
 def clean(value: Any) -> str:
@@ -1311,12 +1312,13 @@ async def company_telegram_webhook(
     update_id = update.get("update_id") if isinstance(update, dict) else None
     age = update_age_seconds(update) if isinstance(update, dict) else None
 
-    if age is not None and age > STALE_UPDATE_SECONDS:
-        logger.warning("Telegram update %s de la empresa %s descartado: llego %d s tarde", update_id, company_id, int(age))
-        return {"ok": True, "ignored": "stale_update"}
-
     if not await claim_telegram_update(db, company_id, update_id):
         return {"ok": True, "ignored": "duplicate_update"}
+
+    if age is not None and age > STALE_UPDATE_SECONDS:
+        logger.warning("Telegram update %s de la empresa %s descartado: llego %d s tarde", update_id, company_id, int(age))
+        background_tasks.add_task(send_message, token, extract_update(update).get("chat_id"), STALE_UPDATE_REPLY)
+        return {"ok": True, "ignored": "stale_update"}
 
     background_tasks.add_task(process_company_telegram_update, company_id, flow_code, token, update)
     return {"ok": True, "queued": True, "flow_code": flow_code}

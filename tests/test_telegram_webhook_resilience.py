@@ -183,16 +183,31 @@ async def test_webhook_update_repetido_no_se_procesa_otra_vez(monkeypatch):
     assert tasks.tasks == []
 
 
-async def test_webhook_descarta_mensajes_de_hace_mas_de_10_minutos(monkeypatch):
-    claim_mock, _ = webhook_setup(monkeypatch)
+async def test_webhook_mensaje_de_hace_mas_de_10_minutos_no_se_procesa_y_avisa(monkeypatch):
+    claim_mock, handler = webhook_setup(monkeypatch)
     tasks = BackgroundTasks()
-    update = {"update_id": 78, "message": {"date": int(time.time()) - 11 * 60, "text": "velvet:start"}}
+    update = {"update_id": 78, "message": {"date": int(time.time()) - 11 * 60, "text": "velvet:start", "chat": {"id": 555}, "from": {"id": 555}}}
     result = await company_bots_v1.company_telegram_webhook(
         COMPANY, request_with(update), tasks, db=SimpleNamespace(), x_telegram_bot_api_secret_token="s3"
     )
     assert result == {"ok": True, "ignored": "stale_update"}
+    handler.assert_not_awaited()
+    claim_mock.assert_awaited_once()  # un aviso por update, aunque Telegram lo repita
+    assert len(tasks.tasks) == 1
+    task = tasks.tasks[0]
+    assert task.func is company_bots_v1.send_message
+    assert task.args == (TOKEN, "555", "Este mensaje llegó tarde, vuelve a intentarlo.")
+
+
+async def test_webhook_mensaje_viejo_repetido_no_avisa_dos_veces(monkeypatch):
+    webhook_setup(monkeypatch, claim=False)
+    tasks = BackgroundTasks()
+    update = {"update_id": 78, "message": {"date": int(time.time()) - 11 * 60, "chat": {"id": 555}}}
+    result = await company_bots_v1.company_telegram_webhook(
+        COMPANY, request_with(update), tasks, db=SimpleNamespace(), x_telegram_bot_api_secret_token="s3"
+    )
+    assert result == {"ok": True, "ignored": "duplicate_update"}
     assert tasks.tasks == []
-    claim_mock.assert_not_awaited()
 
 
 async def test_webhook_sigue_exigiendo_el_secreto(monkeypatch):
