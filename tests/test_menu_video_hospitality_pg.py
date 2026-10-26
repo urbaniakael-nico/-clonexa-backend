@@ -390,6 +390,7 @@ def test_cola_clip_y_menu_media_con_rangos(client, pg_url, monkeypatch):
     done = _jobs(pg_url)
     assert len(done) == 1 and done[0]["status"] == "listo" and done[0]["style"] == "front_side"
     assert done[0]["clip_bytes"] < 400 * 1024
+    assert done[0]["ffmpeg"], "cada trabajo guarda la versión de ffmpeg que lo hizo"
     media = client.get(f"/api/v1/menu-video/companies/{cid}/portal").json()["media"][dish]
     assert media["status"] == "listo" and media["video_url"].endswith(".mp4") and media["poster_url"].endswith(".webp")
     assert media["front_original_url"] and media["front_remaster_url"], "antes y despues"

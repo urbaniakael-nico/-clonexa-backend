@@ -1,3 +1,5 @@
 *.sh text eol=lf
 *.json text eol=lf
-Dockerfile text eol=lf
+Dockerfile text eol=lf*.pdf binary
+*.mp4 binary
+*.webp binary

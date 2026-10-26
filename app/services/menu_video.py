@@ -544,7 +544,7 @@ async def process(db: AsyncSession, job: dict) -> dict:
     await upsert_media(db, cid, ref, clip_asset=clip_id, poster_asset=poster_id, clip_style=clip.style, status="listo")
     await discard(db, cid, stale)
     return {**timings, "clip_ms": clip.encode_ms, "total_ms": round((time.perf_counter() - started) * 1000),
-            "clip_bytes": len(clip.video), "poster_bytes": len(clip.poster), "style": clip.style}
+            "clip_bytes": len(clip.video), "poster_bytes": len(clip.poster), "style": clip.style, "ffmpeg": mm.ffmpeg_version()}
 
 
 async def run_job(db: AsyncSession, job: dict) -> dict:

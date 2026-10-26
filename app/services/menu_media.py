@@ -66,6 +66,7 @@ def ffmpeg_path() -> Optional[str]:
         return None
 
 
+@lru_cache(maxsize=1)
 def ffmpeg_version() -> Optional[str]:
     path = ffmpeg_path()
     if not path:
