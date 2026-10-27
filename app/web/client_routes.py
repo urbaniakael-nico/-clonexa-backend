@@ -117,6 +117,42 @@ def register_client_portal(app: FastAPI) -> None:
                     await db.rollback()
             return await _branded_html(web_dir / "carta_qr.html", db, company_id)
 
+    # 058A QR y piezas (interruptor carta_qr_piezas): carta para pedir a
+    # Domicilio o Para llevar (?k= enlace secreto del QR, se regenera) y la
+    # carta del mesero (solo abre con su sesion de mesero, validada en la API).
+    if not any(getattr(route, "path", None) == "/pedir" for route in app.routes):
+        @app.get("/pedir", response_class=HTMLResponse, include_in_schema=False)
+        async def carta_pedir_page(k: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            company_id = None
+            if k:
+                try:
+                    from app.services.carta_links import by_token
+
+                    found = await by_token(db, k, ("domicilio", "llevar"))
+                    company_id = found["company_id"] if found else None
+                except Exception:
+                    await db.rollback()
+            return await _branded_html(web_dir / "carta_pedir.html", db, company_id)
+
+    if not any(getattr(route, "path", None) == "/carta-mesero" for route in app.routes):
+        @app.get("/carta-mesero", response_class=HTMLResponse, include_in_schema=False)
+        async def carta_mesero_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _branded_html(web_dir / "carta_pedir.html", db, company_id or None)
+
+    if not any(getattr(route, "path", None) == "/politica-de-datos" for route in app.routes):
+        @app.get("/politica-de-datos", response_class=HTMLResponse, include_in_schema=False)
+        async def data_policy_page(c: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            from app.services.carta_links import policy_html
+
+            name = ""
+            try:
+                import uuid as _uuid
+
+                name = (await db.execute(text("SELECT name FROM companies WHERE id = CAST(:c AS uuid)"), {"c": str(_uuid.UUID(c))})).scalar() or ""
+            except Exception:
+                await db.rollback()
+            return HTMLResponse(policy_html(name), headers={"Cache-Control": "public, max-age=600"})
+
     # Juegos en vivo (interruptor loyalty_games): pantalla del bar (?t= token secreto
     # que el admin regenera) y pagina del jugador (?r= token firmado de la ronda).
     # Sin token valido la pagina carga pero la API responde 403/404 y no muestra nada.

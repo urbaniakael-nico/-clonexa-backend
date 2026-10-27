@@ -308,7 +308,8 @@ async def company_state(company_id: str, db: AsyncSession = Depends(get_db)):
     dishes = (await db.execute(text("SELECT COUNT(*) FROM carta_items WHERE company_id = CAST(:c AS uuid)"), {"c": cid})).scalar()
     return _json({"ok": True, "company": {"id": cid, "name": company["name"], "kind": company["kind"]},
                   "carta_video": company["settings"].get(mv.FLAG) is True, "dishes": int(dishes or 0),
-                  "quota": await mv.quota_state(db, cid), "styles": mm.STYLES, **state})
+                  "quota": await mv.quota_state(db, cid), "styles": mm.STYLES, "backgrounds": mm.BACKGROUNDS,
+                  "speeds": mm.SPEEDS, "gallery_max": mm.GALLERY_MAX, **state})
 
 
 @router.post(API + "/{company_id}/imports", include_in_schema=False, dependencies=GUARD)
@@ -409,8 +410,8 @@ async def upload_photos(company_id: str, import_id: str, files: list[UploadFile]
             data, w, h = await asyncio.to_thread(mm.normalize, image)
             if ref:
                 existing = await mv.dish_media(db, cid, ref) or {}
-                if role == "front" and existing.get("front_original") and not existing.get("side_original"):
-                    role = "side"  # dos fotos del mismo plato sin "perfil" en el nombre: la segunda es el perfil
+                if role == "main" and existing.get("front_original"):
+                    role = "gallery"  # dos fotos del mismo plato: la segunda va a la galeria de Detalle
                 asset_id = await mv.save_photo(db, cid, ref, role, raw, name, meta={"import_id": import_id})
             else:
                 asset_id = await mv.store_asset(db, cid, None, role, "original", data, "image/webp", w, h, name, {"import_id": import_id})
@@ -424,7 +425,7 @@ async def upload_photos(company_id: str, import_id: str, files: list[UploadFile]
 
 class AssignIn(BaseModel):
     ref: str = Field(..., max_length=40)
-    role: str = Field(default="front", pattern="^(front|side)$")
+    role: str = Field(default="main", pattern="^(main|gallery|front|side|top)$")
 
 
 @router.put(API + "/{company_id}/imports/{import_id}/photos/{asset_id}", include_in_schema=False, dependencies=GUARD)
@@ -460,7 +461,7 @@ async def process(company_id: str, import_id: str, payload: ProcessIn, db: Async
     queued = 0
     for ref in wanted:
         media = await mv.dish_media(db, cid, targets[ref])
-        if media and any(media.get(f"{r}_original") for r in mv.ROLES):
+        if mv.has_source(media):
             await mv.enqueue(db, cid, targets[ref], "auto")
             queued += 1
     await db.commit()
@@ -477,23 +478,30 @@ async def _target_of(db: AsyncSession, cid: str, current: dict, ref: str) -> str
 
 
 async def _requeue(db: AsyncSession, cid: str, target: str) -> None:
-    media = await mv.dish_media(db, cid, target)
-    if media and any(media.get(f"{r}_original") for r in mv.ROLES):
+    if mv.has_source(await mv.dish_media(db, cid, target)):
         await mv.enqueue(db, cid, target, "auto")
 
 
 @router.post(API + "/{company_id}/imports/{import_id}/dish/{ref}/photo/{role}", include_in_schema=False, dependencies=GUARD)
 async def change_photo(company_id: str, import_id: str, ref: str, role: str, request: Request, file: UploadFile = File(...),
                        db: AsyncSession = Depends(get_db)):
-    """Cambiar: otra foto en ese mismo espacio y se rehace el clip. Lo que hace
-    Clonexa desde la consola no gasta cupo del cliente."""
+    """Cambiar o subir: la foto principal, una de la galeria ("gallery" agrega,
+    "gallery:<id>" cambia esa) o el video del plato ("video", Camino 1). Se
+    rehace el clip. Lo que hace Clonexa desde la consola no gasta cupo."""
     company = await _carta_company(db, company_id)
     cid = company["id"]
     current = await _import_or_404(db, cid, import_id)
     target = await _target_of(db, cid, current, ref)
-    raw = await file.read(mm.MAX_UPLOAD_BYTES + 1)
+    limit = mm.VIDEO_MAX_BYTES if role == "video" else mm.MAX_UPLOAD_BYTES
+    raw = await file.read(limit + 1)
+    if len(raw) > limit:
+        raise HTTPException(status_code=413, detail="El video pesa más de 150 MB: graba de 5 a 10 segundos." if role == "video"
+                            else "La foto pesa más de 15 MB.")
     try:
-        await mv.save_photo(db, cid, target, role, raw, file.filename or "foto", meta={"import_id": import_id})
+        if role == "video":
+            await mv.save_video(db, cid, target, raw, file.filename or "video")
+        else:
+            await mv.save_photo(db, cid, target, role, raw, file.filename or "foto", meta={"import_id": import_id})
         await mv.enqueue(db, cid, target, "auto")
         await db.commit()
     except (mm.MediaRejected, brand_media.ImageRejected, brand_media.StorageUnavailable) as error:
@@ -512,7 +520,7 @@ async def remove_photo(company_id: str, import_id: str, ref: str, role: str, req
     target = await _target_of(db, cid, current, ref)
     try:
         undo = await mv.remove_role(db, cid, target, role)
-        if not undo["empty"]:
+        if not undo["empty"] and not role.startswith("gallery"):
             await mv.enqueue(db, cid, target, "auto")
         await db.commit()
     except brand_media.ImageRejected as error:
@@ -526,6 +534,7 @@ async def remove_photo(company_id: str, import_id: str, ref: str, role: str, req
 class RestoreIn(BaseModel):
     original: str = Field(..., max_length=40)
     remaster: str = Field(default="", max_length=40)
+    index: Optional[int] = Field(default=None, ge=0, le=20)
 
 
 @router.post(API + "/{company_id}/imports/{import_id}/dish/{ref}/photo/{role}/restore", include_in_schema=False, dependencies=GUARD)
@@ -536,8 +545,9 @@ async def restore_photo(company_id: str, import_id: str, ref: str, role: str, pa
     current = await _import_or_404(db, cid, import_id)
     target = await _target_of(db, cid, current, ref)
     try:
-        await mv.restore_role(db, cid, target, role, payload.original, payload.remaster)
-        await mv.enqueue(db, cid, target, "auto")
+        await mv.restore_role(db, cid, target, role, payload.original, payload.remaster, payload.index)
+        if not role.startswith("gallery"):
+            await mv.enqueue(db, cid, target, "auto")
         await db.commit()
     except brand_media.ImageRejected as error:
         await db.rollback()
@@ -557,6 +567,35 @@ async def remove_video(company_id: str, import_id: str, ref: str, request: Reque
     await mv.clear_video(db, cid, target)
     await db.commit()
     await _audit(request, company_name=company["name"], menu_video="quitó video", plato=ref)
+    return _json({"ok": True, **await _import_state(db, cid, current)})
+
+
+class OptionsIn(BaseModel):
+    style: Optional[str] = Field(default=None, max_length=20)
+    background: Optional[str] = Field(default=None, max_length=20)
+    speed: Optional[str] = Field(default=None, max_length=20)
+    start: Optional[float] = Field(default=None, ge=0, le=30)
+    length: Optional[float] = Field(default=None, ge=0, le=30)
+    mode: Optional[str] = Field(default=None, max_length=10)
+
+
+@router.post(API + "/{company_id}/imports/{import_id}/dish/{ref}/options", include_in_schema=False, dependencies=GUARD)
+async def dish_options(company_id: str, import_id: str, ref: str, payload: OptionsIn, request: Request,
+                       db: AsyncSession = Depends(get_db)):
+    """Camino, estilo, fondo, velocidad y tramo + "Rehacer" (no gasta cupo)."""
+    company = await _carta_company(db, company_id)
+    cid = company["id"]
+    current = await _import_or_404(db, cid, import_id)
+    target = await _target_of(db, cid, current, ref)
+    try:
+        options = await mv.set_options(db, cid, target, payload.model_dump(exclude_unset=True))
+        await mv.enqueue(db, cid, target, options["style"])
+        await db.commit()
+    except brand_media.ImageRejected as error:
+        await db.rollback()
+        raise _storage_error(error) from None
+    mv.wake()
+    await _audit(request, company_name=company["name"], menu_video="rehacer clip", plato=ref, **{k: v for k, v in options.items() if v is not None})
     return _json({"ok": True, **await _import_state(db, cid, current)})
 
 

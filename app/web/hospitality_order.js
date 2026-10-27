@@ -9,6 +9,8 @@
     quantityPicker: false,
     companyId: params.get("company_id") || params.get("companyId") || "",
     table: params.get("mesa") || params.get("table") || "Mesa",
+    // 058A QR y piezas: codigo del QR de mesa (si el restaurante lo regenera, el QR viejo deja de servir)
+    link: params.get("q") || "",
     company: {},
     branding: {},
     inventory: [],
@@ -2353,7 +2355,7 @@
 
   async function cxAppFetch057C() {
     return api(`/menu-video/qr/${encodeURIComponent(state.companyId)}/carta`, {
-      method: "POST", body: JSON.stringify({ table: state.table, access_code: state.access.code || storedAccessCode() }),
+      method: "POST", body: JSON.stringify({ table: state.table, access_code: state.access.code || storedAccessCode(), ...(state.link ? { link: state.link } : {}) }),
     });
   }
 
@@ -2605,6 +2607,7 @@
         account_id: tableCustomerAccountId(),
         source: "qr",
         access_code: state.access.code || storedAccessCode(),
+        ...(state.link ? { link: state.link } : {}),
         notes,
         items: items.map((item) => ({
           inventory_item_id: item.id,

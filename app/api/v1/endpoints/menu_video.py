@@ -15,7 +15,7 @@ import hmac
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +74,10 @@ async def portal_state(db: AsyncSession, company_id: uuid.UUID) -> dict:
         out["quota"] = await mv.quota_state(db, cid)
         out["jobs"] = await mv.jobs_for(db, cid)
         out["styles"] = mm.STYLES
+        out["backgrounds"] = mm.BACKGROUNDS
+        out["speeds"] = mm.SPEEDS
+        out["limits"] = {"video_mb": mm.VIDEO_MAX_BYTES // (1024 * 1024), "video_seconds": int(mm.VIDEO_MAX_SECONDS),
+                         "gallery": mm.GALLERY_MAX}
     return out
 
 
@@ -99,34 +103,79 @@ async def audit(request: Request, company_id: str, actor: str, **detail: Any) ->
         logging.getLogger("clonexa.menu_video").warning("auditoria de foto no registrada: %s", type(exc).__name__)
 
 
-ROLE_WORDS = {"top": "desde arriba", "front": "de frente", "side": "de perfil"}
+ROLE_WORDS = {"main": "principal", "gallery": "de la galería", "video": "video del plato"}
+OPTION_FIELDS = ("style", "background", "speed", "start", "length", "mode")
+
+
+def role_word(role: str) -> str:
+    try:
+        return ROLE_WORDS[mv.role_of(role)[0]]
+    except Exception:
+        return str(role)[:40]
+
+
+async def read_media_form(request: Request) -> tuple[list[tuple[str, bytes, str]], dict]:
+    """Lee el formulario: "main", "gallery" (varias), "gallery:<id>" (cambiar
+    una), "video" y las opciones. Acepta los nombres viejos (front -> main;
+    top/side -> galeria). Fotos max 15 MB; video max 150 MB."""
+    form = await request.form(max_files=12, max_fields=20)
+    files: list[tuple[str, bytes, str]] = []
+    options: dict[str, Any] = {}
+    for key, value in form.multi_items():
+        if isinstance(value, str):
+            if key in OPTION_FIELDS:
+                options[key] = value
+            continue
+        if not getattr(value, "filename", None):
+            continue
+        role = {"front": "main", "top": "gallery", "side": "gallery"}.get(key, key)
+        if role == "video":
+            raw = await value.read(mm.VIDEO_MAX_BYTES + 1)
+            if len(raw) > mm.VIDEO_MAX_BYTES:
+                raise HTTPException(status_code=413, detail="El video pesa más de 150 MB: graba de 5 a 10 segundos.")
+        elif role == "main" or role == "gallery" or role.startswith("gallery:"):
+            raw = await value.read(MAX_PHOTO_BYTES + 1)
+            if len(raw) > MAX_PHOTO_BYTES:
+                raise HTTPException(status_code=413, detail="La foto pesa más de 15 MB.")
+        else:
+            continue
+        if raw:
+            files.append((role, raw, value.filename or ""))
+    return files, options
+
+
+async def save_media(db: AsyncSession, cid: str, dish_ref: str, files: list[tuple[str, bytes, str]]) -> None:
+    for role, raw, name in files:
+        if role == "video":
+            await mv.save_video(db, cid, dish_ref, raw, name)
+        else:
+            await mv.save_photo(db, cid, dish_ref, role, raw, name)
 
 
 @router.post("/companies/{company_id}/items/{item_id}/photo")
-async def upload_photo(company_id: uuid.UUID, item_id: uuid.UUID, request: Request, front: Optional[UploadFile] = File(default=None),
-                       side: Optional[UploadFile] = File(default=None), top: Optional[UploadFile] = File(default=None),
-                       style: str = Form(default="auto"),
+async def upload_photo(company_id: uuid.UUID, item_id: uuid.UUID, request: Request,
                        db: AsyncSession = Depends(get_db), actor: str = Depends(require_carta_admin)) -> dict:
-    """Sube o cambia fotos del plato (desde arriba, frente, perfil). Con
-    carta_video gasta cupo (primera foto = nuevo; si ya tenia = cambio; otra
-    vez dentro de 30 min = el mismo cambio) y deja en la cola el clip."""
+    """Sube o cambia la foto principal, fotos de la galeria o el video del
+    plato. Con carta_video gasta cupo (primera = nuevo; si ya tenia = cambio;
+    otra vez dentro de 30 min = el mismo cambio) y deja en la cola el clip."""
     dish = await _dish(db, company_id, item_id)
-    files = {"top": await _read_upload(top), "front": await _read_upload(front), "side": await _read_upload(side)}
-    if not any(files.values()):
-        raise HTTPException(status_code=422, detail="Elige una foto.")
+    files, options = await read_media_form(request)
+    if not files:
+        raise HTTPException(status_code=422, detail="Elige una foto o un video.")
     cid = str(company_id)
     current = await mv.dish_media(db, cid, dish["id"])
-    had = bool(current and any(current.get(f"{r}_original") for r in mv.ROLES))
+    had = mv.has_source(current)
     video = await mv.video_on(db, cid)
+    if any(role == "video" for role, _r, _n in files) and not video:
+        raise HTTPException(status_code=403, detail="La carta en video no está activa para esta empresa.")
     try:
         if video:
             await mv.spend(db, cid, "cambio" if had else "nuevo", dish["id"], actor)
-        for role in mv.ROLES:
-            if files[role]:
-                raw, name = files[role]
-                await mv.save_photo(db, cid, dish["id"], role, raw, name)
+        await save_media(db, cid, dish["id"], files)
+        if options:
+            await mv.set_options(db, cid, dish["id"], options)
         if video:
-            await mv.enqueue(db, cid, dish["id"], style)
+            await mv.enqueue(db, cid, dish["id"], options.get("style") or "auto")
         else:
             # carta simple: la foto se ve mejor y mas liviana con el mismo
             # remasterizado (sin IA, en la misma peticion); no hay clip.
@@ -140,33 +189,64 @@ async def upload_photo(company_id: uuid.UUID, item_id: uuid.UUID, request: Reque
         raise _media_error(error) from None
     if video:
         mv.wake()
-    changed = [ROLE_WORDS[r] for r in mv.ROLES if files[r]]
+    changed = sorted({role_word(r) for r, _raw, _n in files})
     await audit(request, cid, actor, plato=dish["name"], foto="cambió" if had else "subió", fotos=", ".join(changed))
+    return await portal_state(db, company_id)
+
+
+class OptionsIn(BaseModel):
+    style: Optional[str] = Field(default=None, max_length=20)
+    background: Optional[str] = Field(default=None, max_length=20)
+    speed: Optional[str] = Field(default=None, max_length=20)
+    start: Optional[float] = Field(default=None, ge=0, le=30)
+    length: Optional[float] = Field(default=None, ge=0, le=30)
+    mode: Optional[str] = Field(default=None, max_length=10)
+
+
+@router.post("/companies/{company_id}/items/{item_id}/options")
+async def save_options(company_id: uuid.UUID, item_id: uuid.UUID, payload: OptionsIn, db: AsyncSession = Depends(get_db),
+                       _a: str = Depends(require_carta_admin)) -> dict:
+    """Estilo, fondo, velocidad, tramo o camino y "Rehacer": mismas fotos y
+    mismo video, NO gasta cupo. El clip publicado sigue hasta el nuevo."""
+    dish = await _dish(db, company_id, item_id)
+    cid = str(company_id)
+    if not await mv.video_on(db, cid):
+        raise HTTPException(status_code=403, detail="La carta en video no está activa para esta empresa.")
+    try:
+        await mv.set_options(db, cid, dish["id"], payload.model_dump(exclude_unset=True))
+        await mv.enqueue(db, cid, dish["id"], payload.style or "auto")
+        await db.commit()
+    except brand_media.ImageRejected as error:
+        await db.rollback()
+        raise _media_error(error) from None
+    mv.wake()
     return await portal_state(db, company_id)
 
 
 class RestoreIn(BaseModel):
     original: str = Field(..., max_length=40)
     remaster: str = Field(default="", max_length=40)
+    index: Optional[int] = Field(default=None, ge=0, le=20)
 
 
 @router.delete("/companies/{company_id}/items/{item_id}/photo/{role}")
 async def delete_role(company_id: uuid.UUID, item_id: uuid.UUID, role: str, request: Request, db: AsyncSession = Depends(get_db),
                       actor: str = Depends(require_carta_admin)) -> dict:
-    """Quita UNA foto (no gasta cupo). El clip se rehace con las que queden; sin
-    ninguna, el QR muestra la tarjeta del plato. Devuelve `undo` (10 s)."""
+    """Quita la foto principal, una de la galeria o el video subido (no gasta
+    cupo). El clip se rehace con lo que quede; sin nada, el QR muestra la
+    tarjeta del plato. Devuelve `undo` (10 s)."""
     dish = await _dish(db, company_id, item_id)
     cid = str(company_id)
     try:
         undo = await mv.remove_role(db, cid, dish["id"], role)
-        if not undo["empty"] and await mv.video_on(db, cid):
+        if not undo["empty"] and not role.startswith("gallery") and await mv.video_on(db, cid):
             await mv.enqueue(db, cid, dish["id"], "auto")
         await db.commit()
     except brand_media.ImageRejected as error:
         await db.rollback()
         raise _media_error(error) from None
     mv.wake()
-    await audit(request, cid, actor, plato=dish["name"], foto="quitó", fotos=ROLE_WORDS.get(role, role))
+    await audit(request, cid, actor, plato=dish["name"], foto="quitó", fotos=role_word(role))
     return {**await portal_state(db, company_id), "undo": undo}
 
 
@@ -177,9 +257,10 @@ async def restore_role(company_id: uuid.UUID, item_id: uuid.UUID, role: str, pay
     dish = await _dish(db, company_id, item_id)
     cid = str(company_id)
     try:
-        await mv.restore_role(db, cid, dish["id"], role, payload.original, payload.remaster)
+        await mv.restore_role(db, cid, dish["id"], role, payload.original, payload.remaster, payload.index)
         if await mv.video_on(db, cid):
-            await mv.enqueue(db, cid, dish["id"], "auto")
+            if not role.startswith("gallery"):
+                await mv.enqueue(db, cid, dish["id"], "auto")
         else:
             await _remaster_now(db, cid, dish["id"])
         await db.commit()
@@ -187,22 +268,28 @@ async def restore_role(company_id: uuid.UUID, item_id: uuid.UUID, role: str, pay
         await db.rollback()
         raise _media_error(error) from None
     mv.wake()
-    await audit(request, cid, actor, plato=dish["name"], foto="deshizo quitar", fotos=ROLE_WORDS.get(role, role))
+    await audit(request, cid, actor, plato=dish["name"], foto="deshizo quitar", fotos=role_word(role))
     return await portal_state(db, company_id)
 
 
 async def _remaster_now(db: AsyncSession, company_id: str, dish_ref: str) -> None:
+    """Remasteriza en la misma peticion la principal y la galeria (carta simple)."""
     media = await mv.dish_media(db, company_id, dish_ref) or {}
-    for role in mv.ROLES:
-        original_id = media.get(f"{role}_original")
-        if not original_id or media.get(f"{role}_remaster"):
-            continue
+
+    async def one(original_id: str, role: str) -> str:
         row = await mv.asset(db, company_id, original_id)
-        image = mm.load(await mv.read_bytes(row))
-        result = mm.remaster(image)
-        remaster_id = await mv.store_asset(db, company_id, dish_ref, role, "remaster", result.data, "image/webp",
-                                           result.width, result.height)
-        await mv.upsert_media(db, company_id, dish_ref, **{f"{role}_remaster": remaster_id})
+        result = mm.remaster(mm.load(await mv.read_bytes(row)))
+        return await mv.store_asset(db, company_id, dish_ref, role, "remaster", result.data, "image/webp", result.width, result.height)
+
+    if media.get("front_original") and not media.get("front_remaster"):
+        await mv.upsert_media(db, company_id, dish_ref, front_remaster=await one(media["front_original"], "front"))
+    gallery, changed = mv._gallery(media), False
+    for item in gallery:
+        if not item["remaster"]:
+            item["remaster"] = await one(item["original"], "gallery")
+            changed = True
+    if changed:
+        await mv.upsert_media(db, company_id, dish_ref, gallery=gallery)
 
 
 @router.delete("/companies/{company_id}/items/{item_id}/photo")
@@ -227,13 +314,15 @@ class RedoIn(BaseModel):
 @router.post("/companies/{company_id}/items/{item_id}/redo")
 async def redo_clip(company_id: uuid.UUID, item_id: uuid.UUID, payload: RedoIn, db: AsyncSession = Depends(get_db),
                     _a: str = Depends(require_carta_admin)) -> dict:
-    """Rehacer el clip con otro estilo (mismas fotos): no gasta cupo."""
+    """Rehacer el clip (mismas fotos o video): no gasta cupo."""
     dish = await _dish(db, company_id, item_id)
     if not await mv.video_on(db, str(company_id)):
         raise HTTPException(status_code=403, detail="La carta en video no está activa para esta empresa.")
     media = await mv.dish_media(db, str(company_id), dish["id"])
-    if not media or not any(media.get(f"{r}_original") for r in mv.ROLES):
-        raise HTTPException(status_code=422, detail="Primero sube una foto.")
+    if not mv.has_source(media):
+        raise HTTPException(status_code=422, detail="Primero sube una foto o un video.")
+    if payload.style in mm.STYLES:
+        await mv.set_options(db, str(company_id), dish["id"], {"style": payload.style})
     await mv.enqueue(db, str(company_id), dish["id"], payload.style)
     await db.commit()
     mv.wake()
@@ -293,6 +382,7 @@ async def request_more_quota(company_id: uuid.UUID, payload: QuotaRequestIn, req
 class TableIn(BaseModel):
     table: str = Field(default="Mesa", max_length=120)
     access_code: str = Field(default="", max_length=12)
+    link: str = Field(default="", max_length=64)  # 058A: codigo del QR de mesa (QR y piezas)
 
 
 @router.post("/qr/{company_id}/carta")
@@ -303,6 +393,12 @@ async def table_carta(company_id: uuid.UUID, payload: TableIn, db: AsyncSession 
     from app.api.v1.endpoints.carta import carta_enabled
     from app.services import carta_app
 
+    from app.services import carta_links
+
+    try:
+        await carta_links.mesa_guard(db, company_id, payload.link)
+    except carta_links.LinkRefused as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from None
     await hsp._require_table_access(db, company_id, payload.table or "Mesa", payload.access_code)
     if not await carta_enabled(db, company_id):
         raise HTTPException(status_code=404, detail="Esta empresa no usa la Carta.")

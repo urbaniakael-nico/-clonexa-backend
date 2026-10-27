@@ -22,6 +22,7 @@ import json
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -42,6 +43,9 @@ from app.services import menu_media as mm  # noqa: E402
 from app.services import menu_video as mv  # noqa: E402
 from app.web import admin_v2_routes  # noqa: E402
 from app.web import menu_video_routes  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
+
+from tests import menu_video_fixtures as fx  # noqa: E402
 from tests.test_menu_video_media_hospitality import dish_photo  # noqa: E402
 
 TOKEN = "carta-" + "y" * 40
@@ -105,7 +109,7 @@ def _migration() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    for name in ("024s_menu_video", "024t_menu_media_v2"):
+    for name in ("024s_menu_video", "024t_menu_media_v2", "024u_menu_media_v3"):
         module = importlib.import_module(f"migrations.versions.{name}")
         module.op = Op()
         module.upgrade()
@@ -419,13 +423,16 @@ def test_cola_clip_y_menu_media_con_rangos(client, pg_url, monkeypatch):
     r = client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo", files=_photo_files(3, side=True))
     assert r.status_code == 200
     done = _jobs(pg_url)
-    assert len(done) == 1 and done[0]["status"] == "listo" and done[0]["style"] == "suave" and done[0]["photos"] == 2
+    # 058A: "frente" es la foto principal (la que se anima); "perfil" va a la galeria de Detalle
+    assert len(done) == 1 and done[0]["status"] == "listo" and done[0]["style"] == "vida" and done[0]["photos"] == 1
+    assert done[0]["gallery"] == 1 and done[0]["path"] == "foto"
     assert done[0]["size"] == "720x1280"
     assert done[0]["clip_bytes"] < 400 * 1024
     assert done[0]["ffmpeg"], "cada trabajo guarda la versión de ffmpeg que lo hizo"
     media = client.get(f"/api/v1/menu-video/companies/{cid}/portal").json()["media"][dish]
     assert media["status"] == "listo" and media["video_url"].endswith(".mp4") and media["poster_url"].endswith(".webp")
-    assert media["front_original_url"] and media["front_remaster_url"], "antes y despues"
+    assert media["main_original_url"] and media["main_remaster_url"], "antes y despues"
+    assert len(media["gallery_urls"]) == 1 and media["gallery"][0]["remaster_url"], "la galeria tambien se remasteriza"
     video = client.get(media["video_url"])
     assert video.status_code == 200 and video.headers["content-type"] == "video/mp4" and "immutable" in video.headers["cache-control"]
     part = client.get(media["video_url"], headers={"Range": "bytes=0-99"})
@@ -518,18 +525,18 @@ def test_consola_recorrido_completo(client, pg_url, monkeypatch):
              ("files", ("IMG_0001.jpg", dish_photo(13), "image/jpeg")), ("files", ("danada.jpg", b"\xff\xd8\xffroto", "image/jpeg"))]
     r = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/photos", files=files).json()
     by_file = {x["file"]: x for x in r["results"]}
-    assert by_file["lomo-al-trapo.jpg"]["ref"] == lomo["ref"] and by_file["lomo-al-trapo.jpg"]["role"] == "front"
-    assert by_file["lomo al trapo perfil.jpg"]["role"] == "side"
+    assert by_file["lomo-al-trapo.jpg"]["ref"] == lomo["ref"] and by_file["lomo-al-trapo.jpg"]["role"] == "main"
+    assert by_file["lomo al trapo perfil.jpg"]["role"] == "gallery", "las demas fotos van a la galeria de Detalle"
     assert by_file["IMG_0001.jpg"]["ref"] is None and not by_file["danada.jpg"]["ok"]
     # reasignar a mano la suelta a la limonada
     loose = by_file["IMG_0001.jpg"]["asset_id"]
-    r = client.put(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/photos/{loose}", json={"ref": limonada["ref"], "role": "front"})
+    r = client.put(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/photos/{loose}", json={"ref": limonada["ref"], "role": "main"})
     assert r.json()["media"][limonada["ref"]]["has_photo"]
     # remasterizar y crear clips (todos)
     r = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/process", json={"style": "auto"}).json()
     assert r["queued"] == 2
     styles = sorted(j["style"] for j in _jobs(pg_url))
-    assert styles == ["suave", "suave"]
+    assert styles == ["vida", "vida"], "por defecto: Vida (la foto principal se anima)"
     state = client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()
     assert all(m["status"] == "listo" and "?e=" in m["video_url"] for m in state["media"].values()), "vista previa firmada"
     # elegir la original en la limonada rehace su clip
@@ -652,7 +659,7 @@ def test_volver_a_publicar_cambio_de_video(client, pg_url, monkeypatch):
     assert _run(pg_url, "SELECT COUNT(*) AS n FROM carta_items WHERE company_id = CAST(:c AS uuid)", {"c": cid})[0]["n"] == 2, "nunca duplica ni borra"
 
 
-# ------------------------------------------- 057D cambiar / quitar fotos
+# ------------------------------------------- 057D/058A cambiar / quitar fotos
 def test_consola_cambiar_quitar_deshacer_quitar_video_y_rehacer_todos(client, pg_url, monkeypatch):
     _admin(monkeypatch)
     cid = _company(pg_url, "Demo", {"carta_video": True})
@@ -660,45 +667,66 @@ def test_consola_cambiar_quitar_deshacer_quitar_video_y_rehacer_todos(client, pg
     table = client.put(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/table", json={"table": CARTA}).json()["import"]["table_data"]
     lomo = next(d for d in table["platos"] if d["nombre"] == "Lomo al trapo")["ref"]
     base = f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/dish/{lomo}"
-    for role, seed in (("top", 51), ("front", 52), ("side", 53)):
+    state = lambda: client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]  # noqa: E731
+    for role, seed in (("main", 51), ("gallery", 52), ("gallery", 53)):
         r = client.post(f"{base}/photo/{role}", files={"file": (f"{role}.jpg", dish_photo(seed), "image/jpeg")})
         assert r.status_code == 200, r.text
     _jobs(pg_url)
-    m = client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]
-    assert m["roles"] == ["top", "front", "side"] and m["status"] == "listo"
-    assert _run(pg_url, "SELECT result->>'photos' AS n FROM menu_media_jobs ORDER BY finished_at DESC LIMIT 1")[0]["n"] == "3", "3 fotos en el clip"
+    m = state()
+    assert m["roles"] == ["main", "gallery"] and len(m["gallery"]) == 2 and m["status"] == "listo"
+    result = _run(pg_url, "SELECT result FROM menu_media_jobs ORDER BY finished_at DESC LIMIT 1")[0]["result"]
+    assert result["photos"] == 1 and result["gallery"] == 2 and result["path"] == "foto", "con 3 fotos NO hay pase: se anima la principal"
     client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/publish")
     item = _run(pg_url, "SELECT id::text AS id FROM carta_items WHERE name = 'Lomo al trapo'")[0]["id"]
-    old_clip = _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"]
-    # Cambiar sobre el plato YA publicado: el clip viejo se sigue viendo hasta que el nuevo esta listo
-    r = client.post(f"{base}/photo/front", files={"file": ("nuevo.jpg", dish_photo(60), "image/jpeg")})
+    clip_of = lambda: _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"]  # noqa: E731
+    old_clip = clip_of()
+    # Cambiar la principal YA publicada: el clip viejo se sigue viendo hasta que el nuevo esta listo
+    r = client.post(f"{base}/photo/main", files={"file": ("nuevo.jpg", dish_photo(60), "image/jpeg")})
     assert r.status_code == 200 and r.json()["published"][lomo] == item
-    assert _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"] == old_clip
+    assert clip_of() == old_clip
     _jobs(pg_url)
-    new_clip = _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"]
-    assert new_clip != old_clip
+    assert clip_of() != old_clip
     assert _run(pg_url, "SELECT discarded_at IS NOT NULL AS m FROM menu_media_assets WHERE id = CAST(:a AS uuid)", {"a": old_clip})[0]["m"], "el viejo queda marcado"
-    # Quitar perfil -> el clip se rehace con desde arriba + frente; Deshacer
-    r = client.delete(f"{base}/photo/side")
-    assert r.status_code == 200 and r.json()["undo"]["empty"] is False
+    # Quitar una de la galeria: el video NO se rehace; Deshacer la devuelve en su lugar
+    first, second = [g["id"] for g in state()["gallery"]]
+    r = client.delete(f"{base}/photo/gallery:{first}")
+    assert r.status_code == 200 and r.json()["undo"]["empty"] is False and r.json()["undo"]["index"] == 0
     undo = r.json()["undo"]
+    assert _jobs(pg_url) == [], "quitar de la galeria no toca el video"
+    assert [g["id"] for g in state()["gallery"]] == [second]
+    assert client.post(f"{base}/photo/gallery:{first}/restore", json={"original": undo["original"], "remaster": undo["remaster"], "index": 0}).status_code == 200
+    assert [g["id"] for g in state()["gallery"]] == [first, second]
+    # Cambiar una de la galeria
+    r = client.post(f"{base}/photo/gallery:{second}", files={"file": ("otra.jpg", dish_photo(61), "image/jpeg")})
+    assert r.status_code == 200 and [g["id"] for g in state()["gallery"]][0] == first and second not in [g["id"] for g in state()["gallery"]]
     _jobs(pg_url)
-    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["roles"] == ["top", "front"]
-    assert client.post(f"{base}/photo/side/restore", json={"original": undo["original"], "remaster": undo["remaster"]}).status_code == 200
+    # Camino 1: subir video -> modo video; estilo/fondo/velocidad + Rehacer (no gasta cupo)
+    r = client.post(f"{base}/photo/video", files={"file": ("plato.mov", fx.dish_video("vertical", seconds=4, audio=True), "video/quicktime")})
+    assert r.status_code == 200, r.text
+    assert state()["mode"] == "video" and state()["has_video_source"]
+    done = _jobs(pg_url)
+    assert done[0]["status"] == "listo" and done[0]["path"] == "video" and done[0]["stabilizer"] in ("vidstab", "deshake"), done
+    assert done[0]["clip_bytes"] < 1024 * 1024
+    r = client.post(f"{base}/options", json={"background": "oscurecer", "speed": "rapido"})
+    assert r.status_code == 200 and state()["options"]["background"] == "oscurecer" and state()["options"]["speed"] == "rapido"
+    assert _jobs(pg_url)[0]["background"] == "oscurecer"
+    # volver a la foto animada con otro estilo
+    client.post(f"{base}/options", json={"mode": "foto", "style": "giro"})
+    assert _jobs(pg_url)[0]["style"] == "giro" and state()["mode"] == "foto"
+    # Quitar el video subido: queda la foto
+    r = client.delete(f"{base}/photo/video")
+    assert r.status_code == 200 and not state()["has_video_source"] and state()["mode"] == "foto"
     _jobs(pg_url)
-    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["roles"] == ["top", "front", "side"]
-    # Quitar video: queda la foto
-    r = client.delete(f"{base}/video")
-    m = r.json()["media"][lomo]
+    # Quitar video (el clip): queda la foto
+    m = client.delete(f"{base}/video").json()["media"][lomo]
     assert m["video_url"] == "" and m["has_photo"] and m["status"] == "sin_video"
     # Rehacer todos: no gasta cupo del cliente
-    r = client.post(f"/admin-v2/api/menu-video/{cid}/regenerate")
-    assert r.json()["queued"] >= 1
+    assert client.post(f"/admin-v2/api/menu-video/{cid}/regenerate").json()["queued"] >= 1
     _jobs(pg_url)
-    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["video_url"]
+    assert state()["video_url"]
     assert not _run(pg_url, "SELECT 1 FROM menu_video_quota_log"), "lo que rehace Clonexa no gasta cupo"
-    # quitar las tres -> sin foto ni video (tarjeta en el QR)
-    for role in ("top", "front", "side"):
+    # quitar todo -> sin foto ni video (tarjeta en el QR)
+    for role in ["main"] + [f"gallery:{g['id']}" for g in state()["gallery"]]:
         r = client.delete(f"{base}/photo/{role}")
     assert r.json()["undo"]["empty"] is True and lomo not in r.json()["media"]
     hsp._storage_ready = True
@@ -715,8 +743,317 @@ def test_portal_quitar_cambiar_queda_en_la_auditoria(client, pg_url, monkeypatch
     cid = _company(pg_url, "Demo", {"carta_video": True})
     dish = _dish(pg_url, cid, "Pizza", 30000, _category(pg_url, cid, "PIZZAS"))
     url = f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo"
-    assert client.post(url, files=[("top", ("pizza-arriba.jpg", dish_photo(70), "image/jpeg"))]).status_code == 200
-    assert client.delete(f"{url}/top").status_code == 200
+    assert client.post(url, files=[("main", ("pizza.jpg", dish_photo(70), "image/jpeg"))]).status_code == 200
+    assert client.delete(f"{url}/main").status_code == 200
     assert [(e["company_id"], e["surface"], e["detail"]["foto"], e["detail"]["fotos"]) for e in entries] == [
-        (cid, "portal", "subió", "desde arriba"), (cid, "portal", "quitó", "desde arriba")]
+        (cid, "portal", "subió", "principal"), (cid, "portal", "quitó", "principal")]
     assert entries[0]["actor"].startswith("Dueña de prueba") and entries[0]["detail"]["plato"] == "Pizza"
+
+
+# ---------------------------------------------------------- 058A 2 caminos
+def test_migracion_024u_conserva_todas_las_fotos(client, pg_url):
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    ids = {k: str(uuid.uuid4()) for k in ("tf", "tr", "ff", "fr", "sf", "a_side", "b_top", "b_side")}
+    full, only_side, top_side = (str(uuid.uuid4()) for _ in range(3))
+    _run(pg_url, """INSERT INTO menu_dish_media (company_id, dish_ref, top_original, top_remaster, front_original, front_remaster, side_original)
+                    VALUES (CAST(:c AS uuid), CAST(:d AS uuid), CAST(:tf AS uuid), CAST(:tr AS uuid), CAST(:ff AS uuid), CAST(:fr AS uuid), CAST(:sf AS uuid))""",
+         {"c": cid, "d": full, **{k: ids[k] for k in ("tf", "tr", "ff", "fr", "sf")}}, fetch=False)
+    _run(pg_url, "INSERT INTO menu_dish_media (company_id, dish_ref, side_original) VALUES (CAST(:c AS uuid), CAST(:d AS uuid), CAST(:s AS uuid))",
+         {"c": cid, "d": only_side, "s": ids["a_side"]}, fetch=False)
+    _run(pg_url, """INSERT INTO menu_dish_media (company_id, dish_ref, top_original, side_original)
+                    VALUES (CAST(:c AS uuid), CAST(:d AS uuid), CAST(:t AS uuid), CAST(:s AS uuid))""",
+         {"c": cid, "d": top_side, "t": ids["b_top"], "s": ids["b_side"]}, fetch=False)
+    for stmt in _migration():  # 024u otra vez sobre datos viejos (idempotente)
+        _run(pg_url, stmt, fetch=False)
+    rows = {r["d"]: r for r in _run(pg_url, """SELECT dish_ref::text AS d, front_original::text AS f, front_remaster::text AS fr, gallery,
+                                                       top_original, side_original FROM menu_dish_media WHERE company_id = CAST(:c AS uuid)""", {"c": cid})}
+    assert rows[full]["f"] == ids["ff"] and rows[full]["fr"] == ids["fr"], "frente pasa a principal"
+    assert rows[full]["gallery"] == [{"original": ids["tf"], "remaster": ids["tr"]}, {"original": ids["sf"], "remaster": ""}], "las demas, a la galeria"
+    assert rows[only_side]["f"] == ids["a_side"] and rows[only_side]["gallery"] == [], "sin frente: la que haya es la principal"
+    assert rows[top_side]["f"] == ids["b_top"] and rows[top_side]["gallery"] == [{"original": ids["b_side"], "remaster": ""}]
+    assert all(r["top_original"] is None and r["side_original"] is None for r in rows.values())
+    kept = set()
+    for r in rows.values():
+        kept |= {r["f"], r["fr"]} | {g["original"] for g in r["gallery"]} | {g["remaster"] for g in r["gallery"]}
+    assert set(ids.values()) <= kept, "ninguna foto se pierde"
+
+
+def test_portal_camino_1_video_cupo_y_opciones(client, pg_url):
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    dish = _dish(pg_url, cid, "Picada", 52000, _category(pg_url, cid, "PICADAS"))
+    url = f"/api/v1/menu-video/companies/{cid}/items/{dish}"
+    raw = fx.dish_video("horizontal", seconds=4, hevc=True, audio=True)
+    r = client.post(f"{url}/photo", files=[("video", ("IMG_0042.MOV", raw, "video/quicktime"))], data={"background": "desenfocar", "speed": "normal"})
+    assert r.status_code == 200, r.text
+    assert r.json()["quota"]["new"]["used"] == 1, "subir el video = 1 (plato nuevo)"
+    done = _jobs(pg_url)
+    assert done[0]["path"] == "video" and done[0]["status"] == "listo" and done[0]["clip_bytes"] < 1024 * 1024
+    media = client.get(f"/api/v1/menu-video/companies/{cid}/portal").json()["media"][dish]
+    assert media["mode"] == "video" and media["video_url"] and media["photo_url"] == media["poster_url"], "solo video: la portada hace de foto"
+    assert client.get(mv.media_url(cid, _run(pg_url, "SELECT video_original::text AS v FROM menu_dish_media")[0]["v"])).status_code == 404, \
+        "el video subido nunca es publico (solo su clip editado)"
+    # estilo / fondo / velocidad: no gasta cupo
+    r = client.post(f"{url}/options", json={"background": "ninguno", "speed": "lento", "start": 0.5, "length": 3})
+    assert r.status_code == 200 and r.json()["quota"]["changes"]["used"] == 0
+    # cambiar el video dos veces en 30 min = 1 cambio
+    for _ in range(2):
+        assert client.post(f"{url}/photo", files=[("video", ("v.mp4", fx.dish_video("vertical", seconds=3, audio=False), "video/mp4"))]).status_code == 200
+    assert client.get(f"/api/v1/menu-video/companies/{cid}/portal").json()["quota"]["changes"]["used"] == 0,         "cambiar otra vez dentro de 30 min del primero = el mismo cambio"
+    # mas de 30 s: mensaje claro y no gasta
+    r = client.post(f"{url}/photo", files=[("video", ("largo.mp4", fx.long_video(31), "video/mp4"))])
+    assert r.status_code == 422 and "máximo es 30 s" in r.json()["detail"]
+    # carta sin video: subir video no se permite
+    simple = _company(pg_url, "Simple")
+    d2 = _dish(pg_url, simple, "Arepa", 8000, _category(pg_url, simple, "ENTRADAS"))
+    r = client.post(f"/api/v1/menu-video/companies/{simple}/items/{d2}/photo", files=[("video", ("v.mp4", raw, "video/mp4"))])
+    assert r.status_code == 403
+
+
+def test_galeria_en_detalle_de_la_carta(client, pg_url):
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    dish = _dish(pg_url, cid, "Lomo", 42000, _category(pg_url, cid, "FUERTES"))
+    files = [("main", ("lomo.jpg", dish_photo(80), "image/jpeg")), ("gallery", ("lomo-2.jpg", dish_photo(81), "image/jpeg")),
+             ("gallery", ("lomo-3.jpg", dish_photo(82), "image/jpeg"))]
+    assert client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo", files=files).status_code == 200
+    _jobs(pg_url)
+
+    async def go(db):
+        from app.services import carta_app
+        return await carta_app.payload(db, cid)
+    data = _db(pg_url)(go)
+    product = next(p for p in data["products"] if p["id"] == dish)
+    assert product["video_url"] and len(product["gallery_urls"]) == 2, "las otras fotos van a Detalle"
+    assert product["photo_url"] not in product["gallery_urls"]
+
+
+# ------------------------------------------------------------- 058A QR y piezas
+def _links_company(pg_url, name="Brasa", extra=None):
+    return _company(pg_url, name, {"carta_video": True, "carta_qr_piezas": True, **(extra or {})})
+
+
+def test_qr_y_piezas_solo_con_interruptor(client, pg_url):
+    off = _company(pg_url, "Sin interruptor", {"carta_video": True})
+    assert client.get(f"/api/v1/carta-links/companies/{off}").status_code == 403
+    assert client.get("/api/v1/carta/companies/" + off).json().get("qr_piezas") in (False, None)
+    cid = _links_company(pg_url)
+    data = client.get(f"/api/v1/carta-links/companies/{cid}").json()
+    assert set(data["kinds"]) == {"mesa", "domicilio", "llevar", "mesero"} and all(k["on"] for k in data["kinds"].values())
+    assert len(data["mesas"]) == 12 and "/ordenar?company_id=" in data["mesas"][0]["url"] and "&q=" in data["mesas"][0]["url"]
+    assert "/pedir?k=" in data["kinds"]["domicilio"]["url"] and "/carta-mesero?company_id=" in data["kinds"]["mesero"]["url"]
+    assert data["delivery"]["fee_text"] == "El restaurante te confirma el valor del domicilio."
+    # la empresa sin interruptor: el QR de mesa sigue igual que hoy (sin codigo)
+    async def guard(db):
+        from app.services import carta_links
+        await carta_links.mesa_guard(db, off, "")
+        return True
+    assert _db(pg_url)(guard)
+
+
+def _order_items(dish):
+    return [{"inventory_item_id": dish, "quantity": 2, "term": "3/4", "observations": "sin cebolla"}]
+
+
+@pytest.fixture
+def orders(monkeypatch):
+    """create_hospitality_order de verdad se prueba en Domicilios/QR mesa; aqui se
+    revisa lo que el QR le manda (destino, datos y consentimiento)."""
+    from app.api.v1.endpoints import carta_links as links_api
+    from app.api.v1.endpoints.hospitality import HospitalityOrderItemIn
+    from app.services import carta_links
+
+    carta_links._RATE.clear()
+    calls = []
+
+    async def priced(db, company_id, items):
+        return [HospitalityOrderItemIn(name="Lomo", quantity=i.quantity, unit_price=42000, inventory_item_id=i.inventory_item_id, station="cocina")
+                for i in items]
+
+    async def create(company_id, payload, db, delivery=None):
+        oid = str(uuid.uuid4())
+        calls.append({"company_id": str(company_id), "payload": payload, "delivery": delivery, "id": oid})
+        total = sum(float(i.quantity) * float(i.unit_price) for i in payload.items)
+        meta = {"delivery": delivery} if delivery else {}
+        await db.execute(text("""INSERT INTO hospitality_orders (id, company_id, items, order_number, status, total, metadata)
+                                 VALUES (CAST(:i AS uuid), CAST(:c AS uuid), '[]'::jsonb, :n, 'pendiente', :t, CAST(:m AS jsonb))"""),
+                         {"i": oid, "c": str(company_id), "n": f"QR-{len(calls):03d}", "t": total, "m": json.dumps(meta)})
+        await db.commit()
+        return {"order": {"id": oid, "order_number": f"QR-{len(calls):03d}", "total": total}}
+
+    monkeypatch.setattr(links_api, "_priced_order_items", priced)
+    monkeypatch.setattr(links_api, "create_hospitality_order", create)
+    yield calls
+    carta_links._RATE.clear()
+
+
+def _dom_body(dish, **extra):
+    return {"name": "Laura Gómez", "phone": "300 123 4567", "address": "Calle 10 # 5-20", "barrio": "Centro", "reference": "Portería",
+            "payment": "transferencia", "note": "Timbre dañado", "consent": True, "website": "", "items": _order_items(dish), **extra}
+
+
+def test_qr_domicilio_llega_a_domicilios_con_datos_y_consentimiento(client, pg_url, orders):
+    for col in ("order_number text", "status text", "total numeric", "metadata jsonb"):
+        _run(pg_url, f"ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS {col}", fetch=False)
+    cid = _links_company(pg_url)
+    dish = _dish(pg_url, cid, "Lomo", 42000, _category(pg_url, cid, "FUERTES"))
+    data = client.get(f"/api/v1/carta-links/companies/{cid}").json()
+    token = data["kinds"]["domicilio"]["url"].split("k=")[1]
+    page = client.get(f"/api/v1/carta-links/public/{token}").json()
+    assert page["kind"] == "domicilio" and page["policy_url"].startswith("/politica-de-datos?c=") and page["carta"]["company"]["name"] == "Brasa"
+    assert page["delivery"]["fee_text"] == "El restaurante te confirma el valor del domicilio."
+    # sin autorizacion de datos no sale; el campo oculto frena robots
+    r = client.post(f"/api/v1/carta-links/public/{token}/orders", json=_dom_body(dish, consent=False))
+    assert r.status_code == 422 and "autorización" in r.json()["detail"]
+    assert client.post(f"/api/v1/carta-links/public/{token}/orders", json=_dom_body(dish, website="http://spam")).status_code == 422
+    assert orders == []
+    r = client.post(f"/api/v1/carta-links/public/{token}/orders", json=_dom_body(dish))
+    assert r.status_code == 201, r.text
+    out = r.json()
+    call = orders[0]
+    assert call["company_id"] == cid and call["payload"].source == "domicilio" and call["payload"].table.startswith("Domicilio ")
+    d = call["delivery"]
+    assert d["customer_name"] == "Laura Gómez" and d["customer_phone"] == "300 123 4567" and d["address"] == "Calle 10 # 5-20"
+    assert d["barrio"] == "Centro" and d["reference"] == "Portería" and d["payment_status"] == "contra_entrega" and d["payment_kind"] == "transfer"
+    assert d["consent"]["accepted"] is True and "Autorizo el tratamiento" in d["consent"]["text"] and d["fee_pending"] is True
+    assert call["payload"].items[0].quantity == 2, "precios del servidor, nunca del cliente"
+    assert out["fee_text"] == "El restaurante te confirma el valor del domicilio." and out["status_text"] == "Recibido"
+    # estado del pedido solo con su clave
+    st = client.get(f"/api/v1/carta-links/public/{token}/orders/{out['order_id']}?s={out['key']}").json()
+    assert st["status_text"] == "Recibido"
+    assert client.get(f"/api/v1/carta-links/public/{token}/orders/{out['order_id']}?s=otraclave123").status_code == 404
+    _run(pg_url, "UPDATE hospitality_orders SET status = 'alistando'", fetch=False)
+    assert client.get(f"/api/v1/carta-links/public/{token}/orders/{out['order_id']}?s={out['key']}").json()["status_text"] == "En preparación"
+    # limite por celular: 2 por minuto
+    assert client.post(f"/api/v1/carta-links/public/{token}/orders", json=_dom_body(dish)).status_code == 201
+    r = client.post(f"/api/v1/carta-links/public/{token}/orders", json=_dom_body(dish))
+    assert r.status_code == 429 and "Espera un minuto" in r.json()["detail"]
+    # politica de datos con el nombre del restaurante
+    policy = client.get(page["policy_url"])
+    assert policy.status_code == 200 and "Brasa" in policy.text and "1581" in policy.text
+
+
+def test_qr_para_llevar_a_caja_y_cocina_y_limite_por_ip(client, pg_url, orders):
+    for col in ("order_number text", "status text", "total numeric", "metadata jsonb"):
+        _run(pg_url, f"ALTER TABLE hospitality_orders ADD COLUMN IF NOT EXISTS {col}", fetch=False)
+    cid = _links_company(pg_url)
+    dish = _dish(pg_url, cid, "Lomo", 42000, _category(pg_url, cid, "FUERTES"))
+    token = client.get(f"/api/v1/carta-links/companies/{cid}").json()["kinds"]["llevar"]["url"].split("k=")[1]
+    body = {"name": "Pedro", "phone": "3105550000", "pickup": "7:30 p. m.", "items": _order_items(dish)}
+    assert client.post(f"/api/v1/carta-links/public/{token}/orders", json={**body, "pickup": ""}).status_code == 422
+    r = client.post(f"/api/v1/carta-links/public/{token}/orders", json=body)
+    assert r.status_code == 201, r.text
+    p = orders[0]["payload"]
+    assert orders[0]["delivery"] is None, "no es domicilio: va a Caja y cocina como una cuenta"
+    assert p.table.startswith("Para llevar Pedro") and p.source == "para_llevar" and "recoge 7:30 p. m." in p.notes and "3105550000" in p.notes
+    meta = _run(pg_url, "SELECT metadata FROM hospitality_orders")[0]["metadata"]
+    assert meta["takeaway"]["pickup"] == "7:30 p. m." and meta["takeaway"]["phone"] == "3105550000"
+    # limite por IP: 4 por minuto (celulares distintos)
+    codes = [client.post(f"/api/v1/carta-links/public/{token}/orders", json={**body, "phone": f"31055500{i:02d}"}).status_code for i in range(1, 6)]
+    assert codes[:3] == [201, 201, 201] and codes[-1] == 429
+
+
+def test_qr_apagar_y_regenerar_enlace(client, pg_url, orders):
+    cid = _links_company(pg_url)
+    data = client.get(f"/api/v1/carta-links/companies/{cid}").json()
+    old = data["kinds"]["domicilio"]["url"].split("k=")[1]
+    assert client.get(f"/api/v1/carta-links/public/{old}").status_code == 200
+    # apagar Domicilio
+    r = client.put(f"/api/v1/carta-links/companies/{cid}/kinds/domicilio", json={"on": False})
+    assert r.json()["kinds"]["domicilio"]["on"] is False
+    assert client.get(f"/api/v1/carta-links/public/{old}").status_code == 403
+    client.put(f"/api/v1/carta-links/companies/{cid}/kinds/domicilio", json={"on": True})
+    # regenerar: el viejo deja de funcionar, el nuevo si
+    new = client.post(f"/api/v1/carta-links/companies/{cid}/kinds/domicilio/regenerate").json()["kinds"]["domicilio"]["url"].split("k=")[1]
+    assert new != old and client.get(f"/api/v1/carta-links/public/{old}").status_code == 404
+    assert client.get(f"/api/v1/carta-links/public/{new}").status_code == 200
+    assert client.get(f"/pedir?k={new}").status_code == 200
+    # mesa: antes de regenerar, los QR de mesa viejos (sin codigo) sirven; despues, solo el nuevo
+    _run(pg_url, """INSERT INTO hospitality_table_access (company_id, table_key, table_number, access_code, status, expires_at)
+                    VALUES (CAST(:c AS uuid), 'mesa 1', 'Mesa 1', 'ABC12', 'active', now() + interval '1 day')""", {"c": cid}, fetch=False)
+    body = {"table": "Mesa 1", "access_code": "ABC12"}
+    assert client.post(f"/api/v1/menu-video/qr/{cid}/carta", json=body).status_code == 200
+    mesa_url = client.post(f"/api/v1/carta-links/companies/{cid}/kinds/mesa/regenerate").json()["mesas"][0]["url"]
+    code = mesa_url.split("&q=")[1]
+    r = client.post(f"/api/v1/menu-video/qr/{cid}/carta", json=body)
+    assert r.status_code == 403 and "QR nuevo" in r.json()["detail"]
+    assert client.post(f"/api/v1/menu-video/qr/{cid}/carta", json={**body, "link": code}).status_code == 200
+    client.put(f"/api/v1/carta-links/companies/{cid}/kinds/mesa", json={"on": False})
+    r = client.post(f"/api/v1/menu-video/qr/{cid}/carta", json={**body, "link": code})
+    assert r.status_code == 403 and "apagado" in r.json()["detail"]
+
+
+def test_qr_mesero_sin_sesion_no_abre_y_con_sesion_agrega_a_su_mesa(client, pg_url, monkeypatch):
+    from app.api.v1.endpoints import carta_links as links_api
+    from app.api.v1.endpoints import waiter_ordering
+
+    cid = _links_company(pg_url)
+    url = client.get(f"/api/v1/carta-links/companies/{cid}").json()["kinds"]["mesero"]["url"]
+    k = url.split("k=")[1]
+    assert client.get(f"/api/v1/carta-links/companies/{cid}/mesero?k={k}").status_code in (401, 403), "sin sesion de mesero no abre"
+    assert client.get(f"/carta-mesero?company_id={cid}&k={k}").status_code == 200
+    mesero = SimpleNamespace(id=uuid.uuid4(), full_name="Mesero Uno")
+    app_main.app.dependency_overrides[waiter_ordering._require_mesero] = lambda: mesero
+    monkeypatch.setattr(waiter_ordering, "waiter_my_tables", AsyncMock(return_value={"ok": True, "tables": [{"table_number": "Mesa 4", "total": 30000, "status": "entregada"}]}))
+    try:
+        r = client.get(f"/api/v1/carta-links/companies/{cid}/mesero?k={k}")
+        assert r.status_code == 200 and r.json()["tables"][0]["table_number"] == "Mesa 4" and r.json()["mesero"] == "Mesero Uno"
+        assert r.json()["carta"]["company"]["name"] == "Brasa"
+        assert client.get(f"/api/v1/carta-links/companies/{cid}/mesero?k=" + "x" * 24).status_code == 404, "enlace viejo o falso"
+        client.put(f"/api/v1/carta-links/companies/{cid}/kinds/mesero", json={"on": False})
+        assert client.get(f"/api/v1/carta-links/companies/{cid}/mesero?k={k}").status_code == 403
+        other = _links_company(pg_url, "Otra")
+        assert client.get(f"/api/v1/carta-links/companies/{other}/mesero?k={k}").status_code == 404, "nunca el QR de otra empresa"
+    finally:
+        app_main.app.dependency_overrides.pop(waiter_ordering._require_mesero, None)
+    assert links_api  # noqa: B018 (el mesero agrega con POST /waiter-ordering/orders de siempre)
+
+
+def test_qr_con_logo_y_piezas_se_leen_con_dos_marcas(client, pg_url, monkeypatch):
+    import io as _io
+    import zipfile
+
+    from app.api.v1.endpoints import carta_links as links_api
+    from app.services import carta_links
+
+    def logo(color):
+        img = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
+        ImageDraw.Draw(img).ellipse((10, 10, 290, 290), fill=color)
+        buf = _io.BytesIO()
+        img.save(buf, "PNG")
+        return buf.getvalue()
+
+    brands = {}
+    a = _links_company(pg_url, "Brasa & Maíz")
+    b = _links_company(pg_url, "Azul Mar")
+    brands[a] = {"name": "Brasa & Maíz", "primary": "#c2410c", "logo": logo((194, 65, 12, 255))}
+    brands[b] = {"name": "Azul Mar", "primary": "#1e3a8a", "logo": logo((30, 58, 138, 255))}
+    monkeypatch.setattr(links_api, "_brand", AsyncMock(side_effect=lambda db, cid: brands[cid]))
+    dish = _dish(pg_url, a, "Hamburguesa", 32000, _category(pg_url, a, "FUERTES"))
+    _photo(client, a, dish)
+    previews = {}
+    for cid in (a, b):
+        r = client.get(f"/api/v1/carta-links/companies/{cid}/qr/domicilio.png")
+        assert r.status_code == 200 and r.headers["x-qr-verified"] == "1" and r.headers["x-qr-variant"] == "marca_logo"
+        img = Image.open(_io.BytesIO(r.content)).convert("RGB")
+        assert carta_links.read_qr(img).startswith("http") and "/pedir?k=" in carta_links.read_qr(img)
+        for piece in ("hablador", "sticker", "instagram"):
+            p = client.get(f"/api/v1/carta-links/companies/{cid}/piezas/{piece}.png")
+            assert p.status_code == 200 and p.headers["x-qr-verified"] == "1", (cid, piece)
+            previews[(cid, piece)] = p.content
+        z = client.get(f"/api/v1/carta-links/companies/{cid}/piezas.zip")
+        assert z.status_code == 200 and z.headers["x-qr-verified"] == "1"
+        names = zipfile.ZipFile(_io.BytesIO(z.content)).namelist()
+        assert len([n for n in names if n.startswith("habladores/")]) == 12
+        assert "sticker-domicilio-8x8cm.pdf" in names and "instagram-pide-aqui-1080x1350.png" in names
+        assert {"qr/qr-domicilio.png", "qr/qr-llevar.png", "qr/qr-mesero.png", "qr/qr-mesa-1.png"} <= set(names)
+        pdf = zipfile.ZipFile(_io.BytesIO(z.content)).read("habladores/hablador-mesa-1.pdf")
+        assert pdf.startswith(b"%PDF") and b"/MediaBox [ 0 0 283" in pdf, "10 x 15 cm (283 x 425 pt)"
+        sticker = zipfile.ZipFile(_io.BytesIO(z.content)).read("sticker-domicilio-8x8cm.pdf")
+        assert b"/MediaBox [ 0 0 226" in sticker, "8 x 8 cm (226 pt)"
+        ig = Image.open(_io.BytesIO(zipfile.ZipFile(_io.BytesIO(z.content)).read("instagram-pide-aqui-1080x1350.png")))
+        assert ig.size == (1080, 1350)
+    assert previews[(a, "sticker")] != previews[(b, "sticker")], "cada marca con sus colores"
+    sticker_a = Image.open(_io.BytesIO(previews[(a, "sticker")])).convert("RGB")
+    assert sticker_a.getpixel((5, 5)) == (194, 65, 12), "fondo con el color de la marca"
+    # contraste insuficiente (amarillo): el QR sale oscuro sobre claro y se sigue leyendo
+    image, info = carta_links.qr_image("https://x.co/pedir?k=" + "a" * 24, "#facc15", brands[a]["logo"])
+    assert info["verified"] and info["color"] == "#111111"

@@ -327,7 +327,8 @@ test('editar abre el asistente con lo que ya tiene; eliminar pide confirmación'
 
 test('QR de la carta: opcional, imagen para descargar, link y cambio de código', () => {
   const ctx = portal(DATA);
-  assert.match(source, /const tabs = \[\["platos", "Platos"\], \["categorias", "Categorías"\], \["qr", "QR de la carta"\]\];/);
+  assert.match(source, /const tabs = \[\["platos", "Platos"\], \["categorias", "Categorías"\], \["qr", cxCarQrOn058A\(\) \? "QR y piezas" : "QR de la carta"\]\];/);
+  assert.equal(ctx.cxCarQrOn058A(), false, 'sin el interruptor carta_qr_piezas: "QR de la carta" igual que antes');
   assert.match(ctx.cxCarQrHtml049J(), /Generando el QR/);
   ctx.cxCarUi049J.qr = { url: 'https://x.test/carta-qr?t=abc', image: 'blob:qr' };
   const html = ctx.cxCarQrHtml049J();
@@ -919,31 +920,36 @@ test('057D Quitar: confirmación en la misma pantalla, Deshacer 10 s, y al guard
   assert.ok(!ctx.calls.some((c) => c.form), 'quitar no sube nada');
 });
 
-test('057D carta en video: desde arriba, frente y perfil con Cambiar/Quitar; cupo del mes; sin cupo "Solicitar más"', async () => {
+test('058A carta en video: 2 caminos (Subir video / Subir foto), foto principal + galería, estilos; cupo del mes; sin cupo "Solicitar más"', async () => {
   const ctx = portal(DATA);
   const quota = (left) => ({ month: '2026-10', new: { used: 3 - left, limit: 3, left }, changes: { used: 0, limit: 3, left: 3 } });
   ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, quota: quota(2), styles: {} };
   await toPhotoStep(ctx);
   let html = ctx.cxCarWizHtml049J();
-  assert.match(html, /<svg[^>]*aria-label="Los tres ángulos[\s\S]*Frente: a 45°\. Perfil: a la altura del plato\. Desde arriba: si el plato es grande/);
-  assert.match(html, /Desde arriba[\s\S]*data-wz-photo-file="top"[\s\S]*Frente[\s\S]*data-wz-photo-file="front"[\s\S]*Perfil[\s\S]*data-wz-photo-file="side"/);
-  assert.match(html, /Te quedan 2 de 3 este mes \(platos nuevos con foto y video\)\. Quitar una foto no gasta cupo; si cambias la misma foto otra vez en 30 minutos, cuenta como un solo cambio\./);
-  assert.doesNotMatch(html, /Estilo del video/, 'un solo movimiento suave');
-  await photoFile(ctx, 'top', 'pizza-arriba.jpg');
-  await photoFile(ctx, 'front');
-  await photoFile(ctx, 'side', 'perfil.jpg');
+  assert.match(html, /data-wz-path="video"[^>]*>Subir video <small>\(recomendado: vista 360\)[\s\S]*data-wz-path="foto"[^>]*>Subir foto/);
+  assert.match(html, /<b>Una foto principal<\/b> \(la que se anima\)[\s\S]*Foto principal[\s\S]*data-wz-photo-file="main"[\s\S]*Más fotos \(galería\) · se ven en el botón Detalle[\s\S]*\+ Agregar fotos<input type="file" multiple[^>]*data-wz-photo-file="gallery"/);
+  assert.doesNotMatch(html, /data-wz-photo-file="(top|side|front)"/, 'ya no hay desde arriba / frente / perfil');
+  for (const s of ['Vida', 'Acercamiento', 'Giro suave', 'Paneo', 'Brillo', 'Automático']) assert.match(html, new RegExp(`>${s}</option>`));
+  assert.match(html, /data-wz-opt="background">[\s\S]*Desenfocar fondo[\s\S]*Oscurecer fondo[\s\S]*Sin cambios/);
+  assert.match(html, /Te quedan 2 de 3 este mes \(platos nuevos con foto y video\)\. Subir o cambiar el video o la foto = 1 cambio\. Quitar no gasta cupo; si cambias otra vez en 30 minutos, cuenta como el mismo cambio\./);
+  await photoFile(ctx, 'main');
+  await photoFile(ctx, 'gallery', 'plato-2.jpg');
+  await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-opt], [data-car-redo-opt]' ? { getAttribute: (a) => (a === 'data-wz-opt' ? 'style' : null), hasAttribute: (a) => a === 'data-wz-opt', value: 'giro' } : null) } });
+  html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Foto 2[\s\S]*src="blob:x"/, 'la foto agregada a la galería se ve');
   ctx.respond = (path) => (path.startsWith('/menu-video/')
-    ? { ...ctx.cxCarMedia057A, quota: quota(1), media: { n9: { has_photo: true, photo_url: '/m/f.webp', roles: ['top', 'front', 'side'] } }, jobs: { n9: { status: 'en_cola' } } }
+    ? { ...ctx.cxCarMedia057A, quota: quota(1), media: { n9: { has_photo: true, photo_url: '/m/f.webp', roles: ['main', 'gallery'], mode: 'foto' } }, jobs: { n9: { status: 'en_cola' } } }
     : { ...withDish('n9'), created_id: 'n9' });
   ctx.setTimeout = () => 0;
   await ctx.click('data-wz-save');
   const upload = ctx.calls.find((c) => c.form);
-  assert.deepEqual(upload.form.map(([k]) => k), ['top', 'front', 'side', 'style']);
+  assert.deepEqual(upload.form.map(([k]) => k), ['main', 'gallery', 'style'], 'la principal, la galería y el estilo; un solo envío');
+  assert.equal(upload.form.find(([k]) => k === 'style')[1], 'giro');
   assert.match(ctx.cxCarPlatosHtml049J(), /Creando el video del plato/);
   // sin cupo: el botón cambia a "Solicitar más" y avisa por n8n
   ctx.cxCarMedia057A = { ...ctx.cxCarMedia057A, quota: quota(0) };
   await toPhotoStep(ctx, 'n10');
-  await photoFile(ctx, 'front');
+  await photoFile(ctx, 'main');
   html = ctx.cxCarWizHtml049J();
   assert.match(html, /Te quedan 0 de 3 este mes[\s\S]*Ya usaste tu cupo de este mes[\s\S]*data-car-quota-request[^>]*>Solicitar más/);
   ctx.respond = (path) => (path === '/menu-video/companies/c1/quota/request' ? { ok: true, message: 'Te contactaremos para ampliar tu plan.' } : DATA);
@@ -953,18 +959,51 @@ test('057D carta en video: desde arriba, frente y perfil con Cambiar/Quitar; cup
   assert.match(ctx.cxCarWizHtml049J(), /Te contactaremos para ampliar tu plan\./);
 });
 
-test('057D Cambiar una foto que ya existe sube SOLO ese espacio', async () => {
+test('058A camino 1: subir el video del plato (guía, MP4/MOV, 150 MB) con fondo, velocidad y tramo', async () => {
+  const ctx = portal(DATA);
+  ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, styles: {}, quota: { month: '2026-10', new: { used: 0, limit: 3, left: 3 }, changes: { used: 0, limit: 3, left: 3 } } };
+  await toPhotoStep(ctx);
+  await ctx.click('data-wz-path', 'video');
+  let html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Pon el plato sobre una base giratoria o camina alrededor, 5 a 10 segundos, celular vertical, buena luz, plato completo en cuadro\.[\s\S]*máximo 30 s y 150 MB/);
+  assert.match(html, /Video del plato[\s\S]*accept="video\/mp4,video\/quicktime,\.mov,\.mp4" data-wz-photo-file="video"/);
+  assert.match(html, /data-wz-opt="speed">[\s\S]*Más lento[\s\S]*Normal[\s\S]*Más rápido[\s\S]*Tramo: desde \(s\)[\s\S]*Tramo: duración \(s\)/);
+  assert.match(html, /<option value="desenfocar" selected>Desenfocar fondo/, 'en video, por defecto se desenfoca el fondo');
+  assert.doesNotMatch(html, /data-wz-opt="style"/, 'los estilos de movimiento son de la foto');
+  // muy pesado: mensaje claro, no se sube
+  await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-photo-file]' ? { getAttribute: () => 'video', files: [{ name: 'largo.mov', size: 151 * 1024 * 1024 }] } : null) } });
+  assert.equal(ctx.cxCarWiz049J.error, 'El video pesa más de 150 MB: graba de 5 a 10 segundos.');
+  await ctx.cxCarOnChange049J({ target: { closest: (sel) => (sel === '[data-wz-photo-file]' ? { getAttribute: () => 'video', files: [{ name: 'IMG_0042.MOV', size: 30 * 1024 * 1024 }] } : null) } });
+  assert.match(ctx.cxCarWizHtml049J(), /▶ IMG_0042\.MOV/);
+  ctx.respond = (path) => (path.startsWith('/menu-video/') ? { ...ctx.cxCarMedia057A, media: { n9: { has_photo: true, has_video_source: true, mode: 'video' } }, jobs: { n9: { status: 'en_cola' } } }
+    : { ...withDish('n9'), created_id: 'n9' });
+  ctx.setTimeout = () => 0;
+  await ctx.click('data-wz-save');
+  const upload = ctx.calls.find((c) => c.form);
+  assert.deepEqual(upload.form.map(([k]) => k), ['video', 'mode']);
+  assert.match(ctx.cxCarPlatosHtml049J(), /Editando el video del plato/);
+});
+
+test('057D/058A Cambiar una foto de la galería sube SOLO esa; Rehacer con otro estilo no gasta cupo', async () => {
   const ctx = portal(DATA);
   ctx.cxCarMedia057A = { carta_video: true, jobs: {}, styles: {}, quota: { month: '2026-10', new: { used: 0, limit: 3, left: 3 }, changes: { used: 0, limit: 3, left: 3 } },
-    media: { d1: { has_photo: true, roles: ['front', 'side'], photo_url: '/m/f.webp', front_original_url: '/m/f.webp', side_original_url: '/m/s.webp' } } };
+    media: { d1: { has_photo: true, roles: ['main', 'gallery'], mode: 'foto', photo_url: '/m/f.webp', main_original_url: '/m/f.webp', video_url: '/m/v.mp4', poster_url: '/m/p.webp',
+      gallery: [{ id: 'g1', url: '/m/s.webp', original_url: '/m/s.webp' }], options: { style: 'vida', background: 'ninguno' } } } };
   ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(DATA.items.find((d) => d.id === 'd1')), step: 6 };
   const html = ctx.cxCarWizHtml049J();
-  assert.match(html, /Frente[\s\S]*\/m\/f\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="front"[\s\S]*Perfil[\s\S]*\/m\/s\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="side"/);
+  assert.match(html, /Foto principal[\s\S]*\/m\/f\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="main"[\s\S]*Foto 2[\s\S]*\/m\/s\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="gallery:g1"/);
   assert.match(html, /Te quedan 3 de 3 este mes \(cambios de foto o video\)/);
-  await photoFile(ctx, 'side', 'otro-perfil.jpg');
+  await photoFile(ctx, 'gallery:g1', 'otra.jpg');
   ctx.respond = (path) => (path.startsWith('/menu-video/') ? ctx.cxCarMedia057A : DATA);
   await ctx.click('data-wz-save');
-  assert.deepEqual(ctx.calls.find((c) => c.form).form.map(([k]) => k), ['side', 'style']);
+  assert.deepEqual(ctx.calls.find((c) => c.form).form.map(([k]) => k), ['gallery:g1']);
+  // resumen del plato: Rehacer con estilo y fondo (POST /options, sin cupo)
+  const summary = ctx.cxCarPhotoSummaryHtml057A({ id: 'd1', name: 'Lomo' });
+  assert.match(summary, /data-car-redo-opt="style">[\s\S]*<option value="vida" selected>Vida[\s\S]*data-car-redo="options" data-car-redo-id="d1">Rehacer/);
+  ctx.cxCarUi049J.redoOpts058A = { style: 'brillo' };
+  await ctx.cxCarPhotoClick057A({ closest: (sel) => (sel === '[data-car-redo]' ? { getAttribute: (a) => (a === 'data-car-redo' ? 'options' : 'd1') } : null) });
+  const redo = ctx.calls.find((c) => c.path === '/menu-video/companies/c1/items/d1/options');
+  assert.deepEqual(redo.body, { style: 'brillo' });
 });
 
 test('057A el servidor dice sin cupo: el plato queda guardado y aparece "Solicitar más"', async () => {
@@ -987,4 +1026,27 @@ test('057A platos importados: "Receta pendiente" en la tarjeta (no "Sin receta")
   assert.match(card, /<img class="cx-car-thumb-057a" src="\/m\/p\.webp"/);
   assert.match(card, /Receta pendiente/);
   assert.doesNotMatch(card, /Sin receta/);
+});
+
+test('058A QR y piezas (interruptor carta_qr_piezas): 4 QR con encender/apagar y regenerar, piezas y ZIP', () => {
+  const ctx = portal({ ...DATA, qr_piezas: true });
+  assert.equal(ctx.cxCarQrOn058A(), true);
+  assert.match(ctx.cxCarQrPiezasHtml058A(), /Cargando QR y piezas/);
+  const url = (k) => `https://x.test/${k}`;
+  ctx.cxCarQr058A.data = { carta: 'video', delivery: { module: false, fee: 0 }, mesas: [{ label: 'Mesa 1', url: url('ordenar?mesa=1&q=a') }, { label: 'Mesa 2', url: url('ordenar?mesa=2&q=a') }],
+    kinds: { mesa: { label: 'Mesa', on: true, url: url('m') }, domicilio: { label: 'Domicilio', on: true, url: url('pedir?k=d') }, llevar: { label: 'Para llevar', on: false, url: url('pedir?k=l') },
+      mesero: { label: 'Mesero', on: true, url: url('carta-mesero?k=m') } } };
+  ctx.cxCarQr058A.mesa = 'Mesa 2';
+  ctx.cxCarQr058A.images = { domicilio: { url: 'blob:d', verified: true }, mesa: { url: 'blob:m', verified: true }, sticker: { url: 'blob:s', verified: true } };
+  let html = ctx.cxCarQrPiezasHtml058A();
+  assert.match(html, /la carta en video[\s\S]*el restaurante confirma el valor al cliente/);
+  assert.match(html, /<h4>Mesa<\/h4>[\s\S]*data-car-qr-on="mesa" checked[\s\S]*<option selected>Mesa 2<\/option>[\s\S]*ordenar\?mesa=2/);
+  assert.match(html, /<h4>Domicilio<\/h4>[\s\S]*Llega a Domicilios y a cocina[\s\S]*<img src="blob:d" alt="QR Domicilio">[\s\S]*✓ Verificado con lector de QR/);
+  assert.match(html, /cx-qr-card-058a off[\s\S]*<h4>Para llevar<\/h4>[\s\S]*data-car-qr-on="llevar" > Apagado/);
+  assert.match(html, /<h4>Mesero<\/h4>[\s\S]*Solo abre con su sesión de mesero/);
+  assert.doesNotMatch(html.split('<h4>Mesero</h4>')[1].split('</article>')[0], /target="_blank"/, 'el de mesero no se abre desde aquí');
+  assert.match(html, /Hablador de mesa \(PDF 10×15 cm, uno por mesa\)[\s\S]*Sticker de domicilio \(PDF 8×8 cm\)[\s\S]*Instagram \(PNG 1080×1350\)[\s\S]*data-car-qr-zip058a >Descargar todo \(ZIP\)/);
+  ctx.cxCarQr058A.confirm = 'mesa';
+  assert.match(ctx.cxCarQrPiezasHtml058A(), /Todos los QR de mesa impresos \(también los de antes\) dejarán de funcionar\.[\s\S]*data-car-qr-regen058a-yes="mesa"/);
+  assert.match(source, /fetch\(`\$\{API\}\/carta-links\/companies\/\$\{encodeURIComponent\(state\.companyId\)\}\/piezas\.zip`, \{ headers: authHeaders\(\{\}\) \}\)/, 'el ZIP se pide con sesión');
 });

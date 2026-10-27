@@ -208,6 +208,10 @@ async def quota_log(db: AsyncSession, company_id: Any, limit: int = 60) -> list[
 
 
 # ------------------------------------------------------------------ bucket ---
+def _ext(content_type: str) -> str:
+    return {"video/mp4": "mp4", "video/quicktime": "mov"}.get(content_type, "webp")
+
+
 def asset_key(company_id: Any, asset_id: Any, ext: str) -> str:
     return f"menuvideo/{_uuid(company_id)}/{_uuid(asset_id)}.{ext}"
 
@@ -261,11 +265,11 @@ def media_url(company_id: str, asset_id: Optional[str], content_type: str = "ima
 
 async def store_asset(db: AsyncSession, company_id: Any, dish_ref: Any, role: str, variant: str, data: bytes,
                       content_type: str, width: Optional[int] = None, height: Optional[int] = None,
-                      source_name: str = "", meta: Optional[dict] = None) -> str:
+                      source_name: str = "", meta: Optional[dict] = None, private: bool = False) -> str:
     cid = _uuid(company_id)
     asset_id = str(uuid.uuid4())
-    key = asset_key(cid, asset_id, "mp4" if content_type == "video/mp4" else "webp")
-    await asyncio.to_thread(_put, key, data, content_type)
+    key = asset_key(cid, asset_id, _ext(content_type))
+    await asyncio.to_thread(_put, key, data, content_type, private)
     await db.execute(text("""
         INSERT INTO menu_media_assets (id, company_id, dish_ref, role, variant, storage_key, content_type, size_bytes,
                                        width, height, source_name, meta)
@@ -292,11 +296,14 @@ async def asset(db: AsyncSession, company_id: Any, asset_id: Any) -> Optional[di
 
 async def is_public(db: AsyncSession, company_id: Any, asset_id: Any) -> bool:
     """Publica = la usa hoy un plato real de la Carta de ESA empresa."""
+    # el video subido (Camino 1) nunca es publico: solo su clip editado
     row = (await db.execute(text("""
         SELECT 1 FROM menu_dish_media dm JOIN carta_items ci ON ci.id = dm.dish_ref AND ci.company_id = dm.company_id
         WHERE dm.company_id = CAST(:c AS uuid)
-          AND CAST(:a AS uuid) IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
-                                   dm.side_remaster, dm.clip_asset, dm.poster_asset)
+          AND (CAST(:a AS uuid) IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
+                                    dm.side_remaster, dm.clip_asset, dm.poster_asset)
+               OR dm.gallery @> jsonb_build_array(jsonb_build_object('original', CAST(:a AS text)))
+               OR dm.gallery @> jsonb_build_array(jsonb_build_object('remaster', CAST(:a AS text))))
         LIMIT 1
     """), {"c": _uuid(company_id), "a": _uuid(asset_id)})).first()
     return bool(row)
@@ -314,12 +321,12 @@ async def discard(db: AsyncSession, company_id: Any, asset_ids: list) -> None:
     if not ids:
         return
     cid = _uuid(company_id)
-    still = (await db.execute(text("""
-        SELECT unnest(ARRAY[top_original, top_remaster, front_original, front_remaster, side_original, side_remaster,
-                            clip_asset, poster_asset])::text AS a
-        FROM menu_dish_media WHERE company_id = CAST(:c AS uuid)
+    still = (await db.execute(text(f"""
+        SELECT {_SELECT_MEDIA} FROM menu_dish_media WHERE company_id = CAST(:c AS uuid)
     """), {"c": cid})).mappings().all()
-    used = {r["a"] for r in still if r.get("a")}
+    used: set[str] = set()
+    for r in still:
+        used |= used_ids(dict(r))
     gone = [a for a in ids if a not in used]
     if gone:
         await db.execute(text("""
@@ -335,8 +342,10 @@ async def purge_discarded(db: AsyncSession, days: int = 30) -> int:
         SELECT a.id::text AS id, a.storage_key FROM menu_media_assets a
         WHERE a.discarded_at < now() - make_interval(days => :d)
           AND NOT EXISTS (SELECT 1 FROM menu_dish_media dm WHERE dm.company_id = a.company_id
-                          AND a.id IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
-                                       dm.side_remaster, dm.clip_asset, dm.poster_asset))
+                          AND (a.id IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
+                                        dm.side_remaster, dm.clip_asset, dm.poster_asset, dm.video_original)
+                               OR dm.gallery @> jsonb_build_array(jsonb_build_object('original', a.id::text))
+                               OR dm.gallery @> jsonb_build_array(jsonb_build_object('remaster', a.id::text))))
         LIMIT 500
     """), {"d": days})).mappings().all()
     if not rows:
@@ -352,14 +361,95 @@ async def purge_discarded(db: AsyncSession, days: int = 30) -> int:
 
 
 # ------------------------------------------------------- media por plato ---
+# 058A (024u): 2 caminos por plato.
+# - "foto" (Camino 2): la FOTO PRINCIPAL (columnas front_*) se anima con un
+#   estilo; "Más fotos (galería)" (gallery) solo se ven en "Detalle".
+# - "video" (Camino 1): el video real del plato (video_original) se edita
+#   solo en el servidor. Si se quita el video, vuelve a la foto.
+# Roles de la API: "main", "gallery" (agregar), "gallery:<id>" (una de la
+# galeria) y "video". "front" sigue valiendo como "main" (clientes viejos).
 MEDIA_COLUMNS = ("top_original", "top_remaster", "front_original", "front_remaster", "side_original", "side_remaster",
-                 "clip_asset", "poster_asset")
-ROLES = mm.ROLES  # desde arriba -> frente -> perfil (orden del clip)
+                 "clip_asset", "poster_asset", "video_original")
+ROLES = ("main", "gallery", "video")
 DISCARD_DAYS = 30
+OPTION_KEYS = ("style", "background", "speed", "start", "length")
 _SELECT_MEDIA = """dish_ref::text AS dish_ref, top_original::text AS top_original, top_remaster::text AS top_remaster,
                front_original::text AS front_original, front_remaster::text AS front_remaster,
                side_original::text AS side_original, side_remaster::text AS side_remaster, use_remaster,
-               clip_asset::text AS clip_asset, poster_asset::text AS poster_asset, clip_style, status"""
+               clip_asset::text AS clip_asset, poster_asset::text AS poster_asset, clip_style, status,
+               mode, video_original::text AS video_original, gallery, options"""
+_USED_SQL = """CAST(:a AS uuid) IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
+                                    dm.side_remaster, dm.clip_asset, dm.poster_asset, dm.video_original)
+               OR dm.gallery @> jsonb_build_array(jsonb_build_object('original', CAST(:a AS text)))
+               OR dm.gallery @> jsonb_build_array(jsonb_build_object('remaster', CAST(:a AS text)))"""
+
+
+def role_of(role: Any) -> tuple[str, str]:
+    """"main" | "front" -> ("main", ""); "gallery" -> ("gallery", "");
+    "gallery:<id>" -> ("gallery", id); "video" -> ("video", ""). Otro -> error."""
+    raw = str(role or "").strip()
+    if raw in ("main", "front"):
+        return "main", ""
+    if raw == "video":
+        return "video", ""
+    if raw in ("gallery", "top", "side"):
+        return "gallery", ""
+    if raw.startswith("gallery:"):
+        return "gallery", _uuid(raw.split(":", 1)[1])
+    raise brand_media.ImageRejected("Foto inválida (principal, galería o video).")
+
+
+def _gallery(media: Optional[dict]) -> list[dict]:
+    items = _json((media or {}).get("gallery"), [])
+    return [{"original": str(g.get("original") or ""), "remaster": str(g.get("remaster") or "")}
+            for g in items if isinstance(g, dict) and g.get("original")]
+
+
+def options_of(media: Optional[dict]) -> dict:
+    """Estilo, fondo, velocidad y tramo (con los valores por defecto)."""
+    raw = _json((media or {}).get("options"), {}) or {}
+    mode = (media or {}).get("mode") or "foto"
+    out = {
+        "style": raw.get("style") if raw.get("style") in mm.STYLES else mm.DEFAULT_STYLE,
+        "background": raw.get("background") if raw.get("background") in mm.BACKGROUNDS
+        else ("desenfocar" if mode == "video" else mm.DEFAULT_BACKGROUND),
+        "speed": raw.get("speed") if raw.get("speed") in mm.SPEEDS else mm.DEFAULT_SPEED,
+        "start": None, "length": None,
+    }
+    for key in ("start", "length"):
+        try:
+            value = float(raw.get(key)) if raw.get(key) not in (None, "") else None
+        except (TypeError, ValueError):
+            value = None
+        out[key] = round(max(0.0, min(30.0, value)), 2) if value is not None else None
+    return out
+
+
+def clean_options(values: dict) -> dict:
+    """Solo lo permitido (lo raro se ignora)."""
+    out: dict[str, Any] = {}
+    if values.get("style") in mm.STYLES:
+        out["style"] = values["style"]
+    if values.get("background") in mm.BACKGROUNDS:
+        out["background"] = values["background"]
+    if values.get("speed") in mm.SPEEDS:
+        out["speed"] = values["speed"]
+    for key in ("start", "length"):
+        if key in values:
+            try:
+                out[key] = round(max(0.0, min(30.0, float(values[key]))), 2) if values[key] not in (None, "") else None
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def used_ids(media: Optional[dict]) -> set[str]:
+    if not media:
+        return set()
+    ids = {str(media.get(c)) for c in MEDIA_COLUMNS if media.get(c)}
+    for g in _gallery(media):
+        ids |= {g["original"], g["remaster"]} - {""}
+    return ids
 
 
 async def dish_media(db: AsyncSession, company_id: Any, dish_ref: Any) -> Optional[dict]:
@@ -371,7 +461,7 @@ async def dish_media(db: AsyncSession, company_id: Any, dish_ref: Any) -> Option
 
 
 async def upsert_media(db: AsyncSession, company_id: Any, dish_ref: Any, **values: Any) -> None:
-    allowed = {*MEDIA_COLUMNS, "use_remaster", "clip_style", "status"}
+    allowed = {*MEDIA_COLUMNS, "use_remaster", "clip_style", "status", "mode", "gallery", "options"}
     sets = {k: v for k, v in values.items() if k in allowed}
     cid, ref = _uuid(company_id), _uuid(dish_ref)
     await db.execute(text("""
@@ -386,6 +476,9 @@ async def upsert_media(db: AsyncSession, company_id: Any, dish_ref: Any, **value
         if key in MEDIA_COLUMNS:
             parts.append(f"{key} = CAST(NULLIF(:{key}, '') AS uuid)")
             params[key] = str(value or "")
+        elif key in ("gallery", "options"):
+            parts.append(f"{key} = CAST(:{key} AS jsonb)")
+            params[key] = json.dumps(value if value is not None else ([] if key == "gallery" else {}), ensure_ascii=False)
         else:
             parts.append(f"{key} = :{key}")
             params[key] = value
@@ -400,24 +493,35 @@ def chosen_photo(media: dict, role: str = "front") -> Optional[str]:
     return (remaster if media.get("use_remaster", True) and remaster else None) or original
 
 
+def has_source(media: Optional[dict]) -> bool:
+    return bool(media and (media.get("front_original") or media.get("video_original") or _gallery(media)))
+
+
 def media_payload(company_id: str, media: Optional[dict], signed: bool = False, video: bool = True) -> dict:
     """Lo que necesitan la consola, el portal y el QR (URLs, nunca llaves)."""
-    if not media or not any(media.get(f"{r}_original") for r in ROLES):
-        return {"has_photo": False, "photo_url": "", "side_url": "", "top_url": "", "video_url": "", "poster_url": "", "status": "sin_foto",
-                "roles": []}
+    if not has_source(media):
+        return {"has_photo": False, "photo_url": "", "video_url": "", "poster_url": "", "status": "sin_foto", "roles": [],
+                "gallery": [], "gallery_urls": [], "mode": "foto", "has_video_source": False, "options": options_of(None)}
+    assert media is not None
     url = lambda a, ct="image/webp": media_url(company_id, a, ct, signed)  # noqa: E731
-    main_role = next(r for r in ("front", "top", "side") if media.get(f"{r}_original"))
+    use_rem = bool(media.get("use_remaster", True))
+    gallery = [{"id": g["original"], "url": url((g["remaster"] if use_rem and g["remaster"] else None) or g["original"]),
+                "original_url": url(g["original"]), "remaster_url": url(g["remaster"])} for g in _gallery(media)]
+    main = chosen_photo(media, "front")
+    roles = (["main"] if media.get("front_original") else []) + (["gallery"] if gallery else []) + (["video"] if media.get("video_original") else [])
     out = {
-        "has_photo": True, "roles": [r for r in ROLES if media.get(f"{r}_original")],
-        "photo_url": url(chosen_photo(media, main_role)), "side_url": url(chosen_photo(media, "side")), "top_url": url(chosen_photo(media, "top")),
-        "front_url": url(chosen_photo(media, "front")),
-        "top_original_url": url(media.get("top_original")), "top_remaster_url": url(media.get("top_remaster")),
-        "front_original_url": url(media.get("front_original")), "front_remaster_url": url(media.get("front_remaster")),
-        "side_original_url": url(media.get("side_original")), "side_remaster_url": url(media.get("side_remaster")),
-        "use_remaster": bool(media.get("use_remaster", True)), "clip_style": media.get("clip_style") or "",
+        "has_photo": bool(main or gallery), "roles": roles, "mode": media.get("mode") or "foto",
+        "photo_url": url(main) if main else (gallery[0]["url"] if gallery else ""),
+        "main_original_url": url(media.get("front_original")), "main_remaster_url": url(media.get("front_remaster")),
+        "gallery": gallery, "gallery_urls": [g["url"] for g in gallery],
+        "has_video_source": bool(media.get("video_original")),
+        "use_remaster": use_rem, "clip_style": media.get("clip_style") or "", "options": options_of(media),
         "status": media.get("status") or ("listo" if media.get("clip_asset") else "sin_video"),
         "video_url": "", "poster_url": "",
     }
+    if not out["photo_url"] and media.get("poster_asset"):
+        out["photo_url"] = url(media.get("poster_asset"))  # solo video: la portada hace de foto
+        out["has_photo"] = True
     if video:
         out["video_url"] = url(media.get("clip_asset"), "video/mp4")
         out["poster_url"] = url(media.get("poster_asset"))
@@ -441,34 +545,84 @@ async def media_map(db: AsyncSession, company_id: Any, signed: bool = False, vid
 # ------------------------------------------------------------------- fotos ---
 async def save_photo(db: AsyncSession, company_id: Any, dish_ref: Any, role: str, raw: bytes, source_name: str = "",
                      meta: Optional[dict] = None) -> str:
-    """Guarda la ORIGINAL (normalizada, sin metadatos) y la deja asignada al
-    plato. La remasterizada y el clip los hace la cola."""
+    """Guarda la ORIGINAL (normalizada, sin metadatos): como foto principal,
+    agregada a la galeria o en lugar de una de la galeria. La remasterizada y
+    el clip los hace la cola. El clip que ya se ve sigue hasta el nuevo."""
+    kind, gid = role_of(role)
+    if kind == "video":
+        raise brand_media.ImageRejected("Eso es un video: usa \"Subir video\".")
     image = await asyncio.to_thread(mm.load, raw)
     data, width, height = await asyncio.to_thread(mm.normalize, image)
-    asset_id = await store_asset(db, company_id, dish_ref, role, "original", data, "image/webp", width, height, source_name, meta)
-    if role not in ROLES:
-        raise brand_media.ImageRejected("Foto inválida (desde arriba, frente o perfil).")
     current = await dish_media(db, company_id, dish_ref) or {}
-    stale = [current.get(f"{role}_original"), current.get(f"{role}_remaster")]
-    # 057D: el clip que ya se ve sigue sirviendose hasta que el nuevo este listo
-    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": asset_id, f"{role}_remaster": ""})
+    if kind == "gallery" and not gid and not current.get("front_original"):
+        kind = "main"  # sin principal, la primera foto es la principal
+    asset_id = await store_asset(db, company_id, dish_ref, "front" if kind == "main" else "gallery", "original", data,
+                                 "image/webp", width, height, source_name, meta)
+    if kind == "main":
+        stale = [current.get("front_original"), current.get("front_remaster")]
+        await upsert_media(db, company_id, dish_ref, front_original=asset_id, front_remaster="")
+    else:
+        gallery = _gallery(current)
+        if gid:
+            index = next((i for i, g in enumerate(gallery) if g["original"] == gid), None)
+            if index is None:
+                raise brand_media.ImageRejected("Esa foto ya no está en la galería.")
+            stale = [gallery[index]["original"], gallery[index]["remaster"]]
+            gallery[index] = {"original": asset_id, "remaster": ""}
+        else:
+            if len(gallery) >= mm.GALLERY_MAX:
+                raise brand_media.ImageRejected(f"La galería ya tiene {mm.GALLERY_MAX} fotos: quita una para agregar otra.")
+            stale = []
+            gallery.append({"original": asset_id, "remaster": ""})
+        await upsert_media(db, company_id, dish_ref, gallery=gallery)
     await discard(db, company_id, stale)
     return asset_id
 
 
+async def save_video(db: AsyncSession, company_id: Any, dish_ref: Any, raw: bytes, source_name: str = "") -> str:
+    """Camino 1: guarda el video tal cual llego (bucket, zona privada: nunca se
+    sirve; solo sale el clip editado) y deja el plato en modo video."""
+    info = await asyncio.to_thread(mm.inspect_video, raw)
+    kind = mm.sniff_video(raw) or "mp4"
+    current = await dish_media(db, company_id, dish_ref) or {}
+    asset_id = await store_asset(db, company_id, dish_ref, "video", "video", raw,
+                                 "video/quicktime" if kind == "mov" else "video/mp4", info.get("width"), info.get("height"),
+                                 source_name, {"seconds": info.get("seconds"), "codec": info.get("codec")}, private=True)
+    await upsert_media(db, company_id, dish_ref, video_original=asset_id, mode="video")
+    await discard(db, company_id, [current.get("video_original")])
+    return asset_id
+
+
 async def remove_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: str) -> dict:
-    """Quita UNA foto (desde arriba, frente o perfil). Devuelve lo necesario
-    para deshacer. Si no queda ninguna, el plato queda sin foto ni video (el QR
-    muestra su tarjeta de nombre y precio). Los archivos quedan marcados."""
-    if role not in ROLES:
-        raise brand_media.ImageRejected("Foto inválida.")
+    """Quita la foto principal, una de la galeria o el video subido. Devuelve
+    lo necesario para deshacer. Si no queda nada, el plato queda sin foto ni
+    video (el QR muestra su tarjeta de nombre y precio). Archivos: marcados."""
+    kind, gid = role_of(role)
     current = await dish_media(db, company_id, dish_ref)
-    if not current or not current.get(f"{role}_original"):
+    if not current:
         raise brand_media.ImageRejected("Ese plato no tiene esa foto.")
-    undo = {"role": role, "original": current.get(f"{role}_original"), "remaster": current.get(f"{role}_remaster") or ""}
-    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": "", f"{role}_remaster": ""})
-    left = [r for r in ROLES if r != role and current.get(f"{r}_original")]
-    if not left:
+    gallery = _gallery(current)
+    if kind == "main":
+        if not current.get("front_original"):
+            raise brand_media.ImageRejected("Ese plato no tiene foto principal.")
+        undo = {"role": "main", "original": current["front_original"], "remaster": current.get("front_remaster") or ""}
+        await upsert_media(db, company_id, dish_ref, front_original="", front_remaster="")
+        current = {**current, "front_original": None, "front_remaster": None}
+    elif kind == "video":
+        if not current.get("video_original"):
+            raise brand_media.ImageRejected("Ese plato no tiene video subido.")
+        undo = {"role": "video", "original": current["video_original"], "remaster": ""}
+        await upsert_media(db, company_id, dish_ref, video_original="", mode="foto")
+        current = {**current, "video_original": None, "mode": "foto"}
+    else:
+        index = next((i for i, g in enumerate(gallery) if g["original"] == gid), None)
+        if index is None:
+            raise brand_media.ImageRejected("Esa foto ya no está en la galería.")
+        item = gallery.pop(index)
+        undo = {"role": f"gallery:{item['original']}", "original": item["original"], "remaster": item["remaster"], "index": index}
+        await upsert_media(db, company_id, dish_ref, gallery=gallery)
+        current = {**current, "gallery": gallery}
+    if not has_source(current):
         await db.execute(text("DELETE FROM menu_dish_media WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:d AS uuid)"),
                          {"c": _uuid(company_id), "d": _uuid(dish_ref)})
         await discard(db, company_id, [undo["original"], undo["remaster"], current.get("clip_asset"), current.get("poster_asset")])
@@ -477,19 +631,49 @@ async def remove_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: st
     return {**undo, "empty": False}
 
 
-async def restore_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: str, original: Any, remaster: Any = "") -> None:
-    """Deshacer "Quitar": la foto vuelve (el archivo seguia guardado)."""
+async def restore_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: str, original: Any, remaster: Any = "",
+                       index: Optional[int] = None) -> None:
+    """Deshacer "Quitar": la foto (o el video) vuelve (el archivo seguia guardado)."""
+    kind, _gid = role_of(role)
     row = await asset(db, company_id, original)
-    if role not in ROLES or not row or row["variant"] != "original" or row.get("dish_ref") not in (None, _uuid(dish_ref)):
+    want = "video" if kind == "video" else "original"
+    if not row or row["variant"] != want or row.get("dish_ref") not in (None, _uuid(dish_ref)):
         raise brand_media.ImageRejected("No se puede deshacer: esa foto ya no está.")
     keep_remaster = ""
-    if remaster:
+    if remaster and kind != "video":
         rem = await asset(db, company_id, remaster)
         keep_remaster = rem["id"] if rem and rem["variant"] == "remaster" else ""
-    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": row["id"], f"{role}_remaster": keep_remaster})
+    if kind == "main":
+        await upsert_media(db, company_id, dish_ref, front_original=row["id"], front_remaster=keep_remaster)
+    elif kind == "video":
+        await upsert_media(db, company_id, dish_ref, video_original=row["id"], mode="video")
+    else:
+        gallery = _gallery(await dish_media(db, company_id, dish_ref))
+        if not any(g["original"] == row["id"] for g in gallery):
+            at = len(gallery) if index is None else max(0, min(len(gallery), int(index)))
+            gallery.insert(at, {"original": row["id"], "remaster": keep_remaster})
+        await upsert_media(db, company_id, dish_ref, gallery=gallery[: mm.GALLERY_MAX])
     await db.execute(text("""
         UPDATE menu_media_assets SET discarded_at = NULL WHERE company_id = CAST(:c AS uuid) AND id::text = ANY(:ids)
     """), {"c": _uuid(company_id), "ids": [i for i in (row["id"], keep_remaster) if i]})
+
+
+async def set_options(db: AsyncSession, company_id: Any, dish_ref: Any, values: dict) -> dict:
+    """Estilo/fondo/velocidad/tramo y camino ("foto" o "video") del plato.
+    Cambiar esto NO gasta cupo (no cambia la foto ni el video)."""
+    current = await dish_media(db, company_id, dish_ref)
+    if not has_source(current):
+        raise brand_media.ImageRejected("Primero sube la foto o el video del plato.")
+    assert current is not None
+    merged = {**(_json(current.get("options"), {}) or {}), **clean_options(values)}
+    sets: dict[str, Any] = {"options": merged}
+    mode = values.get("mode")
+    if mode == "video" and current.get("video_original"):
+        sets["mode"] = "video"
+    elif mode == "foto" and current.get("front_original"):
+        sets["mode"] = "foto"
+    await upsert_media(db, company_id, dish_ref, **sets)
+    return options_of({**current, **sets})
 
 
 async def clear_video(db: AsyncSession, company_id: Any, dish_ref: Any) -> None:
@@ -507,7 +691,7 @@ async def regenerate_company(db: AsyncSession, company_id: Any) -> int:
     sirviendose hasta que el nuevo de cada plato este listo."""
     rows = (await db.execute(text("""
         SELECT dish_ref::text AS ref FROM menu_dish_media
-        WHERE company_id = CAST(:c AS uuid) AND COALESCE(top_original, front_original, side_original) IS NOT NULL
+        WHERE company_id = CAST(:c AS uuid) AND (front_original IS NOT NULL OR video_original IS NOT NULL)
     """), {"c": _uuid(company_id)})).mappings().all()
     for row in rows:
         await enqueue(db, company_id, row["ref"], "auto")
@@ -515,25 +699,37 @@ async def regenerate_company(db: AsyncSession, company_id: Any) -> int:
 
 
 async def assign_photo(db: AsyncSession, company_id: Any, asset_id: Any, dish_ref: Any, role: str) -> None:
-    """Reasigna a mano una foto ya subida (consola, paso 3)."""
+    """Reasigna a mano una foto ya subida (consola, paso 3): principal o galeria."""
+    kind, _gid = role_of(role)
     row = await asset(db, company_id, asset_id)
     if not row or row["variant"] != "original":
         raise brand_media.ImageRejected("Esa foto no existe en esta empresa.")
     old_ref = row.get("dish_ref")
     if old_ref:
         old = await dish_media(db, company_id, old_ref) or {}
-        for column in ("top_original", "front_original", "side_original"):
-            if old.get(column) == row["id"]:
-                await upsert_media(db, company_id, old_ref, **{column: "", column.replace("original", "remaster"): ""})
+        if old.get("front_original") == row["id"]:
+            await upsert_media(db, company_id, old_ref, front_original="", front_remaster="")
+        kept = [g for g in _gallery(old) if g["original"] != row["id"]]
+        if len(kept) != len(_gallery(old)):
+            await upsert_media(db, company_id, old_ref, gallery=kept)
     current = await dish_media(db, company_id, dish_ref) or {}
-    stale = current.get(f"{role}_original")
+    if kind == "gallery" and not current.get("front_original"):
+        kind = "main"
     await db.execute(text("""
         UPDATE menu_media_assets SET dish_ref = CAST(:d AS uuid), role = :r WHERE id = CAST(:a AS uuid) AND company_id = CAST(:c AS uuid)
-    """), {"d": _uuid(dish_ref), "r": role, "a": row["id"], "c": _uuid(company_id)})
-    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": row["id"], f"{role}_remaster": ""})
-    if stale and stale != row["id"]:
-        await db.execute(text("UPDATE menu_media_assets SET dish_ref = NULL WHERE id = CAST(:a AS uuid) AND company_id = CAST(:c AS uuid)"),
-                         {"a": stale, "c": _uuid(company_id)})
+    """), {"d": _uuid(dish_ref), "r": "front" if kind == "main" else "gallery", "a": row["id"], "c": _uuid(company_id)})
+    if kind == "main":
+        stale = current.get("front_original")
+        await upsert_media(db, company_id, dish_ref, front_original=row["id"], front_remaster="")
+        if stale and stale != row["id"]:
+            # la principal anterior no se pierde: pasa a la galeria
+            gallery = [g for g in _gallery(current) if g["original"] != row["id"]]
+            gallery.insert(0, {"original": stale, "remaster": current.get("front_remaster") or ""})
+            await upsert_media(db, company_id, dish_ref, gallery=gallery[: mm.GALLERY_MAX])
+    else:
+        gallery = [g for g in _gallery(current) if g["original"] != row["id"]]
+        gallery.append({"original": row["id"], "remaster": ""})
+        await upsert_media(db, company_id, dish_ref, gallery=gallery[: mm.GALLERY_MAX])
 
 
 async def remove_photos(db: AsyncSession, company_id: Any, dish_ref: Any) -> None:
@@ -542,7 +738,7 @@ async def remove_photos(db: AsyncSession, company_id: Any, dish_ref: Any) -> Non
         return
     await db.execute(text("DELETE FROM menu_dish_media WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:d AS uuid)"),
                      {"c": _uuid(company_id), "d": _uuid(dish_ref)})
-    await discard(db, company_id, [current.get(c) for c in MEDIA_COLUMNS])
+    await discard(db, company_id, list(used_ids(current)))
 
 
 # ------------------------------------------------------------------- cola ---
@@ -603,41 +799,68 @@ async def _photo_image(db: AsyncSession, company_id: str, asset_id: Optional[str
 
 
 async def process(db: AsyncSession, job: dict) -> dict:
-    """Remasteriza lo que falte y arma el clip. Devuelve el resultado; los
-    errores quedan en el trabajo (nunca tumban al trabajador)."""
+    """Camino 1 (video): edita el video subido. Camino 2 (foto): remasteriza
+    la principal (y la galeria, para "Detalle") y anima SOLO la principal.
+    Devuelve el resultado; los errores quedan en el trabajo."""
     cid, ref = job["company_id"], job["dish_ref"]
     started = time.perf_counter()
     media = await dish_media(db, cid, ref)
-    if not media or not any(media.get(f"{r}_original") for r in ROLES):
-        raise mm.MediaRejected("El plato no tiene fotos.")
+    if not has_source(media):
+        raise mm.MediaRejected("El plato no tiene foto ni video.")
+    assert media is not None
+    opts = options_of(media)
     timings: dict[str, Any] = {}
-    images: dict[str, Any] = {}
-    for role in ROLES:
-        original_id = media.get(f"{role}_original")
-        if not original_id:
+    use_rem = bool(media.get("use_remaster", True))
+    # galeria: solo remasterizado (se ve en Detalle; nunca entra al video)
+    gallery, changed = _gallery(media), False
+    for item in gallery:
+        if item["remaster"]:
             continue
-        original = await _photo_image(db, cid, original_id)
+        original = await _photo_image(db, cid, item["original"])
         if original is None:
-            raise mm.MediaRejected("No se encontró la foto original.")
-        if not media.get(f"{role}_remaster"):
+            continue
+        result = await asyncio.to_thread(mm.remaster, original)
+        item["remaster"] = await store_asset(db, cid, ref, "gallery", "remaster", result.data, "image/webp", result.width, result.height)
+        changed = True
+    if changed:
+        await upsert_media(db, cid, ref, gallery=gallery)
+    image = None
+    if media.get("front_original"):
+        original = await _photo_image(db, cid, media["front_original"])
+        if original is None:
+            raise mm.MediaRejected("No se encontró la foto principal.")
+        if not media.get("front_remaster"):
             t0 = time.perf_counter()
             result = await asyncio.to_thread(mm.remaster, original)
-            timings[f"{role}_remaster_ms"] = round((time.perf_counter() - t0) * 1000)
-            timings.setdefault("front_remaster_ms", timings[f"{role}_remaster_ms"])
-            remaster_id = await store_asset(db, cid, ref, role, "remaster", result.data, "image/webp", result.width, result.height)
-            await upsert_media(db, cid, ref, **{f"{role}_remaster": remaster_id})
-            media[f"{role}_remaster"] = remaster_id
-        images[role] = await asyncio.to_thread(mm.clip_source, original, bool(media.get("use_remaster", True)))
-    clip = await asyncio.to_thread(mm.make_clip, [images[r] for r in ROLES if r in images], None, job.get("style") or "auto")
+            timings["front_remaster_ms"] = round((time.perf_counter() - t0) * 1000)
+            remaster_id = await store_asset(db, cid, ref, "front", "remaster", result.data, "image/webp", result.width, result.height)
+            await upsert_media(db, cid, ref, front_remaster=remaster_id)
+        image = await asyncio.to_thread(mm.clip_source, original, use_rem)
+    wants_video = media.get("mode") == "video" or image is None
+    path = "video" if wants_video and media.get("video_original") else "foto"
+    if path == "video":
+        row = await asset(db, cid, media["video_original"])
+        if not row:
+            raise mm.MediaRejected("No se encontró el video del plato.")
+        raw = await read_bytes(row)
+        clip = await asyncio.to_thread(mm.make_video_clip, raw, opts["background"], opts["speed"], opts["start"], opts["length"])
+    else:
+        if image is None and gallery:  # sin principal: la primera de la galeria se anima
+            first = await _photo_image(db, cid, gallery[0]["original"])
+            image = await asyncio.to_thread(mm.clip_source, first, use_rem) if first is not None else None
+        if image is None:
+            raise mm.MediaRejected("El plato no tiene foto principal.")
+        clip = await asyncio.to_thread(mm.make_clip, [image], None, opts["style"], opts["background"])
     clip_id = await store_asset(db, cid, ref, "front", "clip", clip.video, "video/mp4", mm.CLIP_W, mm.CLIP_H,
-                                meta={"style": clip.style, "attempts": clip.attempts})
+                                meta={"style": clip.style, "attempts": clip.attempts, "path": path})
     poster_id = await store_asset(db, cid, ref, "front", "poster", clip.poster, "image/webp", mm.CLIP_W, mm.CLIP_H)
     stale = [media.get("clip_asset"), media.get("poster_asset")]
     await upsert_media(db, cid, ref, clip_asset=clip_id, poster_asset=poster_id, clip_style=clip.style, status="listo")
     await discard(db, cid, stale)
     return {**timings, "clip_ms": clip.encode_ms, "total_ms": round((time.perf_counter() - started) * 1000),
             "clip_bytes": len(clip.video), "poster_bytes": len(clip.poster), "style": clip.style, "ffmpeg": mm.ffmpeg_version(),
-            "photos": len(images), "found": clip.sources, "size": f"{mm.CLIP_W}x{mm.CLIP_H}"}
+            "path": path, "background": clip.background, "stabilizer": clip.stabilizer, "speed": clip.speed,
+            "photos": 1 if path == "foto" else 0, "gallery": len(gallery), "found": clip.sources, "size": f"{mm.CLIP_W}x{mm.CLIP_H}"}
 
 
 async def run_job(db: AsyncSession, job: dict) -> dict:
@@ -849,19 +1072,18 @@ async def call_n8n(url: str, payload: dict, timeout: float = 20.0) -> tuple[bool
 
 def match_photo(filename: str, dishes: list[dict]) -> tuple[Optional[str], str]:
     """Empareja una foto con su plato por el nombre del archivo:
-    "lomo-saltado-perfil.jpg" -> (ref de "Lomo saltado", "side").
+    "lomo-saltado.jpg" -> (ref de "Lomo saltado", "main");
+    "lomo-saltado-perfil.jpg" -> (ref, "gallery").
     Devuelve (None, rol) si ninguno se parece lo suficiente."""
     stem = norm(os.path.splitext(os.path.basename(str(filename or "")))[0])
     words = stem.split()
     side_words = {"perfil", "lado", "lateral", "side", "costado"}
     top_words = {"arriba", "top", "cenital", "encima", "aerea"}
     front_words = {"frente", "front", "frontal"}
-    if any(w in top_words for w in words) or (len(words) > 1 and words[-1] == "3"):
-        role = "top"
-    elif any(w in side_words for w in words) or (len(words) > 1 and words[-1] == "2"):
-        role = "side"
+    if any(w in top_words | side_words for w in words) or (len(words) > 1 and words[-1] in ("2", "3")):
+        role = "gallery"  # las demas fotos van a la galeria de Detalle (nunca al video)
     else:
-        role = "front"
+        role = "main"
     noise = side_words | top_words | front_words | {"desde", "foto", "img", "image", "imagen", "dsc", "copy", "copia", "final", "1", "2", "3", "plato"}
     tokens = [w for w in words if w not in noise and not w.isdigit()]
     if not tokens:
@@ -987,12 +1209,14 @@ async def copy_media(db: AsyncSession, company_id: str, from_ref: str, to_ref: s
     """Lo del borrador pasa al plato real (los archivos no se copian: solo
     cambia a quien pertenecen). Lo que el plato tenia y ya no usa se borra."""
     draft = await dish_media(db, company_id, from_ref)
-    if not draft or not draft.get("front_original"):
+    if not has_source(draft):
         return False
+    assert draft is not None
     current = await dish_media(db, company_id, to_ref) or {}
     values = {c: draft.get(c) or "" for c in MEDIA_COLUMNS}
     await upsert_media(db, company_id, to_ref, **values, use_remaster=bool(draft.get("use_remaster", True)),
-                       clip_style=draft.get("clip_style"), status=draft.get("status") or "sin_video")
+                       clip_style=draft.get("clip_style"), status=draft.get("status") or "sin_video",
+                       mode=draft.get("mode") or "foto", gallery=_gallery(draft), options=_json(draft.get("options"), {}) or {})
     await db.execute(text("""
         UPDATE menu_media_assets SET dish_ref = CAST(:to AS uuid) WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:fr AS uuid)
     """), {"to": to_ref, "c": company_id, "fr": from_ref})
@@ -1001,7 +1225,7 @@ async def copy_media(db: AsyncSession, company_id: str, from_ref: str, to_ref: s
     """), {"to": to_ref, "c": company_id, "fr": from_ref})
     await db.execute(text("DELETE FROM menu_dish_media WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:fr AS uuid)"),
                      {"c": company_id, "fr": from_ref})
-    await discard(db, company_id, [current.get(c) for c in MEDIA_COLUMNS if current.get(c) and current.get(c) not in values.values()])
+    await discard(db, company_id, list(used_ids(current) - used_ids(draft)))
     return True
 
 

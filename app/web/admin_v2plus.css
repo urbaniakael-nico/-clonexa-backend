@@ -881,3 +881,13 @@ button, input, select { font: inherit; color: inherit; }
 .vp-mv-cats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0; }
 .vp-mv-x { min-width: 28px; min-height: 28px; margin-left: 4px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, .1); color: var(--vp-text); cursor: pointer; }
 @media (max-width: 640px) { .vp-mv-guide { grid-template-columns: minmax(0, 1fr); } .vp-mv-slots { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* 058A: 2 caminos (video o foto), galería de Detalle y opciones del clip */
+.vp-mv-guides { display: grid; gap: 10px; }
+.vp-mv-paths { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; align-self: start; }
+.vp-mv-paths .vp-chip { flex: 0 0 auto; height: auto; min-height: 40px; }
+.vp-mv-gallery .vp-mv-file { white-space: nowrap; }
+.vp-mv-paths .vp-chip small { font-weight: 500; opacity: .8; }
+.vp-mv-gallery { display: grid; gap: 6px; }
+.vp-mv-thumb.is-video { display: grid; place-items: center; font-weight: 700; aspect-ratio: 3 / 4; border-radius: 10px; background: rgba(255, 255, 255, .06); }
+.vp-mv-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.vp-mv-opt span { font-size: 12px; color: var(--vp-muted); }

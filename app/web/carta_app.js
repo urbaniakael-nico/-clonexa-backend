@@ -170,6 +170,10 @@
       .cxa-side{display:grid;gap:8px;justify-items:end;align-content:space-between;height:100%}
       .cxa-price{font-weight:900;font-size:15px;white-space:nowrap}
       .cxa-plus{width:44px;height:44px;border-radius:14px;border:0;background:var(--cxa-primary);color:var(--cxa-on-primary);font-size:24px;font-weight:900;cursor:pointer}
+      .cxa-thumbs{display:flex;gap:8px;overflow-x:auto;padding:2px 0}
+      .cxa-thumb{flex:0 0 auto;width:64px;height:64px;padding:0;border-radius:12px;border:2px solid transparent;overflow:hidden;background:var(--cxa-card);cursor:pointer}
+      .cxa-thumb.on{border-color:var(--cxa-primary)}
+      .cxa-thumb img{width:100%;height:100%;object-fit:cover;display:block}
       .cxa-empty{padding:24px;text-align:center;border-radius:18px}
       /* 057D: mientras carga (o si falla) una foto se ve el color de la marca, nunca blanco */
       .cxa-item img,.cxa-tcard img,.cxa-cat img{background:linear-gradient(150deg,var(--cxa-primary),var(--cxa-accent));color:transparent}
@@ -400,13 +404,24 @@
       </div></div>`;
     }
 
+    // 058A: galería del plato ("Más fotos"): la principal y las demás, una a la vez
+    function photosOf(p) {
+      const main = p.photo_url || p.poster_url;
+      return [main, ...(p.gallery_urls || [])].filter((u, i, all) => u && all.indexOf(u) === i);
+    }
+
     function detailSheet() {
       const p = byId(S.detail);
       if (!p) return "";
-      const img = p.photo_url || p.poster_url;
+      const photos = photosOf(p);
+      const at = Math.min(S.photo || 0, Math.max(0, photos.length - 1));
+      const img = photos[at];
+      const thumbs = photos.length > 1
+        ? `<div class="cxa-thumbs" role="group" aria-label="Fotos de ${h(p.name)}">${photos.map((u, i) => `<button type="button" class="cxa-thumb ${i === at ? "on" : ""}" data-cxa-photo="${i}" aria-label="Foto ${i + 1} de ${photos.length}" aria-pressed="${i === at}"><img src="${h(u)}" alt="" loading="lazy"></button>`).join("")}</div>`
+        : "";
       return `<div class="cxa-sheet-back" data-cxa-close><div class="cxa-sheet" role="dialog" aria-modal="true" aria-label="${h(p.name)}">
         <div class="cxa-row1"><h2 style="flex:1">${h(p.name)}</h2><button type="button" class="cxa-ic" data-cxa-close aria-label="Cerrar">✕</button></div>
-        ${img ? `<img src="${h(img)}" alt="${h(p.name)}" style="width:100%;max-height:260px;object-fit:cover;border-radius:16px">` : ""}
+        ${img ? `<img src="${h(img)}" alt="${h(p.name)}${photos.length > 1 ? ` (foto ${at + 1} de ${photos.length})` : ""}" style="width:100%;max-height:260px;object-fit:cover;border-radius:16px">` : ""}${thumbs}
         ${p.description ? `<p style="margin:0;line-height:1.45">${h(p.description)}</p>` : ""}
         ${p.subcategory_label ? `<p class="cxa-req" style="margin:0">${h(p.category_label)} › ${h(p.subcategory_label)}</p>` : ""}
         ${optionsHtml(p, false)}${buyHtml(p)}</div></div>`;
@@ -558,7 +573,8 @@
         if (slide) { box.scrollTop = slide.offsetTop; activate(i); }
         return;
       }
-      if ((el = q("[data-cxa-detail]"))) { S.detail = el.getAttribute("data-cxa-detail"); S.sheet = "detail"; S.msg = ""; render(); return; }
+      if ((el = q("[data-cxa-detail]"))) { S.detail = el.getAttribute("data-cxa-detail"); S.sheet = "detail"; S.photo = 0; S.msg = ""; render(); return; }
+      if ((el = q("[data-cxa-photo]"))) { S.photo = Number(el.getAttribute("data-cxa-photo")) || 0; repaint(); return; }
       if ((el = q("[data-cxa-term]"))) { const p = byId(el.getAttribute("data-cxa-term")); if (p) { picked(p).term = el.getAttribute("data-v"); S.msg = ""; repaint(); } return; }
       if ((el = q("[data-cxa-note]"))) {
         const p = byId(el.getAttribute("data-cxa-note")); const v = el.getAttribute("data-v");

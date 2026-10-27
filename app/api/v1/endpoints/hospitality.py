@@ -98,6 +98,8 @@ class HospitalityOrderCreateIn(BaseModel):
     # exactamente igual que hoy, sin "waiter" en metadata).
     waiter_id: str | None = Field(default="", max_length=120)
     waiter_name: str | None = Field(default="", max_length=180)
+    # 058A QR y piezas: codigo del QR de mesa (solo cuenta en empresas con el interruptor carta_qr_piezas)
+    link: str | None = Field(default="", max_length=64)
 
     @field_validator("items")
     @classmethod
@@ -6060,6 +6062,12 @@ async def create_hospitality_order(
     account_id = _clean(payload.account_id)[:120] if _norm(source) == "qr" else ""
     guest_name = ""
     if _norm(source) == "qr":
+        from app.services import carta_links
+
+        try:
+            await carta_links.mesa_guard(db, company_id, payload.link)
+        except carta_links.LinkRefused as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from None
         await _require_table_access(db, company_id, table_number, payload.access_code)
         if account_id and (await _qr_customer_ui(db, company_id))["bar_menu"]:
             welcome_on = (await _qr_welcome(db, company_id))["on"]

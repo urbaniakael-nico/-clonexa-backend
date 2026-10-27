@@ -89,6 +89,7 @@ async def payload(db: AsyncSession, company_id: Any) -> dict:
             "category_key": item.get("category_key") or "otros", "category_label": item.get("category_label") or "OTROS",
             "subcategory_label": item.get("subcategory_label") or "",
             "photo_url": item.get("photo_url") or "",
+            "gallery_urls": [u for u in item.get("gallery_urls") or [] if isinstance(u, str)][:6],
             "video_url": item.get("video_url") or "" if video else "",
             "poster_url": item.get("poster_url") or "" if video else "",
             "requires_term": bool(item.get("requires_term")),

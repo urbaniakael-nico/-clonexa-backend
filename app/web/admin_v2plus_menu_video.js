@@ -13,7 +13,10 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const enc = encodeURIComponent;
   const STEPS = ["Empresa", "Importar", "Fotos por plato", "Remasterizar y clips", "Publicar"];
-  const STYLES = { auto: "Acercamiento suave" };
+  // 058A: estilos de la foto (Camino 2), fondo y velocidad (Camino 1): los mismos del servidor.
+  const STYLES = { vida: "Vida", zoom: "Acercamiento", giro: "Giro suave", paneo: "Paneo", brillo: "Brillo", auto: "Automático" };
+  const BACKGROUNDS = { desenfocar: "Desenfocar fondo", oscurecer: "Oscurecer fondo", ninguno: "Sin cambios" };
+  const SPEEDS = { lento: "Más lento", normal: "Normal", rapido: "Más rápido" };
   const JOB = { en_cola: "En cola", procesando: "Creando…", listo: "Listo", error: "Error", sin_video: "Sin clip", sin_foto: "Sin foto" };
   const FIELDS = [["categoria", "Categoría"], ["subcategoria", "Subcategoría"], ["nombre", "Plato"], ["descripcion", "Descripción"], ["precio", "Precio"], ["opciones", "Opciones"]];
 
@@ -44,13 +47,14 @@
     restorePhoto: (id, iid, ref, role, body) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/photo/${enc(role)}/restore`, { method: "POST", body: JSON.stringify(body) }),
     removeVideo: (id, iid, ref) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/video`, { method: "DELETE" }),
     regenerate: (id) => request(`${API}/${enc(id)}/regenerate`, { method: "POST", body: "{}" }),
+    options: (id, iid, ref, body) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/options`, { method: "POST", body: JSON.stringify(body) }),
     choose: (id, iid, ref, use) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/choose`, { method: "POST", body: JSON.stringify({ use_remaster: use }) }),
     plan: (id, iid) => request(`${API}/${enc(id)}/imports/${enc(iid)}/plan`),
     publish: (id, iid) => request(`${API}/${enc(id)}/imports/${enc(iid)}/publish`, { method: "POST", body: "{}" }),
   };
 
   // ------------------------------------------------------------ estado
-  const model = { confirm: null, undo: null, step: 1, companies: null, health: null, companyId: "", data: null, table: null, dirty: false, busy: "", error: "",
+  const model = { confirm: null, undo: null, paths: {}, opts: {}, step: 1, companies: null, health: null, companyId: "", data: null, table: null, dirty: false, busy: "", error: "",
     notice: "", plan: null, result: null, preview: "", styles: {}, files: [] };
   let ctx = null;
   let bound = false;
@@ -164,50 +168,102 @@
     return url ? `<img class="vp-mv-thumb" src="${h(url)}" alt="${h(label)}" loading="lazy">` : `<span class="vp-mv-thumb is-empty">${h(label)}</span>`;
   }
 
-  // 057D: guía de fotos con un dibujo simple de los 3 ángulos.
-  function guideHtml() {
+  // 058A: 2 caminos por plato. Guía del video (Camino 1) y de la foto (Camino 2).
+  const VIDEO_GUIDE = "Pon el plato sobre una base giratoria o camina alrededor, 5 a 10 segundos, celular vertical, buena luz, plato completo en cuadro.";
+  function guideHtml(path = "foto") {
+    if (path === "video") {
+      return `<div class="vp-mv-guide">
+        <svg viewBox="0 0 300 92" role="img" aria-label="El plato sobre una base giratoria y el celular vertical dando la vuelta">
+          <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <ellipse cx="110" cy="60" rx="46" ry="14"/><ellipse cx="110" cy="54" rx="28" ry="8"/><path d="M60 36q50-26 100 0M152 30l8 6-9 4"/>
+            <rect x="210" y="18" width="34" height="60" rx="6"/><circle cx="227" cy="70" r="3"/>
+          </g>
+          <g fill="currentColor" font-size="11" font-family="inherit" text-anchor="middle"><text x="110" y="88">Base giratoria o alrededor</text><text x="227" y="12">Vertical</text></g>
+        </svg>
+        <p><b>${h(VIDEO_GUIDE)}</b> MP4 o MOV del celular (incluido el de iPhone), máximo 30 s y 150 MB. Se quita el sonido.</p>
+      </div>`;
+    }
     return `<div class="vp-mv-guide">
-      <svg viewBox="0 0 300 92" role="img" aria-label="Los tres ángulos: desde arriba, frente a 45 grados y perfil a la altura del plato">
+      <svg viewBox="0 0 300 92" role="img" aria-label="Foto principal: el plato completo de frente a 45 grados, con espacio alrededor">
         <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <circle cx="50" cy="48" r="26"/><circle cx="50" cy="48" r="15"/><path d="M50 4v10M44 9l6 6 6-6"/>
-          <ellipse cx="150" cy="58" rx="30" ry="12"/><ellipse cx="150" cy="56" rx="17" ry="6"/><path d="M118 14l14 14M126 28h6v-6"/>
-          <path d="M218 64h64M226 64q24-22 48 0"/><path d="M200 50h10M205 45l5 5-5 5"/>
+          <ellipse cx="150" cy="58" rx="40" ry="15"/><ellipse cx="150" cy="56" rx="23" ry="8"/><path d="M108 14l16 16M118 30h6v-6"/>
+          <rect x="92" y="30" width="116" height="48" rx="6" stroke-dasharray="4 4"/>
         </g>
-        <g fill="currentColor" font-size="11" font-family="inherit" text-anchor="middle">
-          <text x="50" y="88">Desde arriba</text><text x="150" y="88">Frente 45°</text><text x="250" y="88">Perfil</text>
-        </g>
+        <g fill="currentColor" font-size="11" font-family="inherit" text-anchor="middle"><text x="150" y="90">Plato completo, a 45°, con aire</text></g>
       </svg>
-      <p><b>Plato completo y con espacio alrededor.</b> Frente: a 45°. Perfil: a la altura del plato. Desde arriba: si el plato es grande (pizzas, picadas, bandejas, bowls).</p>
+      <p><b>Una foto principal</b> (la que se anima): plato completo, de frente a 45° y con espacio alrededor. Las demás van a <b>Más fotos (galería)</b> y se ven en el botón Detalle: nunca se mezclan en el video.</p>
     </div>`;
   }
 
-  const ROLES = [["top", "Desde arriba"], ["front", "Frente"], ["side", "Perfil"]];
-  const ROLE_WORD = { top: "desde arriba", front: "de frente", side: "de perfil" };
+  const ROLE_WORD = { main: "foto principal", gallery: "foto de la galería", source: "el video del plato" };
+  const roleWord = (role) => ROLE_WORD[String(role).split(":")[0]] || "foto";
 
-  // Un espacio de foto: Cambiar / Quitar con confirmación en la misma pantalla y Deshacer (10 s).
-  function slotHtml(d, m, role, label) {
-    const url = m[`${role}_original_url`];
+  function confirmHtml(question) {
+    return `<div class="vp-mv-confirm" role="alert"><span>${h(question)}</span>
+      <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
+      <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></div>`;
+  }
+
+  // Un espacio: Cambiar / Quitar con confirmación en la misma pantalla y Deshacer (10 s).
+  function slotHtml(d, role, label, url, opts = {}) {
     const key = `${d.ref}|${role}`;
     const confirming = model.confirm && model.confirm.key === key;
     const undo = model.undo && model.undo.key === key && Date.now() < model.undo.until;
-    return `<div class="vp-mv-slot ${url ? "has" : ""}">
+    const isVideo = role === "source";
+    const accept = isVideo ? "video/mp4,video/quicktime,.mov,.mp4" : "image/jpeg,image/png,image/webp";
+    const has = Boolean(url || opts.has);
+    const media = isVideo
+      ? (has ? `<span class="vp-mv-thumb is-video">▶ Video subido</span>` : `<span class="vp-mv-thumb is-empty">${h(label)}</span>`)
+      : thumb(url, label);
+    return `<div class="vp-mv-slot ${has ? "has" : ""}">
       <span class="vp-mv-slot-label">${h(label)}</span>
-      ${thumb(url, label)}
+      ${media}
       ${confirming
-        ? `<div class="vp-mv-confirm" role="alert"><span>¿Quitar la foto ${h(ROLE_WORD[role])}?</span>
-            <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
-            <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></div>`
+        ? confirmHtml(`¿Quitar ${roleWord(role)}?`)
         : `<div class="vp-mv-slot-actions">
-            <label class="vp-btn vp-btn-sm vp-mv-file">${url ? "Cambiar" : "Subir"}<input type="file" accept="image/jpeg,image/png,image/webp" data-mv-change="${h(key)}" aria-label="${url ? "Cambiar" : "Subir"} foto ${h(ROLE_WORD[role])} de ${h(d.nombre)}"></label>
-            ${url ? `<button type="button" class="vp-btn vp-btn-sm" data-mv-remove="${h(key)}">Quitar</button>` : ""}
+            <label class="vp-btn vp-btn-sm vp-mv-file">${has ? "Cambiar" : "Subir"}<input type="file" accept="${accept}" data-mv-change="${h(key)}" aria-label="${has ? "Cambiar" : "Subir"} ${h(roleWord(role))} de ${h(d.nombre)}"></label>
+            ${has ? `<button type="button" class="vp-btn vp-btn-sm" data-mv-remove="${h(key)}">Quitar</button>` : ""}
           </div>`}
       ${undo ? `<button type="button" class="vp-btn vp-btn-sm vp-mv-undo" data-mv-undo>Deshacer</button>` : ""}
     </div>`;
   }
 
+  function pathOf(d) {
+    const m = media(d.ref) || {};
+    return model.paths[d.ref] || m.mode || "foto";
+  }
+
   function slotsHtml(d) {
     const m = media(d.ref) || {};
-    return `<div class="vp-mv-slots">${ROLES.map(([role, label]) => slotHtml(d, m, role, label)).join("")}</div>`;
+    const path = pathOf(d);
+    const tabs = `<div class="vp-mv-paths" role="group" aria-label="Cómo se hace el video de ${h(d.nombre)}">
+      <button type="button" class="vp-chip ${path === "video" ? "is-active" : ""}" data-mv-path="${h(d.ref)}|video" aria-pressed="${path === "video"}">Subir video <small>(recomendado: vista 360)</small></button>
+      <button type="button" class="vp-chip ${path === "foto" ? "is-active" : ""}" data-mv-path="${h(d.ref)}|foto" aria-pressed="${path === "foto"}">Subir foto</button></div>`;
+    if (path === "video") {
+      return `${tabs}<div class="vp-mv-slots">${slotHtml(d, "source", "Video del plato", "", { has: m.has_video_source })}</div>
+        <small class="vp-mv-muted">${h(VIDEO_GUIDE)}</small>`;
+    }
+    const gallery = arr(m.gallery);
+    const max = (model.data && model.data.gallery_max) || 6;
+    return `${tabs}<div class="vp-mv-slots">${slotHtml(d, "main", "Foto principal", m.main_original_url)}</div>
+      <div class="vp-mv-gallery"><span class="vp-mv-slot-label">Más fotos (galería) · se ven en Detalle</span>
+        <div class="vp-mv-slots">${gallery.map((g, i) => slotHtml(d, `gallery:${g.id}`, `Foto ${i + 2}`, g.original_url)).join("")}
+        ${gallery.length < max ? `<div class="vp-mv-slot"><label class="vp-btn vp-btn-sm vp-mv-file">+ Agregar a la galería<input type="file" multiple accept="image/jpeg,image/png,image/webp" data-mv-change="${h(d.ref)}|gallery" aria-label="Agregar fotos a la galería de ${h(d.nombre)}"></label></div>` : ""}</div></div>`;
+  }
+
+  function optionsHtml(d, m) {
+    const o = m.options || {};
+    const mode = m.mode || "foto";
+    const sel = (name, map, value, label) => `<label class="vp-field vp-mv-opt"><span>${h(label)}</span><select class="vp-search" data-mv-opt="${h(d.ref)}|${name}">${Object.entries(map).map(([k, v]) => `<option value="${h(k)}" ${k === value ? "selected" : ""}>${h(v)}</option>`).join("")}</select></label>`;
+    const both = m.has_video_source && arr(m.roles).includes("main");
+    return `<div class="vp-mv-opts">
+      ${both ? sel("mode", { video: "Video del plato", foto: "Foto animada" }, mode, "Camino") : ""}
+      ${mode === "foto" ? sel("style", STYLES, o.style || "vida", "Estilo") : ""}
+      ${sel("background", BACKGROUNDS, o.background || (mode === "video" ? "desenfocar" : "ninguno"), "Fondo")}
+      ${mode === "video" ? `${sel("speed", SPEEDS, o.speed || "normal", "Velocidad")}
+        <label class="vp-field vp-mv-opt"><span>Tramo: desde (s)</span><input class="vp-search" type="number" min="0" max="30" step="0.5" data-mv-opt="${h(d.ref)}|start" value="${h(o.start ?? "")}" placeholder="0"></label>
+        <label class="vp-field vp-mv-opt"><span>Tramo: duración (s)</span><input class="vp-search" type="number" min="1" max="30" step="0.5" data-mv-opt="${h(d.ref)}|length" value="${h(o.length ?? "")}" placeholder="todo"></label>` : ""}
+    </div>`;
   }
 
   function publishedTag(d) {
@@ -222,8 +278,8 @@
     return `
       <section class="vp-panel vp-section">
         <h2>3. Fotos por plato</h2>
-        <p class="vp-mv-muted">Arrastra varias fotos a la vez. Se emparejan por el nombre del archivo (<code>pizza-desde-arriba.jpg</code>, <code>lomo.jpg</code>, <code>lomo-perfil.jpg</code>). Por plato: desde arriba, frente y perfil (las que tengas). Se guarda siempre la original.</p>
-        ${guideHtml()}
+        <p class="vp-mv-muted">Por plato elige el camino: <b>Subir video</b> (recomendado para la vista 360) o <b>Subir foto</b> (se anima la foto principal). Arrastra varias fotos a la vez: se emparejan por el nombre del archivo (<code>lomo.jpg</code> es la principal; <code>lomo-2.jpg</code> o <code>lomo-perfil.jpg</code> van a la galería). Se guarda siempre la original.</p>
+        <div class="vp-mv-guides">${guideHtml("video")}${guideHtml("foto")}</div>
         <label class="vp-mv-drop" data-mv-drop="photos">
           <input type="file" multiple accept="image/jpeg,image/png,image/webp" data-mv-photo-files>
           <span><b>Suelta aquí las fotos</b> o toca para elegirlas.</span>
@@ -231,7 +287,7 @@
         ${loose.length ? `<div class="vp-mv-loose"><h3 class="vp-mv-sub">Sin plato (${h(loose.length)})</h3>${loose.map((p) => `
           <div class="vp-mv-loose-row">${thumb(p.url, p.source_name || "foto")}<span>${h(p.source_name || "foto")}</span>
             <select class="vp-search" data-mv-assign-ref="${h(p.id)}" aria-label="Plato para ${h(p.source_name || "la foto")}"><option value="">Elige el plato…</option>${options}</select>
-            <select class="vp-search" data-mv-assign-role="${h(p.id)}" aria-label="Ángulo"><option value="front">Frente</option><option value="side">Perfil</option><option value="top">Desde arriba</option></select>
+            <select class="vp-search" data-mv-assign-role="${h(p.id)}" aria-label="Dónde va la foto"><option value="main">Foto principal</option><option value="gallery">Galería</option></select>
             <button type="button" class="vp-btn vp-btn-sm" data-mv-assign="${h(p.id)}">Asignar</button></div>`).join("")}</div>` : ""}
         <div class="vp-mv-grid vp-mv-grid-wide">${dishes().map((d) => `<article class="vp-panel vp-mv-dish">
             <header><strong>${h(d.nombre)}</strong><small>${h(d.categoria)}${d.subcategoria ? ` › ${h(d.subcategoria)}` : ""}</small>${publishedTag(d)}</header>
@@ -242,7 +298,7 @@
   }
 
   function phoneHtml(ref) {
-    const d = dishes().find((x) => x.ref === ref) || dishes().find((x) => media(x.ref) && media(x.ref).has_photo);
+    const d = dishes().find((x) => x.ref === ref) || dishes().find((x) => media(x.ref) && (media(x.ref).has_photo || media(x.ref).video_url));
     const m = d && media(d.ref);
     if (!d) return `<div class="vp-mv-phone"><div class="vp-mv-phone-screen vp-mv-phone-empty">Sube fotos para ver la vista previa.</div></div>`;
     const visual = m && m.video_url
@@ -257,12 +313,12 @@
   }
 
   function clipsStep() {
-    const withPhoto = dishes().filter((d) => media(d.ref) && media(d.ref).has_photo);
+    const withPhoto = dishes().filter((d) => media(d.ref) && (media(d.ref).has_photo || media(d.ref).has_video_source));
     const preview = model.preview || (withPhoto[0] && withPhoto[0].ref) || "";
     return `
       <section class="vp-panel vp-section">
         <h2>4. Remasterizar y crear clips</h2>
-        <p class="vp-mv-muted">El plato completo, nunca cortado: la foto entera en el cuadro (relleno con la misma foto difuminada), el plato arriba de la tarjeta del precio y un acercamiento suave (máx. 8 %). Clip de 3 s con las fotos reales (desde arriba → frente → perfil), 720×1280, sin sonido, en bucle. En el servidor, sin IA.</p>
+        <p class="vp-mv-muted">Clip de 3 s en bucle, 720×1280, sin sonido, en el servidor y sin IA. <b>Video:</b> estabilizado, luz y color corregidos, fondo a elegir, plato completo arriba de la tarjeta del precio; la vuelta completa cabe en 3 s (velocidad y tramo ajustables). <b>Foto:</b> se anima SOLO la foto principal con un movimiento suave (nunca un pase de fotos); el plato completo siempre visible.</p>
         <div class="vp-head-actions">
           <button type="button" class="vp-btn vp-btn-primary" data-mv-process-all ${withPhoto.length ? "" : "disabled"}>Crear todos (${h(withPhoto.length)})</button>
           <button type="button" class="vp-btn" data-mv-regenerate>Rehacer todos los clips de la empresa</button>
@@ -273,30 +329,30 @@
             const m = media(d.ref);
             const st = status(d.ref);
             const j = job(d.ref);
-            const main = (arr(m.roles).includes("front") ? "front" : arr(m.roles)[0]) || "front";
             const confirmVideo = model.confirm && model.confirm.key === `${d.ref}|video`;
+            const isVideo = (m.mode || "foto") === "video";
             return `<article class="vp-panel vp-mv-dish ${preview === d.ref ? "is-active" : ""}">
-              <header><strong>${h(d.nombre)}</strong><span class="vp-mv-pill is-${h(st)}">${h(JOB[st] || st)}</span>${publishedTag(d)}</header>
-              <div class="vp-mv-pair vp-mv-before-after">
-                <figure>${thumb(m[`${main}_original_url`], "Original")}<figcaption>Antes</figcaption></figure>
-                <figure>${thumb(m[`${main}_remaster_url`], "Remasterizada")}<figcaption>Después</figcaption></figure>
-              </div>
+              <header><strong>${h(d.nombre)}</strong><span class="vp-mv-pill is-${h(st)}">${h(JOB[st] || st)}</span>
+                <span class="vp-mv-pill">${isVideo ? "Video del plato" : "Foto animada"}</span>${publishedTag(d)}</header>
+              ${isVideo ? "" : `<div class="vp-mv-pair vp-mv-before-after">
+                <figure>${thumb(m.main_original_url, "Original")}<figcaption>Antes</figcaption></figure>
+                <figure>${thumb(m.main_remaster_url, "Remasterizada")}<figcaption>Después</figcaption></figure>
+              </div>`}
               ${slotsHtml(d)}
+              ${optionsHtml(d, m)}
               ${j && j.status === "error" ? `<p class="vp-mv-error">${h(j.error)}</p>` : ""}
-              <div class="vp-mv-row">
+              ${isVideo ? "" : `<div class="vp-mv-row">
                 <label class="vp-check"><input type="checkbox" data-mv-use-remaster="${h(d.ref)}" ${m.use_remaster ? "checked" : ""}> Usar la remasterizada</label>
-              </div>
+              </div>`}
               ${confirmVideo
-                ? `<div class="vp-mv-confirm" role="alert"><span>¿Quitar el video? Queda solo la foto.</span>
-                    <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
-                    <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></div>`
+                ? confirmHtml("¿Quitar el video? Queda solo la foto.")
                 : `<div class="vp-mv-row">
-                    <button type="button" class="vp-btn vp-btn-sm" data-mv-process="${h(d.ref)}">${m.video_url ? "Rehacer" : "Crear clip"}</button>
+                    <button type="button" class="vp-btn vp-btn-sm vp-btn-primary" data-mv-process="${h(d.ref)}">${m.video_url ? "Rehacer" : "Crear clip"}</button>
                     ${m.video_url ? `<button type="button" class="vp-btn vp-btn-sm" data-mv-video-remove="${h(d.ref)}">Quitar video</button>` : ""}
                     <button type="button" class="vp-btn vp-btn-sm" data-mv-preview="${h(d.ref)}">Ver en el celular</button>
                   </div>`}
             </article>`;
-          }).join("") || `<div class="vp-empty">Primero sube fotos en el paso 3.</div>`}</div>
+          }).join("") || `<div class="vp-empty">Primero sube fotos o videos en el paso 3.</div>`}</div>
           <aside class="vp-mv-phone-wrap">${phoneHtml(preview)}<small>Así lo verá el cliente en el QR de la mesa.</small></aside>
         </div>
       </section>`;
@@ -496,7 +552,7 @@
     if (assign) {
       const id = assign.getAttribute("data-mv-assign");
       const ref = (document.querySelector(`[data-mv-assign-ref="${id}"]`) || {}).value;
-      const role = (document.querySelector(`[data-mv-assign-role="${id}"]`) || {}).value || "front";
+      const role = (document.querySelector(`[data-mv-assign-role="${id}"]`) || {}).value || "main";
       if (!ref) { model.error = "Elige el plato."; draw(); return; }
       const data = await run("Asignando…", () => api.assign(model.companyId, imp().id, id, { ref, role }));
       if (data) { applyState(data); draw(); }
@@ -514,6 +570,19 @@
         applyState(await api.imp(model.companyId, imp().id));
         draw();
       }
+      return;
+    }
+    const pathBtn = t.closest("[data-mv-path]");
+    if (pathBtn) {
+      const [ref, path] = pathBtn.getAttribute("data-mv-path").split("|");
+      model.paths[ref] = path;
+      const m = media(ref) || {};
+      const ready = path === "video" ? m.has_video_source : arr(m.roles).includes("main");
+      if (ready && (m.mode || "foto") !== path) {
+        const data = await run("Cambiando el camino…", () => api.options(model.companyId, imp().id, ref, { mode: path }), "El clip se rehace con el camino elegido.");
+        if (data) applyState(data);
+      }
+      draw();
       return;
     }
     const removeAsk = t.closest("[data-mv-remove]");
@@ -539,11 +608,13 @@
         if (data) { applyState(data); draw(); }
         return;
       }
-      const data = await run("Quitando la foto…", () => api.removePhoto(model.companyId, imp().id, ref, role));
+      const apiRole = role === "source" ? "video" : role;
+      const data = await run(role === "source" ? "Quitando el video del plato…" : "Quitando la foto…", () => api.removePhoto(model.companyId, imp().id, ref, apiRole));
       if (data) {
-        model.undo = { key, ref, role, original: data.undo.original, remaster: data.undo.remaster, until: Date.now() + 10000 };
+        model.undo = { key, ref, role: apiRole, original: data.undo.original, remaster: data.undo.remaster, index: data.undo.index, until: Date.now() + 10000 };
         setTimeout(() => { if (model.undo && Date.now() >= model.undo.until) { model.undo = null; draw(); } }, 10100);
-        model.notice = data.undo.empty ? "Foto quitada. El plato quedó sin fotos: en el QR se ve su tarjeta de nombre y precio." : "Foto quitada. El clip se rehace con las fotos que quedan.";
+        model.notice = data.undo.empty ? "Quitada. El plato quedó sin fotos ni video: en el QR se ve su tarjeta de nombre y precio."
+          : role.startsWith("gallery") ? "Foto quitada de la galería (el video no cambia)." : "Quitada. El clip se rehace con lo que queda.";
         applyState(data);
         draw();
       }
@@ -552,15 +623,17 @@
     if (t.closest("[data-mv-undo]") && model.undo) {
       const u = model.undo;
       model.undo = null;
-      const data = await run("Deshaciendo…", () => api.restorePhoto(model.companyId, imp().id, u.ref, u.role, { original: u.original, remaster: u.remaster }), "Listo: la foto volvió.");
+      const body = { original: u.original, remaster: u.remaster || "", ...(u.index !== undefined && u.index !== null ? { index: u.index } : {}) };
+      const data = await run("Deshaciendo…", () => api.restorePhoto(model.companyId, imp().id, u.ref, u.role, body), "Listo: volvió.");
       if (data) { applyState(data); draw(); }
       return;
     }
     const one = t.closest("[data-mv-process]");
     if (one) {
       const ref = one.getAttribute("data-mv-process");
-      const data = await run("Mandando a la cola…", () => api.process(model.companyId, imp().id, { refs: [ref], style: "auto" }));
-      if (data) { model.preview = ref; applyState(data); draw(); }
+      // Rehacer con el estilo, fondo, velocidad y tramo elegidos (no gasta cupo)
+      const data = await run("Mandando a la cola…", () => api.options(model.companyId, imp().id, ref, model.opts[ref] || {}), "El clip se está rehaciendo: la vista previa se actualiza sola.");
+      if (data) { model.preview = ref; delete model.opts[ref]; applyState(data); draw(); }
       return;
     }
     const preview = t.closest("[data-mv-preview]");
@@ -612,9 +685,21 @@
     if (t.matches("[data-mv-photo-files]")) { uploadPhotos(t.files); return; }
     if (t.matches("[data-mv-change]") && t.files && t.files[0]) {
       const [ref, role] = t.getAttribute("data-mv-change").split("|");
-      const file = t.files[0];
-      const data = await run("Subiendo la foto…", () => api.changePhoto(model.companyId, imp().id, ref, role, file), "Foto cambiada: el clip se rehace.");
-      if (data) { applyState(data); draw(); }
+      const files = role === "gallery" ? Array.from(t.files) : [t.files[0]];
+      const apiRole = role === "source" ? "video" : role;
+      let data = null;
+      for (const file of files) {
+        data = await run(role === "source" ? "Subiendo el video (puede tardar)…" : "Subiendo la foto…",
+          () => api.changePhoto(model.companyId, imp().id, ref, apiRole, file),
+          role === "source" ? "Video subido: se está editando (estabilizar, color y fondo)." : role === "gallery" ? "Foto agregada a la galería." : "Foto cambiada: el clip se rehace.");
+        if (!data) break;
+      }
+      if (data) { model.paths[ref] = role === "source" ? "video" : "foto"; applyState(data); draw(); }
+      return;
+    }
+    if (t.matches("[data-mv-opt]")) {
+      const [ref, name] = t.getAttribute("data-mv-opt").split("|");
+      model.opts[ref] = { ...(model.opts[ref] || {}), [name]: ["start", "length"].includes(name) ? (t.value === "" ? null : Number(t.value)) : t.value };
       return;
     }
     if (t.matches("[data-mv-use-remaster]")) {
@@ -625,7 +710,7 @@
     }
     if (t.matches("[data-mv-reassign]")) {
       // reasignar a mano una foto que se emparejó con otro plato
-      const body = { ref: t.value, role: t.getAttribute("data-mv-role") || "front" };
+      const body = { ref: t.value, role: t.getAttribute("data-mv-role") || "main" };
       const data = await run("Reasignando…", () => api.assign(model.companyId, imp().id, t.getAttribute("data-mv-reassign"), body));
       if (data) { applyState(data); draw(); }
     }
@@ -675,5 +760,5 @@
     },
     refreshPulse() {},
   };
-  window.CxConsoleMenuVideo = { model, api, view, whenText, slotHtml, guideHtml, catsHtml, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
+  window.CxConsoleMenuVideo = { model, api, view, whenText, slotHtml, slotsHtml, optionsHtml, guideHtml, catsHtml, BACKGROUNDS, SPEEDS, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
 })();

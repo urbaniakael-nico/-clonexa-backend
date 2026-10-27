@@ -236,6 +236,8 @@ async def carta_inventory_lite(db: AsyncSession, company_id: Any) -> list[dict]:
             # Menu video: foto del plato (todas) y, con carta_video, su clip y portada.
             "description": (extras.get(str(dish["id"])) or {}).get("description", ""),
             "photo_url": shown.get("photo_url", ""),
+            # 058A: "Más fotos (galería)" del boton Detalle (nunca en el video)
+            "gallery_urls": shown.get("gallery_urls") or [],
             **({"video_url": shown.get("video_url", ""), "poster_url": shown.get("poster_url", "")} if video else {}),
         })
     return out
@@ -525,7 +527,9 @@ async def _carta_payload(db: AsyncSession, company_id: uuid.UUID) -> dict:
             "consumption_units": engine.CONSUMPTION_UNITS, "recipe_units": engine.RECIPE_UNITS,
             "categories": _category_tree(categories, images, dishes),
             "stations": await _stations(db, company_id, categories),
-            "company_id": str(company_id), "qr_ready": bool(settings.get("qr_token"))}
+            "company_id": str(company_id), "qr_ready": bool(settings.get("qr_token")),
+            # 058A: pestaña "QR y piezas" (interruptor carta_qr_piezas, apagado por defecto)
+            "qr_piezas": settings.get("carta_qr_piezas") is True}
 
 
 def _line_payload(line: dict, insumos: dict[str, dict], dishes_by_id: dict[str, dict]) -> dict:

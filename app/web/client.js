@@ -37408,6 +37408,8 @@ function inventoryCreatePayload() {
       search: "", error: "", busy: false,
       // 057D: fotos por espacio (desde arriba, frente, perfil): lo elegido y lo que se quita al guardar
       photos057D: {}, removes057D: [], confirm057D: "", undo057D: null, style: "auto",
+      // 058A: camino ("video" o "foto") y estilo/fondo/velocidad/tramo elegidos
+      path058A: "", opts058A: {},
     };
   }
 
@@ -38062,6 +38064,7 @@ function inventoryCreatePayload() {
   async function cxCarOnChange049J(event) {
     const wiz = cxCarWiz049J;
     if (cxCarPhotoChange057A(event)) return;
+    if (await cxCarQrChange058A(event)) return;
     const check = event.target.closest?.("[data-wz-check]");
     if (check && wiz) {
       cxCarWizToggle049K(wiz, check.getAttribute("data-wz-check"), check.checked);
@@ -38095,11 +38098,223 @@ function inventoryCreatePayload() {
     }
   }
 
+  // ---------------------------------------------------------------- 058A
+  // QR y piezas (interruptor carta_qr_piezas): 4 QR de la misma carta (Mesa,
+  // Domicilio, Para llevar y Mesero), cada uno se enciende/apaga y se
+  // regenera; QR con logo y colores verificados con lector; hablador, sticker
+  // e Instagram, y todo en un ZIP. Sin el interruptor: "QR de la carta" igual.
+  var cxCarQr058A = { data: null, mesa: "", images: {}, confirm: "", error: "", msg: "", busy: false };
+  const CX_CAR_QR_TEXT_058A = {
+    mesa: "Uno por mesa. El pedido va a cocina y a la cuenta de esa mesa en Caja (si no hay cuenta abierta, se abre).",
+    domicilio: "Para Instagram, volantes y empaques: carta → pedido → datos de entrega y pago contra entrega. Llega a Domicilios y a cocina.",
+    llevar: "Nombre, celular y hora aproximada de recogida. Llega a Caja y a cocina.",
+    mesero: "El mesero abre la misma carta en su celular para mostrar los platos y agrega a la cuenta de su mesa. Solo abre con su sesión de mesero.",
+  };
+
+  function cxCarQrOn058A() {
+    return Boolean(cxCar048T.data && cxCar048T.data.qr_piezas);
+  }
+
+  function cxCarQrApi058A(path, options = {}) {
+    return api(`/carta-links/companies/${encodeURIComponent(state.companyId)}${path}`, options);
+  }
+
+  async function cxCarQrBlob058A(path) {
+    const res = await fetch(`${API}/carta-links/companies/${encodeURIComponent(state.companyId)}${path}`, { headers: authHeaders({}) });
+    if (!res.ok) throw new Error("No se pudo generar la imagen.");
+    return { url: URL.createObjectURL(await res.blob()), verified: res.headers.get("X-QR-Verified") === "1" };
+  }
+
+  async function cxCarQrImages058A(which) {
+    const q = cxCarQr058A;
+    const mesa = q.mesa || (q.data && q.data.mesas[0] && q.data.mesas[0].label) || "";
+    const jobs = {
+      mesa: `/qr/mesa.png?mesa=${encodeURIComponent(mesa)}`, domicilio: "/qr/domicilio.png", llevar: "/qr/llevar.png", mesero: "/qr/mesero.png",
+      hablador: `/piezas/hablador.png?mesa=${encodeURIComponent(mesa)}`, sticker: "/piezas/sticker.png", instagram: "/piezas/instagram.png",
+    };
+    const keys = which || Object.keys(jobs);
+    await Promise.all(keys.map(async (key) => {
+      try {
+        const old = q.images[key];
+        q.images[key] = await cxCarQrBlob058A(jobs[key]);
+        if (old && old.url) try { URL.revokeObjectURL(old.url); } catch (_) {}
+      } catch (error) {
+        q.images[key] = { error: error.message || "No se pudo generar." };
+      }
+    }));
+  }
+
+  async function cxCarQrLoad058A() {
+    const q = cxCarQr058A;
+    try {
+      q.data = await cxCarQrApi058A("");
+      q.error = "";
+      if (!q.mesa && q.data.mesas[0]) q.mesa = q.data.mesas[0].label;
+      cxCarPaint048T();
+      await cxCarQrImages058A();
+    } catch (error) {
+      q.error = cxCarErr048T(error);
+    }
+    cxCarPaint048T();
+  }
+
+  function cxCarQrImgHtml058A(key, alt) {
+    const img = cxCarQr058A.images[key];
+    if (!img) return `<div class="cx-car-note-048t">Generando…</div>`;
+    if (img.error) return `<div class="personal-toast error">${h(img.error)}</div>`;
+    return `<img src="${h(img.url)}" alt="${h(alt)}">${img.verified ? `<small class="cx-qr-ok-058a">✓ Verificado con lector de QR</small>` : `<small class="cx-qr-warn-058a">No se pudo verificar con el lector: revisa el contraste de la marca.</small>`}`;
+  }
+
+  function cxCarQrKindHtml058A(kind) {
+    const q = cxCarQr058A;
+    const k = q.data.kinds[kind];
+    const url = kind === "mesa" ? ((q.data.mesas.find((m) => m.label === q.mesa) || q.data.mesas[0] || {}).url || "") : k.url;
+    return `<article class="cx-qr-card-058a ${k.on ? "" : "off"}">
+      <header><h4>${h(k.label)}</h4>
+        <label class="cx-qr-switch-058a"><input type="checkbox" data-car-qr-on="${h(kind)}" ${k.on ? "checked" : ""}> ${k.on ? "Encendido" : "Apagado"}</label></header>
+      <p class="cx-car-note-048t">${h(CX_CAR_QR_TEXT_058A[kind])}</p>
+      ${kind === "mesa" ? `<label class="cx-qr-mesa-058a">Mesa <select data-car-qr-mesa>${q.data.mesas.map((m) => `<option ${m.label === q.mesa ? "selected" : ""}>${h(m.label)}</option>`).join("")}</select></label>` : ""}
+      <div class="cx-qr-img-058a">${cxCarQrImgHtml058A(kind, `QR ${k.label}`)}</div>
+      <p class="cx-car-qr-url-049j">${h(url)}</p>
+      <div class="cx-car-actions-048t">
+        <button class="client-btn" type="button" data-car-qr-copy058a="${h(url)}">Copiar link</button>
+        ${kind !== "mesero" ? `<a class="client-btn" href="${h(url)}" target="_blank" rel="noopener">Abrir</a>` : ""}
+        ${q.confirm === kind
+          ? `<span class="cx-qr-confirm-058a" role="alert">${kind === "mesa" ? "Todos los QR de mesa impresos (también los de antes) dejarán de funcionar." : "El QR impreso de este tipo dejará de funcionar."}
+              <button class="client-btn danger" type="button" data-car-qr-regen058a-yes="${h(kind)}">Sí, regenerar</button>
+              <button class="client-btn" type="button" data-car-qr-regen058a-no>No</button></span>`
+          : `<button class="client-btn" type="button" data-car-qr-regen058a="${h(kind)}">Regenerar enlace</button>`}
+      </div>
+    </article>`;
+  }
+
+  function cxCarQrPiezasHtml058A() {
+    const q = cxCarQr058A;
+    if (q.error) return `<div class="personal-toast error">${h(q.error)}</div>`;
+    if (!q.data) return `<div class="cx-car-note-048t">Cargando QR y piezas…</div>`;
+    const d = q.data.delivery || {};
+    return `<div class="cx-qr-058a">
+      <p class="cx-car-note-048t">Una sola carta para todos: ${q.data.carta === "video" ? "la carta en video" : "la carta con fotos"}. ${d.module ? (d.fee > 0 ? `Domicilio: ${h(cxCarMoney048T(d.fee))} (de Domicilios).` : "Domicilio: el restaurante confirma el valor al cliente.") : "Domicilio: el restaurante confirma el valor al cliente."}</p>
+      ${q.msg ? `<div class="personal-toast ok" role="status">${h(q.msg)}</div>` : ""}
+      <div class="cx-qr-grid-058a">${["mesa", "domicilio", "llevar", "mesero"].map(cxCarQrKindHtml058A).join("")}</div>
+      <h3>Piezas listas para imprimir y publicar</h3>
+      <div class="cx-qr-pieces-058a">
+        <figure>${cxCarQrImgHtml058A("hablador", `Hablador de mesa ${q.mesa}`)}<figcaption>Hablador de mesa (PDF 10×15 cm, uno por mesa)</figcaption></figure>
+        <figure>${cxCarQrImgHtml058A("sticker", "Sticker de domicilio")}<figcaption>Sticker de domicilio (PDF 8×8 cm)</figcaption></figure>
+        <figure>${cxCarQrImgHtml058A("instagram", "Pieza para Instagram")}<figcaption>Instagram (PNG 1080×1350)</figcaption></figure>
+      </div>
+      <button class="client-btn primary" type="button" data-car-qr-zip058a ${q.busy ? "disabled" : ""}>${q.busy ? "Preparando el ZIP…" : "Descargar todo (ZIP)"}</button>
+    </div>`;
+  }
+
+  async function cxCarQrClick058A(target) {
+    const q = cxCarQr058A;
+    if (!cxCarQrOn058A() || cxCar048T.tab !== "qr") return false;
+    const copy = target.closest("[data-car-qr-copy058a]");
+    if (copy) {
+      try { await navigator.clipboard.writeText(copy.getAttribute("data-car-qr-copy058a")); q.msg = "Link copiado."; } catch (_) { q.msg = "Copia el link de la tarjeta."; }
+      cxCarPaint048T();
+      return true;
+    }
+    const regen = target.closest("[data-car-qr-regen058a]");
+    if (regen) { q.confirm = regen.getAttribute("data-car-qr-regen058a"); cxCarPaint048T(); return true; }
+    if (target.closest("[data-car-qr-regen058a-no]")) { q.confirm = ""; cxCarPaint048T(); return true; }
+    const yes = target.closest("[data-car-qr-regen058a-yes]");
+    if (yes) {
+      const kind = yes.getAttribute("data-car-qr-regen058a-yes");
+      q.confirm = "";
+      try {
+        q.data = await cxCarQrApi058A(`/kinds/${encodeURIComponent(kind)}/regenerate`, { method: "POST" });
+        q.msg = "Enlace nuevo listo: imprime o comparte el QR nuevo. El anterior ya no funciona.";
+        cxCarPaint048T();
+        await cxCarQrImages058A(kind === "mesa" ? ["mesa", "hablador"] : kind === "domicilio" ? ["domicilio", "sticker", "instagram"] : [kind]);
+      } catch (error) {
+        q.error = cxCarErr048T(error);
+      }
+      cxCarPaint048T();
+      return true;
+    }
+    if (target.closest("[data-car-qr-zip058a]") && !q.busy) {
+      q.busy = true;
+      cxCarPaint048T();
+      try {
+        const res = await fetch(`${API}/carta-links/companies/${encodeURIComponent(state.companyId)}/piezas.zip`, { headers: authHeaders({}) });
+        if (!res.ok) throw new Error("No se pudo preparar el ZIP.");
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(await res.blob());
+        link.download = "piezas-qr.zip";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        q.msg = "ZIP descargado: habladores por mesa, sticker, Instagram y los QR.";
+      } catch (error) {
+        q.error = cxCarErr048T(error);
+      }
+      q.busy = false;
+      cxCarPaint048T();
+      return true;
+    }
+    return false;
+  }
+
+  async function cxCarQrChange058A(event) {
+    const t = event.target;
+    if (!cxCarQrOn058A() || !t || !t.closest) return false;
+    const on = t.closest("[data-car-qr-on]");
+    if (on) {
+      try {
+        cxCarQr058A.data = await cxCarQrApi058A(`/kinds/${encodeURIComponent(on.getAttribute("data-car-qr-on"))}`, { method: "PUT", body: JSON.stringify({ on: on.checked }) });
+        cxCarQr058A.msg = on.checked ? "Encendido." : "Apagado: ese QR deja de recibir pedidos.";
+      } catch (error) {
+        cxCarQr058A.error = cxCarErr048T(error);
+      }
+      cxCarPaint048T();
+      return true;
+    }
+    const mesa = t.closest("[data-car-qr-mesa]");
+    if (mesa) {
+      cxCarQr058A.mesa = mesa.value;
+      cxCarPaint048T();
+      await cxCarQrImages058A(["mesa", "hablador"]);
+      cxCarPaint048T();
+      return true;
+    }
+    return false;
+  }
+
+  function cxCarQrStyles058A() {
+    if (document.getElementById("cxCarQr058AStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxCarQr058AStyles";
+    style.textContent = `
+      .cx-qr-058a { display:grid; gap:14px; }
+      .cx-qr-grid-058a { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+      .cx-qr-card-058a { display:grid; gap:8px; align-content:start; padding:14px; border-radius:16px; border:1px solid color-mix(in srgb, currentColor 18%, transparent); background:color-mix(in srgb, currentColor 4%, transparent); min-width:0; }
+      .cx-qr-card-058a.off { opacity:.7; }
+      .cx-qr-card-058a header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+      .cx-qr-card-058a h4 { margin:0; font-size:17px; }
+      .cx-qr-switch-058a { display:flex; align-items:center; gap:6px; font-weight:700; font-size:13px; min-height:44px; }
+      .cx-qr-switch-058a input { width:22px; height:22px; }
+      .cx-qr-img-058a img { width:100%; max-width:220px; display:block; margin:0 auto; border-radius:12px; background:#fff; }
+      .cx-qr-ok-058a { display:block; text-align:center; color:#16a34a; font-weight:700; }
+      .cx-qr-warn-058a { display:block; text-align:center; color:#d97706; font-weight:700; }
+      .cx-qr-mesa-058a { display:flex; align-items:center; gap:8px; font-weight:700; }
+      .cx-qr-mesa-058a select { min-height:40px; border-radius:10px; padding:0 8px; }
+      .cx-qr-confirm-058a { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:13px; font-weight:700; }
+      .cx-qr-pieces-058a { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px; }
+      .cx-qr-pieces-058a figure { margin:0; display:grid; gap:6px; justify-items:center; text-align:center; }
+      .cx-qr-pieces-058a img { width:100%; max-width:260px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+      .cx-qr-card-058a .cx-car-qr-url-049j { overflow-wrap:anywhere; font-size:12px; }`;
+    document.head.appendChild(style);
+  }
+
   function cxCarPaint048T() {
     const root = document.getElementById("cxCarRoot048T");
     if (!root) return;
     // 049Q: sin pestaña Insumos; lo que se compra se carga y configura solo en Inventario
-    const tabs = [["platos", "Platos"], ["categorias", "Categorías"], ["qr", "QR de la carta"]];
+    // 058A: con el interruptor carta_qr_piezas la pestaña es "QR y piezas"
+    const tabs = [["platos", "Platos"], ["categorias", "Categorías"], ["qr", cxCarQrOn058A() ? "QR y piezas" : "QR de la carta"]];
+    if (cxCarQrOn058A()) cxCarQrStyles058A();
     root.innerHTML = `
       <div class="cx-car-tabs-048t">
         ${tabs.map(([key, label]) => `<button class="${cxCar048T.tab === key ? "active" : ""}" type="button" data-car-tab="${key}">${label}</button>`).join("")}
@@ -38108,7 +38323,7 @@ function inventoryCreatePayload() {
       ${cxCar048T.message ? `<div class="personal-toast ok">${h(cxCar048T.message)}</div>` : ""}
       ${!cxCar048T.data ? `<div class="cx-car-note-048t">Cargando carta…</div>`
         : cxCar048T.tab === "categorias" ? cxCarCategoriesHtml049K()
-        : cxCar048T.tab === "qr" ? cxCarQrHtml049J()
+        : cxCar048T.tab === "qr" ? (cxCarQrOn058A() ? cxCarQrPiezasHtml058A() : cxCarQrHtml049J())
         : cxCarPlatosHtml049J()}`;
   }
 
@@ -38181,9 +38396,11 @@ function inventoryCreatePayload() {
       cxCar048T.tab = tab.getAttribute("data-car-tab");
       cxCar048T.message = "";
       cxCarPaint048T();
-      if (cxCar048T.tab === "qr" && !cxCarUi049J.qr?.image) await cxCarQrLoad049J();
+      if (cxCar048T.tab === "qr" && cxCarQrOn058A()) { if (!cxCarQr058A.data) await cxCarQrLoad058A(); }
+      else if (cxCar048T.tab === "qr" && !cxCarUi049J.qr?.image) await cxCarQrLoad049J();
       return true;
     }
+    if (await cxCarQrClick058A(target)) return true;
     if (await cxCarHandleClick049J(target)) return true;
     return false;
   }
@@ -39260,43 +39477,91 @@ function inventoryCreatePayload() {
   }
 
   const CX_CAR_ROLES_057D = [["top", "Desde arriba", "desde arriba"], ["front", "Frente", "de frente"], ["side", "Perfil", "de perfil"]];
+  // 058A: 2 caminos por plato (carta en video): "Subir video" o "Subir foto" (principal + galería).
+  const CX_CAR_VIDEO_GUIDE_058A = "Pon el plato sobre una base giratoria o camina alrededor, 5 a 10 segundos, celular vertical, buena luz, plato completo en cuadro.";
+  const CX_CAR_STYLES_058A = { vida: "Vida", zoom: "Acercamiento", giro: "Giro suave", paneo: "Paneo", brillo: "Brillo", auto: "Automático" };
+  const CX_CAR_BACKGROUNDS_058A = { desenfocar: "Desenfocar fondo", oscurecer: "Oscurecer fondo", ninguno: "Sin cambios" };
+  const CX_CAR_SPEEDS_058A = { lento: "Más lento", normal: "Normal", rapido: "Más rápido" };
 
-  // 057D: guía al subir fotos, con un dibujo simple de los 3 ángulos.
-  function cxCarPhotoGuide057D(video) {
+  function cxCarPhotoGuide057D(video, path) {
+    if (!video) return `<div class="cx-car-guide-057d"><p><b>Plato completo y con espacio alrededor.</b></p></div>`;
+    if (path === "video") {
+      return `<div class="cx-car-guide-057d">
+        <svg viewBox="0 0 300 92" role="img" aria-label="El plato sobre una base giratoria y el celular vertical dando la vuelta">
+          <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <ellipse cx="110" cy="60" rx="46" ry="14"/><ellipse cx="110" cy="54" rx="28" ry="8"/><path d="M60 36q50-26 100 0M152 30l8 6-9 4"/>
+            <rect x="210" y="18" width="34" height="60" rx="6"/><circle cx="227" cy="70" r="3"/>
+          </g>
+          <g fill="currentColor" font-size="11" text-anchor="middle"><text x="110" y="88">Base giratoria o alrededor</text><text x="227" y="12">Vertical</text></g>
+        </svg>
+        <p><b>${h(CX_CAR_VIDEO_GUIDE_058A)}</b> MP4 o MOV del celular (también el de iPhone), máximo 30 s y 150 MB. Se quita el sonido.</p>
+      </div>`;
+    }
     return `<div class="cx-car-guide-057d">
-      ${video ? `<svg viewBox="0 0 300 92" role="img" aria-label="Los tres ángulos: desde arriba, frente a 45 grados y perfil a la altura del plato">
+      <svg viewBox="0 0 300 92" role="img" aria-label="Foto principal: el plato completo de frente a 45 grados, con espacio alrededor">
         <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <circle cx="50" cy="48" r="26"/><circle cx="50" cy="48" r="15"/><path d="M50 4v10M44 9l6 6 6-6"/>
-          <ellipse cx="150" cy="58" rx="30" ry="12"/><ellipse cx="150" cy="56" rx="17" ry="6"/><path d="M118 14l14 14M126 28h6v-6"/>
-          <path d="M218 64h64M226 64q24-22 48 0"/><path d="M200 50h10M205 45l5 5-5 5"/>
+          <ellipse cx="150" cy="58" rx="40" ry="15"/><ellipse cx="150" cy="56" rx="23" ry="8"/><path d="M108 14l16 16M118 30h6v-6"/>
+          <rect x="92" y="30" width="116" height="48" rx="6" stroke-dasharray="4 4"/>
         </g>
-        <g fill="currentColor" font-size="11" text-anchor="middle"><text x="50" y="88">Desde arriba</text><text x="150" y="88">Frente 45°</text><text x="250" y="88">Perfil</text></g>
-      </svg>` : ""}
-      <p><b>Plato completo y con espacio alrededor.</b>${video ? " Frente: a 45°. Perfil: a la altura del plato. Desde arriba: si el plato es grande (pizzas, picadas, bandejas, bowls)." : ""}</p>
+        <g fill="currentColor" font-size="11" text-anchor="middle"><text x="150" y="90">Plato completo, a 45°, con aire</text></g>
+      </svg>
+      <p><b>Una foto principal</b> (la que se anima): plato completo, de frente a 45° y con espacio alrededor. Las demás van a <b>Más fotos (galería)</b> y se ven en el botón Detalle; nunca se mezclan en el video.</p>
     </div>`;
+  }
+
+  function cxCarRoleWord058A(role) {
+    const kind = String(role).split(":")[0];
+    return kind === "video" ? "el video del plato" : kind === "gallery" ? "esta foto de la galería" : "la foto del plato";
   }
 
   function cxCarSlot057D(wiz, media, role, label, word, simple) {
     const staged = wiz.photos057D[role];
     const removed = wiz.removes057D.includes(role);
-    const current = !removed && media ? (simple ? media.photo_url : media[`${role}_original_url`]) : "";
-    const url = (staged && staged.preview) || current || "";
+    const isVideo = role === "video";
+    let current = "";
+    if (!removed && media) {
+      if (simple) current = media.photo_url;
+      else if (role === "main") current = media.main_original_url || "";
+      else if (role.startsWith("gallery:")) current = ((media.gallery || []).find((g) => `gallery:${g.id}` === role) || {}).original_url || "";
+      else if (isVideo) current = media.has_video_source ? "video" : "";
+    }
+    const url = (staged && (staged.preview || staged.name)) || current || "";
     const undo = wiz.undo057D && wiz.undo057D.role === role && Date.now() < wiz.undo057D.until;
+    const accept = isVideo ? "video/mp4,video/quicktime,.mov,.mp4" : "image/jpeg,image/png,image/webp";
     const actions = wiz.confirm057D === role
-      ? `<div class="cx-car-confirm-057d" role="alert"><span>¿Quitar la foto ${h(word)}?</span>
+      ? `<div class="cx-car-confirm-057d" role="alert"><span>¿Quitar ${h(simple ? `la foto ${word}` : cxCarRoleWord058A(role))}?</span>
           <button class="client-btn danger" type="button" data-wz-photo-remove-yes>Quitar</button>
           <button class="client-btn" type="button" data-wz-photo-remove-no>Cancelar</button></div>`
       : `<div class="cx-car-slot-actions-057d">
-          <label class="client-btn cx-car-file-057d">${url ? "Cambiar" : "Subir"}<input type="file" accept="image/jpeg,image/png,image/webp" data-wz-photo-file="${role}" aria-label="${url ? "Cambiar" : "Subir"} foto ${h(word)}"></label>
-          ${url ? `<button class="client-btn danger" type="button" data-wz-photo-remove="${role}">Quitar</button>` : ""}
+          <label class="client-btn cx-car-file-057d">${url ? "Cambiar" : "Subir"}<input type="file" accept="${accept}" data-wz-photo-file="${h(role)}" aria-label="${url ? "Cambiar" : "Subir"} ${h(simple ? `foto ${word}` : cxCarRoleWord058A(role))}"></label>
+          ${url ? `<button class="client-btn danger" type="button" data-wz-photo-remove="${h(role)}">Quitar</button>` : ""}
         </div>`;
+    const visual = isVideo
+      ? (url ? `<span class="cx-car-photo-empty-057a is-video-058a">▶ ${h(staged && staged.name ? staged.name : "Video subido")}</span>` : `<span class="cx-car-photo-empty-057a" aria-hidden="true">🎥</span>`)
+      : (url ? `<img src="${h(url)}" alt="${h(label)}">` : `<span class="cx-car-photo-empty-057a" aria-hidden="true">📷</span>`);
     return `<div class="cx-car-slot-057d ${url ? "has" : ""}">
         <b>${h(label)}</b>
-        ${url ? `<img src="${h(url)}" alt="${h(label)}">` : `<span class="cx-car-photo-empty-057a" aria-hidden="true">📷</span>`}
+        ${visual}
         ${actions}
         ${removed ? `<small>Se quita al guardar.</small>` : ""}
         ${undo ? `<button class="client-btn" type="button" data-wz-photo-undo>Deshacer</button>` : ""}
       </div>`;
+  }
+
+  function cxCarPath058A(wiz, media) {
+    return wiz.path058A || (media && media.mode) || "foto";
+  }
+
+  function cxCarOptionsHtml058A(media, opts, path, prefix) {
+    const o = { ...((media && media.options) || {}), ...(opts || {}) };
+    const sel = (name, map, value, label) => `<label class="cx-car-opt-058a"><span>${h(label)}</span><select data-${prefix}-opt="${h(name)}">${Object.entries(map).map(([k, v]) => `<option value="${h(k)}" ${k === value ? "selected" : ""}>${h(v)}</option>`).join("")}</select></label>`;
+    return `<div class="cx-car-opts-058a">
+      ${path === "foto" ? sel("style", CX_CAR_STYLES_058A, o.style || "vida", "Estilo") : ""}
+      ${sel("background", CX_CAR_BACKGROUNDS_058A, o.background || (path === "video" ? "desenfocar" : "ninguno"), "Fondo")}
+      ${path === "video" ? `${sel("speed", CX_CAR_SPEEDS_058A, o.speed || "normal", "Velocidad")}
+        <label class="cx-car-opt-058a"><span>Tramo: desde (s)</span><input type="number" min="0" max="30" step="0.5" data-${prefix}-opt="start" value="${h(o.start ?? "")}" placeholder="0"></label>
+        <label class="cx-car-opt-058a"><span>Tramo: duración (s)</span><input type="number" min="1" max="30" step="0.5" data-${prefix}-opt="length" value="${h(o.length ?? "")}" placeholder="todo"></label>` : ""}
+    </div>`;
   }
 
   function cxCarWizPhotoHtml057A(wiz) {
@@ -39305,17 +39570,36 @@ function inventoryCreatePayload() {
     const picked = Object.values(wiz.photos057D).some(Boolean);
     const kind = cxCarQuotaKind057A(wiz);
     const blocked = video && picked && cxCarQuotaLeft057A(kind) <= 0;
-    const roles = video ? CX_CAR_ROLES_057D : [["front", "Foto", ""]];
     const untouched = !picked && !wiz.removes057D.length;
-    return `
+    if (!video) {
+      return `
       <h3>Foto del plato</h3>
-      <p class="cx-car-note-049k">${video
-        ? "Sube las fotos que tengas: <b>desde arriba</b>, <b>frente</b> y <b>perfil</b>. Al guardar se mejora la luz y el color y se crea un video corto del plato completo para el QR (en nuestro servidor, sin costo de IA)."
-        : "La foto se ve en el QR de la carta. Es opcional: puedes guardar sin foto."}</p>
-      ${cxCarPhotoGuide057D(video)}
-      <div class="cx-car-slots-057d ${video ? "" : "one"}">${roles.map(([role, label, word]) => cxCarSlot057D(wiz, media, role, label, word || "del plato", !video)).join("")}</div>
-      ${video && media && media.video_url && untouched ? `<figure class="cx-car-photo-video-057a"><video src="${h(media.video_url)}" poster="${h(media.poster_url)}" autoplay muted loop playsinline></video><figcaption>Así se ve en el QR</figcaption></figure>` : ""}
-      ${video ? `<p class="cx-car-quota-057a ${cxCarQuotaLeft057A(kind) <= 0 ? "out" : ""}" data-car-quota-left>${h(cxCarQuotaText057A(kind))} Quitar una foto no gasta cupo; si cambias la misma foto otra vez en 30 minutos, cuenta como un solo cambio. Cambiar precio, nombre, descripción u opciones no gasta cupo.</p>` : ""}
+      <p class="cx-car-note-049k">La foto se ve en el QR de la carta. Es opcional: puedes guardar sin foto.</p>
+      ${cxCarPhotoGuide057D(false)}
+      <div class="cx-car-slots-057d one">${cxCarSlot057D(wiz, media, "front", "Foto", "del plato", true)}</div>`;
+    }
+    const path = cxCarPath058A(wiz, media);
+    const stagedGallery = Object.keys(wiz.photos057D).filter((k) => k.startsWith("gallery:new:") && wiz.photos057D[k]);
+    const gallery = ((media && media.gallery) || []).map((g) => `gallery:${g.id}`);
+    const room = 6 - gallery.filter((r) => !wiz.removes057D.includes(r)).length - stagedGallery.length;
+    const slots = path === "video"
+      ? `<div class="cx-car-slots-057d one">${cxCarSlot057D(wiz, media, "video", "Video del plato", "", false)}</div>`
+      : `<div class="cx-car-slots-057d one">${cxCarSlot057D(wiz, media, "main", "Foto principal", "", false)}</div>
+        <h4 class="cx-car-sub-058a">Más fotos (galería) · se ven en el botón Detalle</h4>
+        <div class="cx-car-slots-057d">${[...gallery, ...stagedGallery].map((role, i) => cxCarSlot057D(wiz, media, role, `Foto ${i + 2}`, "", false)).join("")}
+          ${room > 0 ? `<div class="cx-car-slot-057d"><label class="client-btn cx-car-file-057d">+ Agregar fotos<input type="file" multiple accept="image/jpeg,image/png,image/webp" data-wz-photo-file="gallery" aria-label="Agregar fotos a la galería"></label></div>` : ""}</div>`;
+    return `
+      <h3>Video del plato</h3>
+      <p class="cx-car-note-049k">Elige cómo se hace el video corto del plato para el QR (en nuestro servidor, sin costo de IA):</p>
+      <div class="cx-car-paths-058a" role="group" aria-label="Cómo se hace el video">
+        <button class="client-btn ${path === "video" ? "primary" : ""}" type="button" data-wz-path="video" aria-pressed="${path === "video"}">Subir video <small>(recomendado: vista 360)</small></button>
+        <button class="client-btn ${path === "foto" ? "primary" : ""}" type="button" data-wz-path="foto" aria-pressed="${path === "foto"}">Subir foto</button>
+      </div>
+      ${cxCarPhotoGuide057D(true, path)}
+      ${slots}
+      ${cxCarOptionsHtml058A(media, wiz.opts058A, path, "wz")}
+      ${media && media.video_url && untouched ? `<figure class="cx-car-photo-video-057a"><video src="${h(media.video_url)}" poster="${h(media.poster_url)}" autoplay muted loop playsinline></video><figcaption>Así se ve en el QR</figcaption></figure>` : ""}
+      <p class="cx-car-quota-057a ${cxCarQuotaLeft057A(kind) <= 0 ? "out" : ""}" data-car-quota-left>${h(cxCarQuotaText057A(kind))} Subir o cambiar el video o la foto = 1 cambio. Quitar no gasta cupo; si cambias otra vez en 30 minutos, cuenta como el mismo cambio. Cambiar estilo, fondo, velocidad, precio, nombre, descripción u opciones no gasta cupo.</p>
       ${blocked ? `<div class="cx-car-quota-out-057a"><p>Ya usaste tu cupo de este mes. Puedes guardar el plato sin cambiar la foto o pedir más cupo.</p><button class="client-btn primary" type="button" data-car-quota-request>Solicitar más</button></div>` : ""}`;
   }
 
@@ -39335,15 +39619,30 @@ function inventoryCreatePayload() {
     try {
       // 057D: primero lo que se quita (no gasta cupo); luego lo que se cambia o se sube
       const media = cxCarMediaOf057A(wiz.id);
+      const video = cxCarVideoOn057A();
       for (const role of wiz.removes057D) {
-        if (wiz.photos057D[role] || !media || !(media.roles || ["front"]).includes(role)) continue;
-        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/photo/${role}`, { method: "DELETE" });
+        if (wiz.photos057D[role] || !media) continue;
+        const has = role === "front" || role === "main" ? Boolean(media.has_photo || (media.roles || []).includes("main"))
+          : role === "video" ? Boolean(media.has_video_source)
+          : (media.gallery || []).some((g) => `gallery:${g.id}` === role);
+        if (!has) continue;
+        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/photo/${encodeURIComponent(role)}`, { method: "DELETE" });
       }
       const files = Object.entries(wiz.photos057D).filter(([, v]) => v && v.file);
-      if (!files.length) return;
+      const opts = { ...(wiz.opts058A || {}) };
+      if (video && wiz.path058A) opts.mode = wiz.path058A;
+      if (!files.length) {
+        // sin archivos nuevos: estilo/fondo/velocidad/tramo se aplican sin gastar cupo
+        if (video && media && (media.has_photo || media.has_video_source) && Object.keys(wiz.opts058A || {}).length) {
+          cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/options`, { method: "POST", body: JSON.stringify(opts) });
+          cxCarMediaPoll057A();
+        }
+        return;
+      }
       const form = new FormData();
-      files.forEach(([role, v]) => form.append(role, v.file));
-      form.append("style", wiz.style || "auto");
+      files.forEach(([role, v]) => form.append(role.startsWith("gallery:new:") ? "gallery" : role, v.file));
+      if (video) Object.entries(opts).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== "") form.append(k, String(v)); });
+      else form.append("style", wiz.style || "auto");
       cxCarMedia057A = await apiForm(`/menu-video/companies/${encodeURIComponent(state.companyId)}/items/${encodeURIComponent(wiz.id)}/photo`, form);
       cxCarMediaPoll057A();
     } catch (error) {
@@ -39366,14 +39665,16 @@ function inventoryCreatePayload() {
       body = `<p class="cx-car-note-049k warn">${h(err.message)}</p>${err.quota ? `<button class="client-btn primary" type="button" data-car-quota-request>Solicitar más</button>` : ""}`;
     } else if (cxCarUi049J.quotaAsked) {
       body = `<p class="cx-car-note-049k">${h(cxCarUi049J.quotaAsked)}</p>`;
-    } else if (media && media.has_photo) {
+    } else if (media && (media.has_photo || media.has_video_source)) {
       const working = cxCarWorking057A(d.id);
       const visual = media.video_url && !working
         ? `<video src="${h(media.video_url)}" poster="${h(media.poster_url)}" autoplay muted loop playsinline></video>`
-        : `<img src="${h(media.photo_url)}" alt="${h(d.name)}">`;
-      body = `<figure class="cx-car-photo-video-057a">${visual}<figcaption>${working ? "Creando el video del plato… (menos de un minuto)"
+        : media.photo_url ? `<img src="${h(media.photo_url)}" alt="${h(d.name)}">` : "";
+      const path = media.mode || "foto";
+      body = `<figure class="cx-car-photo-video-057a">${visual}<figcaption>${working ? (path === "video" ? "Editando el video del plato… (menos de un minuto)" : "Creando el video del plato… (menos de un minuto)")
         : job && job.status === "error" ? `No se pudo crear el video: ${h(job.error)}` : cxCarVideoOn057A() ? "Así se ve en el QR" : "Foto del plato"}</figcaption></figure>
-        ${cxCarVideoOn057A() && !working ? `<div class="cx-car-actions-048t">${Object.entries((cxCarMedia057A && cxCarMedia057A.styles) || {}).map(([k, v]) => `<button class="client-btn" type="button" data-car-redo="${h(k)}" data-car-redo-id="${h(d.id)}">Rehacer: ${h(v)}</button>`).join("")}</div>` : ""}`;
+        ${cxCarVideoOn057A() && !working ? `<div class="cx-car-redo-058a" data-car-redo-box="${h(d.id)}">${cxCarOptionsHtml058A(media, cxCarUi049J.redoOpts058A, path, "car-redo")}
+          <button class="client-btn primary" type="button" data-car-redo="options" data-car-redo-id="${h(d.id)}">Rehacer</button></div>` : ""}`;
     }
     return body ? `<div class="cx-car-photo-summary-057a">${body}</div>` : "";
   }
@@ -39396,9 +39697,12 @@ function inventoryCreatePayload() {
     }
     const redo = target.closest("[data-car-redo]");
     if (redo) {
+      // 058A: Rehacer con estilo/fondo/velocidad/tramo elegidos (mismas fotos o video: no gasta cupo)
       try {
-        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(redo.getAttribute("data-car-redo-id"))}/redo`,
-          { method: "POST", body: JSON.stringify({ style: redo.getAttribute("data-car-redo") }) });
+        const body = redo.getAttribute("data-car-redo") === "options" ? { ...(ui.redoOpts058A || {}) } : { style: redo.getAttribute("data-car-redo") };
+        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(redo.getAttribute("data-car-redo-id"))}/options`,
+          { method: "POST", body: JSON.stringify(body) });
+        ui.redoOpts058A = {};
         cxCarMediaPoll057A();
       } catch (error) {
         ui.photoError = cxCarPhotoErr057A(error);
@@ -39407,6 +39711,8 @@ function inventoryCreatePayload() {
       return true;
     }
     if (!wiz) return false;
+    const pathBtn = target.closest("[data-wz-path]");
+    if (pathBtn) { wiz.path058A = pathBtn.getAttribute("data-wz-path") === "video" ? "video" : "foto"; wiz.confirm057D = ""; cxCarPaint048T(); return true; }
     // 057D: Quitar con confirmación en la misma pantalla y Deshacer durante 10 s
     const ask = target.closest("[data-wz-photo-remove]");
     if (ask) { wiz.confirm057D = ask.getAttribute("data-wz-photo-remove"); cxCarPaint048T(); return true; }
@@ -39416,7 +39722,7 @@ function inventoryCreatePayload() {
       const staged = wiz.photos057D[role];
       if (staged && staged.preview) try { URL.revokeObjectURL(staged.preview); } catch (_) {}
       wiz.photos057D[role] = null;
-      if (!wiz.removes057D.includes(role)) wiz.removes057D.push(role);
+      if (!role.startsWith("gallery:new:") && !wiz.removes057D.includes(role)) wiz.removes057D.push(role);
       wiz.confirm057D = "";
       wiz.undo057D = { role, until: Date.now() + 10000, staged };
       setTimeout(() => { if (cxCarWiz049J === wiz && wiz.undo057D && Date.now() >= wiz.undo057D.until) { wiz.undo057D = null; cxCarPaint048T(); } }, 10100);
@@ -39426,7 +39732,7 @@ function inventoryCreatePayload() {
     if (target.closest("[data-wz-photo-undo]") && wiz.undo057D) {
       const { role, staged } = wiz.undo057D;
       wiz.removes057D = wiz.removes057D.filter((r) => r !== role);
-      if (staged && staged.file) wiz.photos057D[role] = { file: staged.file, preview: URL.createObjectURL(staged.file) };
+      if (staged && staged.file) wiz.photos057D[role] = { file: staged.file, name: staged.name, preview: staged.name && role === "video" ? "" : URL.createObjectURL(staged.file) };
       wiz.undo057D = null;
       cxCarPaint048T();
       return true;
@@ -39435,17 +39741,43 @@ function inventoryCreatePayload() {
   }
 
   function cxCarPhotoChange057A(event) {
-    const input = event.target.closest?.("[data-wz-photo-file]");
+    const t = event.target;
+    // 058A: estilo, fondo, velocidad y tramo (en el paso Foto o en "Rehacer")
+    const opt = t.closest?.("[data-wz-opt], [data-car-redo-opt]");
+    if (opt) {
+      const name = opt.getAttribute("data-wz-opt") || opt.getAttribute("data-car-redo-opt");
+      const value = ["start", "length"].includes(name) ? (opt.value === "" ? null : Number(opt.value)) : opt.value;
+      if (opt.hasAttribute("data-wz-opt") && cxCarWiz049J) cxCarWiz049J.opts058A = { ...(cxCarWiz049J.opts058A || {}), [name]: value };
+      else cxCarUi049J.redoOpts058A = { ...(cxCarUi049J.redoOpts058A || {}), [name]: value };
+      return true;
+    }
+    const input = t.closest?.("[data-wz-photo-file]");
     const wiz = cxCarWiz049J;
     if (!input || !wiz) return false;
-    const file = input.files && input.files[0];
-    if (!file) return true;
-    if (file.size > 15 * 1024 * 1024) { wiz.error = "La foto pesa más de 15 MB."; cxCarPaint048T(); return true; }
-    const role = ["top", "front", "side"].includes(input.getAttribute("data-wz-photo-file")) ? input.getAttribute("data-wz-photo-file") : "front";
-    const old = wiz.photos057D[role];
-    if (old && old.preview) try { URL.revokeObjectURL(old.preview); } catch (_) {}
-    wiz.photos057D[role] = { file, preview: URL.createObjectURL(file) };
-    wiz.removes057D = wiz.removes057D.filter((r) => r !== role);
+    const files = Array.from(input.files || []);
+    if (!files.length) return true;
+    const asked = input.getAttribute("data-wz-photo-file");
+    if (asked === "video") {
+      const file = files[0];
+      if (file.size > 150 * 1024 * 1024) { wiz.error = "El video pesa más de 150 MB: graba de 5 a 10 segundos."; cxCarPaint048T(); return true; }
+      wiz.photos057D.video = { file, name: file.name, preview: "" };
+      wiz.removes057D = wiz.removes057D.filter((r) => r !== "video");
+      wiz.path058A = "video";
+      wiz.undo057D = null;
+      wiz.error = "";
+      cxCarPaint048T();
+      return true;
+    }
+    if (files.some((f) => f.size > 15 * 1024 * 1024)) { wiz.error = "La foto pesa más de 15 MB."; cxCarPaint048T(); return true; }
+    const roles = asked === "gallery"
+      ? files.map(() => `gallery:new:${Date.now()}${Math.random().toString(36).slice(2, 6)}`)
+      : [["main", "front"].includes(asked) || asked.startsWith("gallery:") ? asked : "front"];
+    roles.forEach((role, i) => {
+      const old = wiz.photos057D[role];
+      if (old && old.preview) try { URL.revokeObjectURL(old.preview); } catch (_) {}
+      wiz.photos057D[role] = { file: files[i], name: files[i].name, preview: URL.createObjectURL(files[i]) };
+      wiz.removes057D = wiz.removes057D.filter((r) => r !== role);
+    });
     wiz.undo057D = null;
     wiz.error = "";
     cxCarPaint048T();
@@ -39465,6 +39797,14 @@ function inventoryCreatePayload() {
       .cx-car-photo-pick-057a input { position:absolute; inset:0; opacity:0; width:100%; height:100%; cursor:pointer; }
       .cx-car-photo-pick-057a img { width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:10px; }
       .cx-car-photo-pick-057a small { opacity:.75; }
+      .cx-car-paths-058a { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 10px; }
+      .cx-car-paths-058a small { font-weight:600; opacity:.8; }
+      .cx-car-sub-058a { margin:12px 0 6px; font-size:14px; }
+      .cx-car-opts-058a { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; margin:10px 0; }
+      .cx-car-opt-058a { display:grid; gap:4px; font-size:12px; font-weight:700; }
+      .cx-car-opt-058a select, .cx-car-opt-058a input { min-height:40px; padding:6px 8px; border-radius:10px; border:1px solid color-mix(in srgb, currentColor 25%, transparent); background:transparent; color:inherit; font:inherit; }
+      .cx-car-redo-058a { display:grid; gap:8px; width:100%; }
+      .is-video-058a { font-size:14px !important; font-weight:800; padding:8px; text-align:center; }
       .cx-car-photo-empty-057a { display:grid; place-items:center; width:100%; aspect-ratio:3/4; font-size:34px; border-radius:10px; background:color-mix(in srgb, currentColor 6%, transparent); }
       .cx-car-photo-video-057a { margin:0; display:grid; gap:6px; justify-items:center; }
       .cx-car-photo-video-057a video, .cx-car-photo-video-057a img { width:min(220px, 100%); aspect-ratio:9/16; object-fit:cover; border-radius:18px; background:#000; }

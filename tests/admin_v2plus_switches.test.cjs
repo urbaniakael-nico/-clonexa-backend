@@ -35,9 +35,9 @@ const DEMO = company('d1', 'Radio Despecho', 'demo', { delivery_print: st(false,
 const DATA = { ok: true, registry: REGISTRY, companies: [ASADERO, DEMO] };
 
 // ------------------------------------------------------------ registro
-test('registro: los 27 interruptores del inventario, con grupos, delicados, dependencias y aviso de v2', () => {
+test('registro: los 28 interruptores del inventario, con grupos, delicados, dependencias y aviso de v2', () => {
   const keys = REGISTRY.switches.map((s) => s.key);
-  assert.deepEqual(keys.slice().sort(), ['brand_everywhere', 'carta_video', 'cash_count', 'cashier_direct_sale', 'cashier_redesign', 'checkout_v2', 'crm_velvet_lab', 'delivery_print', 'kitchen_board_columns', 'kitchen_roster', 'loyalty_games', 'loyalty_retos_v2', 'menu_emojis', 'mini_panel_brand', 'payroll_shift_list', 'payroll_v2', 'production_v2', 'qr_bar_menu', 'qr_welcome_name', 'quantity_buttons_enabled', 'quantity_picker', 'quotes_v2', 'references_v2', 'reports_v2', 'sales_ledger', 'short_links', 'workforce_v2']);
+  assert.deepEqual(keys.slice().sort(), ['brand_everywhere', 'carta_qr_piezas', 'carta_video', 'cash_count', 'cashier_direct_sale', 'cashier_redesign', 'checkout_v2', 'crm_velvet_lab', 'delivery_print', 'kitchen_board_columns', 'kitchen_roster', 'loyalty_games', 'loyalty_retos_v2', 'menu_emojis', 'mini_panel_brand', 'payroll_shift_list', 'payroll_v2', 'production_v2', 'qr_bar_menu', 'qr_welcome_name', 'quantity_buttons_enabled', 'quantity_picker', 'quotes_v2', 'references_v2', 'reports_v2', 'sales_ledger', 'short_links', 'workforce_v2']);
   const by = Object.fromEntries(REGISTRY.switches.map((s) => [s.key, s]));
   for (const k of ['sales_ledger', 'cashier_redesign', 'checkout_v2']) assert.equal(by[k].delicate, true, `${k} es delicado`);
   assert.deepEqual(REGISTRY.switches.filter((s) => s.v2_form).map((s) => s.key).sort(),
@@ -50,6 +50,7 @@ test('registro: los 27 interruptores del inventario, con grupos, delicados, depe
   assert.equal(by.payroll_v2.module, 'payroll');
   assert.equal(by.loyalty_games.module, 'loyalty');
   assert.equal(by.loyalty_retos_v2.module, 'loyalty');
+  assert.equal(by.carta_qr_piezas.module, 'carta');
   assert.equal(by.qr_welcome_name.module, 'hospitality');
   assert.equal(by.carta_video.module, 'carta');
   assert.equal(by.carta_video.group, 'QR');

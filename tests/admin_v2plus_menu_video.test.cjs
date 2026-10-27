@@ -26,9 +26,11 @@ function data(overrides = {}) {
     import: { id: 'i1', status: 'lista', table_data: { categorias: [], platos: [
       { ref: REF1, categoria: 'FUERTES', subcategoria: '', nombre: 'Lomo <al> trapo', descripcion: 'Con papa', precio: 42000, opciones: '' },
       { ref: REF2, categoria: 'BEBIDAS', subcategoria: '', nombre: 'Limonada', descripcion: '', precio: 12000, opciones: '' }] } },
-    media: { [REF1]: { has_photo: true, photo_url: '/menu-media/c1/r.webp?e=1&s=x', front_original_url: '/menu-media/c1/o.webp?e=1&s=x',
-      front_remaster_url: '/menu-media/c1/r.webp?e=1&s=x', video_url: '/menu-media/c1/v.mp4?e=1&s=x', poster_url: '/menu-media/c1/p.webp?e=1&s=x',
-      use_remaster: true, clip_style: 'front_side', status: 'listo' } },
+    media: { [REF1]: { has_photo: true, photo_url: '/menu-media/c1/r.webp?e=1&s=x', main_original_url: '/menu-media/c1/o.webp?e=1&s=x',
+      main_remaster_url: '/menu-media/c1/r.webp?e=1&s=x', video_url: '/menu-media/c1/v.mp4?e=1&s=x', poster_url: '/menu-media/c1/p.webp?e=1&s=x',
+      gallery: [{ id: 'g1', url: '/menu-media/c1/g.webp', original_url: '/menu-media/c1/g.webp' }], roles: ['main', 'gallery'], mode: 'foto',
+      has_video_source: false, options: { style: 'vida', background: 'ninguno', speed: 'normal', start: null, length: null },
+      use_remaster: true, clip_style: 'vida', status: 'listo' } },
     jobs: { [REF1]: { status: 'listo', style: 'front_side' } },
     photos: [{ id: 'a1', dish_ref: REF1, role: 'front', source_name: 'lomo.jpg', url: '/x.webp' }, { id: 'a2', dish_ref: null, role: 'front', source_name: 'IMG_1.jpg', url: '/y.webp' }],
     ...overrides,
@@ -76,41 +78,64 @@ test('paso 2: leyendo, error con "Llenar a mano" y tabla editable escapada', () 
   assert.doesNotMatch(html, /<al>/);
 });
 
-test('paso 3: guía de los 3 ángulos, espacios Desde arriba / Frente / Perfil con Cambiar y Quitar; sueltas para asignar', () => {
+test('paso 3: 2 caminos por plato (Subir video / Subir foto), guías, foto principal + galería con Cambiar y Quitar; sueltas para asignar', () => {
   const M = setup(3);
   const html = M.photosStep();
-  assert.match(html, /<svg[^>]*aria-label="Los tres ángulos[\s\S]*Desde arriba[\s\S]*Frente 45°[\s\S]*Perfil/);
-  assert.match(html, /Plato completo y con espacio alrededor\.<\/b> Frente: a 45°\. Perfil: a la altura del plato\. Desde arriba: si el plato es grande/);
-  assert.match(html, /Sin plato \(1\)[\s\S]*IMG_1\.jpg[\s\S]*data-mv-assign-ref="a2"[\s\S]*<option value="top">Desde arriba<\/option>/);
-  assert.match(html, new RegExp(`Lomo &lt;al&gt; trapo[\s\S]*Desde arriba[\s\S]*>Subir<input[^>]*data-mv-change="${REF1}\|top"[\s\S]*Frente[\s\S]*src="/menu-media/c1/o\.webp\?e=1&amp;s=x"[\s\S]*>Cambiar<input[^>]*data-mv-change="${REF1}\|front"[\s\S]*data-mv-remove="${REF1}\|front">Quitar`));
+  assert.match(html, /<svg[^>]*aria-label="El plato sobre una base giratoria[\s\S]*Pon el plato sobre una base giratoria o camina alrededor, 5 a 10 segundos, celular vertical, buena luz, plato completo en cuadro\.[\s\S]*máximo 30 s y 150 MB/);
+  assert.match(html, /<svg[^>]*aria-label="Foto principal[\s\S]*<b>Una foto principal<\/b> \(la que se anima\)[\s\S]*nunca se mezclan en el video/);
+  assert.match(html, /Sin plato \(1\)[\s\S]*IMG_1\.jpg[\s\S]*data-mv-assign-ref="a2"[\s\S]*<option value="main">Foto principal<\/option><option value="gallery">Galería<\/option>/);
+  assert.match(html, new RegExp(`Lomo &lt;al&gt; trapo[\\s\\S]*data-mv-path="${REF1}\\|video"[^>]*>Subir video <small>\\(recomendado: vista 360\\)[\\s\\S]*data-mv-path="${REF1}\\|foto"[^>]*>Subir foto`));
+  assert.match(html, new RegExp(`Foto principal[\\s\\S]*src="/menu-media/c1/o\\.webp\\?e=1&amp;s=x"[\\s\\S]*>Cambiar<input[^>]*data-mv-change="${REF1}\\|main"[\\s\\S]*data-mv-remove="${REF1}\\|main">Quitar`));
+  assert.match(html, new RegExp(`Más fotos \\(galería\\) · se ven en Detalle[\\s\\S]*Foto 2[\\s\\S]*data-mv-change="${REF1}\\|gallery:g1"[\\s\\S]*data-mv-remove="${REF1}\\|gallery:g1"[\\s\\S]*\\+ Agregar a la galería<input type="file" multiple[^>]*data-mv-change="${REF1}\\|gallery"`));
+  assert.doesNotMatch(html, /Desde arriba|Perfil/, 'ya no hay espacios desde arriba / frente / perfil');
   assert.doesNotMatch(html, /window\.confirm|style="/, 'sin ventanas del navegador ni estilos en línea');
+  // camino video: un solo espacio para el video del plato (MP4/MOV)
+  M.model.paths[REF1] = 'video';
+  const video = M.photosStep();
+  assert.match(video, new RegExp(`Video del plato[\\s\\S]*accept="video/mp4,video/quicktime,\\.mov,\\.mp4" data-mv-change="${REF1}\\|source"`));
 });
 
-test('Quitar: confirmación en la misma pantalla y Deshacer durante 10 s', () => {
+test('Quitar: confirmación en la misma pantalla y Deshacer durante 10 s (foto principal, galería y video subido)', () => {
   const M = setup(3);
-  M.model.confirm = { key: `${REF1}|front` };
+  M.model.confirm = { key: `${REF1}|main` };
   let html = M.photosStep();
-  assert.match(html, /¿Quitar la foto de frente\?[\s\S]*data-mv-remove-yes>Quitar<\/button>[\s\S]*data-mv-remove-no>Cancelar/);
+  assert.match(html, /¿Quitar foto principal\?[\s\S]*data-mv-remove-yes>Quitar<\/button>[\s\S]*data-mv-remove-no>Cancelar/);
+  M.model.confirm = { key: `${REF1}|gallery:g1` };
+  assert.match(M.photosStep(), /¿Quitar foto de la galería\?/);
   M.model.confirm = null;
-  M.model.undo = { key: `${REF1}|front`, ref: REF1, role: 'front', original: 'o1', until: Date.now() + 10000 };
+  M.model.undo = { key: `${REF1}|main`, ref: REF1, role: 'main', original: 'o1', until: Date.now() + 10000 };
   assert.match(M.photosStep(), /data-mv-undo>Deshacer/);
   M.model.undo.until = Date.now() - 1;
   assert.doesNotMatch(M.photosStep(), /data-mv-undo/, 'pasados 10 s ya no se ofrece');
 });
 
-test('paso 4: antes/después, Rehacer, Quitar video, Rehacer todos y vista en el celular de muestra', () => {
+test('paso 4: antes/después, estilos suaves, fondo, Rehacer, Quitar video, Rehacer todos y vista en el celular de muestra', () => {
   const M = setup(4);
   let html = M.clipsStep();
   assert.match(html, /Crear todos \(1\)[\s\S]*data-mv-regenerate>Rehacer todos los clips de la empresa/);
   assert.match(html, /720×1280/);
+  assert.match(html, /nunca un pase de fotos/);
   assert.match(html, /Antes<\/figcaption>[\s\S]*Después<\/figcaption>/);
   assert.match(html, /data-mv-use-remaster="[^"]+" checked/);
+  assert.match(html, new RegExp(`Estilo<\\/span><select class="vp-search" data-mv-opt="${REF1}\\|style">(<option[^>]*>[^<]+<\\/option>){6}`));
+  for (const s of ['Vida', 'Acercamiento', 'Giro suave', 'Paneo', 'Brillo', 'Automático']) assert.match(html, new RegExp(`>${s}</option>`));
+  assert.match(html, /<option value="vida" selected>Vida<\/option>/);
+  assert.match(html, /Fondo<\/span><select[^>]*data-mv-opt="[^"]+\|background">[\s\S]*Desenfocar fondo[\s\S]*Oscurecer fondo[\s\S]*Sin cambios/);
+  assert.doesNotMatch(html, /Velocidad|Tramo/, 'velocidad y tramo solo con video');
   assert.match(html, />Rehacer<[\s\S]*data-mv-video-remove="[^"]+">Quitar video/);
-  assert.doesNotMatch(html, /Frente a perfil|Paneo|data-mv-style/, 'un solo movimiento suave');
   assert.match(html, /<video class="vp-mv-phone-media" src="\/menu-media\/c1\/v\.mp4[^"]*" poster="[^"]+" autoplay muted loop playsinline>/);
   assert.match(html, /vp-mv-phone-info"><strong>Lomo &lt;al&gt; trapo<\/strong><span>\$42\.000<\/span><b>Agregar \+<\/b>/);
   M.model.confirm = { key: `${REF1}|video` };
   assert.match(M.clipsStep(), /¿Quitar el video\? Queda solo la foto\.[\s\S]*data-mv-remove-yes/);
+  // camino video: velocidad y tramo; camino elegible si tiene las dos cosas
+  const V = setup(4, { media: { [REF1]: { ...data().media[REF1], mode: 'video', has_video_source: true, roles: ['main', 'video'],
+    options: { style: 'vida', background: 'desenfocar', speed: 'rapido', start: 1.5, length: 4 } } } });
+  html = V.clipsStep();
+  assert.match(html, /Video del plato<\/span>/);
+  assert.match(html, /Camino<\/span><select[^>]*\|mode">[\s\S]*Video del plato[\s\S]*Foto animada/);
+  assert.match(html, /Velocidad<\/span>[\s\S]*<option value="rapido" selected>Más rápido/);
+  assert.match(html, /Tramo: desde \(s\)[\s\S]*value="1\.5"[\s\S]*Tramo: duración \(s\)[\s\S]*value="4"/);
+  assert.doesNotMatch(html, /\|style"/, 'el estilo de movimiento es solo de la foto');
 });
 
 test('paso 2: quitar una categoría (o una fila) de la importación antes de publicar', () => {

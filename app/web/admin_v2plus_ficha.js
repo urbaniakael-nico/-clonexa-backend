@@ -282,7 +282,8 @@
     const sws = data.switches;
     const switchesCard = card("Interruptores encendidos", sws === null || sws === undefined ? `<p class="vp-loading">Cargando…</p>` : `
       ${arr(sws).length ? `<div class="vp-chip-row">${arr(sws).map((s) => `<span class="vp-mini-chip is-on" title="${h(s.description)}">${h(s.label)}</span>`).join("")}</div>` : `<div class="vp-empty">Ningún interruptor encendido.</div>`}
-      <button class="vp-btn vp-btn-sm" type="button" data-vpf-switches>Ver en Interruptores</button>`);
+      <button class="vp-btn vp-btn-sm" type="button" data-vpf-switches>Ver en Interruptores</button>
+      ${arr(sws).some((s) => s.key === "carta_qr_piezas") ? `<a class="vp-btn vp-btn-sm" href="/api/v1/carta-links/companies/${encodeURIComponent(c.id)}/piezas.zip" download>Descargar QR y piezas (ZIP)</a>` : ""}`);
 
     const chart = card("Actividad · últimos 14 días", activity === null ? `<p class="vp-loading">Cargando…</p>` : barChart(activity && activity.days));
 

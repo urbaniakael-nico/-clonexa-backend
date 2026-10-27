@@ -2,12 +2,15 @@
 
 - Foto -> remasterizada (original guardada aparte); el recorte 3:4 solo si el
   plato completo cabe: nunca corta el plato.
-- Clip v2: 720x1280, 25 fps, 3 s, H.264 sin audio, faststart, < 600 KB, con
-  portada del plato completo. La foto ENTERA cabe en el cuadro (relleno con la
-  misma foto difuminada, nunca negro); el plato queda arriba (~38 % del alto)
-  y nunca sale del cuadro ni baja a la tarjeta del precio, ni en el
-  acercamiento maximo (8 %). Fotos horizontal, vertical y cuadrada.
-- 1, 2 y 3 fotos (desde arriba -> frente -> perfil): 3 s en bucle sin salto.
+- Camino 2 (foto): 720x1280, 25 fps, 3 s, H.264 sin audio, faststart,
+  < 600 KB, con portada. Anima UNA foto (con 3 fotos NO hay pase de fotos).
+  Cada estilo (Vida, Acercamiento, Giro suave, Paneo, Brillo, Automatico) es
+  suave, vuelve exacto al inicio (bucle sin salto) y el plato completo nunca
+  sale del cuadro ni baja a la tarjeta del precio. Foto horizontal, vertical
+  y cuadrada; relleno con la misma foto difuminada (nunca negro).
+- Camino 1 (video): vertical, horizontal y HEVC de iPhone -> estabilizado,
+  color corregido, fondo desenfocado, 3 s en bucle sin salto, plato a ~38 %
+  del alto y nunca cortado, < 1 MB; mas de 30 s o 150 MB -> mensaje claro.
 - Deteccion del plato (circulo/elipse); si falla, el centro sin cortar.
 - Foto dañada, vacia o que no es imagen: error controlado.
 """
@@ -22,6 +25,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 from app.services import menu_media as mm
 from app.services import menu_video as mv
+from tests import menu_video_fixtures as fx
 
 pytestmark = pytest.mark.skipif(mm.ffmpeg_path() is None, reason="sin ffmpeg en este equipo")
 
@@ -70,64 +74,136 @@ def test_detecta_el_plato_y_si_falla_el_centro():
     assert mm.detect_dish(flat) == mm.CENTER, "sin plato ni color: el centro (y no se corta nada)"
 
 
+STYLES = ["vida", "zoom", "giro", "paneo", "brillo"]
+
+
+@pytest.mark.parametrize("style", STYLES)
 @pytest.mark.parametrize("w,h", [(1600, 1000), (1000, 1600), (1200, 1200)], ids=["horizontal", "vertical", "cuadrada"])
-def test_el_plato_completo_siempre_visible_y_arriba_de_la_tarjeta(w, h):
+def test_el_plato_completo_siempre_visible_y_arriba_de_la_tarjeta(w, h, style):
     image = mm.clip_source(mm.load(dish_photo(4, w=w, h=h, cx=0.5, cy=0.6)), True)
     shot = mm.compose(image)
     W, H = shot.canvas.size
     x0, y0, x1, y1 = shot.photo_box
     assert x0 >= 0 and y0 >= 0 and x1 <= W and y1 <= H, "la foto ENTERA cabe en el cuadro"
     assert y1 <= H * 0.70 + 1, "la foto queda encima de la tarjeta del precio"
-    for frame in range(0, 75, 3):
-        z = mm.zoom_at(shot, frame / 75)
-        assert 1.0 <= z <= mm.MAX_ZOOM + 1e-9
-        left, top, right, bottom = mm.view_box(shot, z)
-        dx0, dy0, dx1, dy1 = shot.dish_box
-        assert dx0 >= left - 1 and dy0 >= top - 1 and dx1 <= right + 1 and dy1 <= bottom + 1, "el plato nunca sale del cuadro"
+    dx0, dy0, dx1, dy1 = shot.dish_box
+    for frame in range(0, 76, 3):
+        zoom, center, angle = mm.frame_geometry(shot, style, frame / 75)
+        assert 1.0 <= zoom <= mm.MAX_ZOOM + 1e-9 and abs(angle) <= 3.0 + 1e-9
+        left, top, right, bottom = mm.view_box(shot, zoom, center)
+        # al girar (max 3°) el plato redondo casi no cambia de caja: margen del 3 %
+        tol = (dx1 - dx0) * 0.03 * (1 if angle else 0) + 1
+        assert dx0 >= left - tol and dy0 >= top - tol and dx1 <= right + tol and dy1 <= bottom + tol, (style, frame, "el plato nunca sale del cuadro")
     # nunca bordes negros: arriba y abajo va la misma foto difuminada
-    frame0 = mm.render(shot, 1.0)
-    for box in ((0, 0, mm.CLIP_W, 40), (0, mm.CLIP_H - 40, mm.CLIP_W, mm.CLIP_H)):
+    frame0 = mm.style_frame(shot, style, 0.37)
+    for box in ((0, 0, mm.CLIP_W, 40), (0, mm.CLIP_H - 40, mm.CLIP_W, mm.CLIP_H), (0, 0, 30, mm.CLIP_H), (mm.CLIP_W - 30, 0, mm.CLIP_W, mm.CLIP_H)):
         mean = ImageStat.Stat(frame0.crop(box)).mean
         assert sum(mean) / 3 > 25, f"franja negra en {box}: {mean}"
     assert abs(mm.DISH_Y * H - (y0 + (y1 - y0) * 0.6)) < H * 0.06 or y0 == 0, "plato a ~38 % del alto"
 
 
-def _check_clip(clip: mm.Clip):
+def _check_clip(clip: mm.Clip, limit: int = 600 * 1024):
     info = mm.probe(clip.video)
     assert info["width"] == 720 and info["height"] == 1280
     assert info["fps"] == 25.0 and abs(info["seconds"] - 3.0) < 0.05
     assert info["h264"] and not info["audio"]
-    assert len(clip.video) < 600 * 1024, len(clip.video)
+    assert len(clip.video) < limit, len(clip.video)
     assert clip.video[4:8] == b"ftyp"
     assert clip.video.find(b"moov") < clip.video.find(b"mdat"), "faststart: el indice va antes de los datos"
     poster = Image.open(io.BytesIO(clip.poster))
     assert poster.format == "WEBP" and poster.size == (720, 1280)
 
 
-@pytest.mark.parametrize("n", [1, 2, 3])
-def test_clip_con_1_2_y_3_fotos(n):
-    photos = [mm.clip_source(mm.load(dish_photo(10 + i, w=(1600, 1000, 1200)[i], h=(1000, 1600, 1200)[i])), True) for i in range(n)]
-    clip = mm.make_clip(photos)
-    assert clip.style == "suave" and len(clip.sources) == n
+def _smooth_loop(video: bytes) -> tuple[float, float]:
+    frames = fx.frames_of(video)
+    steps = [fx.diff(frames[i], frames[i + 1]) for i in range(len(frames) - 1)]
+    return fx.diff(frames[-1], frames[0]), max(steps)
+
+
+@pytest.mark.parametrize("style", STYLES + ["auto"])
+def test_cada_estilo_da_3_s_suaves_en_bucle_sin_salto(style):
+    image = mm.clip_source(mm.load(dish_photo(12)), True)
+    clip = mm.make_clip([image], style=style, background="desenfocar")
     _check_clip(clip)
+    assert clip.style in STYLES and (style == "auto" or clip.style == style)
+    shot = mm.compose(image, background="desenfocar")
+    # el ultimo instante vuelve exacto al primero (curvas que regresan: sin salto)
+    assert ImageChops.difference(mm.style_frame(shot, clip.style, 0.0), mm.style_frame(shot, clip.style, 1.0)).getbbox() is None
+    loop, step = _smooth_loop(clip.video)
+    assert step < 6, f"movimiento brusco: {step}"
+    assert loop <= max(step * 1.6, 1.0), f"el bucle salta: {loop} vs {step}"
 
 
-@pytest.mark.parametrize("n", [1, 2, 3])
-def test_el_bucle_no_salta(n):
-    shots = [mm.compose(mm.clip_source(mm.load(dish_photo(20 + i)), True)) for i in range(n)]
-    total = mm.CLIP_FPS * mm.CLIP_SECONDS
-    assert ImageChops.difference(mm.frame_at(shots, 0, total), mm.frame_at(shots, total, total)).getbbox() is None
-    if n > 1:
-        # el fundido entre fotos dura ~0,3 s
-        fade = mm.CLIP_FPS * mm.FADE_SECONDS
-        seg = total / n
-        assert ImageChops.difference(mm.frame_at(shots, int(seg), total), mm.frame_at(shots, int(seg + fade) + 1, total)).getbbox()
+def test_con_3_fotos_no_hay_pase_de_fotos():
+    a, b, c = (mm.clip_source(mm.load(dish_photo(40 + i, w=(1600, 1000, 1200)[i], h=(1000, 1600, 1200)[i])), True) for i in range(3))
+    three = mm.make_clip([a, b, c], style="vida")
+    one = mm.make_clip([a], style="vida")
+    assert three.sources == one.sources and len(three.sources) == 1, "solo se anima la foto principal"
+    f3, f1 = fx.frames_of(three.video), fx.frames_of(one.video)
+    assert len(f3) == len(f1) == 75
+    assert max(fx.diff(x, y) for x, y in zip(f3, f1)) < 2.5, "las otras fotos NUNCA entran al video"
 
 
-def test_compatibilidad_make_clip_frente_y_perfil():
-    a = mm.clip_source(mm.load(dish_photo(30)), True)
-    b = mm.clip_source(mm.load(dish_photo(31)), True)
-    assert len(mm.make_clip(a, b, "front_side").sources) == 2
+def test_automatico_elige_por_la_forma_de_la_foto():
+    wide = mm.load(dish_photo(50, w=2000, h=1100, cx=0.5, cy=0.5))
+    assert mm.resolve_style("auto", wide, mm.compose(wide)) == "paneo"
+    centered = mm.load(fx.jpeg(fx.plate_image(900, 900, plate=0.7, cx=0.5, cy=0.5)))
+    shot = mm.compose(centered)
+    assert shot.round_center and mm.resolve_style("auto", centered, shot) == "giro"
+    off = mm.load(dish_photo(51, w=1000, h=1400, cx=0.3, cy=0.3))
+    assert mm.resolve_style("auto", off, mm.compose(off)) == "vida"
+    assert mm.resolve_style("suave") == "vida" and mm.resolve_style("front_side") == "vida", "los estilos viejos pasan a Vida"
+
+
+@pytest.mark.parametrize("mode", ["desenfocar", "oscurecer"])
+def test_fondo_fuera_del_plato(mode):
+    image = mm.load(fx.jpeg(fx.plate_image(1200, 900, plate=0.5)))
+    dish = mm.detect_dish(image)
+    out = mm.apply_background(image, dish, mode)
+    corner = (0, 0, 150, 150)
+    center = (int(dish.cx * 1200) - 40, int(dish.cy * 900) - 40, int(dish.cx * 1200) + 40, int(dish.cy * 900) + 40)
+    assert ImageChops.difference(out.crop(center), image.crop(center)).getbbox() is None, "el plato no se toca"
+    assert ImageChops.difference(out.crop(corner), image.crop(corner)).getbbox(), "el fondo sí cambia"
+    assert mm.apply_background(image, mm.CENTER, mode) is image, "sin saber dónde está el plato no se toca nada"
+
+
+# ---------------------------------------------------- Camino 1: subir video
+@pytest.mark.parametrize("kind,hevc", [("vertical", False), ("horizontal", False), ("vertical", True)], ids=["vertical", "horizontal", "iphone-hevc"])
+def test_camino_1_video_estabilizado_color_fondo_y_bucle(kind, hevc):
+    raw = fx.dish_video(kind, seconds=6, hevc=hevc, audio=True)
+    if hevc:
+        assert mm.inspect_video(raw)["codec"] == "hevc"
+    clip = mm.make_video_clip(raw, "desenfocar")
+    _check_clip(clip, limit=1024 * 1024)
+    assert clip.stabilizer in ("vidstab", "deshake") and clip.style == "video" and clip.background == "desenfocar"
+    assert clip.speed > 1.0, "la vuelta de 6 s se acelera para caber en 3 s"
+    loop, step = _smooth_loop(clip.video)
+    assert loop <= max(step * 2.0, 1.5), f"el bucle salta: {loop} vs {step}"
+    # el plato completo, arriba de la tarjeta del precio (~38 % del alto), nunca cortado
+    poster = Image.open(io.BytesIO(clip.poster)).convert("RGB")
+    dish = mm.detect_dish(poster)
+    assert dish.source in ("plato", "color")
+    assert abs(dish.cy - mm.DISH_Y) < 0.08, dish
+    assert dish.cy + dish.h / 2 <= 0.70 and dish.cy - dish.h / 2 >= 0 and dish.cx - dish.w / 2 >= 0 and dish.cx + dish.w / 2 <= 1, dish
+
+
+def test_camino_1_velocidad_y_tramo():
+    raw = fx.dish_video("vertical", seconds=8, audio=False)
+    slow = mm.make_video_clip(raw, "ninguno", "lento")
+    fast = mm.make_video_clip(raw, "ninguno", "rapido")
+    assert slow.speed < fast.speed
+    part = mm.make_video_clip(raw, "ninguno", "normal", start=2.0, length=3.0)
+    assert part.speed == 1.0, "un tramo de 3 s cabe tal cual en el bucle"
+
+
+def test_camino_1_limites_con_mensaje_claro():
+    with pytest.raises(mm.MediaRejected, match="máximo es 30 s"):
+        mm.inspect_video(fx.long_video(31))
+    with pytest.raises(mm.MediaRejected, match="150 MB"):
+        mm.check_video_size(150 * 1024 * 1024 + 1)
+    with pytest.raises(mm.MediaRejected, match="MP4 o MOV"):
+        mm.inspect_video(b"esto no es un video" * 10)
+    assert mm.inspect_video(fx.dish_video("vertical", seconds=2, audio=False))["seconds"] == pytest.approx(2.0, abs=0.2)
 
 
 @pytest.mark.parametrize("raw,message", [
@@ -173,13 +249,13 @@ def test_precio_de_la_carta(value, expected):
 def test_emparejar_fotos_por_nombre():
     dishes = [{"ref": "a", "nombre": "Lomo saltado"}, {"ref": "b", "nombre": "Ají de gallina"}, {"ref": "c", "nombre": "Limonada de coco"},
               {"ref": "d", "nombre": "Pizza hawaiana"}]
-    assert mv.match_photo("lomo-saltado.jpg", dishes) == ("a", "front")
-    assert mv.match_photo("LOMO_SALTADO_perfil.JPG", dishes) == ("a", "side")
-    assert mv.match_photo("aji de gallina 2.png", dishes) == ("b", "side")
-    assert mv.match_photo("IMG_2231.jpg", dishes) == (None, "front")
-    assert mv.match_photo("limonada-coco-frente.webp", dishes) == ("c", "front")
-    assert mv.match_photo("pizza-hawaiana-desde-arriba.jpg", dishes) == ("d", "top")
-    assert mv.match_photo("pizza hawaiana cenital.jpg", dishes) == ("d", "top")
+    assert mv.match_photo("lomo-saltado.jpg", dishes) == ("a", "main")
+    assert mv.match_photo("LOMO_SALTADO_perfil.JPG", dishes) == ("a", "gallery")
+    assert mv.match_photo("aji de gallina 2.png", dishes) == ("b", "gallery")
+    assert mv.match_photo("IMG_2231.jpg", dishes) == (None, "main")
+    assert mv.match_photo("limonada-coco-frente.webp", dishes) == ("c", "main")
+    assert mv.match_photo("pizza-hawaiana-desde-arriba.jpg", dishes) == ("d", "gallery")
+    assert mv.match_photo("pizza hawaiana cenital.jpg", dishes) == ("d", "gallery")
 
 
 def test_tabla_limpia_con_ref_estable():
