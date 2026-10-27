@@ -4,14 +4,17 @@ Todo es Pillow + ffmpeg (nada se inventa: el clip usa SOLO las fotos reales
 del plato). Funciones puras (bytes -> bytes): no tocan la base ni el bucket;
 eso lo hace app.services.menu_video.
 
+- detect_dish(): donde esta el plato (OpenCV: circulo/elipse; si no, la
+  zona con mas color y contraste; si no, el centro). Nunca falla.
 - remaster(): luz y balance de blancos, contraste y saturacion suaves,
-  nitidez ligera y recorte vertical 3:4 centrado en el plato (maximo
-  810 x 1080), WebP. La original se guarda aparte, siempre (normalize()).
-- make_clip(): 540 x 960, 25 fps, H.264 sin audio, faststart, ~3 s en bucle
-  sin salto, idealmente menos de 400 KB, mas su portada WebP.
-  Estilos: "zoom" (Acercamiento), "front_side" (Frente a perfil, necesita dos
-  fotos) y "pan" (Paneo). "auto" = Frente a perfil con dos fotos, si no
-  Acercamiento.
+  nitidez ligera y recorte vertical 3:4 SOLO si el plato completo cabe,
+  WebP. La original se guarda aparte, siempre (normalize()).
+- make_clip(): 720 x 1280, 25 fps, H.264 sin audio, faststart, 3 s en bucle
+  sin salto, idealmente menos de 600 KB, mas su portada (plato completo).
+  La foto ENTERA cabe en el cuadro (relleno: la misma foto agrandada y
+  difuminada), centro del plato a ~38 % del alto, acercamiento suave de
+  maximo 8 % que nunca saca el plato del cuadro; 1 a 3 fotos (desde arriba ->
+  frente -> perfil) con fundido de 0,3 s.
 - Una foto dañada o un formato raro -> MediaRejected (error controlado).
 - Sin ffmpeg -> MediaUnavailable (la cola marca el trabajo en error).
 """
@@ -34,9 +37,17 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 ORIGINAL_MAX_PX = 2048
 REMASTER_MAX_H = 1080
 REMASTER_RATIO = 3 / 4  # ancho / alto
-CLIP_W, CLIP_H, CLIP_FPS, CLIP_SECONDS = 540, 960, 25, 3
-CLIP_TARGET_BYTES = 400 * 1024
-STYLES = {"zoom": "Acercamiento", "front_side": "Frente a perfil", "pan": "Paneo"}
+CLIP_W, CLIP_H, CLIP_FPS, CLIP_SECONDS = 720, 1280, 25, 3
+CLIP_TARGET_BYTES = 600 * 1024
+CANVAS_SCALE = 1.2      # el lienzo se arma un poco mas grande: el acercamiento queda nitido
+MAX_ZOOM = 1.08         # acercamiento maximo (8 %)
+DISH_Y = 0.38           # centro del plato a ~38 % del alto (encima de la tarjeta del precio)
+DISH_MARGIN = 0.06      # aire alrededor del plato que nunca sale del cuadro
+VISIBLE_H = 0.68        # la foto cabe en el 68 % de arriba: la tarjeta del precio nunca tapa el plato
+FADE_SECONDS = 0.3      # fundido entre fotos
+ROLES = ("top", "front", "side")  # orden del clip: desde arriba -> frente -> perfil
+ROLE_LABELS = {"top": "Desde arriba", "front": "Frente", "side": "Perfil"}
+STYLES = {"suave": "Acercamiento suave"}
 
 
 class MediaRejected(ValueError):
@@ -135,30 +146,91 @@ def _mean_rgb(image) -> tuple[float, float, float]:
     return r, g, b
 
 
-def dish_center(image) -> tuple[float, float]:
-    """Centro aproximado del plato (0..1): donde hay mas color y mas bordes,
-    mezclado con el centro de la foto para nunca irse a una esquina."""
+# ------------------------------------------------------------------- plato ---
+@dataclass(frozen=True)
+class Dish:
+    """Donde esta el plato en la foto (fracciones 0..1) y como se encontro."""
+    cx: float
+    cy: float
+    w: float
+    h: float
+    source: str  # "plato" (circulo/elipse) | "color" (mas color y contraste) | "centro"
+
+
+CENTER = Dish(0.5, 0.5, 0.86, 0.86, "centro")
+
+
+def _detect_cv(image) -> Optional[Dish]:
+    """Circulo o elipse del plato con OpenCV (sin IA). None si no lo encuentra."""
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None
+    small = image.copy()
+    small.thumbnail((480, 480))
+    w, h = small.size
+    gray = cv2.GaussianBlur(cv2.cvtColor(np.asarray(small.convert("RGB")), cv2.COLOR_RGB2GRAY), (7, 7), 1.6)
+    side = min(w, h)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1.3, minDist=side, param1=110, param2=46,
+                               minRadius=int(side * 0.22), maxRadius=int(side * 0.62))
+    if circles is not None and len(circles[0]):
+        x, y, r = max(circles[0], key=lambda c: c[2])
+        if 0 <= x < w and 0 <= y < h:
+            x0, x1 = max(0.0, x - r), min(float(w), x + r)
+            y0, y1 = max(0.0, y - r), min(float(h), y + r)
+            return Dish((x0 + x1) / 2 / w, (y0 + y1) / 2 / h, (x1 - x0) / w, (y1 - y0) / h, "plato")
+    edges = cv2.dilate(cv2.Canny(gray, 50, 140), np.ones((5, 5), np.uint8), iterations=2)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best = max(contours, key=cv2.contourArea, default=None)
+    if best is not None and len(best) >= 5 and cv2.contourArea(best) > 0.12 * w * h:
+        (ex, ey), (ea, eb), _angle = cv2.fitEllipse(best)
+        bx, by, bw, bh = cv2.boundingRect(best)
+        if 0 < bw < w * 0.995 or 0 < bh < h * 0.995:
+            return Dish((bx + bw / 2) / w, (by + bh / 2) / h, bw / w, bh / h, "plato")
+    return None
+
+
+def _detect_color(image) -> Optional[Dish]:
+    """La zona con mas color y contraste (respaldo sin OpenCV)."""
     from PIL import ImageFilter
 
     small = image.copy()
     small.thumbnail((96, 96))
-    sat = small.convert("HSV").split()[1]
-    edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
+    sat = small.convert("HSV").split()[1].tobytes()
+    edges = small.convert("L").filter(ImageFilter.FIND_EDGES).tobytes()
     w, h = small.size
-    sat_px, edge_px = sat.tobytes(), edges.tobytes()  # modo L: un byte por pixel
-    total = sx = sy = 0.0
+    xs, ys, total = [], [], 0.0
     for index in range(w * h):
-        weight = sat_px[index] * 0.6 + edge_px[index] * 0.4
-        if weight <= 40:
-            continue
-        x, y = index % w, index // w
-        total += weight
-        sx += weight * (x + 0.5)
-        sy += weight * (y + 0.5)
-    if total <= 0:
-        return 0.5, 0.5
-    cx, cy = sx / total / w, sy / total / h
-    return 0.5 + (cx - 0.5) * 0.6, 0.5 + (cy - 0.5) * 0.6
+        weight = sat[index] * 0.6 + edges[index] * 0.4
+        if weight > 60:
+            xs.append(index % w)
+            ys.append(index // w)
+            total += weight
+    if total <= 0 or len(xs) < w * h * 0.04:
+        return None
+    xs.sort()
+    ys.sort()
+    q = lambda arr, p: arr[min(len(arr) - 1, int(p * len(arr)))]  # noqa: E731
+    x0, x1, y0, y1 = q(xs, 0.08), q(xs, 0.92) + 1, q(ys, 0.08), q(ys, 0.92) + 1
+    return Dish((x0 + x1) / 2 / w, (y0 + y1) / 2 / h, (x1 - x0) / w, (y1 - y0) / h, "color")
+
+
+def detect_dish(image) -> Dish:
+    """Plato -> zona de color -> centro de la foto. Nunca falla."""
+    for finder in (_detect_cv, _detect_color):
+        try:
+            found = finder(image)
+        except Exception:
+            found = None
+        if found and 0.05 < found.w <= 1 and 0.05 < found.h <= 1:
+            return found
+    return CENTER
+
+
+def dish_center(image) -> tuple[float, float]:
+    dish = detect_dish(image)
+    return dish.cx, dish.cy
 
 
 def crop_vertical(image, center: tuple[float, float], ratio: float = REMASTER_RATIO):
@@ -172,6 +244,17 @@ def crop_vertical(image, center: tuple[float, float], ratio: float = REMASTER_RA
     left = min(max(round(center[0] * w - cw / 2), 0), w - cw)
     top = min(max(round(center[1] * h - ch / 2), 0), h - ch)
     return image.crop((left, top, left + cw, top + ch))
+
+
+def safe_crop(image, dish: Dish, ratio: float = REMASTER_RATIO):
+    """Recorte 3:4 SOLO si el plato completo cabe; si no, la foto entera."""
+    cropped = crop_vertical(image, (dish.cx, dish.cy), ratio)
+    w, h = image.size
+    if dish.source != "centro" and (dish.w * w > cropped.width * 1.0 or dish.h * h > cropped.height * 1.0):
+        return image
+    if dish.source == "centro" and cropped.size != image.size:
+        return image  # sin saber donde esta el plato no se corta nada
+    return cropped
 
 
 def enhance(image):
@@ -207,19 +290,20 @@ class Remastered:
 
 
 def remaster(image) -> Remastered:
-    cropped = crop_vertical(image, dish_center(image))
+    cropped = safe_crop(image, detect_dish(image))
     if cropped.height > REMASTER_MAX_H:
         cropped = cropped.resize((round(REMASTER_MAX_H * cropped.width / cropped.height), REMASTER_MAX_H), resample=3)
+    if cropped.width > 1440:
+        cropped = cropped.resize((1440, round(1440 * cropped.height / cropped.width)), resample=3)
     out = enhance(cropped)
     return Remastered(image=out, data=webp(out, 84), width=out.width, height=out.height)
 
 
 def clip_source(image, use_remaster: bool = True):
-    """Lo que entra al clip: la foto COMPLETA (el cuadro 9:16 la rellena con su
-    propio fondo desenfocado, asi el plato nunca queda cortado), con la misma
+    """Lo que entra al clip: la foto COMPLETA (nunca recortada), con la misma
     mejora de luz y color si se eligio la remasterizada."""
     copy = image.copy()
-    copy.thumbnail((1440, 1440))
+    copy.thumbnail((1600, 1600))
     return enhance(copy) if use_remaster else copy
 
 
@@ -231,65 +315,89 @@ def _cover(image, w: int, h: int):
     return resized.crop((left, top, left + w, top + h))
 
 
-def compose(image, scale: float = 1.5):
-    """Cuadro vertical 9:16 sin cortar el plato: la foto completa al ancho y,
-    detras, la misma foto ampliada, desenfocada y oscurecida. Se arma a 1.5x
-    para que el acercamiento se vea nitido."""
+@dataclass
+class Shot:
+    """Una foto armada en el cuadro vertical: lienzo, centro del plato y su
+    acercamiento maximo seguro (el plato nunca sale del cuadro)."""
+    canvas: object
+    cx: float
+    cy: float
+    zmax: float
+    photo_box: tuple
+    dish_box: tuple
+    source: str
+
+
+def compose(image, dish: Optional[Dish] = None, scale: float = CANVAS_SCALE) -> Shot:
+    """La foto ENTERA dentro del cuadro 9:16; arriba y abajo, la misma foto
+    agrandada y difuminada (nunca bordes negros). El centro del plato queda a
+    ~38 % del alto (encima de la tarjeta del precio del modo video)."""
     from PIL import ImageEnhance, ImageFilter
 
-    w, h = round(CLIP_W * scale), round(CLIP_H * scale)
-    background = _cover(image, w, h).filter(ImageFilter.GaussianBlur(radius=round(22 * scale)))
-    background = ImageEnhance.Brightness(background).enhance(0.55)
-    fg_w = w
-    fg_h = round(image.height * fg_w / image.width)
-    if fg_h > h:
-        fg_h = h
-        fg_w = round(image.width * fg_h / image.height)
-    foreground = image.resize((fg_w, fg_h), resample=3)
-    background.paste(foreground, ((w - fg_w) // 2, (h - fg_h) // 2))
-    return background
+    dish = dish or detect_dish(image)
+    W, H = round(CLIP_W * scale), round(CLIP_H * scale)
+    background = _cover(image, W, H).filter(ImageFilter.GaussianBlur(radius=round(26 * scale)))
+    background = ImageEnhance.Brightness(background).enhance(0.7)
+    fit = min(W / image.width, VISIBLE_H * H / image.height)
+    pw, ph = round(image.width * fit), round(image.height * fit)
+    x0 = (W - pw) // 2
+    y0 = round(min(max(DISH_Y * H - dish.cy * ph, 0), H - ph))
+    background.paste(image.resize((pw, ph), resample=3), (x0, y0))
+    dcx, dcy = x0 + dish.cx * pw, y0 + dish.cy * ph
+    dw, dh = dish.w * pw * (1 + DISH_MARGIN), dish.h * ph * (1 + DISH_MARGIN)
+    zmax = max(1.0, min(MAX_ZOOM, W / max(dw, 1), H / max(dh, 1)))
+    return Shot(canvas=background, cx=dcx, cy=dcy, zmax=zmax, photo_box=(x0, y0, x0 + pw, y0 + ph),
+                dish_box=(dcx - dish.w * pw / 2, dcy - dish.h * ph / 2, dcx + dish.w * pw / 2, dcy + dish.h * ph / 2),
+                source=dish.source)
 
 
-def _view(canvas, zoom: float, dx: float = 0.0):
-    """Recorte del lienzo con acercamiento `zoom` y desplazamiento horizontal
-    dx (fraccion del ancho), a 540 x 960 (subpixel: movimiento suave)."""
-    w, h = canvas.size
-    cw, ch = w / zoom, h / zoom
-    cx = w / 2 + dx * w
-    left = min(max(cx - cw / 2, 0.0), w - cw)
-    top = (h - ch) / 2
-    return canvas.resize((CLIP_W, CLIP_H), resample=3, box=(left, top, left + cw, top + ch))
+def view_box(shot: Shot, zoom: float) -> tuple[float, float, float, float]:
+    """Recorte del lienzo con acercamiento `zoom` hacia el plato, sin salirse."""
+    W, H = shot.canvas.size
+    cw, ch = W / zoom, H / zoom
+    left = min(max(shot.cx - cw / 2, 0.0), W - cw)
+    top = min(max(shot.cy - ch / 2, 0.0), H - ch)
+    return left, top, left + cw, top + ch
+
+
+def render(shot: Shot, zoom: float):
+    return shot.canvas.resize((CLIP_W, CLIP_H), resample=3, box=view_box(shot, zoom))
 
 
 def _ease(x: float) -> float:
     return (1 - math.cos(math.pi * min(1.0, max(0.0, x)))) / 2
 
 
-def frame_at(style: str, t: float, front, side=None):
-    """Cuadro en el instante t (0..1). En t=0 y t=1 el cuadro es el mismo:
-    el bucle no salta."""
+def zoom_at(shot: Shot, u: float) -> float:
+    """Arranca con el plato completo, se acerca suave (max. 8 %) y vuelve."""
+    return 1 + (shot.zmax - 1) * (1 - math.cos(2 * math.pi * u)) / 2
+
+
+def frame_at(shots: list, index: int, total: int = CLIP_FPS * CLIP_SECONDS):
+    """Cuadro `index` de `total`. Cada foto ocupa total/n cuadros; entre fotos,
+    fundido de ~0,3 s. El ultimo cuadro empalma con el primero (bucle sin salto)."""
     from PIL import Image
 
-    if style == "pan":
-        return _view(front, 1.14, 0.055 * math.sin(2 * math.pi * t))
-    if style == "front_side" and side is not None:
-        if t < 0.4:
-            return _view(front, 1 + 0.08 * _ease(t / 0.4))
-        if t < 0.5:
-            return Image.blend(_view(front, 1.08), _view(side, 1.08), _ease((t - 0.4) / 0.1))
-        if t < 0.85:
-            return _view(side, 1.08 - 0.08 * _ease((t - 0.5) / 0.35))
-        return Image.blend(_view(side, 1.0), _view(front, 1.0), _ease((t - 0.85) / 0.15))
-    return _view(front, 1 + 0.10 * (1 - math.cos(2 * math.pi * t)) / 2)
+    n = len(shots)
+    seg = total / n
+    k = min(n - 1, int(index // seg))
+    u = (index - k * seg) / seg
+    current = render(shots[k], zoom_at(shots[k], u))
+    if n == 1:
+        return current
+    fade = CLIP_FPS * FADE_SECONDS
+    into = index - k * seg
+    if into < fade:
+        prev = shots[(k - 1) % n]
+        # la anterior sigue su movimiento justo donde termino (vista completa): sin saltos
+        return Image.blend(render(prev, zoom_at(prev, into / seg)), current, _ease(into / fade))
+    return current
 
 
-def resolve_style(style: str, has_side: bool) -> str:
-    style = style if style in STYLES else "auto"
-    if style == "auto":
-        return "front_side" if has_side else "zoom"
-    if style == "front_side" and not has_side:
-        return "zoom"
-    return style
+def resolve_style(style: str = "auto", has_side: bool = False) -> str:
+    """Un solo movimiento (acercamiento suave, max. 8 %); los estilos viejos
+    ("zoom", "pan", "front_side") se rehacen con el proceso nuevo."""
+    return "suave"
 
 
 @dataclass
@@ -300,6 +408,7 @@ class Clip:
     seconds: float
     encode_ms: int
     attempts: list = field(default_factory=list)
+    sources: list = field(default_factory=list)
 
 
 def _encode(frames: list, crf: int, maxrate: str) -> bytes:
@@ -314,7 +423,7 @@ def _encode(frames: list, crf: int, maxrate: str) -> bytes:
                 "-crf", str(crf), "-maxrate", maxrate, "-bufsize", maxrate, "-g", str(CLIP_FPS * CLIP_SECONDS),
                 "-movflags", "+faststart", out]
         try:
-            proc = subprocess.run(args, input=b"".join(f.tobytes() for f in frames), capture_output=True, timeout=120)
+            proc = subprocess.run(args, input=b"".join(f.tobytes() for f in frames), capture_output=True, timeout=180)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise MediaUnavailable("ffmpeg no pudo crear el clip.") from error
         if proc.returncode != 0 or not os.path.exists(out):
@@ -323,24 +432,28 @@ def _encode(frames: list, crf: int, maxrate: str) -> bytes:
             return handle.read()
 
 
-def make_clip(front_image, side_image=None, style: str = "auto") -> Clip:
-    """front_image/side_image: las fotos ya elegidas (remasterizada u original)."""
+def make_clip(images, side_image=None, style: str = "auto") -> Clip:
+    """images: las fotos del plato YA en orden (desde arriba -> frente ->
+    perfil), 1 a 3. Acepta tambien make_clip(frente, perfil) por compatibilidad."""
+    if not isinstance(images, (list, tuple)):
+        images = [images] + ([side_image] if side_image is not None else [])
+    images = [i for i in images if i is not None][:3]
+    if not images:
+        raise MediaRejected("El plato no tiene fotos.")
     started = time.perf_counter()
-    chosen = resolve_style(style, side_image is not None)
-    front = compose(front_image)
-    side = compose(side_image) if side_image is not None and chosen == "front_side" else None
+    shots = [compose(image) for image in images]
     total = CLIP_FPS * CLIP_SECONDS
-    frames = [frame_at(chosen, i / total, front, side).convert("RGB") for i in range(total)]
+    frames = [frame_at(shots, i, total).convert("RGB") for i in range(total)]
     attempts = []
     video = b""
-    for crf, maxrate in ((26, "1000k"), (30, "800k"), (34, "600k")):
+    for crf, maxrate in ((24, "1500k"), (27, "1300k"), (30, "1100k"), (34, "900k")):
         video = _encode(frames, crf, maxrate)
         attempts.append({"crf": crf, "bytes": len(video)})
         if len(video) <= CLIP_TARGET_BYTES:
             break
-    poster = webp(frames[0], 78)
-    return Clip(video=video, poster=poster, style=chosen, seconds=float(CLIP_SECONDS),
-                encode_ms=round((time.perf_counter() - started) * 1000), attempts=attempts)
+    poster = webp(render(shots[0], 1.0), 80)  # portada: el primer plato completo
+    return Clip(video=video, poster=poster, style=resolve_style(style), seconds=float(CLIP_SECONDS),
+                encode_ms=round((time.perf_counter() - started) * 1000), attempts=attempts, sources=[s.source for s in shots])
 
 
 def probe(video: bytes) -> dict:

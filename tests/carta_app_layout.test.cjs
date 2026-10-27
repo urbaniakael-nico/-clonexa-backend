@@ -74,6 +74,7 @@ const mesa = (q) => `/ordenar?company_id=${CID}&mesa=Mesa%204${q}`;
 const CASES = [
   ['home-brasa', qr('&brand=brasa')], ['home-azul', qr('&brand=azul')], ['video-brasa', qr('&brand=brasa&view=video')],
   ['video-roto', qr('&brand=brasa&view=video&broken=1')], ['video-apagado', qr('&brand=azul&view=video&video=0')], ['lista-azul', qr('&brand=azul&view=list')],
+  ['lista-foto-rota', qr('&brand=brasa&view=list&brokenphoto=1')],
   ['detalle', mesa('&brand=brasa&view=detail')], ['video-mesa', mesa('&brand=azul&view=video')], ['pedido-mesa', mesa('&brand=brasa&view=cart&send=1')],
   ['domicilio', `/domicilio?c=${CID}&s=codigo-de-prueba-123&company_id=${CID}&brand=azul&view=cart&send=1`],
 ];
@@ -116,6 +117,13 @@ test('carta QR nueva: marca y AA, categorías con imagen, video, lista y pedido 
       const l = r['lista-azul'];
       assert.ok(l.list_img >= 88, `foto de la lista ${l.list_img}px`);
       assert.ok(l.list_title_top <= 16 && ['start', 'left'].includes(l.list_title_align), 'título arriba y a la izquierda');
+      // 057D: fotos de la lista: las visibles cargan de inmediato y ninguna queda en blanco
+      assert.ok(l.list_imgs.length >= 3);
+      assert.ok(l.list_imgs.slice(0, 3).every((i) => i.eager), 'las primeras sin carga diferida');
+      assert.ok(l.list_imgs.filter((i) => i.visible).every((i) => i.loaded), `fotos visibles cargadas ${JSON.stringify(l.list_imgs)}`);
+      assert.ok(l.list_imgs.every((i) => i.bg.startsWith('linear-gradient')), 'mientras carga: color de la marca');
+      const rota = r['lista-foto-rota'].list_imgs.find((i) => i.broken);
+      assert.ok(rota && rota.bg.startsWith('linear-gradient'), 'foto que falla: el color de la marca, nunca un hueco');
       assert.match(r.detalle.sheet, /300 gr de lomo[\s\S]*Término \(obligatorio\)[\s\S]*Preferencias \(opcional\)[\s\S]*Sin sal/);
       assert.doesNotMatch(JSON.stringify(r), /calor|Me gusta|estrellas/i, 'nada inventado');
       const order = r['pedido-mesa'].orders;

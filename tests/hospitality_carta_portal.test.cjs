@@ -876,12 +876,12 @@ test('057A carta simple: el paso Foto (6) sube la foto del plato sin cupo ni vid
   await toPhotoStep(ctx);
   let html = ctx.cxCarWizHtml049J();
   assert.match(html, /6\. Foto/);
-  assert.match(html, /Foto del plato[\s\S]*data-wz-photo-file="front"/);
-  assert.doesNotMatch(html, /data-wz-photo-file="side"|Te quedan|Estilo del video/);
+  assert.match(html, /Foto del plato[\s\S]*Plato completo y con espacio alrededor[\s\S]*>Subir<input[^>]*data-wz-photo-file="front"/);
+  assert.doesNotMatch(html, /data-wz-photo-file="side"|data-wz-photo-file="top"|Te quedan|Estilo del video/);
   assert.match(html, /data-wz-save/, 'el último paso guarda; la foto es opcional');
   await photoFile(ctx, 'front');
   html = ctx.cxCarWizHtml049J();
-  assert.match(html, /src="blob:x"[\s\S]*Toca para cambiarla/);
+  assert.match(html, /src="blob:x"[\s\S]*>Cambiar<input[\s\S]*data-wz-photo-remove="front">Quitar/);
   ctx.respond = (path) => (path.startsWith('/menu-video/') ? { carta_video: false, media: { n9: { has_photo: true, photo_url: '/menu-media/c1/a.webp' } } } : { ...withDish('n9'), created_id: 'n9' });
   await ctx.click('data-wz-save');
   const upload = ctx.calls.find((c) => c.form);
@@ -890,42 +890,55 @@ test('057A carta simple: el paso Foto (6) sube la foto del plato sin cupo ni vid
   assert.match(ctx.cxCarPlatosHtml049J(), /Plato guardado[\s\S]*<img src="\/menu-media\/c1\/a\.webp"[\s\S]*Foto del plato/);
 });
 
-test('057A sin elegir foto se guarda igual y no sube nada; quitar la foto al guardar', async () => {
+test('057D Quitar: confirmación en la misma pantalla, Deshacer 10 s, y al guardar se quita (sin cupo)', async () => {
   const ctx = portal(DATA);
-  ctx.cxCarMedia057A = { carta_video: false, media: { d1: { has_photo: true, photo_url: '/menu-media/c1/p.webp' } } };
+  ctx.cxCarMedia057A = { carta_video: false, media: { d1: { has_photo: true, photo_url: '/menu-media/c1/p.webp', roles: ['front'] } } };
   await toPhotoStep(ctx);
   await ctx.click('data-wz-save');
-  assert.ok(!ctx.calls.some((c) => c.form || c.path.startsWith('/menu-video/')), 'sin foto no sube nada');
-  // editar un plato con foto: "Quitar la foto" la borra al guardar
+  assert.ok(!ctx.calls.some((c) => c.form || c.path.startsWith('/menu-video/')), 'sin cambios de foto no sube ni quita nada');
   ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(DATA.items.find((d) => d.id === 'd1')), step: 6 };
-  assert.match(ctx.cxCarWizHtml049J(), /\/menu-media\/c1\/p\.webp[\s\S]*data-wz-photo-remove/);
-  await ctx.click('data-wz-photo-remove');
-  assert.match(ctx.cxCarWizHtml049J(), /La foto se quita al guardar/);
+  assert.match(ctx.cxCarWizHtml049J(), /\/menu-media\/c1\/p\.webp[\s\S]*data-wz-photo-remove="front">Quitar/);
+  await ctx.click('data-wz-photo-remove', 'front');
+  assert.match(ctx.cxCarWizHtml049J(), /¿Quitar la foto del plato\?[\s\S]*data-wz-photo-remove-yes>Quitar[\s\S]*data-wz-photo-remove-no>Cancelar/);
+  assert.doesNotMatch(ctx.cxCarWizHtml049J(), /confirm\(/, 'sin ventanas del navegador');
+  await ctx.click('data-wz-photo-remove-no');
+  assert.doesNotMatch(ctx.cxCarWizHtml049J(), /¿Quitar/);
+  await ctx.click('data-wz-photo-remove', 'front');
+  ctx.setTimeout = () => 0;
+  await ctx.click('data-wz-photo-remove-yes');
+  let html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Se quita al guardar\.[\s\S]*data-wz-photo-undo>Deshacer/);
+  await ctx.click('data-wz-photo-undo');
+  html = ctx.cxCarWizHtml049J();
+  assert.doesNotMatch(html, /Se quita al guardar/, 'Deshacer la devuelve');
+  await ctx.click('data-wz-photo-remove', 'front');
+  await ctx.click('data-wz-photo-remove-yes');
   ctx.respond = (path) => (path.startsWith('/menu-video/') ? { carta_video: false, media: {} } : DATA);
   await ctx.click('data-wz-save');
-  assert.ok(ctx.calls.some((c) => c.path === '/menu-video/companies/c1/items/d1/photo' && c.method === 'DELETE'));
+  assert.ok(ctx.calls.some((c) => c.path === '/menu-video/companies/c1/items/d1/photo/front' && c.method === 'DELETE'));
+  assert.ok(!ctx.calls.some((c) => c.form), 'quitar no sube nada');
 });
 
-test('057A carta en video: frente y perfil, estilo, cupo del mes; sin cupo "Solicitar más"', async () => {
+test('057D carta en video: desde arriba, frente y perfil con Cambiar/Quitar; cupo del mes; sin cupo "Solicitar más"', async () => {
   const ctx = portal(DATA);
   const quota = (left) => ({ month: '2026-10', new: { used: 3 - left, limit: 3, left }, changes: { used: 0, limit: 3, left: 3 } });
-  ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, quota: quota(2), styles: { zoom: 'Acercamiento', front_side: 'Frente a perfil', pan: 'Paneo' } };
+  ctx.cxCarMedia057A = { carta_video: true, media: {}, jobs: {}, quota: quota(2), styles: {} };
   await toPhotoStep(ctx);
   let html = ctx.cxCarWizHtml049J();
-  assert.match(html, /data-wz-photo-file="front"[\s\S]*data-wz-photo-file="side"/);
-  assert.match(html, /Te quedan 2 de 3 este mes \(platos nuevos con foto y video\)\. Cambiar precio, nombre, descripción u opciones no gasta cupo\./);
+  assert.match(html, /<svg[^>]*aria-label="Los tres ángulos[\s\S]*Frente: a 45°\. Perfil: a la altura del plato\. Desde arriba: si el plato es grande/);
+  assert.match(html, /Desde arriba[\s\S]*data-wz-photo-file="top"[\s\S]*Frente[\s\S]*data-wz-photo-file="front"[\s\S]*Perfil[\s\S]*data-wz-photo-file="side"/);
+  assert.match(html, /Te quedan 2 de 3 este mes \(platos nuevos con foto y video\)\. Quitar una foto no gasta cupo; si cambias la misma foto otra vez en 30 minutos, cuenta como un solo cambio\./);
+  assert.doesNotMatch(html, /Estilo del video/, 'un solo movimiento suave');
+  await photoFile(ctx, 'top', 'pizza-arriba.jpg');
   await photoFile(ctx, 'front');
   await photoFile(ctx, 'side', 'perfil.jpg');
-  html = ctx.cxCarWizHtml049J();
-  assert.match(html, /Estilo del video<select data-wz-field="style">[\s\S]*Frente a perfil/);
-  ctx.dom.typed = { style: 'front_side' };
   ctx.respond = (path) => (path.startsWith('/menu-video/')
-    ? { ...ctx.cxCarMedia057A, quota: quota(1), media: { n9: { has_photo: true, photo_url: '/m/f.webp' } }, jobs: { n9: { status: 'en_cola' } } }
+    ? { ...ctx.cxCarMedia057A, quota: quota(1), media: { n9: { has_photo: true, photo_url: '/m/f.webp', roles: ['top', 'front', 'side'] } }, jobs: { n9: { status: 'en_cola' } } }
     : { ...withDish('n9'), created_id: 'n9' });
   ctx.setTimeout = () => 0;
   await ctx.click('data-wz-save');
   const upload = ctx.calls.find((c) => c.form);
-  assert.deepEqual(upload.form.map(([k, v]) => (k === 'style' ? `${k}=${v}` : k)), ['front', 'side', 'style=front_side']);
+  assert.deepEqual(upload.form.map(([k]) => k), ['top', 'front', 'side', 'style']);
   assert.match(ctx.cxCarPlatosHtml049J(), /Creando el video del plato/);
   // sin cupo: el botón cambia a "Solicitar más" y avisa por n8n
   ctx.cxCarMedia057A = { ...ctx.cxCarMedia057A, quota: quota(0) };
@@ -938,6 +951,20 @@ test('057A carta en video: frente y perfil, estilo, cupo del mes; sin cupo "Soli
   const asked = ctx.calls.find((c) => c.path === '/menu-video/companies/c1/quota/request');
   assert.equal(asked.method, 'POST');
   assert.match(ctx.cxCarWizHtml049J(), /Te contactaremos para ampliar tu plan\./);
+});
+
+test('057D Cambiar una foto que ya existe sube SOLO ese espacio', async () => {
+  const ctx = portal(DATA);
+  ctx.cxCarMedia057A = { carta_video: true, jobs: {}, styles: {}, quota: { month: '2026-10', new: { used: 0, limit: 3, left: 3 }, changes: { used: 0, limit: 3, left: 3 } },
+    media: { d1: { has_photo: true, roles: ['front', 'side'], photo_url: '/m/f.webp', front_original_url: '/m/f.webp', side_original_url: '/m/s.webp' } } };
+  ctx.cxCarWiz049J = { ...ctx.cxCarWizFrom049J(DATA.items.find((d) => d.id === 'd1')), step: 6 };
+  const html = ctx.cxCarWizHtml049J();
+  assert.match(html, /Frente[\s\S]*\/m\/f\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="front"[\s\S]*Perfil[\s\S]*\/m\/s\.webp[\s\S]*>Cambiar<input[^>]*data-wz-photo-file="side"/);
+  assert.match(html, /Te quedan 3 de 3 este mes \(cambios de foto o video\)/);
+  await photoFile(ctx, 'side', 'otro-perfil.jpg');
+  ctx.respond = (path) => (path.startsWith('/menu-video/') ? ctx.cxCarMedia057A : DATA);
+  await ctx.click('data-wz-save');
+  assert.deepEqual(ctx.calls.find((c) => c.form).form.map(([k]) => k), ['side', 'style']);
 });
 
 test('057A el servidor dice sin cupo: el plato queda guardado y aparece "Solicitar más"', async () => {

@@ -861,3 +861,23 @@ button, input, select { font: inherit; color: inherit; }
   .vp-mv-loose-row select, .vp-mv-loose-row .vp-btn { grid-column: 1 / -1; }
   .vp-mv-phone { width: min(270px, 100%); }
 }
+/* Menú video 057D: espacios de foto (Desde arriba, Frente, Perfil), Cambiar/Quitar y guía */
+.vp-mv-guide { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; align-items: center; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--vp-line); background: rgba(255, 255, 255, .03); }
+.vp-mv-guide svg { width: 100%; height: auto; color: var(--vp-text); }
+.vp-mv-guide p { margin: 0; color: var(--vp-muted); }
+.vp-mv-guide p b { color: var(--vp-text); }
+.vp-mv-grid-wide { grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+.vp-mv-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vp-mv-slot { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.vp-mv-slot-label { font-size: 12px; font-weight: 700; color: var(--vp-muted); }
+.vp-mv-slot-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.vp-mv-slot-actions .vp-btn, .vp-mv-confirm .vp-btn, .vp-mv-undo { min-height: 36px; padding: 0 10px; font-size: 12px; }
+.vp-mv-file { position: relative; overflow: hidden; }
+.vp-mv-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.vp-mv-file:focus-within { outline: 3px solid var(--vp-purple-hover); outline-offset: 2px; }
+.vp-mv-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; border-radius: 12px; border: 1px solid var(--vp-risk); background: rgba(120, 6, 22, .45); font-size: 13px; }
+.vp-mv-undo { justify-self: start; border-color: var(--vp-ok); }
+.vp-mv-pub { width: 100%; color: var(--vp-ok); font-size: 12px; }
+.vp-mv-cats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0; }
+.vp-mv-x { min-width: 28px; min-height: 28px; margin-left: 4px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, .1); color: var(--vp-text); cursor: pointer; }
+@media (max-width: 640px) { .vp-mv-guide { grid-template-columns: minmax(0, 1fr); } .vp-mv-slots { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

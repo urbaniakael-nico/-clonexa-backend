@@ -13,7 +13,7 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const enc = encodeURIComponent;
   const STEPS = ["Empresa", "Importar", "Fotos por plato", "Remasterizar y clips", "Publicar"];
-  const STYLES = { auto: "Automático", zoom: "Acercamiento", front_side: "Frente a perfil", pan: "Paneo" };
+  const STYLES = { auto: "Acercamiento suave" };
   const JOB = { en_cola: "En cola", procesando: "Creando…", listo: "Listo", error: "Error", sin_video: "Sin clip", sin_foto: "Sin foto" };
   const FIELDS = [["categoria", "Categoría"], ["subcategoria", "Subcategoría"], ["nombre", "Plato"], ["descripcion", "Descripción"], ["precio", "Precio"], ["opciones", "Opciones"]];
 
@@ -39,13 +39,18 @@
     photos: (id, iid, form) => request(`${API}/${enc(id)}/imports/${enc(iid)}/photos`, { method: "POST", body: form }),
     assign: (id, iid, aid, body) => request(`${API}/${enc(id)}/imports/${enc(iid)}/photos/${enc(aid)}`, { method: "PUT", body: JSON.stringify(body) }),
     process: (id, iid, body) => request(`${API}/${enc(id)}/imports/${enc(iid)}/process`, { method: "POST", body: JSON.stringify(body) }),
+    changePhoto: (id, iid, ref, role, file) => { const f = new FormData(); f.append("file", file, file.name); return request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/photo/${enc(role)}`, { method: "POST", body: f }); },
+    removePhoto: (id, iid, ref, role) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/photo/${enc(role)}`, { method: "DELETE" }),
+    restorePhoto: (id, iid, ref, role, body) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/photo/${enc(role)}/restore`, { method: "POST", body: JSON.stringify(body) }),
+    removeVideo: (id, iid, ref) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/video`, { method: "DELETE" }),
+    regenerate: (id) => request(`${API}/${enc(id)}/regenerate`, { method: "POST", body: "{}" }),
     choose: (id, iid, ref, use) => request(`${API}/${enc(id)}/imports/${enc(iid)}/dish/${enc(ref)}/choose`, { method: "POST", body: JSON.stringify({ use_remaster: use }) }),
     plan: (id, iid) => request(`${API}/${enc(id)}/imports/${enc(iid)}/plan`),
     publish: (id, iid) => request(`${API}/${enc(id)}/imports/${enc(iid)}/publish`, { method: "POST", body: "{}" }),
   };
 
   // ------------------------------------------------------------ estado
-  const model = { step: 1, companies: null, health: null, companyId: "", data: null, table: null, dirty: false, busy: "", error: "",
+  const model = { confirm: null, undo: null, step: 1, companies: null, health: null, companyId: "", data: null, table: null, dirty: false, busy: "", error: "",
     notice: "", plan: null, result: null, preview: "", styles: {}, files: [] };
   let ctx = null;
   let bound = false;
@@ -97,6 +102,21 @@
       </section>`;
   }
 
+  function catsHtml() {
+    const cats = [...new Set(dishes().map((d) => d.categoria).filter(Boolean))];
+    if (!cats.length) return "";
+    return `<div class="vp-mv-cats"><span class="vp-mv-muted">Categorías de la importación:</span>${cats.map((c) => {
+      const key = `cat|${c}`;
+      if (model.confirm && model.confirm.key === key) {
+        const n = dishes().filter((d) => d.categoria === c).length;
+        return `<span class="vp-mv-confirm" role="alert">¿Quitar ${h(c)} y sus ${h(n)} platos de la importación?
+          <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
+          <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></span>`;
+      }
+      return `<span class="vp-mv-pill">${h(c)} <button type="button" class="vp-mv-x" data-mv-cat-del="${h(c)}" aria-label="Quitar la categoría ${h(c)}">✕</button></span>`;
+    }).join("")}</div>`;
+  }
+
   function tableHtml() {
     const rows = dishes();
     return `
@@ -107,6 +127,7 @@
             <td><button type="button" class="vp-btn vp-btn-sm" data-mv-row-del="${i}" aria-label="Quitar ${h(d.nombre)}">✕</button></td></tr>`).join("")}</tbody>
         </table>
       </div>
+      ${catsHtml()}
       <div class="vp-head-actions">
         <button type="button" class="vp-btn" data-mv-row-add>+ Agregar plato</button>
         <button type="button" class="vp-btn vp-btn-primary" data-mv-table-save ${model.busy ? "disabled" : ""}>${model.dirty ? "Guardar tabla" : "Tabla guardada"}</button>
@@ -143,6 +164,57 @@
     return url ? `<img class="vp-mv-thumb" src="${h(url)}" alt="${h(label)}" loading="lazy">` : `<span class="vp-mv-thumb is-empty">${h(label)}</span>`;
   }
 
+  // 057D: guía de fotos con un dibujo simple de los 3 ángulos.
+  function guideHtml() {
+    return `<div class="vp-mv-guide">
+      <svg viewBox="0 0 300 92" role="img" aria-label="Los tres ángulos: desde arriba, frente a 45 grados y perfil a la altura del plato">
+        <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="50" cy="48" r="26"/><circle cx="50" cy="48" r="15"/><path d="M50 4v10M44 9l6 6 6-6"/>
+          <ellipse cx="150" cy="58" rx="30" ry="12"/><ellipse cx="150" cy="56" rx="17" ry="6"/><path d="M118 14l14 14M126 28h6v-6"/>
+          <path d="M218 64h64M226 64q24-22 48 0"/><path d="M200 50h10M205 45l5 5-5 5"/>
+        </g>
+        <g fill="currentColor" font-size="11" font-family="inherit" text-anchor="middle">
+          <text x="50" y="88">Desde arriba</text><text x="150" y="88">Frente 45°</text><text x="250" y="88">Perfil</text>
+        </g>
+      </svg>
+      <p><b>Plato completo y con espacio alrededor.</b> Frente: a 45°. Perfil: a la altura del plato. Desde arriba: si el plato es grande (pizzas, picadas, bandejas, bowls).</p>
+    </div>`;
+  }
+
+  const ROLES = [["top", "Desde arriba"], ["front", "Frente"], ["side", "Perfil"]];
+  const ROLE_WORD = { top: "desde arriba", front: "de frente", side: "de perfil" };
+
+  // Un espacio de foto: Cambiar / Quitar con confirmación en la misma pantalla y Deshacer (10 s).
+  function slotHtml(d, m, role, label) {
+    const url = m[`${role}_original_url`];
+    const key = `${d.ref}|${role}`;
+    const confirming = model.confirm && model.confirm.key === key;
+    const undo = model.undo && model.undo.key === key && Date.now() < model.undo.until;
+    return `<div class="vp-mv-slot ${url ? "has" : ""}">
+      <span class="vp-mv-slot-label">${h(label)}</span>
+      ${thumb(url, label)}
+      ${confirming
+        ? `<div class="vp-mv-confirm" role="alert"><span>¿Quitar la foto ${h(ROLE_WORD[role])}?</span>
+            <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
+            <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></div>`
+        : `<div class="vp-mv-slot-actions">
+            <label class="vp-btn vp-btn-sm vp-mv-file">${url ? "Cambiar" : "Subir"}<input type="file" accept="image/jpeg,image/png,image/webp" data-mv-change="${h(key)}" aria-label="${url ? "Cambiar" : "Subir"} foto ${h(ROLE_WORD[role])} de ${h(d.nombre)}"></label>
+            ${url ? `<button type="button" class="vp-btn vp-btn-sm" data-mv-remove="${h(key)}">Quitar</button>` : ""}
+          </div>`}
+      ${undo ? `<button type="button" class="vp-btn vp-btn-sm vp-mv-undo" data-mv-undo>Deshacer</button>` : ""}
+    </div>`;
+  }
+
+  function slotsHtml(d) {
+    const m = media(d.ref) || {};
+    return `<div class="vp-mv-slots">${ROLES.map(([role, label]) => slotHtml(d, m, role, label)).join("")}</div>`;
+  }
+
+  function publishedTag(d) {
+    return model.data && model.data.published && model.data.published[d.ref]
+      ? `<small class="vp-mv-pub">Publicado: los cambios se ven de inmediato en el QR</small>` : "";
+  }
+
   function photosStep() {
     const photos = arr(model.data && model.data.photos);
     const loose = photos.filter((p) => !p.dish_ref);
@@ -150,7 +222,8 @@
     return `
       <section class="vp-panel vp-section">
         <h2>3. Fotos por plato</h2>
-        <p class="vp-mv-muted">Arrastra varias fotos a la vez. Se emparejan por el nombre del archivo (<code>lomo-al-trapo.jpg</code>, <code>lomo-al-trapo-perfil.jpg</code>). Por plato: frente y perfil (opcional). Se guarda siempre la original.</p>
+        <p class="vp-mv-muted">Arrastra varias fotos a la vez. Se emparejan por el nombre del archivo (<code>pizza-desde-arriba.jpg</code>, <code>lomo.jpg</code>, <code>lomo-perfil.jpg</code>). Por plato: desde arriba, frente y perfil (las que tengas). Se guarda siempre la original.</p>
+        ${guideHtml()}
         <label class="vp-mv-drop" data-mv-drop="photos">
           <input type="file" multiple accept="image/jpeg,image/png,image/webp" data-mv-photo-files>
           <span><b>Suelta aquí las fotos</b> o toca para elegirlas.</span>
@@ -158,18 +231,12 @@
         ${loose.length ? `<div class="vp-mv-loose"><h3 class="vp-mv-sub">Sin plato (${h(loose.length)})</h3>${loose.map((p) => `
           <div class="vp-mv-loose-row">${thumb(p.url, p.source_name || "foto")}<span>${h(p.source_name || "foto")}</span>
             <select class="vp-search" data-mv-assign-ref="${h(p.id)}" aria-label="Plato para ${h(p.source_name || "la foto")}"><option value="">Elige el plato…</option>${options}</select>
-            <select class="vp-search" data-mv-assign-role="${h(p.id)}" aria-label="Frente o perfil"><option value="front">Frente</option><option value="side">Perfil</option></select>
+            <select class="vp-search" data-mv-assign-role="${h(p.id)}" aria-label="Ángulo"><option value="front">Frente</option><option value="side">Perfil</option><option value="top">Desde arriba</option></select>
             <button type="button" class="vp-btn vp-btn-sm" data-mv-assign="${h(p.id)}">Asignar</button></div>`).join("")}</div>` : ""}
-        <div class="vp-mv-grid">${dishes().map((d) => {
-          const m = media(d.ref) || {};
-          const mine = photos.filter((p) => p.dish_ref === d.ref);
-          return `<article class="vp-panel vp-mv-dish">
-            <header><strong>${h(d.nombre)}</strong><small>${h(d.categoria)}${d.subcategoria ? ` › ${h(d.subcategoria)}` : ""}</small></header>
-            <div class="vp-mv-pair">${thumb(m.front_original_url, "Frente")}${thumb(m.side_original_url, "Perfil")}</div>
-            ${mine.map((p) => `<label class="vp-mv-reassign"><span>${h(p.source_name || "foto")} (${p.role === "side" ? "perfil" : "frente"})</span>
-              <select class="vp-search" data-mv-reassign="${h(p.id)}" data-mv-role="${h(p.role)}">${dishes().map((x) => `<option value="${h(x.ref)}" ${x.ref === d.ref ? "selected" : ""}>${h(x.nombre)}</option>`).join("")}</select></label>`).join("")}
-          </article>`;
-        }).join("")}</div>
+        <div class="vp-mv-grid vp-mv-grid-wide">${dishes().map((d) => `<article class="vp-panel vp-mv-dish">
+            <header><strong>${h(d.nombre)}</strong><small>${h(d.categoria)}${d.subcategoria ? ` › ${h(d.subcategoria)}` : ""}</small>${publishedTag(d)}</header>
+            ${slotsHtml(d)}
+          </article>`).join("")}</div>
         <div class="vp-head-actions"><button type="button" class="vp-btn vp-btn-primary" data-mv-step="4">Seguir a clips →</button></div>
       </section>`;
   }
@@ -195,10 +262,10 @@
     return `
       <section class="vp-panel vp-section">
         <h2>4. Remasterizar y crear clips</h2>
-        <p class="vp-mv-muted">Luz, balance de blancos, contraste, nitidez y recorte vertical; clip de 3 s con las fotos reales (540×960, sin sonido, en bucle). En el servidor, sin IA.</p>
+        <p class="vp-mv-muted">El plato completo, nunca cortado: la foto entera en el cuadro (relleno con la misma foto difuminada), el plato arriba de la tarjeta del precio y un acercamiento suave (máx. 8 %). Clip de 3 s con las fotos reales (desde arriba → frente → perfil), 720×1280, sin sonido, en bucle. En el servidor, sin IA.</p>
         <div class="vp-head-actions">
-          <label class="vp-field vp-mv-style"><span>Estilo para todos</span><select class="vp-search" data-mv-style-all>${Object.entries(STYLES).map(([k, v]) => `<option value="${k}">${h(v)}</option>`).join("")}</select></label>
           <button type="button" class="vp-btn vp-btn-primary" data-mv-process-all ${withPhoto.length ? "" : "disabled"}>Crear todos (${h(withPhoto.length)})</button>
+          <button type="button" class="vp-btn" data-mv-regenerate>Rehacer todos los clips de la empresa</button>
           <button type="button" class="vp-btn" data-mv-step="5">Seguir a publicar →</button>
         </div>
         <div class="vp-mv-studio">
@@ -206,21 +273,28 @@
             const m = media(d.ref);
             const st = status(d.ref);
             const j = job(d.ref);
+            const main = (arr(m.roles).includes("front") ? "front" : arr(m.roles)[0]) || "front";
+            const confirmVideo = model.confirm && model.confirm.key === `${d.ref}|video`;
             return `<article class="vp-panel vp-mv-dish ${preview === d.ref ? "is-active" : ""}">
-              <header><strong>${h(d.nombre)}</strong><span class="vp-mv-pill is-${h(st)}">${h(JOB[st] || st)}</span></header>
+              <header><strong>${h(d.nombre)}</strong><span class="vp-mv-pill is-${h(st)}">${h(JOB[st] || st)}</span>${publishedTag(d)}</header>
               <div class="vp-mv-pair vp-mv-before-after">
-                <figure>${thumb(m.front_original_url, "Original")}<figcaption>Antes</figcaption></figure>
-                <figure>${thumb(m.front_remaster_url, "Remasterizada")}<figcaption>Después</figcaption></figure>
+                <figure>${thumb(m[`${main}_original_url`], "Original")}<figcaption>Antes</figcaption></figure>
+                <figure>${thumb(m[`${main}_remaster_url`], "Remasterizada")}<figcaption>Después</figcaption></figure>
               </div>
+              ${slotsHtml(d)}
               ${j && j.status === "error" ? `<p class="vp-mv-error">${h(j.error)}</p>` : ""}
               <div class="vp-mv-row">
                 <label class="vp-check"><input type="checkbox" data-mv-use-remaster="${h(d.ref)}" ${m.use_remaster ? "checked" : ""}> Usar la remasterizada</label>
               </div>
-              <div class="vp-mv-row">
-                <select class="vp-search" data-mv-style="${h(d.ref)}" aria-label="Estilo del clip de ${h(d.nombre)}">${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${(model.styles[d.ref] || m.clip_style || "auto") === k ? "selected" : ""}>${h(v)}</option>`).join("")}</select>
-                <button type="button" class="vp-btn vp-btn-sm" data-mv-process="${h(d.ref)}">${m.video_url ? "Rehacer" : "Crear clip"}</button>
-                <button type="button" class="vp-btn vp-btn-sm" data-mv-preview="${h(d.ref)}">Ver en el celular</button>
-              </div>
+              ${confirmVideo
+                ? `<div class="vp-mv-confirm" role="alert"><span>¿Quitar el video? Queda solo la foto.</span>
+                    <button type="button" class="vp-btn vp-btn-sm vp-btn-danger" data-mv-remove-yes>Quitar</button>
+                    <button type="button" class="vp-btn vp-btn-sm" data-mv-remove-no>Cancelar</button></div>`
+                : `<div class="vp-mv-row">
+                    <button type="button" class="vp-btn vp-btn-sm" data-mv-process="${h(d.ref)}">${m.video_url ? "Rehacer" : "Crear clip"}</button>
+                    ${m.video_url ? `<button type="button" class="vp-btn vp-btn-sm" data-mv-video-remove="${h(d.ref)}">Quitar video</button>` : ""}
+                    <button type="button" class="vp-btn vp-btn-sm" data-mv-preview="${h(d.ref)}">Ver en el celular</button>
+                  </div>`}
             </article>`;
           }).join("") || `<div class="vp-empty">Primero sube fotos en el paso 3.</div>`}</div>
           <aside class="vp-mv-phone-wrap">${phoneHtml(preview)}<small>Así lo verá el cliente en el QR de la mesa.</small></aside>
@@ -429,15 +503,63 @@
       return;
     }
     if (t.closest("[data-mv-process-all]")) {
-      const style = (document.querySelector("[data-mv-style-all]") || {}).value || "auto";
-      const data = await run("Mandando a la cola…", () => api.process(model.companyId, imp().id, { style }), "Los clips se están creando: puedes seguir trabajando.");
+      const data = await run("Mandando a la cola…", () => api.process(model.companyId, imp().id, { style: "auto" }), "Los clips se están creando: puedes seguir trabajando.");
+      if (data) { applyState(data); draw(); }
+      return;
+    }
+    if (t.closest("[data-mv-regenerate]")) {
+      const data = await run("Mandando a la cola…", () => api.regenerate(model.companyId));
+      if (data) {
+        model.notice = `${data.queued} clips de la empresa se rehacen con el proceso nuevo. Los publicados se siguen viendo hasta que el nuevo esté listo (no gasta cupo del cliente).`;
+        applyState(await api.imp(model.companyId, imp().id));
+        draw();
+      }
+      return;
+    }
+    const removeAsk = t.closest("[data-mv-remove]");
+    if (removeAsk) { model.confirm = { key: removeAsk.getAttribute("data-mv-remove") }; draw(); return; }
+    const videoAsk = t.closest("[data-mv-video-remove]");
+    if (videoAsk) { model.confirm = { key: `${videoAsk.getAttribute("data-mv-video-remove")}|video` }; draw(); return; }
+    const catAsk = t.closest("[data-mv-cat-del]");
+    if (catAsk) { model.confirm = { key: `cat|${catAsk.getAttribute("data-mv-cat-del")}` }; draw(); return; }
+    if (t.closest("[data-mv-remove-no]")) { model.confirm = null; draw(); return; }
+    if (t.closest("[data-mv-remove-yes]") && model.confirm) {
+      const key = model.confirm.key;
+      model.confirm = null;
+      if (key.startsWith("cat|")) {
+        const cat = key.slice(4);
+        model.table.platos = model.table.platos.filter((d) => d.categoria !== cat);
+        model.dirty = true;
+        draw();
+        return;
+      }
+      const [ref, role] = key.split("|");
+      if (role === "video") {
+        const data = await run("Quitando el video…", () => api.removeVideo(model.companyId, imp().id, ref), "Video quitado: queda la foto.");
+        if (data) { applyState(data); draw(); }
+        return;
+      }
+      const data = await run("Quitando la foto…", () => api.removePhoto(model.companyId, imp().id, ref, role));
+      if (data) {
+        model.undo = { key, ref, role, original: data.undo.original, remaster: data.undo.remaster, until: Date.now() + 10000 };
+        setTimeout(() => { if (model.undo && Date.now() >= model.undo.until) { model.undo = null; draw(); } }, 10100);
+        model.notice = data.undo.empty ? "Foto quitada. El plato quedó sin fotos: en el QR se ve su tarjeta de nombre y precio." : "Foto quitada. El clip se rehace con las fotos que quedan.";
+        applyState(data);
+        draw();
+      }
+      return;
+    }
+    if (t.closest("[data-mv-undo]") && model.undo) {
+      const u = model.undo;
+      model.undo = null;
+      const data = await run("Deshaciendo…", () => api.restorePhoto(model.companyId, imp().id, u.ref, u.role, { original: u.original, remaster: u.remaster }), "Listo: la foto volvió.");
       if (data) { applyState(data); draw(); }
       return;
     }
     const one = t.closest("[data-mv-process]");
     if (one) {
       const ref = one.getAttribute("data-mv-process");
-      const data = await run("Mandando a la cola…", () => api.process(model.companyId, imp().id, { refs: [ref], style: model.styles[ref] || "auto" }));
+      const data = await run("Mandando a la cola…", () => api.process(model.companyId, imp().id, { refs: [ref], style: "auto" }));
       if (data) { model.preview = ref; applyState(data); draw(); }
       return;
     }
@@ -488,7 +610,13 @@
     if (!t || !t.closest || !t.closest(".vp-mv")) return;
     if (t.matches("[data-mv-import-files]")) { model.files = Array.from(t.files || []); draw(); return; }
     if (t.matches("[data-mv-photo-files]")) { uploadPhotos(t.files); return; }
-    if (t.matches("[data-mv-style]")) { model.styles[t.getAttribute("data-mv-style")] = t.value; return; }
+    if (t.matches("[data-mv-change]") && t.files && t.files[0]) {
+      const [ref, role] = t.getAttribute("data-mv-change").split("|");
+      const file = t.files[0];
+      const data = await run("Subiendo la foto…", () => api.changePhoto(model.companyId, imp().id, ref, role, file), "Foto cambiada: el clip se rehace.");
+      if (data) { applyState(data); draw(); }
+      return;
+    }
     if (t.matches("[data-mv-use-remaster]")) {
       const ref = t.getAttribute("data-mv-use-remaster");
       const data = await run("Cambiando la versión…", () => api.choose(model.companyId, imp().id, ref, t.checked));
@@ -547,5 +675,5 @@
     },
     refreshPulse() {},
   };
-  window.CxConsoleMenuVideo = { model, api, view, whenText, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
+  window.CxConsoleMenuVideo = { model, api, view, whenText, slotHtml, guideHtml, catsHtml, companyStep, importStep, photosStep, clipsStep, publishStep, phoneHtml, tableHtml, STEPS, STYLES };
 })();

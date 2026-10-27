@@ -41,7 +41,7 @@ _last_prune = 0.0
 def company_id_from_path(path: str) -> Optional[str]:
     parts = [p for p in (path or "").split("/") if p]
     for index, part in enumerate(parts):
-        if part in ("companies", "brand") and index + 1 < len(parts) and _UUID.match(parts[index + 1]):
+        if part in ("companies", "brand", "menu-video") and index + 1 < len(parts) and _UUID.match(parts[index + 1]):
             return parts[index + 1].lower()
     return None
 

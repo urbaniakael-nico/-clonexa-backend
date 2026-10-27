@@ -76,25 +76,50 @@ test('paso 2: leyendo, error con "Llenar a mano" y tabla editable escapada', () 
   assert.doesNotMatch(html, /<al>/);
 });
 
-test('paso 3: fotos por plato, sueltas para asignar a mano', () => {
+test('paso 3: guía de los 3 ángulos, espacios Desde arriba / Frente / Perfil con Cambiar y Quitar; sueltas para asignar', () => {
   const M = setup(3);
   const html = M.photosStep();
-  assert.match(html, /Sin plato \(1\)[\s\S]*IMG_1\.jpg[\s\S]*data-mv-assign-ref="a2"[\s\S]*data-mv-assign="a2"/);
-  assert.match(html, /Lomo &lt;al&gt; trapo[\s\S]*src="\/menu-media\/c1\/o\.webp\?e=1&amp;s=x" alt="Frente"[\s\S]*Perfil/);
-  assert.match(html, /data-mv-reassign="a1"/);
+  assert.match(html, /<svg[^>]*aria-label="Los tres ángulos[\s\S]*Desde arriba[\s\S]*Frente 45°[\s\S]*Perfil/);
+  assert.match(html, /Plato completo y con espacio alrededor\.<\/b> Frente: a 45°\. Perfil: a la altura del plato\. Desde arriba: si el plato es grande/);
+  assert.match(html, /Sin plato \(1\)[\s\S]*IMG_1\.jpg[\s\S]*data-mv-assign-ref="a2"[\s\S]*<option value="top">Desde arriba<\/option>/);
+  assert.match(html, new RegExp(`Lomo &lt;al&gt; trapo[\s\S]*Desde arriba[\s\S]*>Subir<input[^>]*data-mv-change="${REF1}\|top"[\s\S]*Frente[\s\S]*src="/menu-media/c1/o\.webp\?e=1&amp;s=x"[\s\S]*>Cambiar<input[^>]*data-mv-change="${REF1}\|front"[\s\S]*data-mv-remove="${REF1}\|front">Quitar`));
+  assert.doesNotMatch(html, /window\.confirm|style="/, 'sin ventanas del navegador ni estilos en línea');
 });
 
-test('paso 4: antes/después, estilos, Rehacer y vista en el celular de muestra', () => {
+test('Quitar: confirmación en la misma pantalla y Deshacer durante 10 s', () => {
+  const M = setup(3);
+  M.model.confirm = { key: `${REF1}|front` };
+  let html = M.photosStep();
+  assert.match(html, /¿Quitar la foto de frente\?[\s\S]*data-mv-remove-yes>Quitar<\/button>[\s\S]*data-mv-remove-no>Cancelar/);
+  M.model.confirm = null;
+  M.model.undo = { key: `${REF1}|front`, ref: REF1, role: 'front', original: 'o1', until: Date.now() + 10000 };
+  assert.match(M.photosStep(), /data-mv-undo>Deshacer/);
+  M.model.undo.until = Date.now() - 1;
+  assert.doesNotMatch(M.photosStep(), /data-mv-undo/, 'pasados 10 s ya no se ofrece');
+});
+
+test('paso 4: antes/después, Rehacer, Quitar video, Rehacer todos y vista en el celular de muestra', () => {
   const M = setup(4);
-  const html = M.clipsStep();
-  assert.match(html, /Crear todos \(1\)/);
+  let html = M.clipsStep();
+  assert.match(html, /Crear todos \(1\)[\s\S]*data-mv-regenerate>Rehacer todos los clips de la empresa/);
+  assert.match(html, /720×1280/);
   assert.match(html, /Antes<\/figcaption>[\s\S]*Después<\/figcaption>/);
   assert.match(html, /data-mv-use-remaster="[^"]+" checked/);
-  assert.match(html, /<option value="front_side" selected>Frente a perfil<\/option>/);
-  assert.match(html, />Rehacer</);
+  assert.match(html, />Rehacer<[\s\S]*data-mv-video-remove="[^"]+">Quitar video/);
+  assert.doesNotMatch(html, /Frente a perfil|Paneo|data-mv-style/, 'un solo movimiento suave');
   assert.match(html, /<video class="vp-mv-phone-media" src="\/menu-media\/c1\/v\.mp4[^"]*" poster="[^"]+" autoplay muted loop playsinline>/);
   assert.match(html, /vp-mv-phone-info"><strong>Lomo &lt;al&gt; trapo<\/strong><span>\$42\.000<\/span><b>Agregar \+<\/b>/);
-  assert.match(html, /Así lo verá el cliente en el QR de la mesa/);
+  M.model.confirm = { key: `${REF1}|video` };
+  assert.match(M.clipsStep(), /¿Quitar el video\? Queda solo la foto\.[\s\S]*data-mv-remove-yes/);
+});
+
+test('paso 2: quitar una categoría (o una fila) de la importación antes de publicar', () => {
+  const M = setup(2);
+  let html = M.importStep();
+  assert.match(html, /FUERTES <button[^>]*data-mv-cat-del="FUERTES"[^>]*aria-label="Quitar la categoría FUERTES"/);
+  assert.match(html, /data-mv-row-del="0"/);
+  M.model.confirm = { key: 'cat|BEBIDAS' };
+  assert.match(M.importStep(), /¿Quitar BEBIDAS y sus 1 platos de la importación\?/);
 });
 
 test('paso 5: combinar, nunca borrar', () => {

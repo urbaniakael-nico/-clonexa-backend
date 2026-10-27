@@ -105,9 +105,10 @@ def _migration() -> list[str]:
         def execute(self, sql):
             statements.append(str(sql))
 
-    module = importlib.import_module("migrations.versions.024s_menu_video")
-    module.op = Op()
-    module.upgrade()
+    for name in ("024s_menu_video", "024t_menu_media_v2"):
+        module = importlib.import_module(f"migrations.versions.{name}")
+        module.op = Op()
+        module.upgrade()
     return statements
 
 
@@ -336,9 +337,18 @@ def test_cupo_mensual_nuevos_cambios_y_solicitar_mas(client, pg_url, monkeypatch
     r = client.post(url(dishes[3]), files=_photo_files(9))
     assert r.status_code == 409 and r.json()["detail"]["code"] == "sin_cupo" and r.json()["detail"]["kind"] == "nuevo"
     assert not _run(pg_url, "SELECT 1 FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": dishes[3]}), "sin cupo no guarda nada"
+    # 057D: cambiar de nuevo dentro de 30 min (se equivoco) = el mismo cambio, no gasta otro
+    age = lambda: _run(pg_url, "UPDATE menu_video_quota_log SET created_at = created_at - interval '31 minutes'", fetch=False)  # noqa: E731
+    r = client.post(url(dishes[0]), files=_photo_files(19))
+    assert r.json()["quota"]["changes"]["left"] == 3, "recien subida (nuevo) y cambiada en 30 min: no gasta"
+    age()
     # cambiar la foto de un plato que ya tenia = "cambio"
     for i in range(3):
-        assert client.post(url(dishes[0]), files=_photo_files(20 + i)).json()["quota"]["changes"]["left"] == 2 - i
+        r = client.post(url(dishes[0]), files=_photo_files(20 + i))
+        assert r.json()["quota"]["changes"]["left"] == 2 - i
+        again = client.post(url(dishes[0]), files=_photo_files(40 + i))
+        assert again.json()["quota"]["changes"]["left"] == 2 - i, "dos veces en 30 minutos gasta 1"
+        age()
     assert client.post(url(dishes[0]), files=_photo_files(30)).status_code == 409
     # lo que no gasta cupo: precio, nombre, descripcion, quitar foto, rehacer, elegir version
     before = _run(pg_url, "SELECT COUNT(*) AS n FROM menu_video_quota_log WHERE company_id = CAST(:c AS uuid)", {"c": cid})[0]["n"]
@@ -348,6 +358,13 @@ def test_cupo_mensual_nuevos_cambios_y_solicitar_mas(client, pg_url, monkeypatch
     assert client.post(f"/api/v1/menu-video/companies/{cid}/items/{dishes[1]}/redo", json={"style": "pan"}).status_code == 200
     assert client.post(f"/api/v1/menu-video/companies/{cid}/items/{dishes[1]}/choose", json={"use_remaster": False}).status_code == 200
     assert client.delete(url(dishes[2])).status_code == 200
+    assert client.delete(f"{url(dishes[1])}/side").status_code == 422, "quitar una foto que no tiene: error claro"
+    r = client.delete(f"{url(dishes[1])}/front")
+    assert r.status_code == 200 and r.json()["undo"]["empty"] is True, "quitar la unica foto: el plato queda con su tarjeta"
+    assert dishes[1] not in r.json()["media"]
+    undo = r.json()["undo"]
+    r = client.post(f"{url(dishes[1])}/front/restore", json={"original": undo["original"], "remaster": undo["remaster"]})
+    assert r.status_code == 200 and r.json()["media"][dishes[1]]["has_photo"], "Deshacer"
     after = _run(pg_url, "SELECT COUNT(*) AS n FROM menu_video_quota_log WHERE company_id = CAST(:c AS uuid)", {"c": cid})[0]["n"]
     assert after == before == 6
     # mes nuevo: el cupo vuelve a empezar
@@ -380,11 +397,19 @@ def test_carta_simple_foto_sin_cupo_ni_video(client, pg_url):
     media = body["media"][dish]
     assert media["photo_url"].startswith(f"/menu-media/{cid}/") and media["video_url"] == ""
     assert not _run(pg_url, "SELECT 1 FROM menu_video_quota_log") and not _run(pg_url, "SELECT 1 FROM menu_media_jobs")
-    assert len(client.bucket.objects) == 2, "la foto cambiada reemplaza la anterior (original + remasterizada)"
+    live = _run(pg_url, "SELECT COUNT(*) AS n FROM menu_media_assets WHERE discarded_at IS NULL")[0]["n"]
+    marked = _run(pg_url, "SELECT COUNT(*) AS n FROM menu_media_assets WHERE discarded_at IS NOT NULL")[0]["n"]
+    assert live == 2 and marked == 6, "la foto cambiada reemplaza la anterior; las viejas quedan marcadas, no borradas"
+    assert len(client.bucket.objects) == 8, "el bucket aun las tiene (se borran a los 30 dias)"
     assert client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo",
                        files=[("front", ("x.jpg", b"no es foto", "image/jpeg"))]).status_code == 422
     assert client.delete(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo").json()["media"] == {}
-    assert client.bucket.objects == {}
+    assert _run(pg_url, "SELECT COUNT(*) AS n FROM menu_media_assets WHERE discarded_at IS NULL")[0]["n"] == 0
+    assert len(client.bucket.objects) == 8, "nada se borra de inmediato"
+    # a los 30 dias se borran del bucket
+    _run(pg_url, "UPDATE menu_media_assets SET discarded_at = now() - interval '31 days'", fetch=False)
+    assert _db(pg_url)(lambda db: mv.purge_discarded(db)) == 8
+    assert client.bucket.objects == {} and not _run(pg_url, "SELECT 1 FROM menu_media_assets")
 
 
 # ------------------------------------------------------- cola y archivos
@@ -394,7 +419,8 @@ def test_cola_clip_y_menu_media_con_rangos(client, pg_url, monkeypatch):
     r = client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo", files=_photo_files(3, side=True))
     assert r.status_code == 200
     done = _jobs(pg_url)
-    assert len(done) == 1 and done[0]["status"] == "listo" and done[0]["style"] == "front_side"
+    assert len(done) == 1 and done[0]["status"] == "listo" and done[0]["style"] == "suave" and done[0]["photos"] == 2
+    assert done[0]["size"] == "720x1280"
     assert done[0]["clip_bytes"] < 400 * 1024
     assert done[0]["ffmpeg"], "cada trabajo guarda la versión de ffmpeg que lo hizo"
     media = client.get(f"/api/v1/menu-video/companies/{cid}/portal").json()["media"][dish]
@@ -410,7 +436,7 @@ def test_cola_clip_y_menu_media_con_rangos(client, pg_url, monkeypatch):
     assert client.get(media["video_url"].replace(cid, other)).status_code == 404, "nunca de otra empresa"
     # "Rehacer" con otro estilo
     client.post(f"/api/v1/menu-video/companies/{cid}/items/{dish}/redo", json={"style": "pan"})
-    assert _jobs(pg_url)[0]["style"] == "pan"
+    assert _jobs(pg_url)[0]["status"] == "listo", "Rehacer (los estilos viejos usan el proceso nuevo)"
     # foto dañada en la cola: error controlado
     _run(pg_url, "UPDATE menu_dish_media SET front_remaster = NULL, side_remaster = NULL", fetch=False)
     key = _run(pg_url, "SELECT storage_key FROM menu_media_assets ma JOIN menu_dish_media dm ON dm.front_original = ma.id")[0]["storage_key"]
@@ -503,7 +529,7 @@ def test_consola_recorrido_completo(client, pg_url, monkeypatch):
     r = client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/process", json={"style": "auto"}).json()
     assert r["queued"] == 2
     styles = sorted(j["style"] for j in _jobs(pg_url))
-    assert styles == ["front_side", "zoom"]
+    assert styles == ["suave", "suave"]
     state = client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()
     assert all(m["status"] == "listo" and "?e=" in m["video_url"] for m in state["media"].values()), "vista previa firmada"
     # elegir la original en la limonada rehace su clip
@@ -624,3 +650,73 @@ def test_volver_a_publicar_cambio_de_video(client, pg_url, monkeypatch):
     assert client.get(after["Lomo al trapo"]).status_code == 200
     assert client.get(before["Lomo al trapo"]).status_code == 404, "el video viejo ya no se sirve"
     assert _run(pg_url, "SELECT COUNT(*) AS n FROM carta_items WHERE company_id = CAST(:c AS uuid)", {"c": cid})[0]["n"] == 2, "nunca duplica ni borra"
+
+
+# ------------------------------------------- 057D cambiar / quitar fotos
+def test_consola_cambiar_quitar_deshacer_quitar_video_y_rehacer_todos(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    imp = client.post(f"/admin-v2/api/menu-video/{cid}/imports", data={"manual": "true"}).json()["import"]
+    table = client.put(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/table", json={"table": CARTA}).json()["import"]["table_data"]
+    lomo = next(d for d in table["platos"] if d["nombre"] == "Lomo al trapo")["ref"]
+    base = f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/dish/{lomo}"
+    for role, seed in (("top", 51), ("front", 52), ("side", 53)):
+        r = client.post(f"{base}/photo/{role}", files={"file": (f"{role}.jpg", dish_photo(seed), "image/jpeg")})
+        assert r.status_code == 200, r.text
+    _jobs(pg_url)
+    m = client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]
+    assert m["roles"] == ["top", "front", "side"] and m["status"] == "listo"
+    assert _run(pg_url, "SELECT result->>'photos' AS n FROM menu_media_jobs ORDER BY finished_at DESC LIMIT 1")[0]["n"] == "3", "3 fotos en el clip"
+    client.post(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}/publish")
+    item = _run(pg_url, "SELECT id::text AS id FROM carta_items WHERE name = 'Lomo al trapo'")[0]["id"]
+    old_clip = _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"]
+    # Cambiar sobre el plato YA publicado: el clip viejo se sigue viendo hasta que el nuevo esta listo
+    r = client.post(f"{base}/photo/front", files={"file": ("nuevo.jpg", dish_photo(60), "image/jpeg")})
+    assert r.status_code == 200 and r.json()["published"][lomo] == item
+    assert _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"] == old_clip
+    _jobs(pg_url)
+    new_clip = _run(pg_url, "SELECT clip_asset::text AS c FROM menu_dish_media WHERE dish_ref = CAST(:d AS uuid)", {"d": item})[0]["c"]
+    assert new_clip != old_clip
+    assert _run(pg_url, "SELECT discarded_at IS NOT NULL AS m FROM menu_media_assets WHERE id = CAST(:a AS uuid)", {"a": old_clip})[0]["m"], "el viejo queda marcado"
+    # Quitar perfil -> el clip se rehace con desde arriba + frente; Deshacer
+    r = client.delete(f"{base}/photo/side")
+    assert r.status_code == 200 and r.json()["undo"]["empty"] is False
+    undo = r.json()["undo"]
+    _jobs(pg_url)
+    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["roles"] == ["top", "front"]
+    assert client.post(f"{base}/photo/side/restore", json={"original": undo["original"], "remaster": undo["remaster"]}).status_code == 200
+    _jobs(pg_url)
+    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["roles"] == ["top", "front", "side"]
+    # Quitar video: queda la foto
+    r = client.delete(f"{base}/video")
+    m = r.json()["media"][lomo]
+    assert m["video_url"] == "" and m["has_photo"] and m["status"] == "sin_video"
+    # Rehacer todos: no gasta cupo del cliente
+    r = client.post(f"/admin-v2/api/menu-video/{cid}/regenerate")
+    assert r.json()["queued"] >= 1
+    _jobs(pg_url)
+    assert client.get(f"/admin-v2/api/menu-video/{cid}/imports/{imp['id']}").json()["media"][lomo]["video_url"]
+    assert not _run(pg_url, "SELECT 1 FROM menu_video_quota_log"), "lo que rehace Clonexa no gasta cupo"
+    # quitar las tres -> sin foto ni video (tarjeta en el QR)
+    for role in ("top", "front", "side"):
+        r = client.delete(f"{base}/photo/{role}")
+    assert r.json()["undo"]["empty"] is True and lomo not in r.json()["media"]
+    hsp._storage_ready = True
+    _admin(monkeypatch, False)
+    inv = {i["name"]: i for i in client.get(f"/api/v1/hospitality/companies/{cid}/inventory-lite").json()["inventory"]}
+    assert inv["Lomo al trapo"]["video_url"] == "" and inv["Lomo al trapo"]["photo_url"] == "", "sin fotos: la tarjeta del plato"
+
+
+def test_portal_quitar_cambiar_queda_en_la_auditoria(client, pg_url, monkeypatch):
+    from app.services import admin_audit
+
+    entries = []
+    monkeypatch.setattr(admin_audit, "write_entry", AsyncMock(side_effect=lambda e: entries.append(e)))
+    cid = _company(pg_url, "Demo", {"carta_video": True})
+    dish = _dish(pg_url, cid, "Pizza", 30000, _category(pg_url, cid, "PIZZAS"))
+    url = f"/api/v1/menu-video/companies/{cid}/items/{dish}/photo"
+    assert client.post(url, files=[("top", ("pizza-arriba.jpg", dish_photo(70), "image/jpeg"))]).status_code == 200
+    assert client.delete(f"{url}/top").status_code == 200
+    assert [(e["company_id"], e["surface"], e["detail"]["foto"], e["detail"]["fotos"]) for e in entries] == [
+        (cid, "portal", "subió", "desde arriba"), (cid, "portal", "quitó", "desde arriba")]
+    assert entries[0]["actor"].startswith("Dueña de prueba") and entries[0]["detail"]["plato"] == "Pizza"

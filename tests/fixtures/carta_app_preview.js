@@ -29,6 +29,7 @@
     D("p9", "Agua con gas", 5000, "bebidas", null, {}),
   ];
   if (P.get("broken") === "1") products[3].video_url = "/__mv/no-existe.mp4"; // el primero que se ve (ENTRADAS)
+  if (P.get("brokenphoto") === "1") products[1].photo_url = "/__mv/no-existe.webp"; // una foto que no carga
   const cover = (k) => { const p = products.find((x) => x.category_key === k && (x.poster_url || x.photo_url)); return p ? (p.poster_url || p.photo_url) : ""; };
   const cats = ["entradas", "fuertes", "bebidas", "postres"].map((k) => ({ key: k, label: k.toUpperCase(), count: products.filter((p) => p.category_key === k).length, image_url: cover(k) }));
   const APP = { company: { id: CID, name: B.name, logo_url: "" }, theme: B.theme, video: VIDEO, terms: ["Crudo", "Medio", "3/4", "Bien cocinado"],
@@ -98,6 +99,11 @@
     const wide = [...document.querySelectorAll(".cxa *")].filter((el) => { const r = el.getBoundingClientRect(); return r.width && !el.closest(".cxa-top,.cxa-chips,.cxa-kb") && (r.right > innerWidth + 1 || r.left < -1); });
     out.overflow_by = wide.slice(0, 4).map((el) => `${el.tagName}.${el.className}`);
     out.page_overflow = wide.length > 0 || (box ? box.scrollWidth > box.clientWidth + 1 : false);
+    // 057D: fotos de la lista: espera a que carguen las visibles y mide
+    const inView = (el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; };
+    for (let i = 0; i < 40; i += 1) { if ([...document.querySelectorAll(".cxa-item img")].filter(inView).every((im) => im.complete)) break; await wait(100); }
+    out.list_imgs = [...document.querySelectorAll(".cxa-item img")].map((im) => ({ eager: im.getAttribute("loading") !== "lazy", visible: inView(im),
+      loaded: im.complete && im.naturalWidth > 0, broken: im.classList.contains("cxa-broken"), bg: getComputedStyle(im).backgroundImage.slice(0, 15) }));
     out.text = document.querySelector(".cxa").innerText.replace(/\s+/g, " ").slice(0, 900);
     const dom = document.querySelector(".dom-shell");
     out.dom = dom && dom.offsetParent !== null ? dom.innerText.replace(/\s+/g, " ").slice(0, 400) : "";

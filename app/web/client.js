@@ -37406,7 +37406,8 @@ function inventoryCreatePayload() {
       direct: direct ? { inventory_item_id: direct.id, insumo: direct.name, unit: direct.consumption_unit, quantity: dish.direct_qty || 1 } : null,
       allows_portions: !!dish?.allows_portions, requires_term: !!dish?.requires_term, active: dish ? !!dish.active : true,
       search: "", error: "", busy: false,
-      photoFront: null, photoSide: null, frontPreview: "", sidePreview: "", photoRemove: false, style: "auto",
+      // 057D: fotos por espacio (desde arriba, frente, perfil): lo elegido y lo que se quita al guardar
+      photos057D: {}, removes057D: [], confirm057D: "", undo057D: null, style: "auto",
     };
   }
 
@@ -39258,41 +39259,63 @@ function inventoryCreatePayload() {
     return q ? q[kind].left : 1;
   }
 
-  function cxCarPhotoPick057A(role, label, preview, current) {
-    const url = preview || current || "";
-    return `
-      <label class="cx-car-photo-pick-057a ${url ? "has" : ""}">
-        ${url ? `<img src="${h(url)}" alt="${h(label)}">` : `<span class="cx-car-photo-empty-057a">📷</span>`}
-        <b>${h(label)}</b><small>${url ? "Toca para cambiarla" : "Toca para elegir la foto"}</small>
-        <input type="file" accept="image/jpeg,image/png,image/webp" data-wz-photo-file="${role}">
-      </label>`;
+  const CX_CAR_ROLES_057D = [["top", "Desde arriba", "desde arriba"], ["front", "Frente", "de frente"], ["side", "Perfil", "de perfil"]];
+
+  // 057D: guía al subir fotos, con un dibujo simple de los 3 ángulos.
+  function cxCarPhotoGuide057D(video) {
+    return `<div class="cx-car-guide-057d">
+      ${video ? `<svg viewBox="0 0 300 92" role="img" aria-label="Los tres ángulos: desde arriba, frente a 45 grados y perfil a la altura del plato">
+        <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="50" cy="48" r="26"/><circle cx="50" cy="48" r="15"/><path d="M50 4v10M44 9l6 6 6-6"/>
+          <ellipse cx="150" cy="58" rx="30" ry="12"/><ellipse cx="150" cy="56" rx="17" ry="6"/><path d="M118 14l14 14M126 28h6v-6"/>
+          <path d="M218 64h64M226 64q24-22 48 0"/><path d="M200 50h10M205 45l5 5-5 5"/>
+        </g>
+        <g fill="currentColor" font-size="11" text-anchor="middle"><text x="50" y="88">Desde arriba</text><text x="150" y="88">Frente 45°</text><text x="250" y="88">Perfil</text></g>
+      </svg>` : ""}
+      <p><b>Plato completo y con espacio alrededor.</b>${video ? " Frente: a 45°. Perfil: a la altura del plato. Desde arriba: si el plato es grande (pizzas, picadas, bandejas, bowls)." : ""}</p>
+    </div>`;
+  }
+
+  function cxCarSlot057D(wiz, media, role, label, word, simple) {
+    const staged = wiz.photos057D[role];
+    const removed = wiz.removes057D.includes(role);
+    const current = !removed && media ? (simple ? media.photo_url : media[`${role}_original_url`]) : "";
+    const url = (staged && staged.preview) || current || "";
+    const undo = wiz.undo057D && wiz.undo057D.role === role && Date.now() < wiz.undo057D.until;
+    const actions = wiz.confirm057D === role
+      ? `<div class="cx-car-confirm-057d" role="alert"><span>¿Quitar la foto ${h(word)}?</span>
+          <button class="client-btn danger" type="button" data-wz-photo-remove-yes>Quitar</button>
+          <button class="client-btn" type="button" data-wz-photo-remove-no>Cancelar</button></div>`
+      : `<div class="cx-car-slot-actions-057d">
+          <label class="client-btn cx-car-file-057d">${url ? "Cambiar" : "Subir"}<input type="file" accept="image/jpeg,image/png,image/webp" data-wz-photo-file="${role}" aria-label="${url ? "Cambiar" : "Subir"} foto ${h(word)}"></label>
+          ${url ? `<button class="client-btn danger" type="button" data-wz-photo-remove="${role}">Quitar</button>` : ""}
+        </div>`;
+    return `<div class="cx-car-slot-057d ${url ? "has" : ""}">
+        <b>${h(label)}</b>
+        ${url ? `<img src="${h(url)}" alt="${h(label)}">` : `<span class="cx-car-photo-empty-057a" aria-hidden="true">📷</span>`}
+        ${actions}
+        ${removed ? `<small>Se quita al guardar.</small>` : ""}
+        ${undo ? `<button class="client-btn" type="button" data-wz-photo-undo>Deshacer</button>` : ""}
+      </div>`;
   }
 
   function cxCarWizPhotoHtml057A(wiz) {
     const media = wiz.id ? cxCarMediaOf057A(wiz.id) : null;
     const video = cxCarVideoOn057A();
-    const current = wiz.photoRemove ? null : media;
-    const picked = Boolean(wiz.photoFront || wiz.photoSide);
+    const picked = Object.values(wiz.photos057D).some(Boolean);
     const kind = cxCarQuotaKind057A(wiz);
     const blocked = video && picked && cxCarQuotaLeft057A(kind) <= 0;
-    const styles = (cxCarMedia057A && cxCarMedia057A.styles) || {};
+    const roles = video ? CX_CAR_ROLES_057D : [["front", "Foto", ""]];
+    const untouched = !picked && !wiz.removes057D.length;
     return `
       <h3>Foto del plato</h3>
       <p class="cx-car-note-049k">${video
-        ? "Sube la foto de <b>frente</b> y, si quieres, la de <b>perfil</b>. Al guardar se mejora la luz y el color y se crea un video corto del plato para el QR (en nuestro servidor, sin costo de IA)."
+        ? "Sube las fotos que tengas: <b>desde arriba</b>, <b>frente</b> y <b>perfil</b>. Al guardar se mejora la luz y el color y se crea un video corto del plato completo para el QR (en nuestro servidor, sin costo de IA)."
         : "La foto se ve en el QR de la carta. Es opcional: puedes guardar sin foto."}</p>
-      <div class="cx-car-photo-grid-057a">
-        ${cxCarPhotoPick057A("front", video ? "Frente" : "Foto", wiz.frontPreview, current && current.photo_url)}
-        ${video ? cxCarPhotoPick057A("side", "Perfil (opcional)", wiz.sidePreview, current && current.side_url) : ""}
-        ${video && current && current.video_url && !picked ? `<figure class="cx-car-photo-video-057a"><video src="${h(current.video_url)}" poster="${h(current.poster_url)}" autoplay muted loop playsinline></video><figcaption>Así se ve en el QR</figcaption></figure>` : ""}
-      </div>
-      ${video && picked ? `<label class="cx-car-big-049j">Estilo del video<select data-wz-field="style">${Object.entries({ auto: "Automático", ...styles }).map(([k, v]) => `<option value="${h(k)}" ${wiz.style === k ? "selected" : ""}>${h(v)}</option>`).join("")}</select></label>` : ""}
-      <div class="cx-car-actions-048t">
-        ${picked ? `<button class="client-btn" type="button" data-wz-photo-clear>Deshacer la foto elegida</button>` : ""}
-        ${media && media.has_photo && !wiz.photoRemove && !picked ? `<button class="client-btn danger" type="button" data-wz-photo-remove>Quitar la foto</button>` : ""}
-        ${wiz.photoRemove ? `<span class="cx-car-note-049k">La foto se quita al guardar. <button class="client-btn" type="button" data-wz-photo-keep>No quitar</button></span>` : ""}
-      </div>
-      ${video ? `<p class="cx-car-quota-057a ${cxCarQuotaLeft057A(kind) <= 0 ? "out" : ""}" data-car-quota-left>${h(cxCarQuotaText057A(kind))} Cambiar precio, nombre, descripción u opciones no gasta cupo.</p>` : ""}
+      ${cxCarPhotoGuide057D(video)}
+      <div class="cx-car-slots-057d ${video ? "" : "one"}">${roles.map(([role, label, word]) => cxCarSlot057D(wiz, media, role, label, word || "del plato", !video)).join("")}</div>
+      ${video && media && media.video_url && untouched ? `<figure class="cx-car-photo-video-057a"><video src="${h(media.video_url)}" poster="${h(media.poster_url)}" autoplay muted loop playsinline></video><figcaption>Así se ve en el QR</figcaption></figure>` : ""}
+      ${video ? `<p class="cx-car-quota-057a ${cxCarQuotaLeft057A(kind) <= 0 ? "out" : ""}" data-car-quota-left>${h(cxCarQuotaText057A(kind))} Quitar una foto no gasta cupo; si cambias la misma foto otra vez en 30 minutos, cuenta como un solo cambio. Cambiar precio, nombre, descripción u opciones no gasta cupo.</p>` : ""}
       ${blocked ? `<div class="cx-car-quota-out-057a"><p>Ya usaste tu cupo de este mes. Puedes guardar el plato sin cambiar la foto o pedir más cupo.</p><button class="client-btn primary" type="button" data-car-quota-request>Solicitar más</button></div>` : ""}`;
   }
 
@@ -39310,14 +39333,16 @@ function inventoryCreatePayload() {
     cxCarUi049J.photoError = null;
     if (!wiz.id) return;
     try {
-      if (wiz.photoRemove && !wiz.photoFront && !wiz.photoSide) {
-        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/photo`, { method: "DELETE" });
-        return;
+      // 057D: primero lo que se quita (no gasta cupo); luego lo que se cambia o se sube
+      const media = cxCarMediaOf057A(wiz.id);
+      for (const role of wiz.removes057D) {
+        if (wiz.photos057D[role] || !media || !(media.roles || ["front"]).includes(role)) continue;
+        cxCarMedia057A = await cxCarMediaApi057A(`/items/${encodeURIComponent(wiz.id)}/photo/${role}`, { method: "DELETE" });
       }
-      if (!wiz.photoFront && !wiz.photoSide) return;
+      const files = Object.entries(wiz.photos057D).filter(([, v]) => v && v.file);
+      if (!files.length) return;
       const form = new FormData();
-      if (wiz.photoFront) form.append("front", wiz.photoFront);
-      if (wiz.photoSide) form.append("side", wiz.photoSide);
+      files.forEach(([role, v]) => form.append(role, v.file));
       form.append("style", wiz.style || "auto");
       cxCarMedia057A = await apiForm(`/menu-video/companies/${encodeURIComponent(state.companyId)}/items/${encodeURIComponent(wiz.id)}/photo`, form);
       cxCarMediaPoll057A();
@@ -39382,11 +39407,27 @@ function inventoryCreatePayload() {
       return true;
     }
     if (!wiz) return false;
-    if (target.closest("[data-wz-photo-remove]")) { wiz.photoRemove = true; cxCarPaint048T(); return true; }
-    if (target.closest("[data-wz-photo-keep]")) { wiz.photoRemove = false; cxCarPaint048T(); return true; }
-    if (target.closest("[data-wz-photo-clear]")) {
-      [wiz.frontPreview, wiz.sidePreview].forEach((u) => { if (u) try { URL.revokeObjectURL(u); } catch (_) {} });
-      Object.assign(wiz, { photoFront: null, photoSide: null, frontPreview: "", sidePreview: "" });
+    // 057D: Quitar con confirmación en la misma pantalla y Deshacer durante 10 s
+    const ask = target.closest("[data-wz-photo-remove]");
+    if (ask) { wiz.confirm057D = ask.getAttribute("data-wz-photo-remove"); cxCarPaint048T(); return true; }
+    if (target.closest("[data-wz-photo-remove-no]")) { wiz.confirm057D = ""; cxCarPaint048T(); return true; }
+    if (target.closest("[data-wz-photo-remove-yes]") && wiz.confirm057D) {
+      const role = wiz.confirm057D;
+      const staged = wiz.photos057D[role];
+      if (staged && staged.preview) try { URL.revokeObjectURL(staged.preview); } catch (_) {}
+      wiz.photos057D[role] = null;
+      if (!wiz.removes057D.includes(role)) wiz.removes057D.push(role);
+      wiz.confirm057D = "";
+      wiz.undo057D = { role, until: Date.now() + 10000, staged };
+      setTimeout(() => { if (cxCarWiz049J === wiz && wiz.undo057D && Date.now() >= wiz.undo057D.until) { wiz.undo057D = null; cxCarPaint048T(); } }, 10100);
+      cxCarPaint048T();
+      return true;
+    }
+    if (target.closest("[data-wz-photo-undo]") && wiz.undo057D) {
+      const { role, staged } = wiz.undo057D;
+      wiz.removes057D = wiz.removes057D.filter((r) => r !== role);
+      if (staged && staged.file) wiz.photos057D[role] = { file: staged.file, preview: URL.createObjectURL(staged.file) };
+      wiz.undo057D = null;
       cxCarPaint048T();
       return true;
     }
@@ -39400,12 +39441,12 @@ function inventoryCreatePayload() {
     const file = input.files && input.files[0];
     if (!file) return true;
     if (file.size > 15 * 1024 * 1024) { wiz.error = "La foto pesa más de 15 MB."; cxCarPaint048T(); return true; }
-    const role = input.getAttribute("data-wz-photo-file") === "side" ? "Side" : "Front";
-    const old = wiz[`${role.toLowerCase()}Preview`];
-    if (old) try { URL.revokeObjectURL(old); } catch (_) {}
-    wiz[`photo${role}`] = file;
-    wiz[`${role.toLowerCase()}Preview`] = URL.createObjectURL(file);
-    wiz.photoRemove = false;
+    const role = ["top", "front", "side"].includes(input.getAttribute("data-wz-photo-file")) ? input.getAttribute("data-wz-photo-file") : "front";
+    const old = wiz.photos057D[role];
+    if (old && old.preview) try { URL.revokeObjectURL(old.preview); } catch (_) {}
+    wiz.photos057D[role] = { file, preview: URL.createObjectURL(file) };
+    wiz.removes057D = wiz.removes057D.filter((r) => r !== role);
+    wiz.undo057D = null;
     wiz.error = "";
     cxCarPaint048T();
     return true;
@@ -39434,6 +39475,20 @@ function inventoryCreatePayload() {
       .cx-car-quota-out-057a { display:grid; gap:8px; justify-items:start; padding:12px; margin-top:10px; border-radius:14px; border:1px solid rgba(248,113,113,.6); }
       .cx-car-quota-out-057a p { margin:0; }
       .cx-car-thumb-057a { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; }
+      .cx-car-guide-057d { display:grid; grid-template-columns:minmax(0,220px) minmax(0,1fr); gap:12px; align-items:center; padding:10px 12px; margin:8px 0; border-radius:14px; border:1px dashed color-mix(in srgb, currentColor 30%, transparent); }
+      .cx-car-guide-057d svg { width:100%; height:auto; }
+      .cx-car-guide-057d p { margin:0; }
+      .cx-car-slots-057d { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin:8px 0 12px; }
+      .cx-car-slots-057d.one { grid-template-columns:minmax(0,240px); }
+      .cx-car-slot-057d { display:grid; gap:6px; align-content:start; padding:10px; border-radius:16px; border:2px dashed color-mix(in srgb, currentColor 30%, transparent); }
+      .cx-car-slot-057d.has { border-style:solid; }
+      .cx-car-slot-057d img { width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:10px; }
+      .cx-car-slot-actions-057d, .cx-car-confirm-057d { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+      .cx-car-confirm-057d { padding:8px; border-radius:12px; border:1px solid rgba(248,113,113,.7); }
+      .cx-car-file-057d { position:relative; overflow:hidden; }
+      .cx-car-file-057d input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+      .cx-car-file-057d:focus-within { outline:3px solid #22c55e; outline-offset:2px; }
+      @media (max-width: 520px) { .cx-car-slots-057d { grid-template-columns:1fr 1fr; } .cx-car-guide-057d { grid-template-columns:1fr; } }
       @media (max-width: 420px) { .cx-car-photo-grid-057a { grid-template-columns:1fr 1fr; } .cx-car-photo-pick-057a { min-height:150px; } }
     `;
     document.head.appendChild(style);

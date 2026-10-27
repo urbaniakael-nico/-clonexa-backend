@@ -171,6 +171,14 @@ async def spend(db: AsyncSession, company_id: Any, kind: str, item_id: Any, acto
     # un candado por empresa: dos pestañas a la vez no gastan de mas
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"menu_video_quota:{_uuid(company_id)}"})
     state = await quota_state(db, company_id, now)
+    # 057D: si el mismo plato gasto cupo hace menos de 30 min (se equivoco y la
+    # cambia otra vez), cuenta como el mismo cambio y no gasta otro.
+    recent = (await db.execute(text("""
+        SELECT 1 FROM menu_video_quota_log WHERE company_id = CAST(:c AS uuid) AND carta_item_id = CAST(:i AS uuid)
+          AND kind IN ('nuevo', 'cambio') AND created_at > CAST(:t AS timestamptz) - interval '30 minutes' LIMIT 1
+    """), {"c": _uuid(company_id), "i": _uuid(item_id), "t": now or datetime.now(timezone.utc)})).first()
+    if recent:
+        return {**state, "same_change": True}
     bucket = state["new" if kind == "nuevo" else "changes"]
     if bucket["left"] <= 0:
         raise QuotaExceeded(kind, state)
@@ -287,7 +295,8 @@ async def is_public(db: AsyncSession, company_id: Any, asset_id: Any) -> bool:
     row = (await db.execute(text("""
         SELECT 1 FROM menu_dish_media dm JOIN carta_items ci ON ci.id = dm.dish_ref AND ci.company_id = dm.company_id
         WHERE dm.company_id = CAST(:c AS uuid)
-          AND CAST(:a AS uuid) IN (dm.front_original, dm.front_remaster, dm.side_original, dm.side_remaster, dm.clip_asset, dm.poster_asset)
+          AND CAST(:a AS uuid) IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
+                                   dm.side_remaster, dm.clip_asset, dm.poster_asset)
         LIMIT 1
     """), {"c": _uuid(company_id), "a": _uuid(asset_id)})).first()
     return bool(row)
@@ -298,40 +307,64 @@ async def read_bytes(row: dict) -> bytes:
 
 
 async def discard(db: AsyncSession, company_id: Any, asset_ids: list) -> None:
-    """Borra assets que ya nadie usa (bucket + fila). Nunca rompe la accion."""
+    """057D: lo que ya nadie usa NO se borra de inmediato: queda marcado
+    (discarded_at) y purge_discarded() lo elimina del bucket a los 30 dias,
+    por si hay que recuperarlo. Nunca rompe la accion."""
     ids = [str(a) for a in asset_ids if a]
     if not ids:
         return
     cid = _uuid(company_id)
     still = (await db.execute(text("""
-        SELECT unnest(ARRAY[front_original, front_remaster, side_original, side_remaster, clip_asset, poster_asset])::text AS a
+        SELECT unnest(ARRAY[top_original, top_remaster, front_original, front_remaster, side_original, side_remaster,
+                            clip_asset, poster_asset])::text AS a
         FROM menu_dish_media WHERE company_id = CAST(:c AS uuid)
     """), {"c": cid})).mappings().all()
     used = {r["a"] for r in still if r.get("a")}
     gone = [a for a in ids if a not in used]
-    if not gone:
-        return
+    if gone:
+        await db.execute(text("""
+            UPDATE menu_media_assets SET discarded_at = COALESCE(discarded_at, now())
+            WHERE company_id = CAST(:c AS uuid) AND id::text = ANY(:ids)
+        """), {"c": cid, "ids": gone})
+
+
+async def purge_discarded(db: AsyncSession, days: int = 30) -> int:
+    """Borra del bucket (y la fila) lo descartado hace mas de `days` dias que
+    nadie volvio a usar."""
     rows = (await db.execute(text("""
-        SELECT id::text AS id, storage_key FROM menu_media_assets
-        WHERE company_id = CAST(:c AS uuid) AND id::text = ANY(:ids)
-    """), {"c": cid, "ids": gone})).mappings().all()
+        SELECT a.id::text AS id, a.storage_key FROM menu_media_assets a
+        WHERE a.discarded_at < now() - make_interval(days => :d)
+          AND NOT EXISTS (SELECT 1 FROM menu_dish_media dm WHERE dm.company_id = a.company_id
+                          AND a.id IN (dm.top_original, dm.top_remaster, dm.front_original, dm.front_remaster, dm.side_original,
+                                       dm.side_remaster, dm.clip_asset, dm.poster_asset))
+        LIMIT 500
+    """), {"d": days})).mappings().all()
+    if not rows:
+        return 0
     try:
         await asyncio.to_thread(brand_media.backend().delete, [r["storage_key"] for r in rows])
     except Exception as exc:
-        log.warning("menu video: no se pudo borrar del bucket: %s", type(exc).__name__)
-    await db.execute(text("DELETE FROM menu_media_assets WHERE company_id = CAST(:c AS uuid) AND id::text = ANY(:ids)"),
-                     {"c": cid, "ids": gone})
+        log.warning("menu video: no se pudo purgar del bucket: %s", type(exc).__name__)
+        return 0
+    await db.execute(text("DELETE FROM menu_media_assets WHERE id::text = ANY(:ids)"), {"ids": [r["id"] for r in rows]})
+    await db.commit()
+    return len(rows)
 
 
 # ------------------------------------------------------- media por plato ---
-MEDIA_COLUMNS = ("front_original", "front_remaster", "side_original", "side_remaster", "clip_asset", "poster_asset")
+MEDIA_COLUMNS = ("top_original", "top_remaster", "front_original", "front_remaster", "side_original", "side_remaster",
+                 "clip_asset", "poster_asset")
+ROLES = mm.ROLES  # desde arriba -> frente -> perfil (orden del clip)
+DISCARD_DAYS = 30
+_SELECT_MEDIA = """dish_ref::text AS dish_ref, top_original::text AS top_original, top_remaster::text AS top_remaster,
+               front_original::text AS front_original, front_remaster::text AS front_remaster,
+               side_original::text AS side_original, side_remaster::text AS side_remaster, use_remaster,
+               clip_asset::text AS clip_asset, poster_asset::text AS poster_asset, clip_style, status"""
 
 
 async def dish_media(db: AsyncSession, company_id: Any, dish_ref: Any) -> Optional[dict]:
-    row = (await db.execute(text("""
-        SELECT dish_ref::text AS dish_ref, front_original::text AS front_original, front_remaster::text AS front_remaster,
-               side_original::text AS side_original, side_remaster::text AS side_remaster, use_remaster,
-               clip_asset::text AS clip_asset, poster_asset::text AS poster_asset, clip_style, status, updated_at
+    row = (await db.execute(text(f"""
+        SELECT {_SELECT_MEDIA}, updated_at
         FROM menu_dish_media WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:d AS uuid)
     """), {"c": _uuid(company_id), "d": _uuid(dish_ref)})).mappings().first()
     return dict(row) if row else None
@@ -369,12 +402,16 @@ def chosen_photo(media: dict, role: str = "front") -> Optional[str]:
 
 def media_payload(company_id: str, media: Optional[dict], signed: bool = False, video: bool = True) -> dict:
     """Lo que necesitan la consola, el portal y el QR (URLs, nunca llaves)."""
-    if not media:
-        return {"has_photo": False, "photo_url": "", "side_url": "", "video_url": "", "poster_url": "", "status": "sin_foto"}
+    if not media or not any(media.get(f"{r}_original") for r in ROLES):
+        return {"has_photo": False, "photo_url": "", "side_url": "", "top_url": "", "video_url": "", "poster_url": "", "status": "sin_foto",
+                "roles": []}
     url = lambda a, ct="image/webp": media_url(company_id, a, ct, signed)  # noqa: E731
+    main_role = next(r for r in ("front", "top", "side") if media.get(f"{r}_original"))
     out = {
-        "has_photo": bool(media.get("front_original")),
-        "photo_url": url(chosen_photo(media, "front")), "side_url": url(chosen_photo(media, "side")),
+        "has_photo": True, "roles": [r for r in ROLES if media.get(f"{r}_original")],
+        "photo_url": url(chosen_photo(media, main_role)), "side_url": url(chosen_photo(media, "side")), "top_url": url(chosen_photo(media, "top")),
+        "front_url": url(chosen_photo(media, "front")),
+        "top_original_url": url(media.get("top_original")), "top_remaster_url": url(media.get("top_remaster")),
         "front_original_url": url(media.get("front_original")), "front_remaster_url": url(media.get("front_remaster")),
         "side_original_url": url(media.get("side_original")), "side_remaster_url": url(media.get("side_remaster")),
         "use_remaster": bool(media.get("use_remaster", True)), "clip_style": media.get("clip_style") or "",
@@ -391,10 +428,8 @@ async def media_map(db: AsyncSession, company_id: Any, signed: bool = False, vid
     cid = _uuid(company_id)
     try:
         async with db.begin_nested():  # savepoint: nunca deshace lo pendiente de quien llama
-            rows = (await db.execute(text("""
-                SELECT dish_ref::text AS dish_ref, front_original::text AS front_original, front_remaster::text AS front_remaster,
-                       side_original::text AS side_original, side_remaster::text AS side_remaster, use_remaster,
-                       clip_asset::text AS clip_asset, poster_asset::text AS poster_asset, clip_style, status
+            rows = (await db.execute(text(f"""
+                SELECT {_SELECT_MEDIA}
                 FROM menu_dish_media WHERE company_id = CAST(:c AS uuid)
             """), {"c": cid})).mappings().all()
     except Exception as exc:  # tabla aun sin migrar: sin fotos, la carta de siempre
@@ -411,16 +446,72 @@ async def save_photo(db: AsyncSession, company_id: Any, dish_ref: Any, role: str
     image = await asyncio.to_thread(mm.load, raw)
     data, width, height = await asyncio.to_thread(mm.normalize, image)
     asset_id = await store_asset(db, company_id, dish_ref, role, "original", data, "image/webp", width, height, source_name, meta)
+    if role not in ROLES:
+        raise brand_media.ImageRejected("Foto inválida (desde arriba, frente o perfil).")
     current = await dish_media(db, company_id, dish_ref) or {}
     stale = [current.get(f"{role}_original"), current.get(f"{role}_remaster")]
-    if role == "front":
-        stale += [current.get("clip_asset"), current.get("poster_asset")]
-    changes: dict[str, Any] = {f"{role}_original": asset_id, f"{role}_remaster": ""}
-    if role == "front":
-        changes.update(clip_asset="", poster_asset="", status="sin_video")
-    await upsert_media(db, company_id, dish_ref, **changes)
+    # 057D: el clip que ya se ve sigue sirviendose hasta que el nuevo este listo
+    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": asset_id, f"{role}_remaster": ""})
     await discard(db, company_id, stale)
     return asset_id
+
+
+async def remove_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: str) -> dict:
+    """Quita UNA foto (desde arriba, frente o perfil). Devuelve lo necesario
+    para deshacer. Si no queda ninguna, el plato queda sin foto ni video (el QR
+    muestra su tarjeta de nombre y precio). Los archivos quedan marcados."""
+    if role not in ROLES:
+        raise brand_media.ImageRejected("Foto inválida.")
+    current = await dish_media(db, company_id, dish_ref)
+    if not current or not current.get(f"{role}_original"):
+        raise brand_media.ImageRejected("Ese plato no tiene esa foto.")
+    undo = {"role": role, "original": current.get(f"{role}_original"), "remaster": current.get(f"{role}_remaster") or ""}
+    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": "", f"{role}_remaster": ""})
+    left = [r for r in ROLES if r != role and current.get(f"{r}_original")]
+    if not left:
+        await db.execute(text("DELETE FROM menu_dish_media WHERE company_id = CAST(:c AS uuid) AND dish_ref = CAST(:d AS uuid)"),
+                         {"c": _uuid(company_id), "d": _uuid(dish_ref)})
+        await discard(db, company_id, [undo["original"], undo["remaster"], current.get("clip_asset"), current.get("poster_asset")])
+        return {**undo, "empty": True}
+    await discard(db, company_id, [undo["original"], undo["remaster"]])
+    return {**undo, "empty": False}
+
+
+async def restore_role(db: AsyncSession, company_id: Any, dish_ref: Any, role: str, original: Any, remaster: Any = "") -> None:
+    """Deshacer "Quitar": la foto vuelve (el archivo seguia guardado)."""
+    row = await asset(db, company_id, original)
+    if role not in ROLES or not row or row["variant"] != "original" or row.get("dish_ref") not in (None, _uuid(dish_ref)):
+        raise brand_media.ImageRejected("No se puede deshacer: esa foto ya no está.")
+    keep_remaster = ""
+    if remaster:
+        rem = await asset(db, company_id, remaster)
+        keep_remaster = rem["id"] if rem and rem["variant"] == "remaster" else ""
+    await upsert_media(db, company_id, dish_ref, **{f"{role}_original": row["id"], f"{role}_remaster": keep_remaster})
+    await db.execute(text("""
+        UPDATE menu_media_assets SET discarded_at = NULL WHERE company_id = CAST(:c AS uuid) AND id::text = ANY(:ids)
+    """), {"c": _uuid(company_id), "ids": [i for i in (row["id"], keep_remaster) if i]})
+
+
+async def clear_video(db: AsyncSession, company_id: Any, dish_ref: Any) -> None:
+    """Quitar video: queda solo la foto (marcado, se borra a los 30 dias)."""
+    current = await dish_media(db, company_id, dish_ref)
+    if not current:
+        return
+    await upsert_media(db, company_id, dish_ref, clip_asset="", poster_asset="", status="sin_video")
+    await discard(db, company_id, [current.get("clip_asset"), current.get("poster_asset")])
+
+
+async def regenerate_company(db: AsyncSession, company_id: Any) -> int:
+    """Rehacer todos los clips de la empresa con el proceso actual (lo hace
+    Clonexa: no gasta cupo del cliente). Los clips publicados siguen
+    sirviendose hasta que el nuevo de cada plato este listo."""
+    rows = (await db.execute(text("""
+        SELECT dish_ref::text AS ref FROM menu_dish_media
+        WHERE company_id = CAST(:c AS uuid) AND COALESCE(top_original, front_original, side_original) IS NOT NULL
+    """), {"c": _uuid(company_id)})).mappings().all()
+    for row in rows:
+        await enqueue(db, company_id, row["ref"], "auto")
+    return len(rows)
 
 
 async def assign_photo(db: AsyncSession, company_id: Any, asset_id: Any, dish_ref: Any, role: str) -> None:
@@ -431,7 +522,7 @@ async def assign_photo(db: AsyncSession, company_id: Any, asset_id: Any, dish_re
     old_ref = row.get("dish_ref")
     if old_ref:
         old = await dish_media(db, company_id, old_ref) or {}
-        for column in ("front_original", "side_original"):
+        for column in ("top_original", "front_original", "side_original"):
             if old.get(column) == row["id"]:
                 await upsert_media(db, company_id, old_ref, **{column: "", column.replace("original", "remaster"): ""})
     current = await dish_media(db, company_id, dish_ref) or {}
@@ -517,11 +608,11 @@ async def process(db: AsyncSession, job: dict) -> dict:
     cid, ref = job["company_id"], job["dish_ref"]
     started = time.perf_counter()
     media = await dish_media(db, cid, ref)
-    if not media or not media.get("front_original"):
-        raise mm.MediaRejected("El plato no tiene foto de frente.")
+    if not media or not any(media.get(f"{r}_original") for r in ROLES):
+        raise mm.MediaRejected("El plato no tiene fotos.")
     timings: dict[str, Any] = {}
     images: dict[str, Any] = {}
-    for role in ("front", "side"):
+    for role in ROLES:
         original_id = media.get(f"{role}_original")
         if not original_id:
             continue
@@ -532,11 +623,12 @@ async def process(db: AsyncSession, job: dict) -> dict:
             t0 = time.perf_counter()
             result = await asyncio.to_thread(mm.remaster, original)
             timings[f"{role}_remaster_ms"] = round((time.perf_counter() - t0) * 1000)
+            timings.setdefault("front_remaster_ms", timings[f"{role}_remaster_ms"])
             remaster_id = await store_asset(db, cid, ref, role, "remaster", result.data, "image/webp", result.width, result.height)
             await upsert_media(db, cid, ref, **{f"{role}_remaster": remaster_id})
             media[f"{role}_remaster"] = remaster_id
         images[role] = await asyncio.to_thread(mm.clip_source, original, bool(media.get("use_remaster", True)))
-    clip = await asyncio.to_thread(mm.make_clip, images["front"], images.get("side"), job.get("style") or "auto")
+    clip = await asyncio.to_thread(mm.make_clip, [images[r] for r in ROLES if r in images], None, job.get("style") or "auto")
     clip_id = await store_asset(db, cid, ref, "front", "clip", clip.video, "video/mp4", mm.CLIP_W, mm.CLIP_H,
                                 meta={"style": clip.style, "attempts": clip.attempts})
     poster_id = await store_asset(db, cid, ref, "front", "poster", clip.poster, "image/webp", mm.CLIP_W, mm.CLIP_H)
@@ -544,7 +636,8 @@ async def process(db: AsyncSession, job: dict) -> dict:
     await upsert_media(db, cid, ref, clip_asset=clip_id, poster_asset=poster_id, clip_style=clip.style, status="listo")
     await discard(db, cid, stale)
     return {**timings, "clip_ms": clip.encode_ms, "total_ms": round((time.perf_counter() - started) * 1000),
-            "clip_bytes": len(clip.video), "poster_bytes": len(clip.poster), "style": clip.style, "ffmpeg": mm.ffmpeg_version()}
+            "clip_bytes": len(clip.video), "poster_bytes": len(clip.poster), "style": clip.style, "ffmpeg": mm.ffmpeg_version(),
+            "photos": len(images), "found": clip.sources, "size": f"{mm.CLIP_W}x{mm.CLIP_H}"}
 
 
 async def run_job(db: AsyncSession, job: dict) -> dict:
@@ -580,6 +673,7 @@ async def requeue_stale(db: AsyncSession) -> int:
 
 
 _wakeup: Optional[asyncio.Event] = None
+_last_purge = 0.0
 
 
 def wake() -> None:
@@ -595,6 +689,10 @@ async def _worker(index: int) -> None:
             async with AsyncSessionLocal() as db:
                 if index == 0:
                     await requeue_stale(db)
+                    global _last_purge
+                    if time.monotonic() - _last_purge > 3600:
+                        _last_purge = time.monotonic()
+                        await purge_discarded(db)
                 job = await claim(db)
                 if job:
                     await run_job(db, job)
@@ -756,9 +854,15 @@ def match_photo(filename: str, dishes: list[dict]) -> tuple[Optional[str], str]:
     stem = norm(os.path.splitext(os.path.basename(str(filename or "")))[0])
     words = stem.split()
     side_words = {"perfil", "lado", "lateral", "side", "costado"}
-    front_words = {"frente", "front", "frontal", "arriba", "top"}
-    role = "side" if any(w in side_words for w in words) or (len(words) > 1 and words[-1] == "2") else "front"
-    noise = side_words | front_words | {"foto", "img", "image", "imagen", "dsc", "copy", "copia", "final", "1", "2", "plato"}
+    top_words = {"arriba", "top", "cenital", "encima", "aerea"}
+    front_words = {"frente", "front", "frontal"}
+    if any(w in top_words for w in words) or (len(words) > 1 and words[-1] == "3"):
+        role = "top"
+    elif any(w in side_words for w in words) or (len(words) > 1 and words[-1] == "2"):
+        role = "side"
+    else:
+        role = "front"
+    noise = side_words | top_words | front_words | {"desde", "foto", "img", "image", "imagen", "dsc", "copy", "copia", "final", "1", "2", "3", "plato"}
     tokens = [w for w in words if w not in noise and not w.isdigit()]
     if not tokens:
         return None, role
@@ -810,6 +914,24 @@ def describe(dish: dict) -> str:
     if options:
         text_value = f"{text_value} · Opciones: {options}" if text_value else f"Opciones: {options}"
     return text_value[:600]
+
+
+async def published_targets(db: AsyncSession, company_id: Any, table: dict) -> dict[str, str]:
+    """ref de la tabla -> id del plato YA publicado en la Carta (mismo nombre
+    dentro de su categoria). Las fotos de un plato publicado se cambian sobre
+    el plato real: se ven de inmediato en el QR."""
+    cid = _uuid(company_id)
+    by_id = {c["id"]: c for c in await _categories(db, cid)}
+    existing: dict[tuple[str, str], str] = {}
+    for dish in await _dishes(db, cid):
+        top, _sub = _top_of(dish.get("category_id"), by_id)
+        existing.setdefault((norm(top["label"]) if top else "", norm(dish["name"])), dish["id"])
+    out = {}
+    for d in clean_table(table)["platos"]:
+        found = existing.get((norm(d["categoria"]), norm(d["nombre"])))
+        if found:
+            out[d["ref"]] = found
+    return out
 
 
 async def plan_publish(db: AsyncSession, company_id: Any, table: dict) -> dict:

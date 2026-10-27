@@ -156,14 +156,30 @@ async def _photos(db: AsyncSession, company_id: str, import_id: str) -> list[dic
     return [{**dict(r), "meta": mv._json(r["meta"], {}), "url": mv.media_url(company_id, r["id"], signed=True)} for r in rows]
 
 
+async def _targets(db: AsyncSession, company_id: str, current: dict) -> dict[str, str]:
+    """ref -> donde viven sus fotos: el borrador si tiene; si no, el plato ya publicado."""
+    table = current.get("table_data") or {}
+    media = await mv.media_map(db, company_id)
+    published = await mv.published_targets(db, company_id, table)
+    out = {}
+    for d in table.get("platos") or []:
+        ref = d["ref"]
+        out[ref] = ref if (ref in media or ref not in published) else published[ref]
+    return out
+
+
 async def _import_state(db: AsyncSession, company_id: str, current: Optional[dict]) -> dict:
     if not current:
-        return {"import": None, "media": {}, "jobs": {}, "photos": []}
+        return {"import": None, "media": {}, "jobs": {}, "photos": [], "targets": {}}
     refs = [d["ref"] for d in (current.get("table_data") or {}).get("platos") or []]
+    targets = await _targets(db, company_id, current)
     media = await mv.media_map(db, company_id, signed=True)
+    jobs = await mv.jobs_for(db, company_id, list(set(targets.values())))
     current = {**current, "files": [{k: v for k, v in f.items() if k != "key"} for f in current.get("files") or []]}
-    return {"import": current, "media": {r: media[r] for r in refs if r in media},
-            "jobs": await mv.jobs_for(db, company_id, refs), "photos": await _photos(db, company_id, current["id"])}
+    return {"import": current, "media": {r: media[targets[r]] for r in refs if targets.get(r) in media},
+            "jobs": {r: jobs[targets[r]] for r in refs if targets.get(r) in jobs},
+            "published": {r: targets[r] for r in refs if targets.get(r) != r},
+            "photos": await _photos(db, company_id, current["id"])}
 
 
 # --------------------------------------------------------------- lectura ---
@@ -439,17 +455,121 @@ async def process(company_id: str, import_id: str, payload: ProcessIn, db: Async
     company = await _carta_company(db, company_id)
     cid = company["id"]
     current = await _import_or_404(db, cid, import_id)
-    refs = [d["ref"] for d in (current.get("table_data") or {}).get("platos") or []]
-    wanted = [r for r in refs if payload.refs is None or r in payload.refs]
+    targets = await _targets(db, cid, current)
+    wanted = [r for r in targets if payload.refs is None or r in payload.refs]
     queued = 0
     for ref in wanted:
-        media = await mv.dish_media(db, cid, ref)
-        if media and media.get("front_original"):
-            await mv.enqueue(db, cid, ref, payload.style)
+        media = await mv.dish_media(db, cid, targets[ref])
+        if media and any(media.get(f"{r}_original") for r in mv.ROLES):
+            await mv.enqueue(db, cid, targets[ref], "auto")
             queued += 1
     await db.commit()
     mv.wake()
     return _json({"ok": True, "queued": queued, **await _import_state(db, cid, current)})
+
+
+# ------------------------------------------- cambiar / quitar fotos (057D)
+async def _target_of(db: AsyncSession, cid: str, current: dict, ref: str) -> str:
+    targets = await _targets(db, cid, current)
+    if ref not in targets:
+        raise HTTPException(status_code=404, detail="Ese plato no está en la tabla.")
+    return targets[ref]
+
+
+async def _requeue(db: AsyncSession, cid: str, target: str) -> None:
+    media = await mv.dish_media(db, cid, target)
+    if media and any(media.get(f"{r}_original") for r in mv.ROLES):
+        await mv.enqueue(db, cid, target, "auto")
+
+
+@router.post(API + "/{company_id}/imports/{import_id}/dish/{ref}/photo/{role}", include_in_schema=False, dependencies=GUARD)
+async def change_photo(company_id: str, import_id: str, ref: str, role: str, request: Request, file: UploadFile = File(...),
+                       db: AsyncSession = Depends(get_db)):
+    """Cambiar: otra foto en ese mismo espacio y se rehace el clip. Lo que hace
+    Clonexa desde la consola no gasta cupo del cliente."""
+    company = await _carta_company(db, company_id)
+    cid = company["id"]
+    current = await _import_or_404(db, cid, import_id)
+    target = await _target_of(db, cid, current, ref)
+    raw = await file.read(mm.MAX_UPLOAD_BYTES + 1)
+    try:
+        await mv.save_photo(db, cid, target, role, raw, file.filename or "foto", meta={"import_id": import_id})
+        await mv.enqueue(db, cid, target, "auto")
+        await db.commit()
+    except (mm.MediaRejected, brand_media.ImageRejected, brand_media.StorageUnavailable) as error:
+        await db.rollback()
+        raise _storage_error(error) from None
+    mv.wake()
+    await _audit(request, company_name=company["name"], menu_video="cambió foto", plato=ref, foto=role)
+    return _json({"ok": True, **await _import_state(db, cid, current)})
+
+
+@router.delete(API + "/{company_id}/imports/{import_id}/dish/{ref}/photo/{role}", include_in_schema=False, dependencies=GUARD)
+async def remove_photo(company_id: str, import_id: str, ref: str, role: str, request: Request, db: AsyncSession = Depends(get_db)):
+    company = await _carta_company(db, company_id)
+    cid = company["id"]
+    current = await _import_or_404(db, cid, import_id)
+    target = await _target_of(db, cid, current, ref)
+    try:
+        undo = await mv.remove_role(db, cid, target, role)
+        if not undo["empty"]:
+            await mv.enqueue(db, cid, target, "auto")
+        await db.commit()
+    except brand_media.ImageRejected as error:
+        await db.rollback()
+        raise _storage_error(error) from None
+    mv.wake()
+    await _audit(request, company_name=company["name"], menu_video="quitó foto", plato=ref, foto=role)
+    return _json({"ok": True, "undo": undo, **await _import_state(db, cid, current)})
+
+
+class RestoreIn(BaseModel):
+    original: str = Field(..., max_length=40)
+    remaster: str = Field(default="", max_length=40)
+
+
+@router.post(API + "/{company_id}/imports/{import_id}/dish/{ref}/photo/{role}/restore", include_in_schema=False, dependencies=GUARD)
+async def restore_photo(company_id: str, import_id: str, ref: str, role: str, payload: RestoreIn, request: Request,
+                        db: AsyncSession = Depends(get_db)):
+    company = await _carta_company(db, company_id)
+    cid = company["id"]
+    current = await _import_or_404(db, cid, import_id)
+    target = await _target_of(db, cid, current, ref)
+    try:
+        await mv.restore_role(db, cid, target, role, payload.original, payload.remaster)
+        await mv.enqueue(db, cid, target, "auto")
+        await db.commit()
+    except brand_media.ImageRejected as error:
+        await db.rollback()
+        raise _storage_error(error) from None
+    mv.wake()
+    await _audit(request, company_name=company["name"], menu_video="deshizo quitar foto", plato=ref, foto=role)
+    return _json({"ok": True, **await _import_state(db, cid, current)})
+
+
+@router.delete(API + "/{company_id}/imports/{import_id}/dish/{ref}/video", include_in_schema=False, dependencies=GUARD)
+async def remove_video(company_id: str, import_id: str, ref: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Quitar video: el plato queda solo con su foto."""
+    company = await _carta_company(db, company_id)
+    cid = company["id"]
+    current = await _import_or_404(db, cid, import_id)
+    target = await _target_of(db, cid, current, ref)
+    await mv.clear_video(db, cid, target)
+    await db.commit()
+    await _audit(request, company_name=company["name"], menu_video="quitó video", plato=ref)
+    return _json({"ok": True, **await _import_state(db, cid, current)})
+
+
+@router.post(API + "/{company_id}/regenerate", include_in_schema=False, dependencies=GUARD)
+async def regenerate(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Rehacer todos los clips de la empresa con el proceso actual. No gasta
+    cupo; los clips publicados se siguen viendo hasta que el nuevo este listo."""
+    company = await _carta_company(db, company_id)
+    count = await mv.regenerate_company(db, company["id"])
+    await db.commit()
+    mv.wake()
+    await _audit(request, company_name=company["name"], menu_video="rehacer todos", clips=count)
+    return _json({"ok": True, "queued": count})
 
 
 class ChooseIn(BaseModel):
@@ -461,12 +581,13 @@ async def choose(company_id: str, import_id: str, ref: str, payload: ChooseIn, d
     company = await _carta_company(db, company_id)
     cid = company["id"]
     current = await _import_or_404(db, cid, import_id)
+    ref = await _target_of(db, cid, current, ref)
     media = await mv.dish_media(db, cid, ref)
     if not media:
         raise HTTPException(status_code=404, detail="Ese plato no tiene foto.")
     await mv.upsert_media(db, cid, ref, use_remaster=payload.use_remaster)
     if media.get("clip_asset") or media.get("status") in ("en_cola", "listo"):
-        await mv.enqueue(db, cid, ref, media.get("clip_style") or "auto")
+        await mv.enqueue(db, cid, ref, "auto")
     await db.commit()
     mv.wake()
     return _json({"ok": True, **await _import_state(db, cid, current)})

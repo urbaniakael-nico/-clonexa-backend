@@ -171,6 +171,8 @@
       .cxa-price{font-weight:900;font-size:15px;white-space:nowrap}
       .cxa-plus{width:44px;height:44px;border-radius:14px;border:0;background:var(--cxa-primary);color:var(--cxa-on-primary);font-size:24px;font-weight:900;cursor:pointer}
       .cxa-empty{padding:24px;text-align:center;border-radius:18px}
+      /* 057D: mientras carga (o si falla) una foto se ve el color de la marca, nunca blanco */
+      .cxa-item img,.cxa-tcard img,.cxa-cat img{background:linear-gradient(150deg,var(--cxa-primary),var(--cxa-accent));color:transparent}
       @media (min-width:900px){.cxa-col.wide{max-width:960px}.cxa-col.wide .cxa-list{grid-template-columns:1fr 1fr}}
       /* modo video */
       .cxa-video{position:absolute;inset:0;z-index:6;background:#000}
@@ -296,7 +298,9 @@
         ${adapter.canOrder ? order : `<button type="button" class="cxa-btn" data-cxa-list>☰ Lista</button>`}</div></nav>`;
     }
 
+    let eager = 0; // las primeras fotos visibles de la lista cargan de inmediato
     function itemHtml(p, i = 9) {
+      i = eager++;
       const img = p.photo_url || p.poster_url;
       return `<article class="cxa-item cxa-glass">
         ${img ? `<img src="${h(img)}" alt="" ${i < 4 ? "" : 'loading="lazy"'} decoding="async" width="96" height="96">` : `<span class="cxa-ph" aria-hidden="true">${h(p.name.slice(0, 1))}</span>`}
@@ -307,6 +311,7 @@
     }
 
     function listHtml() {
+      eager = 0;
       const q = norm(S.query);
       const cats = data.categories || [];
       const match = (p) => !q || norm(`${p.name} ${p.description}`).includes(q);
@@ -591,6 +596,11 @@
       }
       render();
     }
+    // una foto que no carga deja ver el color de la marca (nunca el icono de imagen rota)
+    root.addEventListener("error", (event) => {
+      const t = event.target;
+      if (t && t.tagName === "IMG" && !t.classList.contains("cxa-media") && t.getAttribute("src")) { t.classList.add("cxa-broken"); t.removeAttribute("src"); }
+    }, true);
     root.addEventListener("input", (event) => {
       const t = event.target;
       if (t.matches && t.matches("[data-cxa-search]")) {
