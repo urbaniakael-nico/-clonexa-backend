@@ -39,7 +39,7 @@
     uploadQr: (file) => request(`${API}/provider/qr`, { method: "POST", body: file, headers: { "Content-Type": file.type || "image/png" } }),
     providerQrUrl: () => `${API}/provider/qr`,
     draftCompanies: () => request(`${API}/drafts/companies`),
-    draftPrefill: (id) => request(`${API}/drafts/companies/${enc(id)}`),
+    draftPrefill: (id, fromManual) => request(`${API}/drafts/companies/${enc(id)}${fromManual ? "?desde=manual" : ""}`),
     draftPreview: (id, body) => request(`${API}/drafts/companies/${enc(id)}/preview`, { method: "POST", body: JSON.stringify(body) }),
     draftGenerate: (id, body) => request(`${API}/drafts/companies/${enc(id)}/generate`, { method: "POST", body: JSON.stringify(body) }),
     draftPdf: async (id, body) => {
@@ -349,7 +349,10 @@
   // (módulos activos, fecha sugerida). Paso 3: vista previa y "Generar y guardar".
   const CLIENT_FIELDS = [["legal_name", "Razón social"], ["doc_id", "NIT o CC"], ["representative", "Representante"], ["address", "Dirección"],
     ["email", "Correo"], ["phone", "Teléfono"]];
-  const PROVIDER_FIELDS = [["name", "Nombre"], ["trade_name", "Marca"], ["doc_id", "Documento o NIT"], ["email", "Correo"], ["phones", "Teléfonos"], ["city", "Ciudad"]];
+  const PROVIDER_FIELDS = [["name", "Nombre"], ["trade_name", "Marca"], ["doc_id", "Documento o NIT"], ["email", "Correo"], ["phones", "Teléfonos"], ["city", "Ciudad"],
+    ["zelle_name", "Nombre del titular en Zelle"], ["zelle_contact", "Zelle (correo o teléfono)"]];
+  const LANGUAGES = [["es", "Español"], ["es_en", "Bilingüe ES-EN"]];
+  const PAY_METHODS = [["qr", "QR"], ["zelle", "Zelle"]];
 
   function blankOr(value) { return value === null || value === undefined || value === "" ? `<mark class="vp-bill-blank">______________</mark>` : h(value); }
   function segments(list) {
@@ -375,10 +378,17 @@
     const byCode = Object.fromEntries(arr(f.modules).map((m) => [m.code, m]));
     const cl = f.client || {};
     const sur = f.surcharge || {};
+    const lang = f.language === "es_en" ? "es_en" : "es";
+    const pay = f.payment_method === "zelle" ? "zelle" : "qr";
+    const prov = d.provider || {};
+    const zelleMissing = [["zelle_name", "nombre del titular"], ["zelle_contact", "correo o teléfono"]].filter(([k]) => !prov[k]).map(([, l]) => l);
     return `<form class="vp-form-grid" data-vpb-draft-form>
       <section class="vp-panel vp-section vp-bill-wide"><h2>2. Datos del contrato · ${h(d.prefill && d.prefill.company && d.prefill.company.name)}</h2>
         ${d.prefill && d.prefill.current ? `<p class="vp-login-hint">Editas ${h(d.prefill.current.number)} versión ${h(d.prefill.current.version)}: al guardar se genera la versión ${h(Number(d.prefill.current.version) + 1)} y la anterior queda en el historial.</p>` : ""}
+        ${f.from_manual ? `<p class="vp-login-hint">Redactas desde el contrato registrado a mano (precargado con su tipo, inicio, mínimo, ventana, moneda y tramos). Al generar, el contrato a mano queda guardado en el historial (no se borra), el redactado pasa a ser el vigente (versión 1) y las cuotas se recalculan sin duplicar.</p>` : ""}
         <div class="vp-form-grid">
+        <label class="vp-field">Idioma del contrato<select name="language" data-vpb-draft-redraw>${LANGUAGES.map(([v, l]) => `<option value="${v}" ${lang === v ? "selected" : ""}>${h(l)}</option>`).join("")}</select></label>
+        <label class="vp-field">Medio de pago<select name="payment_method" data-vpb-draft-redraw>${PAY_METHODS.map(([v, l]) => `<option value="${v}" ${pay === v ? "selected" : ""}>${h(l)}</option>`).join("")}</select></label>
         <label class="vp-field">Tipo de contrato<select name="contract_type" required>${types.map((t) => `<option value="${h(t.code)}" ${f.contract_type === t.code ? "selected" : ""}>${h(t.label)}</option>`).join("")}</select></label>
         <label class="vp-field">Fecha de inicio<input name="start_date" type="date" required value="${h(f.start_date)}"></label>
         <label class="vp-field">Días de prueba (0 = sin prueba)<input name="trial_days" type="number" min="0" max="90" value="${h(f.trial_days ?? 0)}"></label>
@@ -386,7 +396,7 @@
         <label class="vp-field">Moneda<select name="currency">${["COP", "USD"].map((c) => `<option ${f.currency === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         <label class="vp-field">Paga desde el día<input name="pay_day_from" type="number" min="1" max="28" required value="${h(f.pay_day_from)}"></label>
         <label class="vp-field">hasta el día<input name="pay_day_to" type="number" min="1" max="28" required value="${h(f.pay_day_to)}"></label>
-        <label class="vp-field">Ciudad de jurisdicción<input name="jurisdiction_city" maxlength="80" value="${h(f.jurisdiction_city)}" placeholder="vacío = línea para llenar"></label>
+        ${lang === "es_en" ? `<input type="hidden" name="jurisdiction_city" value="${h(f.jurisdiction_city)}">` : `<label class="vp-field">Ciudad de jurisdicción<input name="jurisdiction_city" maxlength="80" value="${h(f.jurisdiction_city)}" placeholder="vacío = línea para llenar"></label>`}
         <label class="vp-field">Ciudad de firma<input name="sign_city" maxlength="80" value="${h(f.sign_city)}" placeholder="vacío = línea para llenar"></label>
         </div>
         <fieldset class="vp-bill-tiers"><legend>Tramos de precio (el último queda abierto: «en adelante»)</legend>
@@ -399,18 +409,22 @@
         <fieldset class="vp-bill-tiers"><legend>Recargo mensual por ajustes nuevos (opcional)</legend><div class="vp-bill-tier">
           <label class="vp-field">Monto<input name="surcharge_amount" type="number" min="0" step="0.01" value="${h(sur.amount ?? "")}"></label>
           <label class="vp-field">Desde el mes<input name="surcharge_from" type="number" min="1" max="120" value="${h(sur.from_month ?? "")}"></label></div></fieldset>
+        ${lang === "es_en" ? `<p class="vp-login-hint">Bilingüe: español e inglés en dos columnas; en caso de diferencia prevalece el español. Ley de Colombia y jueces de Bogotá. Montos y fechas salen en los dos idiomas (USD con punto decimal en la columna en inglés).</p>` : ""}
+        ${pay === "zelle" ? `<p class="vp-login-hint">Zelle: el Anexo 2 dice pagar por Zelle al titular y al correo o teléfono de «Datos del proveedor», con la referencia «empresa - mes año», y verificar siempre los datos por los canales oficiales. No lleva QR ni números de cuenta.${lang !== "es_en" || f.currency !== "USD" ? " Zelle va con el contrato Bilingüe ES-EN en USD." : ""}${zelleMissing.length ? ` Falta en «Datos del proveedor»: ${h(zelleMissing.join(" y "))} (sale como línea para llenar).` : ""}</p>` : ""}
       </section>
       <section class="vp-panel vp-section vp-bill-wide"><h2>Datos del cliente</h2>
         <p class="vp-login-hint">Todos son opcionales: si quedan vacíos, el PDF deja una línea para llenar a mano, resaltada en amarillo suave.</p>
         <div class="vp-form-grid">${CLIENT_FIELDS.map(([k, label]) => `<label class="vp-field">${h(label)}<input name="client_${k}" maxlength="200" value="${h(cl[k])}" autocomplete="off"></label>`).join("")}</div>
       </section>
       <section class="vp-panel vp-section vp-bill-wide"><h2>Alcance: módulos activos</h2>
-        <p class="vp-login-hint">Salen del sistema con su nombre del catálogo. Puedes ajustar la línea que describe cada uno.</p>
+        <p class="vp-login-hint">Salen del sistema con su nombre del catálogo. Puedes ajustar la línea que describe cada uno${lang === "es_en" ? " (y su nombre y línea en inglés para el anexo bilingüe)" : ""}.</p>
         ${active.length ? `<ul class="vp-actions-list">${active.map((m, i) => {
           const cur = byCode[m.code] || m;
+          const en = lang === "es_en" ? `<input class="vp-bill-module-line" name="mod_name_en_${i}" maxlength="80" value="${h(cur.name_en || m.name_en || m.name)}" aria-label="Nombre en inglés de ${h(m.name)}" placeholder="Nombre en inglés">
+            <input class="vp-bill-module-line" name="mod_line_en_${i}" maxlength="200" value="${h(cur.line_en || m.line_en || m.line)}" aria-label="Qué hace ${h(m.name)} (inglés)" placeholder="Línea en inglés">` : "";
           return `<li class="vp-action vp-bill-module"><label class="vp-check"><input type="checkbox" name="mod_on_${i}" ${chosen.has(m.code) ? "checked" : ""}> <b>${h(m.name)}</b></label>
             <input type="hidden" name="mod_code_${i}" value="${h(m.code)}"><input type="hidden" name="mod_name_${i}" value="${h(cur.name || m.name)}">
-            <input class="vp-bill-module-line" name="mod_line_${i}" maxlength="200" value="${h(cur.line || m.line)}" aria-label="Qué hace ${h(m.name)}"></li>`;
+            <input class="vp-bill-module-line" name="mod_line_${i}" maxlength="200" value="${h(cur.line || m.line)}" aria-label="Qué hace ${h(m.name)}">${en}</li>`;
         }).join("")}</ul>` : `<div class="vp-empty">La empresa no tiene módulos activos.</div>`}
       </section>
       ${d.error ? `<div class="vp-alert vp-bill-wide" role="alert"><span>${h(d.error)}</span></div>` : ""}
@@ -433,9 +447,10 @@
     const blocks = {
       CUOTAS: () => `<div class="vp-table-wrap"><table class="vp-table"><thead><tr><th>No.</th><th>Período</th><th>Ventana de pago</th><th>Tarifa</th><th>Observación</th></tr></thead><tbody>
         ${arr(p.schedule).map((r) => `<tr><td>${h(r.seq)}</td><td>${h(r.period)}</td><td>${h(r.window)}</td><td class="vp-mono">${h(r.amount_text)}</td><td>${h(r.note)}</td></tr>`).join("")}</tbody></table></div>`,
-      MODULOS: () => `<ul class="vp-bill-doc-list">${arr(p.modules).map((m) => `<li><b>${h(m.name)}</b>: ${h(m.line)}</li>`).join("")}</ul>`,
       ACCESOS: () => `<dl class="vp-bill-doc-kv">${arr(p.access).map(([k, val]) => `<dt>${h(k)}</dt><dd>${blankOr(val)}</dd>`).join("")}</dl>`,
       QR: () => `<p class="vp-login-hint">${(model.draft.provider || {}).has_qr ? "Aquí va el QR de pago de «Datos del proveedor»." : "Sin QR cargado: el PDF deja la línea para llenarlo. Súbelo en «Datos del proveedor»."}</p>`,
+      MODULOS: () => (p.bilingual ? `<div class="vp-bill-doc-bi">${["", "_en"].map((x) => `<ul class="vp-bill-doc-list">${arr(p.modules).map((m) => `<li><b>${h(m["name" + x] || m.name)}</b>: ${h(m["line" + x] || m.line)}</li>`).join("")}</ul>`).join("")}</div>`
+        : `<ul class="vp-bill-doc-list">${arr(p.modules).map((m) => `<li><b>${h(m.name)}</b>: ${h(m.line)}</li>`).join("")}</ul>`),
       FIRMAS: () => `<p class="vp-login-hint">Firmas de EL PROVEEDOR y EL CLIENTE.</p>`,
     };
     return `<section class="vp-panel vp-section"><div class="vp-row-between"><h2>3. Vista previa</h2>
@@ -448,13 +463,21 @@
           <div class="is-total"><small>Compromiso mínimo</small><b>${v.min_months ? h(p.commitment_text) : "Mes a mes"}</b></div></div>
         ${v.min_months ? `<p class="vp-login-hint">En letras: ${h(p.commitment_words)}.</p>` : ""}
         <div class="vp-chip-row">${arr(p.modules).map((m) => `<span class="vp-bill-tag">${h(m.name)}</span>`).join("")}</div>
-        ${arr(p.sections).map((s) => `<section class="vp-bill-doc-sec">${s.title !== "PARTES" ? `<h4>${h(s.title)}</h4>` : ""}${arr(s.blocks).map((b) => (b.type === "block" ? (blocks[b.name] || (() => ""))() : `<p>${segments(b.segments)}</p>`)).join("")}</section>`).join("")}
+        ${p.bilingual ? `<p class="vp-bill-doc-sub">${h(p.title_en)}<br>${segments(p.subtitle_en)}</p>` : ""}
+        ${arr(p.sections).map((s) => (p.bilingual ? bilingualSection(s, blocks) : `<section class="vp-bill-doc-sec">${s.title !== "PARTES" ? `<h4>${h(s.title)}</h4>` : ""}${arr(s.blocks).map((b) => (b.type === "block" ? (blocks[b.name] || (() => ""))() : `<p>${segments(b.segments)}</p>`)).join("")}</section>`)).join("")}
       </article>
       ${d.error ? `<div class="vp-alert" role="alert"><span>${h(d.error)}</span></div>` : ""}
       <div class="vp-actions"><button class="vp-btn vp-btn-primary" type="button" data-vpb-draft-generate ${model.busy ? "disabled" : ""}>Generar y guardar</button>
         <button class="vp-btn" type="button" data-vpb-draft-pdf ${model.busy ? "disabled" : ""}>Ver el PDF</button>
         <button class="vp-btn" type="button" data-vpb-draft-edit>Volver a editar</button>
         ${d.pdfUrl ? `<a class="vp-btn vp-btn-link" href="${h(d.pdfUrl)}" target="_blank" rel="noopener">Abrir el PDF de muestra</a>` : ""}</div></section>`;
+  }
+
+  // contrato bilingue: cada seccion en dos columnas (español | inglés), párrafo con párrafo
+  function bilingualSection(s, blocks) {
+    const head = s.title !== "PARTES" ? `<div class="vp-bill-doc-bi"><h4>${h(s.title)}</h4><h4 class="is-en">${h(s.title_en || s.title)}</h4></div>` : "";
+    return `<section class="vp-bill-doc-sec">${head}${arr(s.blocks).map((b) => (b.type === "block" ? (blocks[b.name] || (() => ""))()
+      : `<div class="vp-bill-doc-bi"><p>${segments(b.segments)}</p><p class="is-en">${segments(b.segments_en)}</p></div>`)).join("")}</section>`;
   }
 
   function draftView() {
@@ -470,21 +493,29 @@
   function readDraftForm(form) {
     const f = Object.fromEntries(new FormData(form).entries());
     const tiers = arr(model.draft.form.tiers).map((_, i) => ({ month_from: Number(f[`tier_from_${i}`]), month_to: f[`tier_to_${i}`] === "" || f[`tier_to_${i}`] === undefined ? null : Number(f[`tier_to_${i}`]), amount: Number(f[`tier_amount_${i}`] || 0) }));
-    const modules = arr(model.draft.prefill && model.draft.prefill.modules).map((m, i) => (f[`mod_on_${i}`] ? { code: f[`mod_code_${i}`], name: f[`mod_name_${i}`], line: f[`mod_line_${i}`] || "" } : null)).filter(Boolean);
+    const modules = arr(model.draft.prefill && model.draft.prefill.modules).map((m, i) => {
+      if (!f[`mod_on_${i}`]) return null;
+      const prev = arr(model.draft.form.modules).find((x) => x.code === f[`mod_code_${i}`]) || m;
+      return { code: f[`mod_code_${i}`], name: f[`mod_name_${i}`], line: f[`mod_line_${i}`] || "",
+        name_en: f[`mod_name_en_${i}`] !== undefined ? String(f[`mod_name_en_${i}`]) : (prev.name_en || m.name_en || ""),
+        line_en: f[`mod_line_en_${i}`] !== undefined ? String(f[`mod_line_en_${i}`]) : (prev.line_en || m.line_en || "") };
+    }).filter(Boolean);
     const client = Object.fromEntries(CLIENT_FIELDS.map(([k]) => [k, String(f[`client_${k}`] || "").trim()]));
     return { contract_type: f.contract_type, start_date: f.start_date, trial_days: Number(f.trial_days || 0), min_months: Number(f.min_months || 0), currency: f.currency || "COP",
       pay_day_from: Number(f.pay_day_from), pay_day_to: Number(f.pay_day_to), tiers, surcharge: { amount: f.surcharge_amount || "", from_month: f.surcharge_from || "" },
-      jurisdiction_city: String(f.jurisdiction_city || "").trim(), sign_city: String(f.sign_city || "").trim(), client, modules };
+      jurisdiction_city: String(f.jurisdiction_city || "").trim(), sign_city: String(f.sign_city || "").trim(), client, modules,
+      language: f.language === "es_en" ? "es_en" : "es", payment_method: f.payment_method === "zelle" ? "zelle" : "qr",
+      ...(model.draft.form.from_manual ? { from_manual: true } : {}) };
   }
 
-  async function openDraft(companyId) {
+  async function openDraft(companyId, fromManual) {
     model.companyId = "";
     model.provider = null;
     model.draft = { step: companyId ? "form" : "pick", loading: true, companies: [], error: "" };
     draw();
     try {
       if (companyId) {
-        const pre = await api.draftPrefill(companyId);
+        const pre = await api.draftPrefill(companyId, !!fromManual);
         Object.assign(model.draft, { companyId, prefill: pre, types: pre.types, form: pre.form, provider: (await api.provider().catch(() => ({}))).provider || {} });
       } else {
         const r = await api.draftCompanies();
@@ -525,6 +556,15 @@
   }
 
   // ------------------------------------------------------------ contrato redactado (detalle)
+  // "Ver PDF" lo abre en otra pestaña; "Descargar PDF" lo guarda con su número y versión.
+  function pdfButtons(d, doc, files, main) {
+    if (!doc.file_id || !files[doc.file_id]) return "";
+    const url = h(api.fileUrl(d.company.id, doc.file_id));
+    const name = h(`${doc.number}-v${doc.version}.pdf`);
+    return `<span class="vp-chip-row"><a class="vp-btn vp-btn-sm ${main ? "vp-btn-primary" : ""}" href="${url}" target="_blank" rel="noopener">Ver PDF</a>
+      <a class="vp-btn vp-btn-sm" href="${url}?descargar=1" download="${name}">Descargar PDF</a></span>`;
+  }
+
   function documentsPanel(d) {
     const docs = arr(d.documents);
     const k = d.contract;
@@ -534,11 +574,17 @@
     return `<section class="vp-panel vp-section"><div class="vp-row-between"><h2>Contrato redactado y recordatorio</h2>
         <button class="vp-btn vp-btn-sm ${on ? "vp-btn-primary" : ""}" type="button" data-vpb-reminder="${on ? "off" : "on"}" aria-pressed="${on}">Recordatorio en el panel: ${on ? "encendido" : "apagado"}</button></div>
       <p class="vp-login-hint">El recordatorio sale en el panel principal (solo dueño o admin) desde el día de pago, si la cuota del mes no está cubierta. Nunca suspende ni bloquea nada.</p>
+      ${docs.length && docs[0].is_current ? `<div class="vp-actions vp-bill-pdf-main"><b>Contrato vigente: ${h(docs[0].number)} · versión ${h(docs[0].version)}</b>${pdfButtons(d, docs[0], files, true)}</div>` : ""}
       ${docs.length ? `<ul class="vp-actions-list vp-bill-scroll">${docs.map((doc) => `<li class="vp-action vp-toggle-row"><b>${h(doc.number)} · versión ${h(doc.version)}${doc.is_current ? " · vigente" : ""}</b>
           <small>Verificación ${h(doc.verification)} · ${h(day(doc.created_at))}</small>
-          ${doc.file_id && files[doc.file_id] ? `<a class="vp-btn vp-btn-sm" href="${h(api.fileUrl(d.company.id, doc.file_id))}" target="_blank" rel="noopener">Ver PDF</a>` : ""}</li>`).join("")}</ul>
+          ${pdfButtons(d, doc, files, false)}</li>`).join("")}</ul>
         <div class="vp-actions"><button class="vp-btn vp-btn-sm" type="button" data-vpb-draft-edit-company="${h(d.company.id)}">Editar contrato (genera la versión ${h(Number(docs[0].version) + 1)})</button></div>`
-        : `<p class="vp-login-hint">Este contrato se registró a mano: no tiene documento redactado.</p>`}</section>`;
+        : `<p class="vp-login-hint">Este contrato se registró a mano: no tiene documento redactado.</p>
+          ${d.manual_redraft ? `<div class="vp-actions"><button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpb-draft-manual="${h(d.company.id)}">Redactar desde este contrato</button></div>
+            <p class="vp-login-hint">Abre «Redactar contrato» precargado con este contrato. Al generar, el contrato a mano queda en el historial y el redactado pasa a ser el vigente (versión 1).</p>`
+            : `<p class="vp-login-hint">Tiene pagos registrados: no se reemplaza desde Redactar contrato.</p>`}`}
+      ${arr(d.history).length ? `<h3 class="vp-bill-sub">Historial</h3><ul class="vp-actions-list">${arr(d.history).map((x) => `<li class="vp-action vp-toggle-row"><b>Contrato registrado a mano · ${h((x.snapshot || {}).currency || "")} · inicio ${h(day((x.snapshot || {}).start_date))}</b>
+          <small>Reemplazado por el contrato redactado el ${h(day(x.created_at))}</small></li>`).join("")}</ul>` : ""}</section>`;
   }
 
   // ------------------------------------------------------------ dibujo y carga
@@ -634,6 +680,8 @@
     if (t.closest("[data-vpb-provider-close]") || t.closest("[data-vpb-draft-cancel]")) { model.draft = null; model.provider = null; model.notice = ""; draw(); loadBoard(); return; }
     const pick = t.closest("[data-vpb-draft-pick]");
     if (pick) { openDraft(pick.getAttribute("data-vpb-draft-pick")); return; }
+    const fromManual = t.closest("[data-vpb-draft-manual]");
+    if (fromManual) { openDraft(fromManual.getAttribute("data-vpb-draft-manual"), true); return; }
     const editDoc = t.closest("[data-vpb-draft-edit-company]");
     if (editDoc) { openDraft(editDoc.getAttribute("data-vpb-draft-edit-company")); return; }
     if (model.draft && t.closest("[data-vpb-draft-edit]")) { model.draft.step = "form"; model.draft.error = ""; draw(); return; }
@@ -744,6 +792,14 @@
     if (card) { event.preventDefault(); openCompany(card.getAttribute("data-vpb-open")); }
   }
 
+  function onChange(event) {
+    if (!ctx || !ctx.active() || !model.draft || model.draft.step !== "form") return;
+    const t = event.target;
+    if (!t || !t.matches || !t.matches("[data-vpb-draft-redraw]")) return;
+    const form = t.closest("form");
+    if (form) { model.draft.form = readDraftForm(form); draw(); }
+  }
+
   function onSubmit(event) {
     if (!ctx || !ctx.active()) return;
     const form = event.target;
@@ -826,6 +882,7 @@
       if (!bound && typeof document.addEventListener === "function") {
         document.addEventListener("click", onClick);
         document.addEventListener("submit", onSubmit);
+        document.addEventListener("change", onChange);
         document.addEventListener("keydown", onKey);
         bound = true;
       }
@@ -840,5 +897,5 @@
     refreshPulse() {},
   };
   window.CxConsoleBilling = { model, api, view, boardView, detailView, chartByMonth, chartByCompany, chartByType, money, stateOf, STATES,
-    draftView, providerView, documentsPanel, readDraftForm, segments };
+    draftView, providerView, documentsPanel, readDraftForm, segments, onChange };
 })();

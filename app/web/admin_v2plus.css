@@ -700,6 +700,12 @@ button, input, select { font: inherit; color: inherit; }
 .vp-bill-doc-kv { display: grid; grid-template-columns: minmax(140px, 32%) 1fr; gap: 4px 10px; margin: 0; }
 .vp-bill-doc-kv dt { font-weight: 700; }
 .vp-bill-doc-kv dd { margin: 0; }
+.vp-bill-pdf-main { align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 12px; margin: 8px 0; border-radius: 10px; background: rgba(255, 46, 147, .08); border: 1px solid rgba(255, 46, 147, .35); }
+/* contrato bilingue: español | inglés, párrafo con párrafo */
+.vp-bill-doc-bi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.vp-bill-doc-bi > .is-en { color: #2c2745; border-left: 1px solid #e3dff0; padding-left: 12px; }
+.vp-bill-doc-bi > h4.is-en { color: #5f6472; }
+@media (max-width: 640px) { .vp-bill-doc-bi { grid-template-columns: 1fr; } .vp-bill-doc-bi > .is-en { border-left: 0; padding-left: 0; } }
 @media (max-width: 720px) {
   .vp-bill-doc-cards, .vp-bill-module { grid-template-columns: 1fr; }
   .vp-bill-doc-strip { grid-auto-flow: row; }

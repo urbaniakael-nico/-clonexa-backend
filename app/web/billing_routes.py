@@ -105,6 +105,8 @@ async def company_detail(company_id: str, db: AsyncSession = Depends(get_db)):
     view = await billing.company_view(db, company["id"])
     return _json(_plain({"company": {"id": company["id"], "name": company["name"], "slug": company["slug"]}, **view,
                          "documents": await billing_contracts.documents(db, company["id"]),
+                         "history": await billing_contracts.history(db, company["id"]),
+                         "manual_redraft": await billing_contracts.manual_redraftable(db, company["id"]),
                          "types": await billing.contract_types(db), "methods": billing.METHODS}))
 
 
@@ -192,9 +194,10 @@ async def _receipt_pdf(db: AsyncSession, company_id: str, receipt_id: str) -> tu
     return billing_pdf.render(row), row
 
 
-def _pdf_response(pdf: bytes, filename: str) -> Response:
+def _pdf_response(pdf: bytes, filename: str, download: bool = False) -> Response:
     return v2._no_store(Response(pdf, media_type="application/pdf", headers={
-        "Content-Disposition": f'inline; filename="{filename}"', "X-Content-Type-Options": "nosniff", "X-Robots-Tag": "noindex"}))
+        "Content-Disposition": f'{"attachment" if download else "inline"}; filename="{filename}"', "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex"}))
 
 
 @router.get("/admin-v2/api/billing/companies/{company_id}/receipts/{receipt_id}.pdf", include_in_schema=False, dependencies=GUARD)
@@ -290,7 +293,8 @@ async def upload_contract(company_id: str, request: Request, db: AsyncSession = 
 
 
 @router.get("/admin-v2/api/billing/companies/{company_id}/contract-file/{file_id}", include_in_schema=False, dependencies=GUARD)
-async def download_contract(company_id: str, file_id: str, db: AsyncSession = Depends(get_db)):
+async def download_contract(company_id: str, file_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """?descargar=1: "Descargar PDF" (adjunto); sin eso se abre en el navegador ("Ver PDF")."""
     company = await _registered(db, company_id)
     row = await billing.contract_file(db, company["id"], file_id)
     if not row:
@@ -299,7 +303,7 @@ async def download_contract(company_id: str, file_id: str, db: AsyncSession = De
         pdf = await asyncio.to_thread(media.backend().get, billing.contract_file_key(company["id"], row["id"]))
     except Exception:
         raise HTTPException(status_code=503, detail="El almacenamiento no responde. Intenta de nuevo en un momento.") from None
-    return _pdf_response(pdf, f"contrato-{company['slug'] or 'empresa'}-v{row['version']}.pdf")
+    return _pdf_response(pdf, f"contrato-{company['slug'] or 'empresa'}-v{row['version']}.pdf", request.query_params.get("descargar") == "1")
 
 
 # ------------------------------------------------ bucket (zona privada) ---
@@ -323,7 +327,7 @@ def _file_response(data: bytes, content_type: str, filename: str) -> Response:
 
 # ------------------------------------------------- datos del proveedor ---
 def _provider_out(p: dict) -> dict:
-    out = {k: p.get(k, "") for k in billing_contracts.PROVIDER_FIELDS}
+    out = {k: p.get(k, "") for k in {**billing_contracts.PROVIDER_FIELDS, **billing_contracts.ZELLE_FIELDS}}
     out.update({"has_qr": bool(p.get("has_qr")), "updated_at": p.get("updated_at"), "updated_by": p.get("updated_by", "")})
     return out
 
@@ -367,14 +371,20 @@ async def provider_qr(db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------- redactar contrato ---
-async def _draftable(db: AsyncSession, company_id: str) -> tuple[dict, dict | None]:
+async def _draftable(db: AsyncSession, company_id: str, from_manual: bool = False) -> tuple[dict, dict | None]:
     """Empresa registrada sin contrato, o con un contrato REDACTADO (editar = version
-    siguiente). Un contrato hecho a mano (The Time Machine) no se toca: 409."""
+    siguiente). Un contrato hecho a mano (The Time Machine) no se toca: 409, salvo
+    "Redactar desde este contrato" (from_manual) cuando NO tiene ningun pago."""
     company = await _registered(db, company_id)
     current = await billing_contracts.current_document(db, company["id"])
     if not current and await billing.get_contract(db, company["id"]):
-        raise HTTPException(status_code=409, detail="Esta empresa ya tiene un contrato registrado a mano; no se reemplaza desde Redactar contrato.")
+        if not (from_manual and await billing_contracts.payments_count(db, company["id"]) == 0):
+            raise HTTPException(status_code=409, detail=billing_contracts.MANUAL_LOCKED)
     return company, current
+
+
+def _from_manual(body: dict) -> bool:
+    return body.get("from_manual") is True
 
 
 @router.get("/admin-v2/api/billing/drafts/companies", include_in_schema=False, dependencies=GUARD)
@@ -384,20 +394,28 @@ async def draft_companies(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/admin-v2/api/billing/drafts/companies/{company_id}", include_in_schema=False, dependencies=GUARD)
-async def draft_prefill(company_id: str, db: AsyncSession = Depends(get_db)):
-    company, current = await _draftable(db, company_id)
+async def draft_prefill(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """?desde=manual: "Redactar desde este contrato" (precargado con el contrato manual)."""
+    from_manual = request.query_params.get("desde") == "manual"
+    company, current = await _draftable(db, company_id, from_manual)
     data = await billing_contracts.prefill(db, company["id"])
     if current:  # editar: el formulario sale con lo del documento vigente
         data["form"] = {**data["form"], **billing_contracts.form_from_json(current["data"])}
         data["current"] = {k: current[k] for k in ("number", "version", "verification", "created_at")}
+    elif from_manual:
+        manual = await billing.get_contract(db, company["id"])
+        if manual:
+            data["form"] = billing_contracts.form_from_manual(manual, data["form"])
+            data["manual"] = {"contract_type": manual["contract_type"], "start_date": manual["start_date"], "currency": manual["currency"]}
     return _json(_plain({**data, "types": await billing.contract_types(db)}))
 
 
 @router.post("/admin-v2/api/billing/drafts/companies/{company_id}/preview", include_in_schema=False, dependencies=GUARD)
 async def draft_preview(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    company, _current = await _draftable(db, company_id)
+    body = await _body(request)
+    company, _current = await _draftable(db, company_id, _from_manual(body))
     try:
-        _data, composed, _pdf = await billing_contracts.build(db, company["id"], await _body(request))
+        _data, composed, _pdf = await billing_contracts.build(db, company["id"], body)
     except billing.BillingInvalid as error:
         raise _bad(error) from None
     return _json(_plain({"ok": True, "preview": composed}))
@@ -406,9 +424,10 @@ async def draft_preview(company_id: str, request: Request, db: AsyncSession = De
 @router.post("/admin-v2/api/billing/drafts/companies/{company_id}/preview.pdf", include_in_schema=False, dependencies=GUARD)
 async def draft_preview_pdf(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """El PDF tal como saldria (sin guardar nada)."""
-    company, _current = await _draftable(db, company_id)
+    body = await _body(request)
+    company, _current = await _draftable(db, company_id, _from_manual(body))
     try:
-        _data, composed, pdf = await billing_contracts.build(db, company["id"], await _body(request),
+        _data, composed, pdf = await billing_contracts.build(db, company["id"], body,
                                                              get_private if media.configured() else None)
     except billing.BillingInvalid as error:
         raise _bad(error) from None
@@ -417,19 +436,22 @@ async def draft_preview_pdf(company_id: str, request: Request, db: AsyncSession 
 
 @router.post("/admin-v2/api/billing/drafts/companies/{company_id}/generate", include_in_schema=False, dependencies=GUARD)
 async def draft_generate(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    company, _current = await _draftable(db, company_id)
+    body = await _body(request)
+    company, _current = await _draftable(db, company_id, _from_manual(body))
     _need_storage()
     try:
-        doc = await billing_contracts.generate(db, company["id"], await _body(request), _actor(request), put_private, get_private)
+        doc = await billing_contracts.generate(db, company["id"], body, _actor(request), put_private, get_private)
     except billing.BillingInvalid as error:
         raise _bad(error) from None
     except billing.BillingConflict as error:
         raise HTTPException(status_code=409, detail=str(error)) from None
     except media.StorageUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from None
-    await _audit(request, company_name=company["name"], contrato=f"{doc['number']} versión {doc['version']}", verificacion=doc["verification"])
+    await _audit(request, company_name=company["name"], contrato=f"{doc['number']} versión {doc['version']}", verificacion=doc["verification"],
+                 **({"reemplaza": "contrato registrado a mano (queda en el historial)"} if _from_manual(body) and not _current else {}))
     return _json(_plain({"ok": True, "document": doc, **await billing.company_view(db, company["id"]),
-                         "documents": await billing_contracts.documents(db, company["id"])}))
+                         "documents": await billing_contracts.documents(db, company["id"]),
+                         "history": await billing_contracts.history(db, company["id"])}))
 
 
 # ------------------------------------------------ recordatorio y comprobantes ---

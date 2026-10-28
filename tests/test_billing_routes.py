@@ -108,3 +108,59 @@ def test_contract_upload_rejects_a_file_that_is_not_a_real_pdf(client):
     assert res.status_code == 422 and "PDF" in res.text
     big = client.c.post(f"/admin-v2/api/billing/companies/{A}/contract-file", content=b"%PDF-" + b"0" * (billing.MAX_PDF_BYTES + 10))
     assert big.status_code == 413
+
+
+def test_redraft_from_manual_contract_only_without_payments(client):
+    """"Redactar desde este contrato": sin pagos deja seguir; con pagos (o sin pedirlo) el 409 de siempre."""
+    from app.services import billing_contracts as bc
+
+    client.mp.setattr(ep.v2, "_active_session", AsyncMock(return_value=True))
+
+    async def registered(db, cid):
+        return {"id": A, "name": "Empresa USD", "slug": "usd", "status": "active", "kind": "registrada"}
+
+    state = {"payments": 1, "built": 0}
+    client.mp.setattr(br, "_registered", registered)
+    client.mp.setattr(bc, "current_document", AsyncMock(return_value=None))
+    client.mp.setattr(billing, "get_contract", AsyncMock(return_value={"id": B, "contract_type": "mensual"}))
+
+    async def payments_count(db, cid):
+        return state["payments"]
+
+    async def build(db, cid, body, get=None, **kw):
+        state["built"] += 1
+        return {}, {"number": "CX-2026-001", "bilingual": body.get("language") == "es_en"}, b"%PDF-1.4\n%%EOF"
+
+    client.mp.setattr(bc, "payments_count", payments_count)
+    client.mp.setattr(bc, "build", build)
+    url = f"/admin-v2/api/billing/drafts/companies/{A}/preview"
+    res = client.c.post(url, json={"from_manual": True, "language": "es_en"})
+    assert res.status_code == 409 and "registrado a mano" in res.json()["detail"], "con pagos: el bloqueo y el mensaje de siempre"
+    state["payments"] = 0
+    assert client.c.post(url, json={"language": "es_en"}).status_code == 409, "sin pedir 'desde este contrato' tambien"
+    assert client.c.post(url, json={"from_manual": "true"}).status_code == 409, "solo el booleano true"
+    res = client.c.post(url, json={"from_manual": True, "language": "es_en"})
+    assert res.status_code == 200 and res.json()["preview"]["bilingual"] is True and state["built"] == 1
+    assert client.c.post(url + ".pdf", json={"from_manual": True}).content.startswith(b"%PDF-")
+
+
+def test_contract_pdf_view_inline_and_download_attachment(client):
+    """"Ver PDF" se abre en el navegador; "Descargar PDF" (?descargar=1) baja como adjunto."""
+    client.mp.setattr(ep.v2, "_active_session", AsyncMock(return_value=True))
+
+    async def registered(db, cid):
+        return {"id": A, "name": "Bar", "slug": "bar", "status": "active", "kind": "registrada"}
+
+    class Store:
+        def get(self, key):
+            return b"%PDF-1.4" + bytes([10]) + b"%%EOF"
+
+    client.mp.setattr(br, "_registered", registered)
+    client.mp.setattr(billing, "contract_file", AsyncMock(return_value={"id": R_A, "version": 2, "original_name": "x.pdf"}))
+    client.mp.setattr(media, "backend", lambda: Store())
+    url = f"/admin-v2/api/billing/companies/{A}/contract-file/{R_A}"
+    view = client.c.get(url)
+    assert view.status_code == 200 and view.headers["content-disposition"].startswith("inline;") and view.content.startswith(b"%PDF-")
+    down = client.c.get(url + "?descargar=1")
+    assert down.status_code == 200 and down.headers["content-disposition"] == 'attachment; filename="contrato-bar-v2.pdf"'
+    assert "no-store" in down.headers.get("cache-control", "")

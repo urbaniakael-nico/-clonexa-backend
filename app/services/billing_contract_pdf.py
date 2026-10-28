@@ -8,6 +8,9 @@ cuotas; anexos y firmas; pie con numero, "Pagina X de Y" y contacto.
 Sin paginas en blanco: no hay saltos forzados al final y render() devuelve
 cuantos bloques del cuerpo cayeron en cada pagina (las pruebas lo revisan).
 Un dato opcional vacio sale como linea para llenar, resaltada en amarillo suave.
+Bilingue (c["bilingual"]): clausulas en dos columnas (español izquierda, ingles
+derecha) alineadas por parrafo, etiquetas "ES / EN", "Página X de Y / Page X of
+Y" y un solo bloque de firmas. Sin esa marca, el PDF sale exactamente como antes.
 """
 from __future__ import annotations
 
@@ -54,7 +57,13 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
     BAND_H = 22 * mm
     info = {"pages": 0, "body": {}, "stamped": {}}
     number, version, verification = c["number"], c["version"], c["verification"]
-    stamp = f"Contrato {number} · Versión {version} · Verificación {verification}"
+    B = bool(c.get("bilingual"))
+
+    def L(es: str, en: str) -> str:
+        return f"{es} / {en}" if B else es
+
+    stamp = (f"Contrato / Contract {number} · Versión / Version {version} · Verificación / Verification {verification}" if B
+             else f"Contrato {number} · Versión {version} · Verificación {verification}")
     logo_dark = ImageReader(str(brand_assets.pdf_logo_dark()))
 
     def band(cv, page_no: int, total: int) -> None:
@@ -68,10 +77,11 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
         cv.drawImage(logo_dark, LM, H - BAND_H + 6.5 * mm, width=51 * mm, height=9 * mm, preserveAspectRatio=True, mask="auto")
         cv.setFillColor(colors.white)
         cv.setFont("Helvetica-Bold", 9.5)
-        cv.drawRightString(W - RM, H - 9.5 * mm, "CONTRATO DE SERVICIO")
+        cv.drawRightString(W - RM, H - 9.5 * mm, L("CONTRATO DE SERVICIO", "SERVICE AGREEMENT"))
         cv.setFont("Helvetica", 7.5)
         cv.setFillColor(colors.HexColor("#d9d4ea"))
-        cv.drawRightString(W - RM, H - 14 * mm, f"N.º {number} · Versión {version} · Verificación {verification}")
+        cv.drawRightString(W - RM, H - 14 * mm, f"N.º / No. {number} · Versión / Version {version} · Verificación / Verification {verification}" if B
+                           else f"N.º {number} · Versión {version} · Verificación {verification}")
         # pie
         cv.setStrokeColor(colors.HexColor(LINE))
         cv.setLineWidth(0.6)
@@ -79,10 +89,11 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
         cv.setFont("Helvetica", 7.2)
         cv.setFillColor(colors.HexColor(MUTED))
         cv.drawString(LM, 10.5 * mm, stamp)
-        cv.drawRightString(W - RM, 10.5 * mm, f"Página {page_no} de {total}")
+        page_text = f"Página {page_no} de {total}" + (f" / Page {page_no} of {total}" if B else "")
+        cv.drawRightString(W - RM, 10.5 * mm, page_text)
         cv.drawString(LM, 6.8 * mm, c.get("contact") or "CLONEXA")
         cv.restoreState()
-        info["stamped"][page_no] = f"{stamp} · Página {page_no} de {total}"
+        info["stamped"][page_no] = f"{stamp} · {page_text}"
 
     class Numbered(rl_canvas.Canvas):
         def __init__(self, *a, **kw):
@@ -140,7 +151,11 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
 
     # ---- titulo
     body(Paragraph(escape(c["title"]), title))
+    if B and c.get("title_en"):
+        body(Paragraph(escape(c["title_en"]), ParagraphStyle("title_en", parent=title, fontSize=11.5, leading=15, textColor=colors.HexColor(MUTED))))
     body(Paragraph(seg_markup(c["subtitle"]), subtitle))
+    if B and c.get("subtitle_en"):
+        body(Paragraph(seg_markup(c["subtitle_en"]), subtitle))
     story.append(Spacer(1, 4 * mm))
 
     # ---- tarjetas
@@ -165,28 +180,35 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
         return t
 
     p, cl, v, pay = c["provider"], c["client"], c["vigencia"], c["pago"]
-    prov_card = card("PROVEEDOR", [("", f"{p.get('name') or ''} · {p.get('trade_name') or 'CLONEXA'}".strip(" ·")), ("NIT/documento", p.get("doc_id")),
-                                   ("Correo", p.get("email")), ("Teléfonos", p.get("phones")), ("Ciudad", p.get("city"))])
-    cli_card = card("CLIENTE", [("", c["company_name"]), ("Razón social", cl.get("legal_name")), ("NIT o CC", cl.get("doc_id")),
-                                ("Representante", cl.get("representative")), ("Dirección", cl.get("address")), ("Correo", cl.get("email")),
-                                ("Teléfono", cl.get("phone"))], client_logo)
-    vig_card = card("VIGENCIA", [("Modalidad", v["type"]), ("Inicio del servicio", v["start"]), ("Prueba", v["trial"]),
-                                 ("Primer período pagado", v["paid_start"]),
-                                 ("Permanencia mínima", f"{v['min_months']} meses (hasta el {v['end']})" if v["min_months"] else "Sin permanencia: mes a mes")])
-    pay_rows = [("Moneda", pay["currency"]), ("Ventana de pago", pay["window"]), ("Canal", pay["channel"])]
+    prov_card = card(L("PROVEEDOR", "PROVIDER"), [("", f"{p.get('name') or ''} · {p.get('trade_name') or 'CLONEXA'}".strip(" ·")),
+                                                  (L("NIT/documento", "Tax ID/ID"), p.get("doc_id")), (L("Correo", "Email"), p.get("email")),
+                                                  (L("Teléfonos", "Phones"), p.get("phones")), (L("Ciudad", "City"), p.get("city"))])
+    cli_card = card(L("CLIENTE", "CLIENT"), [("", c["company_name"]), (L("Razón social", "Legal name"), cl.get("legal_name")),
+                                             (L("Documento", "ID/Tax ID") if B else "NIT o CC", cl.get("doc_id")),
+                                             (L("Representante", "Representative"), cl.get("representative")), (L("Dirección", "Address"), cl.get("address")),
+                                             (L("Correo", "Email"), cl.get("email")), (L("Teléfono", "Phone"), cl.get("phone"))], client_logo)
+    min_text = v["min_text"] if B else (f"{v['min_months']} meses (hasta el {v['end']})" if v["min_months"] else "Sin permanencia: mes a mes")
+    vig_card = card(L("VIGENCIA", "TERM"), [(L("Modalidad", "Type"), v["type"]), (L("Inicio del servicio", "Service start"), v["start"]),
+                                            (L("Prueba", "Trial"), v["trial"]), (L("Primer período pagado", "First paid period"), v["paid_start"]),
+                                            (L("Permanencia mínima", "Minimum term"), min_text)])
+    pay_rows = [(L("Moneda", "Currency"), pay["currency"]), (L("Ventana de pago", "Payment window"), pay["window"]), (L("Canal", "Channel"), pay["channel"])]
     if c.get("surcharge"):
-        pay_rows.append(("Recargo por ajustes nuevos", f"{c['surcharge']['amount_text']} por mes con ajustes, desde el período {c['surcharge']['from_month']}"))
-    pay_card = card("PAGO", pay_rows)
+        amount, frm = c["surcharge"]["amount_text"], c["surcharge"]["from_month"]
+        pay_rows.append((L("Recargo por ajustes nuevos", "Surcharge for new adjustments"),
+                         L(f"{amount} por mes con ajustes, desde el período {frm}", f"{amount} per month with adjustments, from period {frm}")))
+    pay_card = card(L("PAGO", "PAYMENT"), pay_rows)
     grid = Table([[prov_card, cli_card], [vig_card, pay_card]], colWidths=[usable / 2, usable / 2])
     grid.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm), ("ALIGN", (1, 0), (1, -1), "RIGHT")]))
     body(grid)
 
     # ---- franja de precios
-    cells = [[Paragraph(escape(t["label"].upper()), cell_w) for t in c["tiers"]] + [Paragraph("COMPROMISO MÍNIMO", cell_w)],
-             [Paragraph(f"{escape(t['amount_text'])}<br/><font size='7' color='{MUTED}'>por mes</font>", big) for t in c["tiers"]]
-             + [Paragraph(f"{escape(c['commitment_text'])}<br/><font size='7' color='{MUTED}'>{v['min_months']} meses mínimos</font>" if v["min_months"]
-                          else f"Mes a mes<br/><font size='7' color='{MUTED}'>sin permanencia</font>", big)]]
+    months = v["min_months"]
+    min_note = L(f"{months} meses mínimos", f"{months}-month minimum")
+    cells = [[Paragraph(escape(t["label"].upper()), cell_w) for t in c["tiers"]] + [Paragraph(L("COMPROMISO MÍNIMO", "MINIMUM COMMITMENT"), cell_w)],
+             [Paragraph(f"{escape(t['amount_text'])}<br/><font size='7' color='{MUTED}'>{L('por mes', 'per month')}</font>", big) for t in c["tiers"]]
+             + [Paragraph(f"{escape(c['commitment_text'])}<br/><font size='7' color='{MUTED}'>{min_note}</font>" if months
+                          else f"{L('Mes a mes', 'Month to month')}<br/><font size='7' color='{MUTED}'>{L('sin permanencia', 'no minimum term')}</font>", big)]]
     n = len(cells[0])
     strip = Table(cells, colWidths=[usable / n] * n)
     strip.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(BAND)), ("BACKGROUND", (-1, 0), (-1, 0), colors.HexColor(PINK)),
@@ -195,15 +217,21 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
                                ("LINEAFTER", (0, 0), (-2, -1), 1.5, colors.white), ("TOPPADDING", (0, 1), (-1, 1), 6), ("BOTTOMPADDING", (0, 1), (-1, 1), 6)]))
     body(strip)
     story.append(Spacer(1, 2 * mm))
-    body(Paragraph(f"<font color='{MUTED}'>Compromiso mínimo en letras:</font> {escape(c['commitment_words'])}." if v["min_months"]
-                   else f"<font color='{MUTED}'>Sin permanencia mínima: se paga cada período prestado.</font>", small))
+    if B:
+        body(Paragraph(f"<font color='{MUTED}'>Compromiso mínimo en letras / Minimum commitment in words:</font> {escape(c['commitment_words'])}"
+                       f" / {escape(c['commitment_words_en'])}." if months else
+                       f"<font color='{MUTED}'>Sin permanencia mínima: se paga cada período prestado. / No minimum term: each period provided is paid.</font>",
+                       small))
+    else:
+        body(Paragraph(f"<font color='{MUTED}'>Compromiso mínimo en letras:</font> {escape(c['commitment_words'])}." if v["min_months"]
+                       else f"<font color='{MUTED}'>Sin permanencia mínima: se paga cada período prestado.</font>", small))
     story.append(Spacer(1, 3 * mm))
 
     # ---- modulos como etiquetas
-    body(Paragraph("MÓDULOS HABILITADOS", label))
+    body(Paragraph(L("MÓDULOS HABILITADOS", "ENABLED MODULES"), label))
     story.append(Spacer(1, 1.5 * mm))
     per_row = 4
-    names = [m["name"] for m in c["modules"]]
+    names = [L(m["name"], m.get("name_en") or m["name"]) if m.get("name_en") not in (None, "", m["name"]) else m["name"] for m in c["modules"]]
     rows = [names[i:i + per_row] for i in range(0, len(names), per_row)] or [[]]
     rows = [[Paragraph(escape(x), tag) for x in r] + [""] * (per_row - len(r)) for r in rows]
     tags = Table(rows, colWidths=[usable / per_row] * per_row)
@@ -219,7 +247,8 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
 
     # ---- bloques del sistema
     def schedule():
-        head = [Paragraph(x, cell_w) for x in ("No.", "Período", "Ventana de pago", "Tarifa", "Observación")]
+        head = [Paragraph(x, cell_w) for x in ("No.", L("Período", "Period"), L("Ventana de pago", "Payment window"), L("Tarifa", "Fee"),
+                                               L("Observación", "Note"))]
         data = [head] + [[Paragraph(str(r["seq"]), cell), Paragraph(escape(r["period"]), cell), Paragraph(escape(r["window"]), cell),
                           Paragraph(escape(r["amount_text"]), cell_b), Paragraph(escape(r["note"]), cell)] for r in c["schedule"]]
         t = Table(data, colWidths=[usable * x for x in (0.07, 0.2, 0.21, 0.2, 0.32)], repeatRows=1)
@@ -246,23 +275,30 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
                 side = 52 * mm
                 img.drawWidth, img.drawHeight = (side, side * ratio) if ratio <= 1.4 else (side / ratio * 1.4, side * 1.4)
                 img.hAlign = "CENTER"
-                out.append(Paragraph(f"<font color='{PINK}'><b>QR DE PAGO · CLONEXA</b></font>", ParagraphStyle("qrh", parent=small, alignment=TA_CENTER)))
+                out.append(Paragraph(f"<font color='{PINK}'><b>{L('QR DE PAGO · CLONEXA', 'PAYMENT QR · CLONEXA')}</b></font>",
+                                     ParagraphStyle("qrh", parent=small, alignment=TA_CENTER)))
                 out.append(Spacer(1, 2 * mm))
                 out.append(img)
             except Exception:
-                out.append(Paragraph(f"QR de pago: {BLANK_MARKUP}", small))
+                out.append(Paragraph(f"{L('QR de pago', 'Payment QR')}: {BLANK_MARKUP}", small))
         else:
-            out.append(Paragraph(f"QR de pago: {BLANK_MARKUP} (EL PROVEEDOR lo entregará por escrito).", small))
+            out.append(Paragraph(f"{L('QR de pago', 'Payment QR')}: {BLANK_MARKUP} "
+                                 f"({L('EL PROVEEDOR lo entregará por escrito', 'THE PROVIDER will deliver it in writing')}).", small))
         out.append(Spacer(1, 2 * mm))
-        out.append(Paragraph(escape(c["qr_caption"]), ParagraphStyle("cap", parent=small, alignment=TA_CENTER, textColor=colors.HexColor(MUTED))))
-        out.append(Paragraph("<b>IMPORTANTE:</b> confirme el nombre del destinatario y el valor antes de autorizar la transferencia.",
+        cap = ParagraphStyle("cap", parent=small, alignment=TA_CENTER, textColor=colors.HexColor(MUTED))
+        out.append(Paragraph(escape(c["qr_caption"]), cap))
+        if B and c.get("qr_caption_en"):
+            out.append(Paragraph(escape(c["qr_caption_en"]), cap))
+        out.append(Paragraph("<b>IMPORTANTE:</b> confirme el nombre del destinatario y el valor antes de autorizar la transferencia."
+                             + (" / <b>IMPORTANT:</b> confirm the recipient's name and the amount before authorizing the transfer." if B else ""),
                              ParagraphStyle("imp", parent=small, alignment=TA_CENTER)))
         return KeepTogether(out)
 
     def signatures():
         sp, sc = c["signatures"]["provider"], c["signatures"]["client"]
-        data = [[Paragraph("EL PROVEEDOR", cell_w), Paragraph("EL CLIENTE", cell_w)],
-                [Paragraph("Firma: ______________________________", cell), Paragraph("Firma: ______________________________", cell)]]
+        sign = f"{L('Firma', 'Signature')}: ______________________________"
+        data = [[Paragraph(L("EL PROVEEDOR", "THE PROVIDER"), cell_w), Paragraph(L("EL CLIENTE", "THE CLIENT"), cell_w)],
+                [Paragraph(sign, cell), Paragraph(sign, cell)]]
         for (k1, v1), (k2, v2) in zip(sp, sc):
             data.append([Paragraph(f"{escape(k1)}: {val_markup(v1)}", cell), Paragraph(f"{escape(k2)}: {val_markup(v2)}", cell)])
         t = Table(data, colWidths=[usable / 2, usable / 2], rowHeights=[None, 16 * mm] + [None] * len(sp))
@@ -275,6 +311,11 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
     blocks = {"CUOTAS": schedule, "ACCESOS": lambda: two_col(c["access"]), "QR": qr_block, "FIRMAS": signatures,
               "MODULOS": lambda: KeepTogether([Paragraph(f"• <b>{escape(m['name'])}</b>: {escape(m['line'])}", ParagraphStyle(
                   "li", parent=base, leftIndent=8, spaceAfter=1.5)) for m in c["modules"]])}
+
+    if B:
+        bilingual_clauses(c, story, body, blocks, usable, base, h2, colors, mm, CondPageBreak, Paragraph, ParagraphStyle, Spacer, Table, TableStyle)
+        doc.build(story, canvasmaker=Numbered)
+        return buf.getvalue(), info
 
     # ---- clausulas
     for sec in c["sections"]:
@@ -300,3 +341,67 @@ def render(c: dict, client_logo: Optional[bytes] = None, qr: Optional[bytes] = N
 
     doc.build(story, canvasmaker=Numbered)
     return buf.getvalue(), info
+
+
+def bilingual_clauses(c, story, body, blocks, usable, base, h2, colors, mm, CondPageBreak, Paragraph, ParagraphStyle, Spacer, Table, TableStyle):
+    """Clausulas en dos columnas: español a la izquierda, ingles a la derecha,
+    cada parrafo en la misma fila que su traduccion (alineados por seccion)."""
+    col = usable / 2
+    es = ParagraphStyle("bi_es", parent=base, fontSize=8.6, leading=11.8)
+    en = ParagraphStyle("bi_en", parent=es, textColor=colors.HexColor("#2c2745"))
+    head = ParagraphStyle("bi_h", parent=h2, fontSize=9.4, leading=12.4, spaceBefore=0, spaceAfter=0)
+    head_en = ParagraphStyle("bi_h_en", parent=head, textColor=colors.HexColor(MUTED))
+    modules_style = ParagraphStyle("bi_li", parent=es, leftIndent=6)
+
+    def table(rows, with_head):
+        t = Table(rows, colWidths=[col, col])
+        st = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (0, -1), 3.2 * mm),
+              ("LEFTPADDING", (1, 0), (1, -1), 3.2 * mm), ("RIGHTPADDING", (1, 0), (1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0),
+              ("BOTTOMPADDING", (0, 0), (-1, -1), 4), ("LINEAFTER", (0, 0), (0, -1), 0.5, colors.HexColor(LINE))]
+        if with_head:
+            st += [("TOPPADDING", (0, 0), (-1, 0), 6), ("BOTTOMPADDING", (0, 0), (-1, 0), 3)]
+        t.setStyle(TableStyle(st))
+        return t
+
+    def module_rows():  # anexo de modulos: nombre y linea en español | en ingles
+        return [[Paragraph(f"• <b>{escape(m['name'])}</b>: {escape(m['line'])}", modules_style),
+                 Paragraph(f"• <b>{escape(m.get('name_en') or m['name'])}</b>: {escape(m.get('line_en') or m['line'])}", modules_style)]
+                for m in c["modules"]]
+
+    for sec in c["sections"]:
+        story.append(CondPageBreak((60 if sec["title"].startswith("ANEXO") or sec["title"] == "FIRMAS" else 28) * mm))
+        rows, first = [], True
+        # el titulo va en la MISMA fila que el primer parrafo: nunca queda solo al pie de una pagina
+        title = None if sec["title"] == "PARTES" else [Paragraph(escape(sec["title"]), head),
+                                                       Paragraph(escape(sec.get("title_en") or sec["title"]), head_en)]
+
+        def add(row):
+            nonlocal title
+            if title:
+                row = [[title[0], Spacer(1, 1.2 * mm), row[0]], [title[1], Spacer(1, 1.2 * mm), row[1]]]
+                title = None
+            rows.append(row)
+
+        def flush():
+            nonlocal rows, first, title
+            if title:  # seccion que empieza con un bloque (Anexo 1): el titulo solo
+                rows.append(title)
+                title = None
+            if rows:
+                body(table(rows, first and sec["title"] != "PARTES"))
+                rows = []
+                first = False
+
+        for b in sec["blocks"]:
+            if b["type"] == "block":
+                if b["name"] == "MODULOS":
+                    for r in module_rows():
+                        add(r)
+                    continue
+                flush()
+                story.append(Spacer(1, 1.5 * mm))
+                body(blocks[b["name"]]())
+                story.append(Spacer(1, 2.5 * mm))
+            else:
+                add([Paragraph(seg_markup(b["segments"]), es), Paragraph(seg_markup(b.get("segments_en") or []), en)])
+        flush()

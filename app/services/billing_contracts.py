@@ -38,6 +38,12 @@ from app.services import billing
 from app.services.billing import BillingConflict, BillingInvalid
 
 TEMPLATE = Path(__file__).resolve().parent / "contract_templates" / "contrato_clonexa_es.txt"
+TEMPLATE_BI = TEMPLATE.with_name("contrato_clonexa_es_en.txt")  # bilingue ES | EN (se elige por contrato)
+MODULES_EN = TEMPLATE.with_name("modulos_en.json")
+LANGUAGES = ("es", "es_en")  # Español (por defecto) | Bilingüe ES-EN
+PAY_METHODS = ("qr", "zelle")  # QR del Anexo 2 (por defecto) | Zelle (USD, solo bilingue)
+ZELLE_FIELDS = {"zelle_name": 160, "zelle_contact": 160}
+TYPES_EN = {"mensual": "Monthly", "minimo": "Minimum term", "anual": "Annual", "prueba": "Trial"}
 CURRENCIES = ("COP", "USD")
 MAX_PROOF_BYTES = 5 * 1024 * 1024
 MAX_QR_BYTES = 5 * 1024 * 1024
@@ -99,11 +105,11 @@ def _apocope(words: str) -> str:
     return words
 
 
-def amount_words(value: Any, currency: str) -> str:
+def amount_words(value: Any, currency: str, noun: Optional[str] = None) -> str:
     d = Decimal(str(value or 0)).quantize(Decimal("0.01"))
     whole = int(d)
     cents = int((d - whole) * 100)
-    noun = "pesos colombianos" if currency == "COP" else "dólares estadounidenses"
+    noun = noun or ("pesos colombianos" if currency == "COP" else "dólares estadounidenses")
     base = _apocope(words_es(whole))
     if base.endswith(("millón", "millones")):
         base += " de"
@@ -138,6 +144,89 @@ def month_end(d: date) -> date:
     return billing.add_months(d.replace(day=1), 1) - timedelta(days=1)
 
 
+# ------------------------------------------- texto del contrato bilingue ---
+MONTHS_EN = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+_EN_ONES = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+            "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+_EN_TENS = ("", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+NOUN_ES = {"USD": "dólares de los Estados Unidos de América", "COP": "pesos colombianos"}
+NOUN_EN = {"USD": ("United States dollar", "United States dollars"), "COP": ("Colombian peso", "Colombian pesos")}
+
+
+def _en_below_thousand(n: int) -> str:
+    hundreds, rest = divmod(n, 100)
+    parts = [f"{_EN_ONES[hundreds]} hundred"] if hundreds else []
+    if rest:
+        parts.append(_EN_ONES[rest] if rest < 20 else _EN_TENS[rest // 10] + (f"-{_EN_ONES[rest % 10]}" if rest % 10 else ""))
+    return " ".join(parts)
+
+
+def words_en(n: int) -> str:
+    """Numero entero en letras (ingles): 1500 -> "one thousand five hundred"."""
+    n = int(n)
+    if n < 0:
+        return "minus " + words_en(-n)
+    if n == 0:
+        return "zero"
+    parts = []
+    for size, name in ((10 ** 9, "billion"), (10 ** 6, "million"), (1000, "thousand")):
+        count, n = divmod(n, size)
+        if count:
+            parts.append(f"{_en_below_thousand(count)} {name}")
+    if n:
+        parts.append(_en_below_thousand(n))
+    return " ".join(parts)
+
+
+def amount_words_en(value: Any, currency: str) -> str:
+    """"one thousand five hundred United States dollars" (centavos: "and 50/100")."""
+    d = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    whole = int(d)
+    cents = int((d - whole) * 100)
+    one, many = NOUN_EN.get(currency, (currency, currency))
+    out = f"{words_en(whole)} {one if whole == 1 else many}"
+    return out + (f" and {cents:02d}/100" if cents else "")
+
+
+def amount_words_bi(value: Any, currency: str) -> str:
+    """Columna ES del bilingue: "mil quinientos dólares de los Estados Unidos de América"."""
+    return amount_words(value, currency, NOUN_ES.get(currency))
+
+
+def money_text_en(value: Any, currency: str) -> str:
+    """Columna EN: punto decimal ("USD 1,500.00", "COP 1,300,000")."""
+    d = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    if currency == "COP" and d == int(d):
+        return f"COP {int(d):,}"
+    return f"{currency} {d:,.2f}"
+
+
+def money_text_bi(value: Any, currency: str) -> str:
+    """Columna ES del bilingue: "USD 1.500" (centavos con coma); COP como siempre."""
+    if currency != "USD":
+        return money_text(value, currency)
+    d = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    cents = int((d - int(d)) * 100)
+    return f"USD {int(d):,}".replace(",", ".") + (f",{cents:02d}" if cents else "")
+
+
+def money_shared(value: Any, currency: str) -> str:
+    """Tablas y tarjetas del bilingue (una sola cifra): USD con punto decimal."""
+    return money_text_en(value, currency) if currency == "USD" else money_text(value, currency)
+
+
+def date_long_en(d: date) -> str:
+    return f"{MONTHS_EN[d.month - 1]} {d.day}, {d.year}"
+
+
+def month_long_en(d: date) -> str:
+    return f"{MONTHS_EN[d.month - 1]} {d.year}"
+
+
+def window_text_en(due_from: date, due_to: date) -> str:
+    return f"{MONTHS_EN[due_from.month - 1][:3]} {due_from.day}–{due_to.day}, {due_from.year}"
+
+
 # --------------------------------------------------------- validacion ---
 def _text(raw: dict, name: str, limit: int, field: Optional[str] = None) -> str:
     value = str(raw.get(name) or "").strip()
@@ -149,12 +238,23 @@ def _text(raw: dict, name: str, limit: int, field: Optional[str] = None) -> str:
 def validate_provider(raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise BillingInvalid("proveedor", "datos inválidos")
-    out = {k: _text(raw, k, n) for k, n in PROVIDER_FIELDS.items()}
+    out = {k: _text(raw, k, n) for k, n in {**PROVIDER_FIELDS, **ZELLE_FIELDS}.items()}
     if not out["name"]:
         raise BillingInvalid("name", "escribe el nombre del proveedor")
     if out["email"] and not _EMAIL.match(out["email"]):
         raise BillingInvalid("email", "correo inválido")
+    if out["zelle_contact"] and not (_EMAIL.match(out["zelle_contact"]) or _PHONE.match(out["zelle_contact"])):
+        raise BillingInvalid("zelle_contact", "escribe el correo o el teléfono de Zelle")
     return out
+
+
+def modules_en() -> dict:
+    """{codigo: [nombre en ingles, linea en ingles]} del anexo de modulos bilingue."""
+    try:
+        data = json.loads(MODULES_EN.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, list) and len(v) == 2}
 
 
 def validate_draft(raw: dict, types: set[str], active_codes: Optional[set[str]] = None) -> dict:
@@ -199,6 +299,15 @@ def validate_draft(raw: dict, types: set[str], active_codes: Optional[set[str]] 
         raise BillingInvalid("client.email", "correo inválido")
     if client["phone"] and not _PHONE.match(client["phone"]):
         raise BillingInvalid("client.phone", "teléfono inválido")
+    language = str(raw.get("language") or "es").strip().lower()
+    if language not in LANGUAGES:
+        raise BillingInvalid("language", "idioma Español o Bilingüe ES-EN")
+    pay_method = str(raw.get("payment_method") or "qr").strip().lower()
+    if pay_method not in PAY_METHODS:
+        raise BillingInvalid("payment_method", "medio de pago QR o Zelle")
+    if pay_method == "zelle" and (language != "es_en" or currency != "USD"):
+        raise BillingInvalid("payment_method", "Zelle va con el contrato bilingüe ES-EN en USD")
+    bilingual = language == "es_en"
     modules = []
     for i, m in enumerate(raw.get("modules") or []):
         if not isinstance(m, dict):
@@ -208,17 +317,25 @@ def validate_draft(raw: dict, types: set[str], active_codes: Optional[set[str]] 
             continue
         if active_codes is not None and code not in active_codes:
             raise BillingInvalid(f"modules[{i}]", "ese módulo no está activo en la empresa")
-        modules.append({"code": code, "name": _text(m, "name", 80, f"modules[{i}].name") or code,
-                        "line": _text(m, "line", 200, f"modules[{i}].line")})
+        mod = {"code": code, "name": _text(m, "name", 80, f"modules[{i}].name") or code, "line": _text(m, "line", 200, f"modules[{i}].line")}
+        if bilingual:  # nombre y linea en ingles solo en el bilingue (el español no cambia)
+            mod["name_en"] = _text(m, "name_en", 80, f"modules[{i}].name_en") or mod["name"]
+            mod["line_en"] = _text(m, "line_en", 200, f"modules[{i}].line_en") or mod["line"]
+        modules.append(mod)
     if len(modules) > 40:
         raise BillingInvalid("modules", "máximo 40 módulos")
     if not modules:
         raise BillingInvalid("modules", "elige al menos un módulo del alcance")
-    return {"contract_type": core["contract_type"], "start_date": start, "trial_days": trial, "paid_start": paid_start,
-            "min_months": core["min_months"], "currency": currency, "pay_day_from": core["pay_day_from"],
-            "pay_day_to": core["pay_day_to"], "tiers": core["tiers"], "surcharge": surcharge, "notes": core["notes"],
-            "jurisdiction_city": _text(raw, "jurisdiction_city", 80), "sign_city": _text(raw, "sign_city", 80),
-            "client": client, "modules": modules}
+    out = {"contract_type": core["contract_type"], "start_date": start, "trial_days": trial, "paid_start": paid_start,
+           "min_months": core["min_months"], "currency": currency, "pay_day_from": core["pay_day_from"],
+           "pay_day_to": core["pay_day_to"], "tiers": core["tiers"], "surcharge": surcharge, "notes": core["notes"],
+           "jurisdiction_city": _text(raw, "jurisdiction_city", 80), "sign_city": _text(raw, "sign_city", 80),
+           "client": client, "modules": modules}
+    if bilingual:  # solo si no es lo de siempre: un contrato en español guarda exactamente lo mismo que antes
+        out["language"] = language
+    if pay_method != "qr":
+        out["payment_method"] = pay_method
+    return out
 
 
 def contract_payload(data: dict) -> dict:
@@ -320,20 +437,34 @@ def verification_code(payload: dict) -> str:
 
 # ----------------------------------------------------------- plantilla ---
 def load_template(path: Path = TEMPLATE) -> dict:
-    """{"title", "subtitle", "sections": [{"title", "paragraphs": [str]}]}."""
+    """{"title", "subtitle", "sections": [{"title", "paragraphs": [str]}]}.
+    Bilingue (solo si la plantilla los trae): "title_en"/"subtitle_en" y, por
+    seccion, "title_en" y "en" = {indice del parrafo ES: su traduccion}."""
     title = subtitle = ""
+    extra: dict = {}
     sections: list[dict] = []
     buf: list[str] = []
 
     def flush():
         if buf and sections:
             para = " ".join(x.strip() for x in buf).strip()
-            if para:
-                sections[-1]["paragraphs"].append(para)
+            sec = sections[-1]
+            if para.startswith("EN: "):
+                if not sec["paragraphs"]:
+                    raise ValueError(f"traducción sin párrafo en español en «{sec['title']}»")
+                sec.setdefault("en", {})[len(sec["paragraphs"]) - 1] = para[4:].strip()
+            elif para:
+                sec["paragraphs"].append(para)
         buf.clear()
 
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith(";;"):
+            continue
+        if line.startswith("@titulo_en "):
+            extra["title_en"] = line[11:].strip()
+            continue
+        if line.startswith("@subtitulo_en "):
+            extra["subtitle_en"] = line[14:].strip()
             continue
         if line.startswith("@titulo "):
             title = line[8:].strip()
@@ -343,14 +474,19 @@ def load_template(path: Path = TEMPLATE) -> dict:
             continue
         if line.startswith("== "):
             flush()
-            sections.append({"title": line[3:].strip(), "paragraphs": []})
+            head = line[3:].strip()
+            if " | " in head:
+                es, en = head.split(" | ", 1)
+                sections.append({"title": es.strip(), "title_en": en.strip(), "paragraphs": []})
+            else:
+                sections.append({"title": head, "paragraphs": []})
             continue
         if not line.strip():
             flush()
             continue
         buf.append(line)
     flush()
-    return {"title": title, "subtitle": subtitle, "sections": sections}
+    return {"title": title, "subtitle": subtitle, "sections": sections, **extra}
 
 
 _FIELD = re.compile(r"\{([a-z_]+)\}")
@@ -384,7 +520,8 @@ def render_sections(template: dict, values: dict, flags: dict) -> list[dict]:
     sections = []
     for sec in template["sections"]:
         blocks = []
-        for para in sec["paragraphs"]:
+        en = sec.get("en") or {}
+        for i, para in enumerate(sec["paragraphs"]):
             cond = _COND.match(para)
             if cond:
                 want = bool(flags.get(cond.group(2)))
@@ -395,8 +532,11 @@ def render_sections(template: dict, values: dict, flags: dict) -> list[dict]:
             if block:
                 blocks.append({"type": "block", "name": block.group(1)})
             else:
-                blocks.append({"type": "p", "segments": fill(para, values)})
-        sections.append({"title": sec["title"], "blocks": blocks})
+                out = {"type": "p", "segments": fill(para, values)}
+                if i in en:  # traduccion: misma condicion que su parrafo en español
+                    out["segments_en"] = fill(_COND.sub("", en[i], count=1), values)
+                blocks.append(out)
+        sections.append({"title": sec["title"], "blocks": blocks, **({"title_en": sec["title_en"]} if "title_en" in sec else {})})
     return sections
 
 
@@ -409,6 +549,8 @@ def public_login_url() -> str:
 def compose(data: dict, provider: dict, company: dict, number: str, version: int, type_label: str,
             template: Optional[dict] = None) -> dict:
     """Todo lo que dibuja el PDF (y la vista previa), ya calculado."""
+    if data.get("language") == "es_en":
+        return compose_bilingual(data, provider, company, number, version, type_label, template)
     cur = data["currency"]
     client = data["client"]
     trial = int(data["trial_days"])
@@ -470,13 +612,165 @@ def compose(data: dict, provider: dict, company: dict, number: str, version: int
     }
 
 
+def bi(es: str, en: str) -> str:
+    """Etiqueta o dato corto en los dos idiomas ("Correo / Email"); igual => uno solo."""
+    return es if es == en else f"{es} / {en}"
+
+
+def tiers_bilingual(data: dict) -> tuple[list[dict], str, str]:
+    """(franja de precios, frase ES, frase EN) del contrato bilingue."""
+    cur = data["currency"]
+    views, es_parts, en_parts = [], [], []
+    ordered = sorted(data["tiers"], key=lambda t: t["month_from"])
+    for t in ordered:
+        a, f = t["month_from"], t["month_to"]
+        if f is None:
+            label = bi("Todos los meses", "All months") if a == 1 else bi(f"Desde el mes {a}", f"From month {a}")
+            span_es, span_en = f"desde el mes {a} en adelante", f"from month {a} onward"
+        elif f == a:
+            label, span_es, span_en = bi(f"Mes {a}", f"Month {a}"), f"el mes {a}", f"for month {a}"
+        else:
+            label = bi(f"Meses {a} a {f}", f"Months {a} to {f}")
+            span_es, span_en = f"del mes {a} al mes {f}", f"from month {a} through month {f}"
+        es = (amount_words_bi(t["amount"], cur), money_text_bi(t["amount"], cur))
+        en = (amount_words_en(t["amount"], cur), money_text_en(t["amount"], cur))
+        views.append({"label": label, "amount": t["amount"], "amount_text": money_shared(t["amount"], cur), "words": es[0], "words_en": en[0]})
+        es_parts.append(f"{span_es}, {es[0]} ({es[1]}) mensuales")
+        en_parts.append(f"{span_en}, {en[0]} ({en[1]}) per month")
+    if len(ordered) == 1:
+        v = views[0]
+        return (views, f"una tarifa mensual de {v['words']} ({money_text_bi(v['amount'], cur)})",
+                f"a monthly fee of {v['words_en']} ({money_text_en(v['amount'], cur)})")
+    return views, "; ".join(es_parts[:-1]) + "; y " + es_parts[-1], "; ".join(en_parts[:-1]) + "; and " + en_parts[-1]
+
+
+_NOTE_EN = {"Tarifa mensual": "Monthly fee", "Tarifa inicial": "Initial fee", "Tarifa base": "Base fee", "permanencia mínima": "minimum term",
+            "mes a mes": "month to month"}
+
+
+def _note_en(note: str) -> str:
+    parts = []
+    for p in note.split(" · "):
+        parts.append(f"Tier {p.split(' ', 1)[1]}" if p.startswith("Tramo ") else _NOTE_EN.get(p, p))
+    return " · ".join(parts)
+
+
+def compose_bilingual(data: dict, provider: dict, company: dict, number: str, version: int, type_label: str,
+                      template: Optional[dict] = None) -> dict:
+    """Composicion del contrato bilingue (español | ingles): las mismas cuentas que
+    compose(); cada seccion trae su texto ES y EN y las etiquetas van en los dos idiomas."""
+    cur = data["currency"]
+    client = data["client"]
+    trial = int(data["trial_days"])
+    min_months = int(data["min_months"])
+    first_period = data["paid_start"].replace(day=1)
+    commitment = min_commitment(data["tiers"], min_months)
+    sur = data.get("surcharge")
+    zelle = data.get("payment_method") == "zelle"
+    end = month_end(billing.add_months(first_period, max(min_months, 1) - 1))
+    trial_end = data["start_date"] + timedelta(days=max(trial, 1) - 1)
+    views, tiers_es, tiers_en = tiers_bilingual(data)
+    zelle_info = {k: provider.get(k) or "" for k in ZELLE_FIELDS}
+    company_name = company["name"]
+    type_en = TYPES_EN.get(data["contract_type"], type_label)
+    values = {
+        "proveedor_nombre": provider.get("name") or None, "proveedor_marca": provider.get("trade_name") or "CLONEXA",
+        "proveedor_documento": (f"NIT/documento No. {provider['doc_id']}" if provider.get("doc_id") else None),
+        "proveedor_documento_en": (f"Colombian tax ID (NIT)/ID document No. {provider['doc_id']}" if provider.get("doc_id") else None),
+        "proveedor_ciudad": provider.get("city") or None, "proveedor_correo": provider.get("email") or None,
+        "proveedor_telefonos": provider.get("phones") or None,
+        "cliente_empresa": company_name, "cliente_razon_social": client["legal_name"] or None,
+        "cliente_representante": client["representative"] or None,
+        "cliente_documento": (f"documento o registro tributario No. {client['doc_id']}" if client["doc_id"] else None),
+        "cliente_documento_en": (f"ID or tax registration No. {client['doc_id']}" if client["doc_id"] else None),
+        "cliente_direccion": client["address"] or None, "cliente_correo": client["email"] or None, "cliente_telefono": client["phone"] or None,
+        "prueba_dias": trial, "prueba_dias_letras": words_es(trial), "prueba_dias_letras_en": words_en(trial),
+        "prueba_desde": date_long(data["start_date"]), "prueba_desde_en": date_long_en(data["start_date"]),
+        "prueba_hasta": date_long(trial_end), "prueba_hasta_en": date_long_en(trial_end),
+        "inicio_pagos": date_long(data["paid_start"]), "inicio_pagos_en": date_long_en(data["paid_start"]),
+        "tramos_texto": tiers_es, "tramos_texto_en": tiers_en, "pago_desde": data["pay_day_from"], "pago_hasta": data["pay_day_to"],
+        "medio_pago": ("mediante Zelle, en dólares de los Estados Unidos de América, según el Anexo 2" if zelle
+                       else "mediante el QR del Anexo 2 o por el medio que confirme EL PROVEEDOR"),
+        "medio_pago_en": ("via Zelle, in United States dollars, as set out in Annex 2" if zelle
+                          else "through the QR code in Annex 2 or by any other means confirmed by THE PROVIDER"),
+        "compromiso": money_text_bi(commitment, cur), "compromiso_letras": amount_words_bi(commitment, cur),
+        "compromiso_en": money_text_en(commitment, cur), "compromiso_letras_en": amount_words_en(commitment, cur),
+        "permanencia": min_months, "permanencia_letras": words_es(min_months), "permanencia_letras_en": words_en(min_months),
+        "fin_permanencia": date_long(end), "fin_permanencia_en": date_long_en(end),
+        "recargo": money_text_bi(sur["amount"], cur) if sur else "", "recargo_letras": amount_words_bi(sur["amount"], cur) if sur else "",
+        "recargo_en": money_text_en(sur["amount"], cur) if sur else "", "recargo_letras_en": amount_words_en(sur["amount"], cur) if sur else "",
+        "recargo_desde": sur["from_month"] if sur else "",
+        "recargo_desde_fecha": month_long(billing.add_months(first_period, sur["from_month"] - 1)) if sur else "",
+        "recargo_desde_fecha_en": month_long_en(billing.add_months(first_period, sur["from_month"] - 1)) if sur else "",
+        "ciudad_firma": data["sign_city"] or None,
+        "zelle_titular": zelle_info["zelle_name"] or None, "zelle_contacto": zelle_info["zelle_contact"] or None,
+        "referencia_pago": f"{company_name} - {billing.MONTHS_ES[first_period.month - 1]} {first_period.year}",
+        "referencia_pago_en": f"{company_name} - {month_long_en(first_period)}",
+    }
+    flags = {"prueba": trial > 0, "permanencia": min_months > 0, "recargo": bool(sur), "varios_tramos": len(data["tiers"]) > 1, "zelle": zelle}
+    template = template or load_template(TEMPLATE_BI)
+    sections = render_sections(template, values, flags)
+    content = {"data": to_json(data), "provider": {k: provider.get(k, "") for k in PROVIDER_FIELDS}, "company": company_name,
+               "number": number, "version": version}
+    if zelle:
+        content["zelle"] = zelle_info
+    schedule = []
+    for r in schedule_rows(data):
+        period = billing.add_months(first_period, r["seq"] - 1)
+        due_from, due_to = period.replace(day=data["pay_day_from"]), period.replace(day=data["pay_day_to"])
+        schedule.append({**r, "period": bi(r["period"], month_long_en(period)), "window": bi(r["window"], window_text_en(due_from, due_to)),
+                         "amount_text": money_shared(r["amount"], cur), "note": bi(r["note"], _note_en(r["note"]))})
+    support = " · ".join(x for x in (provider.get("phones"), provider.get("email")) if x)
+    end_label = bi(date_long(end), date_long_en(end)) if min_months else bi("mes a mes", "month to month")
+    return {
+        "bilingual": True, "language": "es_en", "payment_method": "zelle" if zelle else "qr",
+        "title": template["title"], "title_en": template.get("title_en", ""),
+        "subtitle": fill(template["subtitle"], values), "subtitle_en": fill(template.get("subtitle_en", ""), values),
+        "number": number, "version": version, "verification": verification_code(content),
+        "currency": cur, "type_label": bi(type_label, type_en), "company_name": company_name,
+        "provider": {k: provider.get(k, "") for k in PROVIDER_FIELDS}, "zelle": zelle_info if zelle else None,
+        "client": client,
+        "vigencia": {"start": bi(date_long(data["start_date"]), date_long_en(data["start_date"])),
+                     "trial": (bi(f"{trial} día{'s' if trial != 1 else ''}", f"{trial} day{'s' if trial != 1 else ''}") if trial
+                               else bi("Sin prueba", "No trial")),
+                     "paid_start": bi(date_long(data["paid_start"]), date_long_en(data["paid_start"])), "min_months": min_months,
+                     "end": end_label, "type": bi(type_label, type_en),
+                     "min_text": (bi(f"{min_months} meses (hasta el {date_long(end)})", f"{min_months} months (until {date_long_en(end)})") if min_months
+                                  else bi("Sin permanencia: mes a mes", "No minimum term: month to month"))},
+        "pago": {"window": bi(f"Del {data['pay_day_from']} al {data['pay_day_to']} de cada mes",
+                              f"From day {data['pay_day_from']} to day {data['pay_day_to']} of each month"),
+                 "currency": cur, "channel": bi("Zelle (Anexo 2)", "Zelle (Annex 2)") if zelle else bi("QR del Anexo 2", "QR code in Annex 2")},
+        "tiers": views, "commitment": commitment, "commitment_text": money_shared(commitment, cur),
+        "commitment_words": amount_words_bi(commitment, cur), "commitment_words_en": amount_words_en(commitment, cur),
+        "surcharge": ({"amount_text": money_shared(sur["amount"], cur), "from_month": sur["from_month"]} if sur else None),
+        "modules": data["modules"], "schedule": schedule, "sections": sections,
+        "access": [(bi("Empresa / establecimiento", "Company / establishment"), company_name),
+                   (bi("Enlace de aplicación", "Application link"), public_login_url() or None),
+                   (bi("Usuario entregado", "Username delivered"), None),
+                   (bi("Clave", "Password"), bi("Entregada por canal seguro separado", "Delivered through a separate secure channel")),
+                   (bi("Fecha de entrega", "Delivery date"), None), (bi("Canal de soporte", "Support channel"), support or None),
+                   (bi("Responsable del cliente", "Client contact person"),
+                    " · ".join(x for x in (client["representative"], client["email"], client["phone"]) if x) or None)],
+        "qr_caption": ("Imagen original entregada por CLONEXA. No fue recortada ni modificada. Verificación de pago y soporte: "
+                       + (support or "canales oficiales de CLONEXA") + "."),
+        "qr_caption_en": ("Original image provided by CLONEXA. It has not been cropped or modified. Payment verification and support: "
+                          + (support or "CLONEXA official channels") + "."),
+        "signatures": {"provider": [(bi("Nombre", "Name"), provider.get("name") or None), (bi("NIT/documento", "Tax ID/ID"), provider.get("doc_id") or None),
+                                    (bi("Correo", "Email"), provider.get("email") or None)],
+                       "client": [(bi("Nombre", "Name"), client["representative"] or None), (bi("Documento", "ID/Tax ID"), client["doc_id"] or None),
+                                  (bi("Correo", "Email"), client["email"] or None)]},
+        "contact": " · ".join(x for x in (provider.get("trade_name") or "CLONEXA", provider.get("email"), (provider.get("phones") or "").split("·")[0].strip()) if x),
+    }
+
+
 # ----------------------------------------------------------------- base ---
 async def get_provider(db: AsyncSession) -> dict:
     row = (await db.execute(text("""
-        SELECT name, trade_name, doc_id, email, phones, city, qr_key, qr_type, updated_by, updated_at FROM billing_provider WHERE id = 1
+        SELECT name, trade_name, doc_id, email, phones, city, zelle_name, zelle_contact, qr_key, qr_type, updated_by, updated_at
+        FROM billing_provider WHERE id = 1
     """))).mappings().first()
     if not row:
-        return {**{k: "" for k in PROVIDER_FIELDS}, "trade_name": "CLONEXA", "qr_key": None, "qr_type": None, "has_qr": False}
+        return {**{k: "" for k in {**PROVIDER_FIELDS, **ZELLE_FIELDS}}, "trade_name": "CLONEXA", "qr_key": None, "qr_type": None, "has_qr": False}
     out = dict(row)
     out["has_qr"] = bool(out.get("qr_key"))
     return out
@@ -485,10 +779,11 @@ async def get_provider(db: AsyncSession) -> dict:
 async def save_provider(db: AsyncSession, raw: dict, actor: str) -> dict:
     data = validate_provider(raw)
     await db.execute(text("""
-        INSERT INTO billing_provider (id, name, trade_name, doc_id, email, phones, city, updated_by, updated_at)
-        VALUES (1, :name, :trade_name, :doc_id, :email, :phones, :city, :by, now())
+        INSERT INTO billing_provider (id, name, trade_name, doc_id, email, phones, city, zelle_name, zelle_contact, updated_by, updated_at)
+        VALUES (1, :name, :trade_name, :doc_id, :email, :phones, :city, :zelle_name, :zelle_contact, :by, now())
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, trade_name = EXCLUDED.trade_name, doc_id = EXCLUDED.doc_id,
-            email = EXCLUDED.email, phones = EXCLUDED.phones, city = EXCLUDED.city, updated_by = EXCLUDED.updated_by, updated_at = now()
+            email = EXCLUDED.email, phones = EXCLUDED.phones, city = EXCLUDED.city, zelle_name = EXCLUDED.zelle_name,
+            zelle_contact = EXCLUDED.zelle_contact, updated_by = EXCLUDED.updated_by, updated_at = now()
     """), {**data, "by": actor[:200]})
     await db.commit()
     return await get_provider(db)
@@ -598,12 +893,68 @@ async def prefill(db: AsyncSession, company_id: str, today: Optional[date] = Non
     start = min(dates).astimezone(billing.TZ).date() if dates else (today or billing.today_bogota())
     got = await safely(db, lambda: panel_logo.panel_logo(db, company_id), {"url": ""})
     logo = (got or {}).get("url") or ""
+    english = modules_en()
+    mods = [{"code": m["code"], "name": m["name"], "line": m["line"],
+             "name_en": (english.get(m["code"]) or [m["name"]])[0], "line_en": (english.get(m["code"]) or [m["name"], m["line"]])[1]} for m in modules]
     return {"company": {"id": company_id, "name": company["name"] if company else ""}, "logo_url": logo,
-            "modules": [{k: m[k] for k in ("code", "name", "line")} for m in modules],
+            "modules": mods,
             "form": {"contract_type": "minimo", "start_date": start.isoformat(), "trial_days": 0, "min_months": 6, "currency": "COP",
                      "pay_day_from": 1, "pay_day_to": 5, "tiers": [{"month_from": 1, "month_to": None, "amount": 0}],
                      "surcharge": {"amount": "", "from_month": ""}, "jurisdiction_city": "", "sign_city": "",
-                     "client": {k: "" for k in CLIENT_FIELDS}, "modules": [{k: m[k] for k in ("code", "name", "line")} for m in modules]}}
+                     "language": "es", "payment_method": "qr",
+                     "client": {k: "" for k in CLIENT_FIELDS}, "modules": [dict(m) for m in mods]}}
+
+
+# ------------------------------------------ redactar desde contrato manual ---
+MANUAL_LOCKED = "Esta empresa ya tiene un contrato registrado a mano; no se reemplaza desde Redactar contrato."
+
+
+async def payments_count(db: AsyncSession, company_id: str) -> int:
+    """Pagos registrados de la empresa (por validar, validados o anulados)."""
+    return int((await db.execute(text("SELECT COUNT(*) FROM billing_payments WHERE company_id = CAST(:c AS uuid)"),
+                                 {"c": company_id})).scalar() or 0)
+
+
+async def manual_redraftable(db: AsyncSession, company_id: str) -> bool:
+    """"Redactar desde este contrato": contrato hecho a mano (sin documento
+    redactado) y SIN ningun pago registrado ni validado."""
+    if not await billing.get_contract(db, company_id) or await current_document(db, company_id):
+        return False
+    return await payments_count(db, company_id) == 0
+
+
+def form_from_manual(contract: dict, base: dict) -> dict:
+    """Formulario precargado con lo del contrato manual (tipo, inicio, minimo,
+    ventana, moneda y tramos); el resto sale de la precarga de siempre."""
+    return {**base, "contract_type": contract["contract_type"], "start_date": contract["start_date"].isoformat(), "trial_days": 0,
+            "min_months": int(contract["min_months"]), "currency": contract["currency"], "pay_day_from": int(contract["pay_day_from"]),
+            "pay_day_to": int(contract["pay_day_to"]),
+            "tiers": [{"month_from": t["month_from"], "month_to": t["month_to"], "amount": str(t["amount"])} for t in contract["tiers"]],
+            "from_manual": True}
+
+
+async def history(db: AsyncSession, company_id: str) -> list[dict]:
+    rows = (await db.execute(text("""
+        SELECT id::text AS id, source, snapshot, replaced_by::text AS replaced_by, created_by, created_at
+        FROM billing_contract_history WHERE company_id = CAST(:c AS uuid) ORDER BY created_at DESC
+    """), {"c": company_id})).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def archive_manual(db: AsyncSession, company_id: str, contract: dict, doc_id: str, actor: str) -> None:
+    """Guarda el contrato manual como historial (no se borra) y quita sus cuotas
+    (sin pagos: ya se verifico) para que el redactado las cree de nuevo sin duplicar."""
+    snapshot = {k: contract[k] for k in ("contract_type", "start_date", "min_months", "currency", "pay_day_from", "pay_day_to", "notes",
+                                          "status", "reminder_enabled", "created_at")}
+    snapshot["tiers"] = contract["tiers"]
+    snapshot["installments"] = int((await db.execute(text("SELECT COUNT(*) FROM billing_installments WHERE company_id = CAST(:c AS uuid)"),
+                                                     {"c": company_id})).scalar() or 0)
+    await db.execute(text("""
+        INSERT INTO billing_contract_history (company_id, contract_id, source, snapshot, replaced_by, created_by)
+        VALUES (CAST(:c AS uuid), CAST(:k AS uuid), 'manual', CAST(:s AS jsonb), CAST(:d AS uuid), :by)
+    """), {"c": company_id, "k": contract["id"], "s": json.dumps(to_json(snapshot), ensure_ascii=False), "d": doc_id, "by": actor[:200]})
+    await db.execute(text("DELETE FROM billing_installments WHERE company_id = CAST(:c AS uuid) AND contract_id = CAST(:k AS uuid)"),
+                     {"c": company_id, "k": contract["id"]})
 
 
 async def current_document(db: AsyncSession, company_id: str) -> Optional[dict]:
@@ -677,11 +1028,14 @@ async def build(db: AsyncSession, company_id: str, raw: dict, get: Optional[Call
 async def generate(db: AsyncSession, company_id: str, raw: dict, actor: str, put: Callable, get: Optional[Callable] = None) -> dict:
     """Crea (o versiona) el contrato redactado: contrato + cuotas, PDF al bucket,
     numero/version/verificacion. Un contrato hecho a mano (sin documento
-    redactado, p. ej. The Time Machine) NO se toca."""
+    redactado, p. ej. The Time Machine) NO se toca, salvo "Redactar desde este
+    contrato" (from_manual) sin ningun pago: el manual queda en el historial y el
+    redactado pasa a ser el vigente (version 1)."""
     contract = await billing.get_contract(db, company_id)
     current = await current_document(db, company_id)
-    if contract and not current:
-        raise BillingConflict("Esta empresa ya tiene un contrato registrado a mano; no se reemplaza desde Redactar contrato.")
+    manual = bool(contract and not current)
+    if manual and not (raw.get("from_manual") and await payments_count(db, company_id) == 0):
+        raise BillingConflict(MANUAL_LOCKED)
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('billing_contract_number'))"))
     number = current["number"] if current else await next_number(db, billing.today_bogota().year)
     version = (int(current["version"]) + 1) if current else 1
@@ -691,12 +1045,15 @@ async def generate(db: AsyncSession, company_id: str, raw: dict, actor: str, put
         INSERT INTO billing_contract_documents (id, company_id, number, version, verification, data, is_current, created_by)
         VALUES (CAST(:i AS uuid), CAST(:c AS uuid), :n, :v, :h, CAST(:d AS jsonb), false, :by)
     """), {"i": doc_id, "c": company_id, "n": number, "v": version, "h": composed["verification"],
-           "d": json.dumps({**to_json(data), "provider": composed["provider"]}, ensure_ascii=False), "by": actor[:200]})
+           "d": json.dumps({**to_json(data), "provider": composed["provider"], **({"zelle": composed["zelle"]} if composed.get("zelle") else {})},
+                           ensure_ascii=False), "by": actor[:200]})
     await db.commit()  # reserva numero y version (UNIQUE)
     async def put_pdf(key: str, raw: bytes) -> None:
         await put(key, raw, "application/pdf")
 
     try:
+        if manual:
+            await archive_manual(db, company_id, contract, doc_id, actor)
         await billing.save_contract(db, company_id, contract_payload(data))
         saved = await billing.add_contract_file(db, company_id, pdf, f"{number}-v{version}.pdf", actor, put_pdf)
     except Exception:

@@ -1,0 +1,181 @@
+;; Plantilla BILINGÜE (español | inglés) del contrato que se redacta desde Facturación → "Redactar contrato"
+;; con "Idioma del contrato: Bilingüe ES-EN". Mismas reglas que contrato_clonexa_es.txt, y además:
+;; - "== TÍTULO ES | TITLE EN": título de la sección en los dos idiomas.
+;; - Un párrafo que empieza con "EN: " es la traducción del párrafo en español que va justo antes
+;;   (sale en la columna derecha, a la misma altura). Toma la misma condición {?..}/{!..} que su par.
+;; - Los bloques [[...]] no llevan traducción: el sistema los arma con etiquetas en los dos idiomas.
+;; - Los campos que terminan en _en traen el dato en inglés (montos con punto decimal, fechas
+;;   "November 1, 2026"). Condiciones extra: zelle (medio de pago Zelle).
+;; La traducción debe ser fiel: mismas obligaciones, plazos y límites en las dos columnas.
+;; En caso de diferencia prevalece el español (cláusula VIGÉSIMA).
+
+@titulo CONTRATO DE LICENCIA DE USO Y PRESTACIÓN DE SERVICIOS TECNOLÓGICOS
+@titulo_en SOFTWARE LICENSE AND TECHNOLOGY SERVICES AGREEMENT
+@subtitulo CLONEXA · Plataforma operativa en la nube para {cliente_empresa}
+@subtitulo_en CLONEXA · Cloud-based operations platform for {cliente_empresa}
+
+== PARTES | PARTIES
+Entre los suscritos: (i) {proveedor_nombre}, titular de {proveedor_marca}, identificado con {proveedor_documento}, con domicilio en {proveedor_ciudad}, quien para efectos del presente contrato se denominará EL PROVEEDOR; y (ii) {cliente_representante}, en nombre propio o como representante de {cliente_razon_social}, establecimiento «{cliente_empresa}», identificado con {cliente_documento}, con domicilio en {cliente_direccion}, quien se denominará EL CLIENTE, se celebra el presente contrato de licencia de uso y prestación de servicios tecnológicos, regido por las siguientes cláusulas:
+
+EN: Between the undersigned: (i) {proveedor_nombre}, owner of {proveedor_marca}, identified with {proveedor_documento_en}, domiciled in {proveedor_ciudad}, who for the purposes of this contract shall be referred to as THE PROVIDER; and (ii) {cliente_representante}, on their own behalf or as representative of {cliente_razon_social}, establishment «{cliente_empresa}», identified with {cliente_documento_en}, domiciled at {cliente_direccion}, who shall be referred to as THE CLIENT, this software license and technology services agreement is entered into, governed by the following clauses:
+
+== PRIMERA. OBJETO | FIRST. PURPOSE
+EL PROVEEDOR concede a EL CLIENTE una licencia de uso temporal, limitada, no exclusiva, no transferible y revocable sobre la plataforma CLONEXA, y presta los servicios de habilitación, configuración, soporte funcional y ajustes descritos en este contrato para la operación de «{cliente_empresa}». La solución se entregará mediante enlace web, usuario y clave de aplicación, sin que ello implique cesión del código fuente, de la arquitectura, de las marcas ni de otros derechos de propiedad intelectual.
+
+EN: THE PROVIDER grants THE CLIENT a temporary, limited, non-exclusive, non-transferable and revocable license to use the CLONEXA platform, and provides the enablement, configuration, functional support and adjustment services described in this contract for the operation of «{cliente_empresa}». The solution shall be delivered through a web link, a username and an application password, which does not imply any assignment of the source code, the architecture, the trademarks or any other intellectual property rights.
+
+== SEGUNDA. ALCANCE DEL SERVICIO | SECOND. SCOPE OF THE SERVICE
+El servicio comprende el acceso a los módulos de CLONEXA habilitados para EL CLIENTE a la fecha de este contrato, que se describen a continuación, junto con la entrega inicial de accesos, la configuración razonable de la empresa y el acompañamiento para la puesta en marcha:
+
+EN: The service includes access to the CLONEXA modules enabled for THE CLIENT as of the date of this contract, described below, together with the initial delivery of access credentials, the reasonable configuration of the company and support for the start of operations:
+
+[[MODULOS]]
+
+No forman parte de la licencia la entrega del código fuente, infraestructura propia, equipos, conectividad, impresoras, servicios de mensajería de terceros, desarrollos para una empresa distinta, ni módulos o integraciones completamente nuevos que no hagan parte del alcance habilitado. Estos trabajos requerirán cotización y aceptación separadas.
+
+EN: The license does not include the delivery of the source code, dedicated infrastructure, equipment, connectivity, printers, third-party messaging services, developments for a different company, or entirely new modules or integrations that are not part of the enabled scope. Such work shall require a separate quotation and acceptance.
+
+== TERCERA. ENTREGA Y CUSTODIA DE ACCESOS | THIRD. DELIVERY AND SAFEKEEPING OF ACCESS CREDENTIALS
+EL PROVEEDOR entregará a EL CLIENTE el enlace de acceso, el usuario y la clave de aplicación. La contraseña deberá comunicarse por un canal seguro distinto del contrato y no se imprimirá en este documento. EL CLIENTE será responsable por la custodia de sus credenciales, por el uso que realicen sus dependientes y por informar inmediatamente cualquier acceso no autorizado. Los accesos se destinan exclusivamente a la operación del establecimiento identificado en el Anexo 1.
+
+EN: THE PROVIDER shall deliver to THE CLIENT the access link, the username and the application password. The password shall be communicated through a secure channel separate from the contract and shall not be printed in this document. THE CLIENT shall be responsible for the safekeeping of its credentials, for their use by its personnel and for immediately reporting any unauthorized access. The access credentials are intended exclusively for the operation of the establishment identified in Annex 1.
+
+== CUARTA. PERÍODO DE PRUEBA Y ACEPTACIÓN | FOURTH. TRIAL PERIOD AND ACCEPTANCE
+{?prueba} El período de prueba y puesta a punto será de {prueba_dias_letras} ({prueba_dias}) días calendario, desde el {prueba_desde} hasta el {prueba_hasta}, ambos inclusive. Durante este período EL CLIENTE probará el flujo real de operación y reportará por escrito los incidentes o diferencias frente al alcance acordado. EL PROVEEDOR atenderá las observaciones reproducibles según su prioridad técnica. El período de prueba no reemplaza ni reduce la permanencia mínima pactada; los períodos pagados inician el {inicio_pagos}.
+
+EN: The trial and fine-tuning period shall be {prueba_dias_letras_en} ({prueba_dias}) calendar days, from {prueba_desde_en} through {prueba_hasta_en}, both inclusive. During this period THE CLIENT shall test the actual operating flow and report in writing any incidents or differences from the agreed scope. THE PROVIDER shall address reproducible observations according to their technical priority. The trial period does not replace or reduce the agreed minimum term; the paid periods begin on {inicio_pagos_en}.
+
+{!prueba} Las partes acuerdan que no habrá período de prueba: el servicio y los períodos pagados inician el {inicio_pagos}. Durante el primer período EL CLIENTE reportará por escrito los incidentes o diferencias frente al alcance acordado, y EL PROVEEDOR atenderá las observaciones reproducibles según su prioridad técnica.
+
+EN: The parties agree that there shall be no trial period: the service and the paid periods begin on {inicio_pagos_en}. During the first period THE CLIENT shall report in writing any incidents or differences from the agreed scope, and THE PROVIDER shall address reproducible observations according to their technical priority.
+
+== QUINTA. PRECIO, FACTURACIÓN Y FORMA DE PAGO | FIFTH. PRICE, INVOICING AND PAYMENT
+EL CLIENTE pagará los valores indicados en la siguiente programación: {tramos_texto}. Cada período se paga dentro de la ventana comprendida entre el día {pago_desde} y el día {pago_hasta} de su mes. Los valores se pagarán {medio_pago} y se soportarán mediante factura o cuenta de cobro, según corresponda al régimen tributario aplicable.
+
+EN: THE CLIENT shall pay the amounts set out in the following schedule: {tramos_texto_en}. Each period shall be paid within the window from day {pago_desde} through day {pago_hasta} of its month. Payments shall be made {medio_pago_en} and shall be supported by an invoice or a billing statement (cuenta de cobro), as applicable under the relevant tax regime.
+
+[[CUOTAS]]
+
+{?permanencia} Compromiso económico base de la permanencia mínima: {compromiso_letras} ({compromiso}), sin incluir recargos opcionales por ajustes posteriores.
+
+EN: Base financial commitment for the minimum term: {compromiso_letras_en} ({compromiso_en}), not including optional surcharges for later adjustments.
+
+Impuestos: cada parte asume sus propios impuestos. Los pagos se hacen por el valor completo pactado.
+
+EN: Taxes: each party shall bear its own taxes. Payments shall be made for the full agreed amount.
+
+== SEXTA. AJUSTES, CORRECCIONES Y CONTROL DE CAMBIOS | SIXTH. ADJUSTMENTS, CORRECTIONS AND CHANGE CONTROL
+{?varios_tramos} Durante los períodos de la tarifa inicial, el valor pactado cubre los ajustes y la recodificación razonables necesarios para adaptar y estabilizar las funciones ya incluidas en CLONEXA según las necesidades operativas reportadas por EL CLIENTE.
+
+EN: During the periods of the initial fee, the agreed amount covers the reasonable adjustments and recoding needed to adapt and stabilize the functions already included in CLONEXA according to the operating needs reported by THE CLIENT.
+
+{?recargo} A partir del período {recargo_desde} ({recargo_desde_fecha}), si EL CLIENTE solicita y aprueba por escrito uno o varios ajustes nuevos durante un mismo período mensual, se adicionará un único recargo de {recargo_letras} ({recargo}) a la tarifa de ese período. Si no solicita ajustes nuevos, pagará únicamente la tarifa base. El recargo no se cobra por cada solicitud, sino una sola vez por período mensual, siempre que los cambios correspondan al alcance existente y sean técnicamente razonables.
+
+EN: Starting with period {recargo_desde} ({recargo_desde_fecha_en}), if THE CLIENT requests and approves in writing one or more new adjustments during the same monthly period, a single surcharge of {recargo_letras_en} ({recargo_en}) shall be added to the fee for that period. If THE CLIENT does not request new adjustments, it shall pay only the base fee. The surcharge is not charged per request, but only once per monthly period, provided that the changes fall within the existing scope and are technically reasonable.
+
+{!recargo} Los ajustes nuevos que EL CLIENTE solicite y apruebe por escrito sobre el alcance existente se atenderán según su prioridad técnica; si exceden lo razonable, EL PROVEEDOR informará su valor antes de ejecutarlos.
+
+EN: New adjustments that THE CLIENT requests and approves in writing within the existing scope shall be handled according to their technical priority; if they exceed what is reasonable, THE PROVIDER shall report their cost before carrying them out.
+
+No generan cobro adicional las correcciones de fallas reproducibles que impidan que una función incluida opere conforme a su comportamiento acordado. Los módulos nuevos, integraciones con terceros, migraciones extraordinarias, rediseños completos o cambios que excedan el alcance existente se cotizarán por separado y solo se ejecutarán con aceptación previa de ambas partes.
+
+EN: Corrections of reproducible defects that prevent an included function from operating according to its agreed behavior shall not generate any additional charge. New modules, third-party integrations, extraordinary migrations, complete redesigns or changes exceeding the existing scope shall be quoted separately and carried out only with the prior acceptance of both parties.
+
+== SÉPTIMA. PERMANENCIA MÍNIMA, RENOVACIÓN Y TERMINACIÓN ANTICIPADA | SEVENTH. MINIMUM TERM, RENEWAL AND EARLY TERMINATION
+{?permanencia} La permanencia mínima comprende {permanencia_letras} ({permanencia}) períodos mensuales pagados, desde el {inicio_pagos} hasta el {fin_permanencia}. Si EL CLIENTE termina unilateralmente sin incumplimiento atribuible a EL PROVEEDOR antes de finalizar dicho término, deberá pagar las tarifas base pendientes hasta completar el compromiso mínimo, sin recargos de ajustes no solicitados. Cumplida la permanencia mínima, el servicio se renovará mes a mes por la tarifa base vigente y cualquiera de las partes podrá terminarlo mediante aviso escrito con al menos quince (15) días calendario de anticipación.
+
+EN: The minimum term comprises {permanencia_letras_en} ({permanencia}) paid monthly periods, from {inicio_pagos_en} through {fin_permanencia_en}. If THE CLIENT terminates unilaterally, without any breach attributable to THE PROVIDER, before the end of that term, it shall pay the outstanding base fees until the minimum commitment is completed, without surcharges for adjustments that were not requested. Once the minimum term has been completed, the service shall renew month to month at the base fee then in effect, and either party may terminate it by written notice given at least fifteen (15) calendar days in advance.
+
+{!permanencia} No se pacta permanencia mínima. El servicio se presta y renueva mes a mes por la tarifa vigente, y cualquiera de las partes podrá terminarlo mediante aviso escrito con al menos quince (15) días calendario de anticipación, sin perjuicio de pagar los períodos ya prestados.
+
+EN: No minimum term is agreed. The service is provided and renewed month to month at the fee then in effect, and either party may terminate it by written notice given at least fifteen (15) calendar days in advance, without prejudice to payment for the periods already provided.
+
+== OCTAVA. OBLIGACIONES DE EL PROVEEDOR | EIGHTH. OBLIGATIONS OF THE PROVIDER
+EL PROVEEDOR se obliga a habilitar el servicio y los accesos contratados; mantener una gestión diligente de la plataforma; atender reportes técnicos por los canales acordados; implementar los cambios aceptados; proteger la confidencialidad de la información a la que tenga acceso; y permitir, al finalizar el contrato y una vez se encuentren al día las obligaciones, la entrega razonable de la información operativa exportable disponible en la plataforma.
+
+EN: THE PROVIDER undertakes to enable the contracted service and access credentials; to manage the platform diligently; to handle technical reports through the agreed channels; to implement the accepted changes; to protect the confidentiality of the information to which it has access; and, upon termination of the contract and once all obligations are up to date, to allow the reasonable delivery of the exportable operating information available on the platform.
+
+== NOVENA. OBLIGACIONES DE EL CLIENTE | NINTH. OBLIGATIONS OF THE CLIENT
+EL CLIENTE se obliga a pagar oportunamente; suministrar información cierta para la configuración; designar un responsable de comunicación; capacitar y supervisar a su personal; custodiar las credenciales; contar con internet y equipos compatibles; verificar cierres, inventarios, precios y métodos de pago; realizar respaldos o exportaciones disponibles que requiera para su gestión; y usar la plataforma de manera lícita, sin intentar copiar, descompilar, revender, ceder o vulnerar el software.
+
+EN: THE CLIENT undertakes to pay on time; to provide accurate information for the configuration; to appoint a person responsible for communications; to train and supervise its personnel; to safeguard the credentials; to have internet access and compatible equipment; to verify closings, inventories, prices and payment methods; to make the available backups or exports it requires for its management; and to use the platform lawfully, without attempting to copy, decompile, resell, assign or compromise the software.
+
+== DÉCIMA. DISPONIBILIDAD, MANTENIMIENTO Y SERVICIOS DE TERCEROS | TENTH. AVAILABILITY, MAINTENANCE AND THIRD-PARTY SERVICES
+EL PROVEEDOR realizará esfuerzos comercialmente razonables para mantener el servicio disponible y corregir incidentes. EL CLIENTE reconoce que la operación depende de internet, navegador, energía, infraestructura de alojamiento y otros servicios de terceros. Las interrupciones atribuibles exclusivamente a dichos terceros, fuerza mayor, mantenimiento necesario o uso indebido no constituyen por sí solas incumplimiento. Siempre que sea posible, EL PROVEEDOR comunicará con antelación los mantenimientos que puedan afectar materialmente la operación.
+
+EN: THE PROVIDER shall use commercially reasonable efforts to keep the service available and to correct incidents. THE CLIENT acknowledges that the operation depends on the internet, the browser, power supply, hosting infrastructure and other third-party services. Interruptions attributable exclusively to such third parties, force majeure, necessary maintenance or improper use do not, by themselves, constitute a breach. Whenever possible, THE PROVIDER shall give advance notice of maintenance that may materially affect the operation.
+
+== DÉCIMA PRIMERA. DATOS, CONFIDENCIALIDAD Y SEGURIDAD | ELEVENTH. DATA, CONFIDENTIALITY AND SECURITY
+Los datos operativos y comerciales cargados por EL CLIENTE le pertenecen a este. EL PROVEEDOR podrá tratarlos únicamente para prestar, soportar, asegurar y mejorar el servicio, aplicando medidas razonables de confidencialidad y seguridad. Cada parte cumplirá las obligaciones que le correspondan bajo la Ley 1581 de 2012 y las normas colombianas de protección de datos. EL CLIENTE declara que cuenta con las autorizaciones necesarias respecto de los datos personales que registre y que no incorporará información prohibida o ajena al propósito del sistema.
+
+EN: The operating and commercial data uploaded by THE CLIENT belong to THE CLIENT. THE PROVIDER may process them only to provide, support, secure and improve the service, applying reasonable confidentiality and security measures. Each party shall comply with the obligations that apply to it under Law 1581 of 2012 and the Colombian data protection regulations. THE CLIENT represents that it has the necessary authorizations for the personal data it records and that it shall not upload prohibited information or information unrelated to the purpose of the system.
+
+EL CLIENTE es responsable de obtener, según las leyes que le apliquen en su país, las autorizaciones de sus trabajadores para los datos que registre, incluida la ubicación GPS durante el turno.
+
+EN: THE CLIENT is responsible for obtaining, in accordance with the laws applicable to it in its country, the authorizations of its workers for the data it records, including GPS location during their shift.
+
+== DÉCIMA SEGUNDA. PROPIEDAD INTELECTUAL | TWELFTH. INTELLECTUAL PROPERTY
+CLONEXA, su código fuente, arquitectura, diseños, componentes, documentación, mejoras reutilizables, marcas y conocimientos técnicos son y continuarán siendo de titularidad de EL PROVEEDOR o de sus licenciantes. EL CLIENTE recibe únicamente el derecho de acceso y uso previsto en este contrato. Los ajustes solicitados para la operación de EL CLIENTE podrán incorporarse al producto general cuando no revelen información confidencial ni datos propios de EL CLIENTE. Ninguna disposición obliga a entregar repositorios, credenciales de infraestructura, secretos empresariales o código fuente.
+
+EN: CLONEXA, its source code, architecture, designs, components, documentation, reusable improvements, trademarks and technical know-how are and shall remain the property of THE PROVIDER or its licensors. THE CLIENT receives only the right of access and use provided for in this contract. Adjustments requested for THE CLIENT's operation may be incorporated into the general product as long as they do not disclose confidential information or THE CLIENT's own data. No provision requires the delivery of repositories, infrastructure credentials, trade secrets or source code.
+
+== DÉCIMA TERCERA. MORA Y SUSPENSIÓN | THIRTEENTH. LATE PAYMENT AND SUSPENSION
+Vencida la ventana de pago, EL PROVEEDOR podrá requerir por escrito el pago. Si transcurren cinco (5) días hábiles desde el requerimiento sin que EL CLIENTE subsane la mora, EL PROVEEDOR podrá suspender temporalmente los accesos hasta recibir el pago, sin que la suspensión elimine las obligaciones económicas del término mínimo. Ninguna suspensión opera de forma automática ni sin el requerimiento escrito previo. La reactivación se realizará en un plazo razonable después de verificarse el pago.
+
+EN: Once the payment window has expired, THE PROVIDER may demand payment in writing. If five (5) business days elapse from the demand without THE CLIENT curing the late payment, THE PROVIDER may temporarily suspend access until payment is received, without the suspension eliminating the financial obligations of the minimum term. No suspension shall take effect automatically or without the prior written demand. Reactivation shall take place within a reasonable time after the payment has been verified.
+
+== DÉCIMA CUARTA. INCUMPLIMIENTO Y OPORTUNIDAD DE SUBSANACIÓN | FOURTEENTH. BREACH AND OPPORTUNITY TO CURE
+Ante un incumplimiento material, la parte cumplida notificará por escrito los hechos y concederá diez (10) días hábiles para subsanar, salvo que la naturaleza del incumplimiento exija atención inmediata por seguridad, fraude, uso ilícito o afectación grave. Si no se subsana, la parte cumplida podrá terminar el contrato y ejercer los derechos que le reconozca la ley.
+
+EN: In the event of a material breach, the non-breaching party shall give written notice of the facts and grant ten (10) business days to cure, unless the nature of the breach requires immediate attention due to security, fraud, unlawful use or serious harm. If the breach is not cured, the non-breaching party may terminate the contract and exercise the rights granted to it by law.
+
+== DÉCIMA QUINTA. RESPONSABILIDAD | FIFTEENTH. LIABILITY
+Cada parte responderá por los daños directos que cause por dolo o culpa comprobada. EL PROVEEDOR no será responsable por decisiones operativas de EL CLIENTE, errores de digitación, pérdida derivada de credenciales compartidas, fallas de conectividad, indisponibilidad de terceros ni lucro cesante indirecto. Salvo dolo, culpa grave, violación de confidencialidad o tratamiento ilícito de datos, la responsabilidad acumulada de EL PROVEEDOR no excederá el valor efectivamente pagado por EL CLIENTE durante los tres (3) meses anteriores al hecho que origine la reclamación.
+
+EN: Each party shall be liable for the direct damages it causes through willful misconduct or proven fault. THE PROVIDER shall not be liable for THE CLIENT's operating decisions, data-entry errors, losses arising from shared credentials, connectivity failures, unavailability of third parties or indirect loss of profits. Except in cases of willful misconduct, gross negligence, breach of confidentiality or unlawful processing of data, THE PROVIDER's aggregate liability shall not exceed the amount actually paid by THE CLIENT during the three (3) months prior to the event giving rise to the claim.
+
+== DÉCIMA SEXTA. SOLUCIÓN DE CONTROVERSIAS Y LEY APLICABLE | SIXTEENTH. DISPUTE RESOLUTION AND GOVERNING LAW
+El contrato se rige por las leyes de la República de Colombia. Las partes procurarán resolver cualquier diferencia mediante negociación directa durante quince (15) días hábiles desde la notificación escrita. Si no hay acuerdo, acudirán a los jueces competentes de Bogotá D.C., Colombia, sin perjuicio de que puedan acordar por escrito una conciliación.
+
+EN: This contract is governed by the laws of the Republic of Colombia. The parties shall endeavor to resolve any dispute through direct negotiation for fifteen (15) business days from the written notice. If no agreement is reached, they shall submit to the competent courts of Bogotá D.C., Colombia, without prejudice to their right to agree in writing to a conciliation.
+
+== DÉCIMA SÉPTIMA. NOTIFICACIONES Y FIRMA ELECTRÓNICA | SEVENTEENTH. NOTICES AND ELECTRONIC SIGNATURE
+Serán válidas las comunicaciones enviadas a los correos electrónicos y números de contacto informados por las partes: EL PROVEEDOR en {proveedor_correo} y {proveedor_telefonos}; EL CLIENTE en {cliente_correo} y {cliente_telefono}. El contrato podrá firmarse de manera manuscrita o por un método electrónico confiable que permita identificar al firmante y expresar su aprobación, de conformidad con la Ley 527 de 1999. Las partes aceptan la firma electrónica como válida y vinculante entre ellas. Las copias y mensajes de datos conservarán valor probatorio conforme a la legislación aplicable.
+
+EN: Communications sent to the email addresses and contact numbers provided by the parties shall be valid: THE PROVIDER at {proveedor_correo} and {proveedor_telefonos}; THE CLIENT at {cliente_correo} and {cliente_telefono}. This contract may be signed by hand or by a reliable electronic method that identifies the signatory and expresses their approval, in accordance with Law 527 of 1999. The parties accept electronic signatures as valid and binding between them. Copies and data messages shall retain their evidentiary value in accordance with the applicable law.
+
+== DÉCIMA OCTAVA. INTEGRIDAD CONTRACTUAL | EIGHTEENTH. ENTIRE AGREEMENT
+Este contrato, junto con sus anexos y las solicitudes de cambio aceptadas por escrito, contiene el acuerdo entre las partes sobre el servicio. Toda modificación deberá constar por escrito. Si una disposición resulta ineficaz, las demás continuarán vigentes. La tolerancia frente a un incumplimiento no implica renuncia a exigir posteriormente el cumplimiento.
+
+EN: This contract, together with its annexes and the change requests accepted in writing, contains the entire agreement between the parties regarding the service. Any amendment must be made in writing. If any provision proves ineffective, the remaining provisions shall remain in force. Tolerance of a breach does not imply a waiver of the right to demand performance later.
+
+== DÉCIMA NOVENA. CESIÓN A LA SOCIEDAD CLONEXA | NINETEENTH. ASSIGNMENT TO THE CLONEXA COMPANY
+EL CLIENTE autoriza desde ya que el presente contrato se ceda a la sociedad Clonexa cuando quede constituida, para lo cual se le avisará por escrito. La cesión no cambia el precio ni las condiciones de este contrato.
+
+EN: THE CLIENT hereby authorizes, as of this date, the assignment of this contract to the company Clonexa once it has been incorporated, for which THE CLIENT shall be notified in writing. The assignment does not change the price or the terms and conditions of this contract.
+
+== VIGÉSIMA. IDIOMA | TWENTIETH. LANGUAGE
+Este contrato se celebra en español y en inglés. En caso de diferencia entre versiones, prevalece la versión en español.
+
+EN: This contract is executed in Spanish and English. In case of any discrepancy, the Spanish version shall prevail.
+
+== ANEXO 1. ENTREGA DE ACCESOS Y DATOS DEL SERVICIO | ANNEX 1. DELIVERY OF ACCESS CREDENTIALS AND SERVICE DETAILS
+[[ACCESOS]]
+
+== ANEXO 2. CANAL DE PAGO CLONEXA | ANNEX 2. CLONEXA PAYMENT CHANNEL
+{!zelle} EL CLIENTE podrá efectuar los pagos del servicio mediante el siguiente QR suministrado por EL PROVEEDOR o por otro medio confirmado por escrito. Antes de transferir, deberá verificar los datos del destinatario por los canales oficiales de soporte.
+
+EN: THE CLIENT may make the service payments through the following QR code provided by THE PROVIDER or by any other means confirmed in writing. Before transferring, THE CLIENT shall verify the recipient's details through the official support channels.
+
+{!zelle} [[QR]]
+
+{?zelle} EL CLIENTE pagará por Zelle al titular {zelle_titular}, en el correo o teléfono Zelle {zelle_contacto}, poniendo como referencia «{cliente_empresa} - mes año» del período que paga (por ejemplo, «{referencia_pago}»). Antes de cada pago, EL CLIENTE deberá verificar siempre estos datos por los canales oficiales de EL PROVEEDOR.
+
+EN: THE CLIENT shall pay via Zelle to the account holder {zelle_titular}, at the Zelle email or phone number {zelle_contacto}, entering «{cliente_empresa} - month year» of the period being paid as the reference (for example, «{referencia_pago_en}»). Before each payment, THE CLIENT shall always verify these details through THE PROVIDER's official channels.
+
+== FIRMAS | SIGNATURES
+Leído el contrato y entendidas sus condiciones, las partes lo firman en dos ejemplares del mismo valor, en {ciudad_firma}, a los {_} días del mes de {_} de {_}.
+
+EN: Having read this contract and understood its terms, the parties sign it in two counterparts of equal value, in {ciudad_firma}, on day {_} of the month of {_} of {_}.
+
+[[FIRMAS]]
