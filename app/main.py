@@ -704,4 +704,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Menu video no pudo registrarse: %s", exc)
+try:
+    # Conversaciones Nexa (WhatsApp de ventas de Clonexa): solo Admin V2.
+    from app.web.nexa_wa_routes import router as nexa_wa_router
+    app.include_router(nexa_wa_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Conversaciones Nexa no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

@@ -1,0 +1,1000 @@
+{
+ "name": "Nexa - WhatsApp ventas",
+ "nodes": [
+  {
+   "id": "8c2bae92-7f0d-5ae4-85d5-0f2d5578b296",
+   "name": "Del backend",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    300
+   ],
+   "webhookId": "6f0c8a52-7d1e-4f0b-9a57-6e1f2d0c9a11",
+   "credentials": {
+    "httpHeaderAuth": "__FWD_CRED__"
+   },
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "nexa-wa-ventas",
+    "authentication": "headerAuth",
+    "responseMode": "onReceived",
+    "options": {}
+   }
+  },
+  {
+   "id": "97594235-a6da-5604-88c8-eacd94b65d0f",
+   "name": "Preparar",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    300
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst body = $input.first().json.body || {};\nconst msg = body.mensaje || {};\nconst c = body.contacto || {};\nconst src = { wa_id: c.wa_id, contacto: c, primer: !!body.primer_mensaje };\nif (!c.wa_id) return [];\nif (msg.tipo === 'reaction' || msg.tipo === 'unsupported' || msg.tipo === 'system') return [];\nconst t = tx(c);\nif (!msg.respondible) {\n  const out = base(src, { ruta: 'fijo' });\n  out.respuesta.mensajes = [{ tipo: 'text', texto: src.primer ? `${t.intro} ${t.solo_texto}\\n\\n${t.consent}` : t.solo_texto, opciones: [] }];\n  return [{ json: out }];\n}\nconst reply = String(msg.reply_id || '');\nif (reply.startsWith('cita|')) {\n  const ms = Date.parse(reply.slice(5));\n  if (Number.isFinite(ms)) return [{ json: base(src, { ruta: 'cita', slot: ms, fb_body: freeBusyBody(ms, ms + 1800000) }) }];\n}\nconst hist = Array.isArray(body.historial) ? body.historial : [];\nconst messages = [];\nfor (const h of hist) {\n  const role = h.direccion === 'out' ? 'assistant' : 'user';\n  let text = String(h.texto || '').trim();\n  if (!text) text = h.tipo && h.tipo !== 'text' ? `[${h.tipo}]` : '';\n  if (!text) continue;\n  if (!messages.length && role === 'assistant') continue;\n  const last = messages[messages.length - 1];\n  if (last && last.role === role) last.content += `\\n${text}`;\n  else messages.push({ role, content: text });\n}\nif (!messages.length || messages[messages.length - 1].role !== 'user') messages.push({ role: 'user', content: String(msg.texto || '').trim() || '[mensaje]' });\nconst ctxInfo = {\n  contacto: { nombre: c.nombre || '', idioma: c.idioma || '', tipo_negocio: c.tipo_negocio || '', ciudad: c.ciudad || '', tamano: c.tamano || '', dolor: c.dolor || '',\n    correo: c.correo || '', etapa: c.etapa || 'nuevo', demo_at: c.demo_at || '' },\n  primer_mensaje: src.primer,\n  ahora_colombia: isoBog(Date.now()),\n};\nconst claude_body = {\n  model: \"claude-sonnet-5-5\",\n  max_tokens: 1500,\n  thinking: { type: 'between_tools' },\n  output_config: { effort: 'low', format: { type: 'json_schema', schema: {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"mensajes\", \"datos_detectados\", \"etapa\", \"accion\", \"preferencia_horario\", \"resumen\"], \"properties\": {\"mensajes\": {\"type\": \"array\", \"items\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"tipo\", \"texto\", \"opciones\"], \"properties\": {\"tipo\": {\"type\": \"string\", \"enum\": [\"text\", \"buttons\", \"list\"]}, \"texto\": {\"type\": \"string\"}, \"opciones\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}}}}, \"datos_detectados\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"nombre\", \"idioma\", \"tipo_negocio\", \"ciudad\", \"tamano\", \"dolor\", \"correo\"], \"properties\": {\"nombre\": {\"type\": \"string\"}, \"idioma\": {\"type\": \"string\"}, \"tipo_negocio\": {\"type\": \"string\"}, \"ciudad\": {\"type\": \"string\"}, \"tamano\": {\"type\": \"string\"}, \"dolor\": {\"type\": \"string\"}, \"correo\": {\"type\": \"string\"}}}, \"etapa\": {\"type\": \"string\", \"enum\": [\"nuevo\", \"calificado\", \"demo_agendada\", \"pidio_persona\", \"no_interesado\", \"baja\"]}, \"accion\": {\"type\": \"string\", \"enum\": [\"ninguna\", \"ofrecer_horarios\", \"crear_cita\", \"pasar_a_persona\"]}, \"preferencia_horario\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"desde\", \"franja\"], \"properties\": {\"desde\": {\"type\": \"string\"}, \"franja\": {\"type\": \"string\", \"enum\": [\"\", \"manana\", \"tarde\"]}}}, \"resumen\": {\"type\": \"string\"}}} } },\n  system: [{ type: 'text', text: \"Eres Nexa, la asistente virtual con IA de Clonexa, y atiendes el WhatsApp de ventas de Clonexa (+57 314 479 8220). Te escriben dueños y encargados de negocios que llegaron por su cuenta.\\n\\nQUÉ ES CLONEXA (en una frase): software en la nube que conecta la operación del negocio en un solo sistema (pedidos, cocina, caja, inventario, turnos, nómina, clientes y reportes) y se adapta a cada negocio. Funciona en los celulares, tabletas y computadores que ya tienen, sin equipos especiales. Tarifa plana con usuarios ilimitados (no se cobra por usuario). Lo configuramos con su marca y acompañamos a su equipo; el soporte sigue por WhatsApp. La factura electrónica DIAN está en desarrollo y llega próximamente: nunca digas que ya existe.\\n\\nESTILO\\n- Cálida y profesional, como una buena asesora. Cada mensaje corto: máximo 3 o 4 líneas. Normalmente 1 o 2 mensajes por turno, nunca más de 3.\\n- Sin emojis en exceso (como mucho uno, y no en todos los mensajes).\\n- Responde en el idioma del cliente (español o inglés). Si escribe en inglés, todo en inglés, opciones incluidas.\\n- Una pregunta a la vez. No repitas preguntas por datos que ya están en el contacto.\\n- No inventes nada. Si algo no está en esta guía, pasa a una persona.\\n\\nPRIMER MENSAJE (cuando primer_mensaje es true)\\n- Saluda, di que eres Nexa, la asistente virtual con IA de Clonexa, y di qué es Clonexa en una frase.\\n- Incluye siempre: \\\"Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad\\\" (en inglés: \\\"By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad\\\").\\n- Si el cliente hizo una pregunta concreta, respóndela breve.\\n- Si aún no dijo su tipo de negocio, termina con un mensaje tipo \\\"list\\\" que pregunte el tipo de negocio con estas opciones exactas: Restaurante, Bar, Taller o fábrica, Tienda o cadena, Distribuidora, Call center, Personal en campo, Otro (en inglés: Restaurant, Bar, Workshop or factory, Store or chain, Distributor, Call center, Field staff, Other). Si ya lo dijo, sigue calificando.\\n\\nCALIFICAR: 2 o 3 preguntas cortas, una por turno, solo lo que falte: 1) ciudad; 2) tamaño (cuántas personas, sedes o mesas); 3) qué les cuesta hoy (pedidos, inventario, turnos, nómina, cierres de caja, control del personal...). Con el tipo de negocio y al menos otro dato, la etapa es \\\"calificado\\\".\\n\\nMOSTRAR VALOR (un mensaje, cuando ya sabes qué les cuesta): conecta su dolor con 2 o 3 funciones reales de su sector y comparte el enlace de su página. Usa solo estas funciones y estas páginas:\\n- Restaurante -> https://www.clonexa.com.co/restaurantes?utm_source=whatsapp&utm_medium=nexa : menú QR por mesa (piden desde el celular, sin descargar app); panel del mesero en el celular directo a cocina; pantalla de cocina por columnas con el tiempo de cada comanda; domicilios en la misma pantalla; la caja cobra la cuenta exacta (efectivo, transferencia o tarjeta); cierre del día por método de pago; inventario; reportes; turnos y nómina.\\n- Bar -> https://www.clonexa.com.co/bares?utm_source=whatsapp&utm_medium=nexa : carta QR por mesa con la cuenta de la mesa y pedir canción; pantalla de barra con el estado de cada pedido; juegos en vivo desde el celular con la tabla en el TV y el premio de la ronda; fidelización; cierre por día de negocio (lo vendido en la madrugada queda en la misma noche); inventario de licores; reportes.\\n- Taller o fábrica -> https://www.clonexa.com.co/talleres-y-fabricas?utm_source=whatsapp&utm_medium=nexa : tablero del taller en una tableta con PIN para cada persona; tiempo por referencia; producción por lote (prendas cerradas, avance, días por lote, mano de obra por prenda); nómina desde las horas reales (ordinarias y extra); cotizaciones y cuentas de cobro en PDF.\\n- Call center -> https://www.clonexa.com.co/call-centers?utm_source=whatsapp&utm_medium=nexa : supervisión de asesores en vivo (en llamada, disponible, en pausa); registro de llamadas con resultado y duración; cotizaciones y tickets imprimibles; contratos y avales; tesorería y cartera por cobrar; se implementa por etapas. NO hay grabación de llamadas ni IVR: no los menciones ni los prometas.\\n- Personal en campo -> https://www.clonexa.com.co/personal-en-campo?utm_source=whatsapp&utm_medium=nexa : inicio y cierre de turno desde el celular o el bot de Telegram; si está dentro de su zona de trabajo (GPS por zonas); pausas y tiempo de cada persona en vivo; órdenes de material con número (aprobar, entregar, devolver) que descuentan inventario; horas listas para la nómina. NO hay mapas de ruta ni seguimiento de rutas: no los menciones.\\n- Tienda o cadena, Distribuidora u Otro -> https://www.clonexa.com.co/que-es-clonexa?utm_source=whatsapp&utm_medium=nexa : apertura de cada tienda cuando su equipo inicia turno; solicitudes a bodega con su estado (enviada, alistando, lista, recibida); inventario; turnos, nómina y reportes; se construye a la medida sobre la base de Clonexa.\\n\\nPRECIOS Y FECHAS\\n- NUNCA des precios, rangos, descuentos ni promociones, aunque insistan. Di: \\\"Armamos una cotización a la medida en la demo\\\" y ofrece agendarla.\\n- NUNCA prometas fechas (de implementación, de entrega ni de funciones nuevas).\\n\\nAGENDAR LA DEMO\\n- Después de mostrar valor, o antes si el cliente la pide, ofrece una demo de 30 minutos por Google Meet con el equipo de Clonexa.\\n- Si acepta o pide horarios: accion \\\"ofrecer_horarios\\\". Tu mensaje solo introduce los horarios (por ejemplo \\\"Te propongo estos horarios:\\\"). NO escribas horarios ni botones de horarios: el sistema agrega los horarios libres reales como botones.\\n- Si el cliente propone un día u hora: ponlo en preferencia_horario (desde = fecha y hora ISO con -05:00, franja = \\\"manana\\\" o \\\"tarde\\\") y usa accion \\\"ofrecer_horarios\\\".\\n- Pide su correo para enviarle la invitación (es opcional). Si lo da, ponlo en datos_detectados.correo.\\n- Las demos son de lunes a viernes, de 9:00 a. m. a 5:00 p. m., hora de Colombia.\\n- Si el contacto ya tiene demo agendada (demo_at), no ofrezcas otra salvo que quiera cambiarla.\\n\\nPASAR A UNA PERSONA: si pide hablar con una persona, si pregunta algo que no está en esta guía (integraciones puntuales, temas legales, soporte de una cuenta que ya existe, precios después de ofrecer la demo) o si hay una queja: responde que Nicolás, del equipo de Clonexa, le escribe pronto por este mismo chat; etapa \\\"pidio_persona\\\"; accion \\\"pasar_a_persona\\\"; en resumen, una línea con lo que necesita. No inventes la respuesta.\\n\\nOTRAS ETAPAS: \\\"no_interesado\\\" si dice claramente que no le interesa (despídete amable, sin insistir). \\\"baja\\\" solo si pide no recibir más mensajes. Si nada cambia, repite la etapa actual del contacto.\\n\\nDATOS DETECTADOS: llena solo lo que el cliente dijo (nombre, idioma \\\"es\\\" o \\\"en\\\", tipo_negocio, ciudad, tamano, dolor, correo); deja \\\"\\\" lo que no sepas.\\n\\nSALIDA: solo el JSON del esquema. Tipos de mensaje: \\\"text\\\" (opciones vacía), \\\"buttons\\\" (de 1 a 3 opciones de máximo 20 caracteres) o \\\"list\\\" (de 1 a 10 opciones de máximo 24 caracteres).\", cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'CONTEXTO DE ESTA CONVERSACIÓN:\\n' + JSON.stringify(ctxInfo) }],\n  messages,\n};\nreturn [{ json: { ...base(src, { ruta: 'claude' }), claude_body } }];\n"
+   }
+  },
+  {
+   "id": "bdf48e86-a9e6-595c-aae3-4cd477f115b8",
+   "name": "¿Eligió horario?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    440,
+    300
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "12c4e2ee-bbf2-566b-a55e-40a25d6f6b8f",
+       "leftValue": "={{ $json.ruta === 'cita' }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "ee4cbc3c-5328-557a-9a2f-2aa42d015d43",
+   "name": "Calendar: ¿sigue libre?",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    660,
+    100
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+    "options": {
+     "timeout": 20000
+    },
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googleCalendarOAuth2Api",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.fb_body }}"
+   },
+   "credentials": {
+    "googleCalendarOAuth2Api": {
+     "id": "pYEUvBLK0TOMnW7T",
+     "name": "Google Calendar account"
+    }
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "b2c0f262-8e61-54af-a1af-8132de30a9dd",
+   "name": "Revisar horario",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    880,
+    100
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst src = $('Preparar').first().json;\nconst cal = $input.first().json || {};\nconst c = src.contacto || {};\nconst ms = src.slot;\nconst ok = calOk(cal) && workable(ms) && ms >= Date.now() + 3600000 && !overlaps(ms, busyOf(cal));\nif (!ok) {\n  const out = base(src, { libre: false, pref: { desde: '', franja: '' }, fb_body: freeBusyBody(Date.now(), Date.now() + 15 * 86400000) });\n  out.respuesta.mensajes = [{ tipo: 'text', texto: tx(c).ocupado, opciones: [] }];\n  return [{ json: out }];\n}\nconst who = [c.nombre, c.tipo_negocio, c.ciudad].filter(Boolean).join(' · ');\nconst ev_body = {\n  summary: `Demo Clonexa · ${c.nombre || c.wa_id}${c.tipo_negocio ? ` (${c.tipo_negocio})` : ''}`,\n  description: `Demo agendada por Nexa (WhatsApp).\\n${who}\\nWhatsApp: +${c.wa_id}\\nTamaño: ${c.tamano || '—'}\\nQué les cuesta: ${c.dolor || '—'}\\nConversación: ${c.console_url || ''}`,\n  start: { dateTime: isoBog(ms), timeZone: 'America/Bogota' },\n  end: { dateTime: isoBog(ms + 1800000), timeZone: 'America/Bogota' },\n  attendees: c.correo ? [{ email: c.correo }] : [],\n  conferenceData: { createRequest: { requestId: `nexa-${c.wa_id}-${ms}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } },\n  reminders: { useDefault: true },\n};\nreturn [{ json: { ...base(src), libre: true, ev_body } }];\n"
+   }
+  },
+  {
+   "id": "3a37e08e-77b2-5e39-8921-5f1bf26524a3",
+   "name": "¿Libre?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    1100,
+    100
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "cb87532c-a1ee-5092-8191-251b22d87712",
+       "leftValue": "={{ $json.libre === true }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "fc11a96a-e5df-515c-938f-f2d87e5293f2",
+   "name": "Calendar: crear cita",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1320,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+    "options": {
+     "timeout": 20000
+    },
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googleCalendarOAuth2Api",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.ev_body }}"
+   },
+   "credentials": {
+    "googleCalendarOAuth2Api": {
+     "id": "pYEUvBLK0TOMnW7T",
+     "name": "Google Calendar account"
+    }
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "c62fb0b6-ee14-5834-84d2-72265d55b091",
+   "name": "Confirmar cita",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1540,
+    0
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst ev = $input.first().json || {};\nconst src = $('Preparar').first().json;\nconst c = src.contacto || {};\nconst t = tx(c);\nconst out = base(src);\nif (!ev.id) {\n  out.respuesta.mensajes = [{ tipo: 'text', texto: t.no_cita, opciones: [] }];\n  out.respuesta.etapa = 'pidio_persona';\n  out.respuesta.resumen = 'Eligió un horario de demo pero Google Calendar no creó el evento.';\n  out.aviso = 'error';\n  out.error_text = `No se pudo crear la cita (${String((ev.error && (ev.error.message || ev.error)) || 'sin id').slice(0, 200)}).`;\n  return [{ json: out }];\n}\nconst link = ev.hangoutLink || ((ev.conferenceData && (ev.conferenceData.entryPoints || []).find((p) => p.entryPointType === 'video')) || {}).uri || '';\nout.respuesta.mensajes = [{ tipo: 'text', texto: t.listo(slotLong(src.slot, isEn(c)), link, c.correo), opciones: [] }];\nout.respuesta.etapa = 'demo_agendada';\nout.respuesta.accion = 'crear_cita';\nout.respuesta.demo = { inicio: isoBog(src.slot), enlace: link || ev.htmlLink || '' };\nout.aviso = 'demo';\nreturn [{ json: out }];\n"
+   }
+  },
+  {
+   "id": "4db0546d-a4cb-5929-9827-84d86877cf81",
+   "name": "Calendar: otros horarios",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1320,
+    200
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+    "options": {
+     "timeout": 20000
+    },
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googleCalendarOAuth2Api",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.fb_body }}"
+   },
+   "credentials": {
+    "googleCalendarOAuth2Api": {
+     "id": "pYEUvBLK0TOMnW7T",
+     "name": "Google Calendar account"
+    }
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "af3ccb9d-4f67-5b6c-9b1e-33d52646779e",
+   "name": "Proponer otros horarios",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1540,
+    200
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst prev = $('Revisar horario').first().json;\nconst cal = $input.first().json || {};\nconst out = { ...prev, respuesta: { ...prev.respuesta, mensajes: (prev.respuesta.mensajes || []).filter((m) => m.tipo !== 'buttons') } };\nconst c = prev.contacto || {};\nconst t = tx(c);\nif (!calOk(cal)) {\n  out.respuesta.mensajes.push({ tipo: 'text', texto: t.sin_horarios, opciones: [] });\n  out.aviso = 'error';\n  out.error_text = `Google Calendar no respondió (${String((cal.error && (cal.error.message || cal.error)) || 'sin datos').slice(0, 200)}).`;\n  return [{ json: out }];\n}\nconst slots = pickSlots(busyOf(cal), Date.now(), prev.pref || {});\nif (!slots.length) {\n  out.respuesta.mensajes.push({ tipo: 'text', texto: t.sin_horarios, opciones: [] });\n  out.respuesta.etapa = 'pidio_persona';\n  out.aviso = out.aviso || 'persona';\n  out.respuesta.resumen = 'No hay horarios libres en los próximos días para la demo.';\n  return [{ json: out }];\n}\nconst en = isEn(c);\nout.respuesta.mensajes = out.respuesta.mensajes.slice(0, 2);\nout.respuesta.mensajes.push({ tipo: 'buttons', texto: t.elegir + (c.correo ? '' : t.correo), opciones: slots.map((s) => slotTitle(s, en)), ids: slots.map((s) => `cita|${isoBog(s)}`) });\nreturn [{ json: out }];\n"
+   }
+  },
+  {
+   "id": "dd25c01c-6013-5883-8f7c-8f6f4c56cf70",
+   "name": "¿Usa Claude?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    660,
+    420
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "9afea98d-818e-5a1a-a1f7-0c96ab2c88c8",
+       "leftValue": "={{ $json.ruta === 'claude' }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "9ce9d262-3d63-5172-82e0-ba99c8e1d560",
+   "name": "Claude",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    880,
+    360
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "options": {
+     "timeout": 45000
+    },
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "anthropicApi",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "anthropic-version",
+       "value": "2023-06-01"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.claude_body }}"
+   },
+   "credentials": {
+    "anthropicApi": {
+     "id": "X6Q45d5OD6gz0wiS",
+     "name": "Anthropic Nexa"
+    }
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "b9e8a2fd-2804-5e81-b2de-480eb1440ac9",
+   "name": "Leer Claude",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1100,
+    360
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst src = $('Preparar').first().json;\nconst r = $input.first().json || {};\nconst out = base(src);\nconst t = tx(src.contacto);\nconst block = (Array.isArray(r.content) ? r.content : []).find((b) => b && b.type === 'text');\nlet d = null;\ntry { d = block ? JSON.parse(block.text) : null; } catch (e) { d = null; }\nconst msgs = d && Array.isArray(d.mensajes) ? d.mensajes.filter((m) => m && String(m.texto || '').trim()).slice(0, 3) : [];\nif (!d || !msgs.length) {\n  const why = r.error ? (r.error.message || JSON.stringify(r.error)).slice(0, 300) : (r.stop_reason ? `stop_reason ${r.stop_reason}` : 'respuesta sin JSON');\n  out.respuesta.mensajes = [{ tipo: 'text', texto: t.espera, opciones: [] }];\n  out.respuesta.consentimiento_visto = false;\n  out.aviso = 'error';\n  out.error_text = `Claude no respondió (${why}).`;\n  return [{ json: { ...out, ofrecer: false } }];\n}\nlet accion = d.accion || 'ninguna';\nconst pref = d.preferencia_horario || {};\nif (accion === 'crear_cita') accion = 'ofrecer_horarios'; // la cita se confirma tocando un botón con un horario libre real\nout.respuesta = { mensajes: msgs.map((m) => ({ tipo: m.tipo, texto: String(m.texto).trim(), opciones: Array.isArray(m.opciones) ? m.opciones.map(String) : [] })),\n  etapa: d.etapa || src.contacto.etapa, datos_detectados: d.datos_detectados || {}, accion, consentimiento_visto: true, demo: null, resumen: d.resumen || '' };\nif (accion === 'pasar_a_persona') { out.respuesta.etapa = 'pidio_persona'; out.aviso = 'persona'; }\nconst now = Date.now();\nreturn [{ json: { ...out, ofrecer: accion === 'ofrecer_horarios', pref, fb_body: freeBusyBody(now, now + 15 * 86400000) } }];\n"
+   }
+  },
+  {
+   "id": "e2506b52-20cd-538f-8eea-eda2c7fb67d6",
+   "name": "¿Ofrecer horarios?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    1320,
+    360
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "fbc70dbb-76cd-560f-9608-a5c0dae9f81b",
+       "leftValue": "={{ $json.ofrecer === true }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "160ba0a9-1f4e-5635-bb10-03c5811a560e",
+   "name": "Calendar: horarios",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1540,
+    300
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+    "options": {
+     "timeout": 20000
+    },
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googleCalendarOAuth2Api",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.fb_body }}"
+   },
+   "credentials": {
+    "googleCalendarOAuth2Api": {
+     "id": "pYEUvBLK0TOMnW7T",
+     "name": "Google Calendar account"
+    }
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "ed86a809-b056-5359-8602-b7a245c3bada",
+   "name": "Proponer horarios",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1760,
+    300
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const TZ_MS = 5 * 3600000;\nconst FESTIVOS = new Set(['2026-01-01','2026-01-12','2026-03-23','2026-04-02','2026-04-03','2026-05-01','2026-05-18','2026-06-08','2026-06-15','2026-06-29',\n  '2026-07-20','2026-08-07','2026-08-17','2026-10-12','2026-11-02','2026-11-16','2026-12-08','2026-12-25','2027-01-01','2027-01-11','2027-03-22','2027-03-25',\n  '2027-03-26','2027-05-01','2027-05-10','2027-05-31','2027-06-07','2027-07-05','2027-07-20','2027-08-07','2027-08-16','2027-10-18','2027-11-01','2027-11-15',\n  '2027-12-08','2027-12-25']);\nconst pad = (n) => String(n).padStart(2, '0');\nconst bog = (ms) => { const d = new Date(ms - TZ_MS); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; };\nconst dayKey = (b) => `${b.y}-${pad(b.mo + 1)}-${pad(b.d)}`;\nconst isoBog = (ms) => { const b = bog(ms); return `${dayKey(b)}T${pad(b.h)}:${pad(b.mi)}:00-05:00`; };\nconst isEn = (c) => String((c && c.idioma) || '').toLowerCase().startsWith('en');\nconst DOW = { es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };\nconst DOWL = { es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };\nconst MON = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };\nconst MONL = { es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],\n  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };\nconst h12 = (b, long) => `${b.h % 12 || 12}:${pad(b.mi)} ${long ? (b.h < 12 ? 'a. m.' : 'p. m.') : (b.h < 12 ? 'am' : 'pm')}`;\n// Botón: \"Jue 29 oct 10:00 am\" (máx. 20 caracteres) / \"Thu Oct 29 10:00 am\"\nconst slotTitle = (ms, en) => { const b = bog(ms); return en ? `${DOW.en[b.dow]} ${MON.en[b.mo]} ${b.d} ${h12(b)}` : `${DOW.es[b.dow]} ${b.d} ${MON.es[b.mo]} ${h12(b)}`; };\nconst slotLong = (ms, en) => { const b = bog(ms); return en ? `${DOWL.en[b.dow]}, ${MONL.en[b.mo]} ${b.d} at ${h12(b, false)} (Colombia time)`\n  : `el ${DOWL.es[b.dow]} ${b.d} de ${MONL.es[b.mo]} a las ${h12(b, true)} (hora de Colombia)`; };\nconst workable = (ms) => { const b = bog(ms); const m = b.h * 60 + b.mi; return b.dow >= 1 && b.dow <= 5 && !FESTIVOS.has(dayKey(b)) && m >= 540 && m + 30 <= 1020; };\nconst overlaps = (ms, busy) => busy.some((x) => { const s = Date.parse(x.start), e = Date.parse(x.end); return s < ms + 1800000 && e > ms; });\n// Tres horarios libres: lunes a viernes 9:00-17:00 de Colombia, 30 min, con 3 h de anticipación, separados al menos 3 h.\nfunction pickSlots(busy, nowMs, pref) {\n  pref = pref || {};\n  const minMs = nowMs + 3 * 3600000;\n  const step = 1800000;\n  let start = Math.ceil(minMs / step) * step;\n  const wanted = Date.parse(pref.desde || '');\n  const out = [];\n  if (Number.isFinite(wanted) && wanted >= minMs && wanted % step === 0 && workable(wanted) && !overlaps(wanted, busy)) out.push(wanted);\n  if (Number.isFinite(wanted) && wanted > start) start = Math.ceil(wanted / step) * step;\n  const end = start + 14 * 86400000;\n  for (let t = start; t < end && out.length < 3; t += step) {\n    if (!workable(t) || overlaps(t, busy)) continue;\n    const h = bog(t).h;\n    if (pref.franja === 'manana' && h >= 12) continue;\n    if (pref.franja === 'tarde' && h < 12) continue;\n    if (out.every((c) => Math.abs(c - t) >= 3 * 3600000)) out.push(t);\n  }\n  return out.sort((a, b) => a - b);\n}\nconst freeBusyBody = (fromMs, toMs) => ({ timeMin: new Date(fromMs).toISOString(), timeMax: new Date(toMs).toISOString(), timeZone: 'America/Bogota', items: [{ id: 'primary' }] });\nconst busyOf = (j) => ((j && j.calendars && j.calendars.primary && j.calendars.primary.busy) || []);\nconst calOk = (j) => !!(j && j.calendars && j.calendars.primary && !j.calendars.primary.errors && !j.error);\nconst T = {\n  es: { solo_texto: 'Por ahora solo leo mensajes de texto. Escríbeme tu pregunta o, si prefieres, agendamos una demo con el equipo.',\n    intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',\n    consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',\n    elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',\n    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',\n    listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\\nEnlace de Google Meet: ${link}` : ''}${mail ? `\\nTe llega la invitación a ${mail}.` : ''}`,\n    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',\n    espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },\n  en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',\n    intro: \"Hi, I'm Nexa, Clonexa's AI virtual assistant.\",\n    consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',\n    elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: \" If you share your email, you'll get the invite.\",\n    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',\n    listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\\nGoogle Meet link: ${link}` : ''}${mail ? `\\nThe invite is on its way to ${mail}.` : ''}`,\n    no_cita: \"I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.\",\n    espera: \"We'll get back to you in a moment.\", lista: 'Choose' },\n};\nconst tx = (c) => T[isEn(c) ? 'en' : 'es'];\n// Respuesta base: lo que viaja hasta \"Armar envío\".\nconst base = (src, extra) => ({ wa_id: src.wa_id, contacto: src.contacto, primer: src.primer,\n  respuesta: { mensajes: [], etapa: src.contacto.etapa, datos_detectados: {}, accion: 'ninguna', consentimiento_visto: !!src.primer, demo: null, resumen: '' },\n  aviso: '', error_text: '', ...(extra || {}) });\n\nconst prev = $('Leer Claude').first().json;\nconst cal = $input.first().json || {};\nconst out = { ...prev, respuesta: { ...prev.respuesta, mensajes: (prev.respuesta.mensajes || []).filter((m) => m.tipo !== 'buttons') } };\nconst c = prev.contacto || {};\nconst t = tx(c);\nif (!calOk(cal)) {\n  out.respuesta.mensajes.push({ tipo: 'text', texto: t.sin_horarios, opciones: [] });\n  out.aviso = 'error';\n  out.error_text = `Google Calendar no respondió (${String((cal.error && (cal.error.message || cal.error)) || 'sin datos').slice(0, 200)}).`;\n  return [{ json: out }];\n}\nconst slots = pickSlots(busyOf(cal), Date.now(), prev.pref || {});\nif (!slots.length) {\n  out.respuesta.mensajes.push({ tipo: 'text', texto: t.sin_horarios, opciones: [] });\n  out.respuesta.etapa = 'pidio_persona';\n  out.aviso = out.aviso || 'persona';\n  out.respuesta.resumen = 'No hay horarios libres en los próximos días para la demo.';\n  return [{ json: out }];\n}\nconst en = isEn(c);\nout.respuesta.mensajes = out.respuesta.mensajes.slice(0, 2);\nout.respuesta.mensajes.push({ tipo: 'buttons', texto: t.elegir + (c.correo ? '' : t.correo), opciones: slots.map((s) => slotTitle(s, en)), ids: slots.map((s) => `cita|${isoBog(s)}`) });\nreturn [{ json: out }];\n"
+   }
+  },
+  {
+   "id": "e64a87a9-7a30-55b4-b762-e0a1bd32b77e",
+   "name": "Armar envío",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1980,
+    300
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const j = $input.first().json;\nconst en = String((j.contacto && j.contacto.idioma) || '').startsWith('en');\nconst cut = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };\nconst items = [];\nfor (const [i, m0] of (j.respuesta.mensajes || []).slice(0, 3).entries()) {\n  const m = { ...m0, opciones: (m0.opciones || []).map(String).filter((o) => o.trim()) };\n  let tipo = m.tipo;\n  if (tipo === 'buttons' && m.opciones.length > 3) tipo = 'list';\n  if ((tipo === 'buttons' || tipo === 'list') && !m.opciones.length) tipo = 'text';\n  const id = (k) => (m.ids && m.ids[k]) || `op|${k + 1}`;\n  let graph;\n  if (tipo === 'buttons') {\n    graph = { type: 'interactive', interactive: { type: 'button', body: { text: cut(m.texto, 1024) },\n      action: { buttons: m.opciones.slice(0, 3).map((o, k) => ({ type: 'reply', reply: { id: id(k), title: cut(o, 20) } })) } } };\n  } else if (tipo === 'list') {\n    graph = { type: 'interactive', interactive: { type: 'list', body: { text: cut(m.texto, 1024) },\n      action: { button: en ? 'Choose' : 'Elegir', sections: [{ title: en ? 'Options' : 'Opciones', rows: m.opciones.slice(0, 10).map((o, k) => ({ id: id(k), title: cut(o, 24) })) }] } } };\n  } else {\n    graph = { type: 'text', text: { body: cut(m.texto, 4096), preview_url: /https?:\\/\\//.test(m.texto) } };\n  }\n  graph = { messaging_product: 'whatsapp', recipient_type: 'individual', to: j.wa_id, ...graph };\n  const shown = tipo === 'buttons' ? m.opciones.slice(0, 3).map((o) => cut(o, 20)) : tipo === 'list' ? m.opciones.slice(0, 10).map((o) => cut(o, 24)) : [];\n  items.push({ json: { i, tipo, texto: m.texto, opciones: shown, graph, src: i === 0 ? j : null } });\n}\nreturn items;\n"
+   }
+  },
+  {
+   "id": "2fc149e7-4c99-50aa-9695-fbf676fa12fc",
+   "name": "Enviar a WhatsApp",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2200,
+    300
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://graph.facebook.com/v26.0/1331771733361816/messages",
+    "options": {
+     "timeout": 15000
+    },
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.graph }}"
+   },
+   "credentials": {
+    "httpHeaderAuth": "__WA_CRED__"
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "32b634c6-043e-5fd4-bdcc-1ffca6933fd6",
+   "name": "Juntar envío",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2420,
+    300
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const ctx = $('Armar envío').all().map((x) => x.json);\nconst res = $input.all().map((x) => x.json || {});\nconst src = (ctx[0] && ctx[0].src) || {};\nconst mensajes = ctx.map((m, k) => {\n  const r = res[k] || {};\n  const id = r.messages && r.messages[0] && r.messages[0].id;\n  const err = r.error ? String(r.error.message || (r.error.error && r.error.error.message) || JSON.stringify(r.error)).slice(0, 300) : '';\n  return { meta_id: id || null, tipo: m.tipo, texto: m.texto, opciones: m.opciones, estado: id ? 'sent' : 'failed', error: id ? null : (err || 'sin id de Meta') };\n});\nconst failed = mensajes.filter((m) => m.estado === 'failed');\nconst r = src.respuesta || {};\nconst sentAny = mensajes.some((m) => m.estado === 'sent');\nlet aviso = src.aviso || '';\nlet error_text = src.error_text || '';\nif (failed.length) { aviso = 'error'; error_text = `${error_text ? error_text + ' ' : ''}Meta no envió ${failed.length} de ${mensajes.length} mensajes: ${failed[0].error}`; }\nconst outbound = { wa_id: src.wa_id, mensajes, datos_detectados: r.datos_detectados || {}, etapa: r.etapa || null,\n  consentimiento_visto: !!(r.consentimiento_visto && sentAny), accion: r.accion || 'ninguna', demo: r.demo || null, nota: r.resumen ? `Nexa: ${r.resumen}` : null };\nreturn [{ json: { outbound, aviso, error_text, contacto: src.contacto || {}, respuesta: r } }];\n"
+   }
+  },
+  {
+   "id": "ac09fb65-d31e-5280-9911-6cb2e697aa62",
+   "name": "Registrar en backend",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2640,
+    300
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://clonexa-backend-production.up.railway.app/api/v1/nexa-wa/outbound",
+    "options": {
+     "timeout": 15000
+    },
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ $json.outbound }}"
+   },
+   "credentials": {
+    "httpHeaderAuth": "__FWD_CRED__"
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "303e7c6f-8a25-5028-870a-217d51e2bd54",
+   "name": "¿Avisar?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    2860,
+    300
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "ee2bb4d4-2611-541d-bb48-73aba8a79caa",
+       "leftValue": "={{ !!$('Juntar envío').first().json.aviso }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "8822669e-cf38-5d76-a358-185f531e6df8",
+   "name": "Mensaje Telegram",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3080,
+    240
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const j = $('Juntar envío').first().json;\nconst back = $input.first().json || {};\nconst c = { ...(j.contacto || {}), ...((back && back.contacto) || {}) };\nconst d = (j.respuesta && j.respuesta.datos_detectados) || {};\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst LABEL = { nuevo: 'Nuevo', calificado: 'Calificado', demo_agendada: 'Demo agendada', pidio_persona: 'Pidió persona', no_interesado: 'No interesado', baja: 'Baja' };\nconst num = String(c.wa_id || '');\nconst phone = num.length === 12 && num.startsWith('57') ? `+57 ${num.slice(2, 5)} ${num.slice(5, 8)} ${num.slice(8)}` : `+${num}`;\nconst etapa = (j.outbound && j.outbound.etapa) || c.etapa;\nconst head = { demo: '📅 <b>Demo agendada</b>', persona: '🙋 <b>Pidió una persona</b>', error: '⚠️ <b>Nexa WhatsApp: error</b>' }[j.aviso] || '<b>Nexa WhatsApp</b>';\nconst lines = [head, `<b>${esc(c.nombre || d.nombre || 'Sin nombre')}</b> · ${esc(phone)}`,\n  `${esc(c.tipo_negocio || d.tipo_negocio || 'Negocio sin dato')} · ${esc(c.ciudad || d.ciudad || 'Ciudad sin dato')}`, `Etapa: ${esc(back.etapa_label || LABEL[etapa] || etapa || '—')}`];\nif (j.aviso === 'demo' && j.outbound.demo) lines.push(`Cita: ${esc(j.outbound.demo.inicio)}${j.outbound.demo.enlace ? `\\nMeet: ${esc(j.outbound.demo.enlace)}` : ''}`);\nif (j.aviso === 'persona') lines.push(`Necesita: ${esc((j.respuesta && j.respuesta.resumen) || 'hablar con una persona')}\\nSi le vas a escribir tú, pausa Nexa en la consola.`);\nif (j.aviso === 'error') lines.push(esc(j.error_text || 'Error sin detalle'));\nreturn [{ json: { msg: lines.join('\\n'), url: c.console_url || 'https://clonexa-backend-production.up.railway.app/admin-v2plus' } }];\n"
+   }
+  },
+  {
+   "id": "50c230f5-0c00-5573-a841-a150e9bed016",
+   "name": "Avisar a Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    3300,
+    240
+   ],
+   "webhookId": "b3d05ec4-4d04-5359-9db7-560dbcdab3cf",
+   "credentials": {
+    "telegramApi": {
+     "id": "Somdc8F0zAOWWHcY",
+     "name": "Telegram Nexa"
+    }
+   },
+   "onError": "continueRegularOutput",
+   "parameters": {
+    "chatId": "5126243056",
+    "text": "={{ $json.msg }}",
+    "replyMarkup": "inlineKeyboard",
+    "inlineKeyboard": {
+     "rows": [
+      {
+       "row": {
+        "buttons": [
+         {
+          "text": "Abrir en la consola",
+          "additionalFields": {
+           "url": "={{ $json.url }}"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "additionalFields": {
+     "appendAttribution": false,
+     "parse_mode": "HTML"
+    }
+   }
+  },
+  {
+   "id": "0cb96405-05f0-56c9-baf2-5dfccdd7b8fe",
+   "name": "Cada día 6 p. m.",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    700
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "cronExpression",
+       "expression": "0 18 * * *"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "0eede07e-af2d-5af8-9c21-aea91dcf1b39",
+   "name": "Resumen del backend",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    220,
+    700
+   ],
+   "parameters": {
+    "method": "GET",
+    "url": "https://clonexa-backend-production.up.railway.app/api/v1/nexa-wa/daily-summary",
+    "options": {
+     "timeout": 20000
+    },
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth"
+   },
+   "credentials": {
+    "httpHeaderAuth": "__FWD_CRED__"
+   },
+   "retryOnFail": true,
+   "maxTries": 2,
+   "waitBetweenTries": 1000,
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "1a25fb05-4fb1-5911-86c1-393503d57e1d",
+   "name": "Mensaje resumen",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    700
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const d = $input.first().json || {};\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst LABEL = { nuevo: 'Nuevo', calificado: 'Calificado', demo_agendada: 'Demo agendada', pidio_persona: 'Pidió persona', no_interesado: 'No interesado', baja: 'Baja' };\nif (!d.ok) return [{ json: { msg: `⚠️ <b>Nexa WhatsApp</b>: no pude leer el resumen del día (${esc((d.error && d.error.message) || 'sin respuesta')}).`,\n  url: 'https://clonexa-backend-production.up.railway.app/admin-v2plus' } }];\nconst lines = [`📊 <b>Nexa WhatsApp · resumen de hoy</b> (${esc(d.fecha)})`, `Conversaciones nuevas: <b>${d.nuevas}</b>`, `Calificadas: <b>${d.calificadas}</b>`,\n  `Demos agendadas: <b>${d.demos}</b>`, `Pidieron persona: <b>${d.personas}</b>`];\nconst list = (d.contactos || []).slice(0, 8).map((c) => `• ${esc(c.nombre || 'Sin nombre')} · +${esc(c.wa_id)} · ${esc(c.tipo_negocio || '—')} · ${esc(c.ciudad || '—')} · ${esc(LABEL[c.etapa] || c.etapa)}`);\nif (list.length) lines.push('', ...list);\nelse lines.push('', 'Hoy nadie escribió.');\nreturn [{ json: { msg: lines.join('\\n'), url: 'https://clonexa-backend-production.up.railway.app/admin-v2plus#nexa' } }];\n"
+   }
+  },
+  {
+   "id": "3ac51e27-24f7-5dba-9b79-bfad36ee6309",
+   "name": "Resumen a Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    660,
+    700
+   ],
+   "webhookId": "71c76fa3-b033-5210-9f2e-644dd230919a",
+   "credentials": {
+    "telegramApi": {
+     "id": "Somdc8F0zAOWWHcY",
+     "name": "Telegram Nexa"
+    }
+   },
+   "onError": "continueRegularOutput",
+   "parameters": {
+    "chatId": "5126243056",
+    "text": "={{ $json.msg }}",
+    "replyMarkup": "inlineKeyboard",
+    "inlineKeyboard": {
+     "rows": [
+      {
+       "row": {
+        "buttons": [
+         {
+          "text": "Abrir en la consola",
+          "additionalFields": {
+           "url": "={{ $json.url }}"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "additionalFields": {
+     "appendAttribution": false,
+     "parse_mode": "HTML"
+    }
+   }
+  }
+ ],
+ "connections": {
+  "Del backend": {
+   "main": [
+    [
+     {
+      "node": "Preparar",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Preparar": {
+   "main": [
+    [
+     {
+      "node": "¿Eligió horario?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "¿Eligió horario?": {
+   "main": [
+    [
+     {
+      "node": "Calendar: ¿sigue libre?",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "¿Usa Claude?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Calendar: ¿sigue libre?": {
+   "main": [
+    [
+     {
+      "node": "Revisar horario",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Revisar horario": {
+   "main": [
+    [
+     {
+      "node": "¿Libre?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "¿Libre?": {
+   "main": [
+    [
+     {
+      "node": "Calendar: crear cita",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Calendar: otros horarios",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Calendar: crear cita": {
+   "main": [
+    [
+     {
+      "node": "Confirmar cita",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Confirmar cita": {
+   "main": [
+    [
+     {
+      "node": "Armar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Calendar: otros horarios": {
+   "main": [
+    [
+     {
+      "node": "Proponer otros horarios",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Proponer otros horarios": {
+   "main": [
+    [
+     {
+      "node": "Armar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "¿Usa Claude?": {
+   "main": [
+    [
+     {
+      "node": "Claude",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Armar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Claude": {
+   "main": [
+    [
+     {
+      "node": "Leer Claude",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Leer Claude": {
+   "main": [
+    [
+     {
+      "node": "¿Ofrecer horarios?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "¿Ofrecer horarios?": {
+   "main": [
+    [
+     {
+      "node": "Calendar: horarios",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Armar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Calendar: horarios": {
+   "main": [
+    [
+     {
+      "node": "Proponer horarios",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Proponer horarios": {
+   "main": [
+    [
+     {
+      "node": "Armar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Armar envío": {
+   "main": [
+    [
+     {
+      "node": "Enviar a WhatsApp",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Enviar a WhatsApp": {
+   "main": [
+    [
+     {
+      "node": "Juntar envío",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Juntar envío": {
+   "main": [
+    [
+     {
+      "node": "Registrar en backend",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Registrar en backend": {
+   "main": [
+    [
+     {
+      "node": "¿Avisar?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "¿Avisar?": {
+   "main": [
+    [
+     {
+      "node": "Mensaje Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    []
+   ]
+  },
+  "Mensaje Telegram": {
+   "main": [
+    [
+     {
+      "node": "Avisar a Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Cada día 6 p. m.": {
+   "main": [
+    [
+     {
+      "node": "Resumen del backend",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Resumen del backend": {
+   "main": [
+    [
+     {
+      "node": "Mensaje resumen",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mensaje resumen": {
+   "main": [
+    [
+     {
+      "node": "Resumen a Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "timezone": "America/Bogota",
+  "executionOrder": "v1"
+ }
+}

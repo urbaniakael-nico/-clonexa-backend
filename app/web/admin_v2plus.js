@@ -21,7 +21,7 @@
   // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
-    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing",
+    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing", nexa: "Conversaciones Nexa",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
@@ -366,7 +366,15 @@
     return match ? decodeURIComponent(match[1]) : "";
   }
 
+  // Conversaciones Nexa: /admin-v2plus#nexa/{contacto} (el enlace de los avisos de Telegram)
+  function nexaFromHash(hash) {
+    const match = /^#nexa\/([0-9a-fA-F-]{36})$/.exec(String(hash || ""));
+    return match ? match[1] : "";
+  }
+
   function onHash() {
+    const contact = nexaFromHash(window.location.hash);
+    if (contact) { setView("nexa", { contact }); return; }
     const id = companyFromHash(window.location.hash);
     if (id) { state.companyId = id; setView("company"); }
     else if (state.view === "company") setView("companies");
@@ -479,7 +487,7 @@
     // La Ficha vive en otro archivo que carga después de este: la ruta inicial
     // (/admin-v2plus#empresa/{id} al recargar o desde un link) se resuelve
     // cuando ya cargaron todos los scripts de la página.
-    const firstRoute = () => { if (companyFromHash(window.location && window.location.hash)) onHash(); };
+    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash)) onHash(); };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);
@@ -491,6 +499,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
+  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, nexaFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();
