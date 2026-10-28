@@ -52,3 +52,7 @@ Tengo autonomía para hacer commit y push a `main`, con una condición obligator
 ## Idioma
 
 - Responder siempre en español.
+
+## Capturas de pantalla
+
+- No guardar capturas de pantalla (ni en el repo ni en el scratchpad) salvo que el dueño las pida explícitamente en esa tarea.
