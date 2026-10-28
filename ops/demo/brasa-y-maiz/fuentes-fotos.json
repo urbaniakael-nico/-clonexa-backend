@@ -86,5 +86,15 @@
       "fotografo": "Suzy Hazelwood",
       "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/"
     }
+  ],
+  "videos": [
+    {
+      "plato": "Lomo a la parrilla",
+      "archivo": "gourmet-plated-beef-31560802.mp4",
+      "fuente": "https://www.pexels.com/video/gourmet-plated-beef-with-pomegranate-31560802/",
+      "videografo": "Nadin Sh",
+      "licencia": "Licencia de Pexels (uso gratuito, sin atribución obligatoria): https://www.pexels.com/license/",
+      "uso": "Prueba del Camino 1 (subir video) en la demo"
+    }
   ]
 }

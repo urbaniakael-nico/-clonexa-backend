@@ -827,7 +827,7 @@ def _place(ideal: float, size: int, room: int) -> int:
     si el video es mas grande que el cuadro, ni salirse si es mas chico."""
     if size >= room:
         return round(min(0, max(room - size, ideal)))
-    return round(min(room - size, max(0, ideal)))
+    return (room - size) // 2  # mas angosto que el cuadro: centrado (sin bordes corridos)
 
 
 def _vf_chain(fps: float, pw: int, ph: int, stab: str, trf: Optional[str]) -> str:
