@@ -4,7 +4,10 @@
   nuevo reenviado a n8n con contacto e historial, duplicado no se procesa dos
   veces, estados de entrega (solo avanzan; antes o despues del registro de n8n),
   pausado no reenvia, "baja" confirma una sola vez y despues no responde, limite
-  de 20 por minuto por numero, n8n caido -> "Ya te respondemos en un momento".
+  de 20 por minuto por numero, n8n caido o lento (10 s) -> respuesta de respaldo
+  de Nexa y aviso a Telegram (maximo 1 cada 15 min); error al guardar o al
+  responder -> log + aviso; otro phone_number_id (muestra del panel) no se
+  guarda; cada paso deja su linea en el log; el log de acceso tapa el token.
 - /outbound (n8n): secreto, guarda lo enviado y actualiza datos y etapa.
 - Consola (solo Admin V2): lista, filtros, nuevas, detalle, pausar/reanudar,
   no interesado y exportar CSV.
@@ -88,16 +91,27 @@ class Fakes:
     def __init__(self):
         self.forwarded: list[dict] = []
         self.sent: list[tuple[str, str]] = []
+        self.alerts: list[str] = []
         self.forward_ok = True
+        self.send_ok = True
+        self.forward_delay = 0.0
         self.n = 0
+
+    async def alert(self, text_: str) -> bool:
+        self.alerts.append(text_)
+        return True
 
     async def fwd(self, payload: dict) -> bool:
         self.forwarded.append(payload)
+        if self.forward_delay:
+            await asyncio.sleep(self.forward_delay)
         return self.forward_ok
 
     async def send(self, wa_id: str, body: str) -> dict:
         self.n += 1
         self.sent.append((wa_id, body))
+        if not self.send_ok:
+            return {"ok": False, "error": "400 131047 Re-engagement message"}
         return {"ok": True, "meta_id": f"wamid.backend{self.n}"}
 
 
@@ -106,6 +120,9 @@ def fakes(monkeypatch):
     f = Fakes()
     monkeypatch.setattr(nw, "forward", f.fwd)
     monkeypatch.setattr(nw, "send_text", f.send)
+    monkeypatch.setattr(nw, "_deliver_alert", f.alert)
+    monkeypatch.setitem(nw.ALERT_STATE, "last", None)
+    monkeypatch.setitem(nw.ALERT_STATE, "suppressed", 0)
     return f
 
 
@@ -323,11 +340,144 @@ def test_fuera_de_24_horas_no_se_responde(client, fakes):
     assert fakes.forwarded == [] and fakes.sent == []
 
 
-def test_n8n_caido_responde_ya_te_respondemos(client, pg_url, fakes):
+RESPALDO = "¡Hola! Soy Nexa, la asistente virtual de Clonexa. En un momento te respondo."
+
+
+def test_n8n_caido_responde_respaldo_y_avisa(client, pg_url, fakes):
     fakes.forward_ok = False
     _hook(client, _envelope([_text("wamid.F1", "Hola")]))
-    assert fakes.sent == [(WA, "Ya te respondemos en un momento.")]
-    assert [m["body"] for m in _msgs(pg_url) if m["direction"] == "out"] == ["Ya te respondemos en un momento."]
+    assert fakes.sent == [(WA, RESPALDO)]
+    assert [m["body"] for m in _msgs(pg_url) if m["direction"] == "out"] == [RESPALDO]
+    assert len(fakes.alerts) == 1 and "n8n" in fakes.alerts[0]
+    assert WA not in fakes.alerts[0] and WA[-4:] in fakes.alerts[0]  # el numero va tapado
+
+
+def test_n8n_que_no_contesta_a_tiempo_igual_responde(client, pg_url, fakes, monkeypatch):
+    monkeypatch.setattr(nw, "N8N_TIMEOUT", 0.2)
+    fakes.forward_delay = 3.0
+    started = time.monotonic()
+    _hook(client, _envelope([_text("wamid.F2", "Hola")]))
+    assert time.monotonic() - started < 2.5
+    assert fakes.sent == [(WA, RESPALDO)]
+    assert len(fakes.alerts) == 1
+
+
+def test_forward_real_un_solo_intento_con_10_s(monkeypatch):
+    calls = []
+
+    class Slow:
+        def __init__(self, *a, **k):
+            calls.append(k.get("timeout"))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            await asyncio.sleep(5)
+
+    monkeypatch.setenv("NEXA_WA_FORWARD_SECRET", FORWARD)
+    monkeypatch.setattr(nw, "N8N_TIMEOUT", 0.2)
+    monkeypatch.setattr(nw.httpx, "AsyncClient", Slow)
+    assert asyncio.run(nw.forward({"x": 1})) is False
+    assert calls == [0.2]  # un solo intento, sin reintento que lo alargue
+    assert "TimeoutError" in nw.LAST_FORWARD_ERROR["detail"] and FORWARD not in nw.LAST_FORWARD_ERROR["detail"]
+
+
+def test_aviso_maximo_uno_cada_15_minutos(fakes):
+    async def go():
+        assert await nw.alert("fallo A", "x", at=1000.0) is True
+        assert await nw.alert("fallo B", "x", at=1000.0 + 60) is False
+        assert await nw.alert("fallo C", "x", at=1000.0 + 14 * 60) is False
+        assert await nw.alert("fallo D", "x", at=1000.0 + 15 * 60 + 1) is True
+    asyncio.run(go())
+    assert len(fakes.alerts) == 2
+    assert "fallo A" in fakes.alerts[0] and "fallo D" in fakes.alerts[1] and "+2 errores" in fakes.alerts[1]
+
+
+def test_aviso_que_falla_no_tumba_nada(monkeypatch):
+    async def boom(_t):
+        raise RuntimeError("telegram caido")
+    monkeypatch.setattr(nw, "_deliver_alert", boom)
+    monkeypatch.setitem(nw.ALERT_STATE, "last", None)
+    assert asyncio.run(nw.alert("x", "y")) is False
+
+
+def test_error_al_guardar_queda_en_log_y_avisa(client, pg_url, fakes, monkeypatch, caplog):
+    async def broken(*a, **k):
+        raise RuntimeError("columna no existe")
+    monkeypatch.setattr(nw, "insert_message", broken)
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    r = _hook(client, _envelope([_text("wamid.E1", "Hola")]))
+    assert r.status_code == 200  # Meta no reintenta en bucle
+    assert len(fakes.alerts) == 1 and "guardar" in fakes.alerts[0] and "RuntimeError" in fakes.alerts[0]
+    assert any("nexa_wa ERROR" in rec.getMessage() for rec in caplog.records)
+    assert fakes.forwarded == []
+
+
+def test_error_en_un_mensaje_no_tumba_los_demas(client, pg_url, fakes, monkeypatch):
+    original = nw.insert_message
+
+    async def flaky(db, cid, **k):
+        if k.get("meta_id") == "wamid.M1":
+            raise RuntimeError("x")
+        return await original(db, cid, **k)
+    monkeypatch.setattr(nw, "insert_message", flaky)
+    _hook(client, _envelope([_text("wamid.M1", "uno"), _text("wamid.M2", "dos")]))
+    assert [m["meta_id"] for m in _msgs(pg_url)] == ["wamid.M2"]
+    assert len(fakes.forwarded) == 1
+
+
+def test_envio_fallido_avisa(client, pg_url, fakes):
+    fakes.forward_ok = False
+    fakes.send_ok = False
+    _hook(client, _envelope([_text("wamid.S1", "Hola")]))
+    assert [m["status"] for m in _msgs(pg_url) if m["direction"] == "out"] == ["failed"]
+    assert len(fakes.alerts) == 1  # n8n + envio en la misma ventana: un solo aviso
+
+
+def test_otro_numero_no_se_guarda(client, pg_url, fakes, caplog):
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    payload = _envelope([_text("wamid.P1", "this is a text message", wa="16315551181")])
+    payload["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"] = "123456123"
+    assert _hook(client, payload).status_code == 200
+    assert _contact(pg_url, "16315551181") is None and fakes.forwarded == []
+    assert any("otro_numero" in rec.getMessage() for rec in caplog.records)
+
+
+def test_cada_paso_queda_en_el_log_sin_secretos(client, pg_url, fakes, caplog):
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    _hook(client, _envelope([_text("wamid.L1", "Hola")]))
+    text_ = "\n".join(rec.getMessage() for rec in caplog.records if rec.name == "clonexa.nexa_wa")
+    for step in ("recibido", "firma_ok", "tipo object=whatsapp_business_account", "mensajes=1", "guardado", "reenviado_a_n8n", "resultado"):
+        assert step in text_, step
+    assert WA not in text_ and APP_SECRET not in text_ and FORWARD not in text_
+
+
+def test_estados_quedan_en_el_log(client, caplog, fakes):
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    _hook(client, _envelope(statuses=[{"id": "wamid.X", "status": "delivered", "recipient_id": "573009999999", "timestamp": "1"}]))
+    text_ = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "estados=1" in text_ and '"statuses": 0' in text_
+
+
+def test_firma_mala_queda_en_el_log(client, caplog):
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    assert _hook(client, _envelope([_text("wamid.B1", "Hola")]), secret="otra").status_code == 401
+    assert any("firma_mala" in rec.getMessage() for rec in caplog.records)
+
+
+def test_log_de_acceso_tapa_el_token_de_verificacion():
+    import logging
+    rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d', (
+        "1.2.3.4:5", "GET", f"/api/v1/nexa-wa/webhook?hub.mode=subscribe&hub.verify_token={VERIFY}&hub.challenge=9&hub_verify_token={VERIFY}",
+        "1.1", 200), None)
+    assert ep.RedactVerifyToken().filter(rec) is True
+    line = rec.getMessage()
+    assert VERIFY not in line and "hub.verify_token=***" in line and "hub_verify_token=***" in line and "hub.challenge=9" in line
+    assert any(isinstance(f, ep.RedactVerifyToken) for f in logging.getLogger("uvicorn.access").filters)
 
 
 # ------------------------------------------------------------------ outbound

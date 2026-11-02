@@ -8,6 +8,11 @@ POST /api/v1/nexa-wa/outbound.
 
 Es de la propia Clonexa (sin company_id, ningun tenant). Solo texto: fotos,
 audios y videos no se descargan. Nunca se registran ni devuelven secretos.
+
+Nunca falla en silencio: cada paso deja una linea "nexa_wa ..." en el log
+(Railway) y un error al guardar, reenviar o responder avisa a Telegram como
+maximo una vez cada 15 minutos (alert()). Si n8n no contesta en 10 s, el
+backend responde con FALLBACK.
 """
 from __future__ import annotations
 
@@ -30,6 +35,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger("clonexa.nexa_wa")
 
+
+class _StdoutHandler(logging.StreamHandler):
+    """Siempre escribe en el sys.stdout actual (Railway lo muestra como info)."""
+
+    @property
+    def stream(self):
+        import sys
+        return sys.stdout
+
+    @stream.setter
+    def stream(self, _value):
+        pass
+
+
+# Nada configura el logging de la app (uvicorn solo el suyo): sin esto los
+# log.info de cada paso se perdian y el webhook parecia mudo. Propaga igual,
+# para que caplog de pytest los vea; la raiz no tiene handler: no se duplica.
+if not any(getattr(h, "_nexa_wa", False) for h in log.handlers):
+    _handler = _StdoutHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    _handler._nexa_wa = True
+    log.addHandler(_handler)
+log.setLevel(logging.INFO)
+
 BOGOTA = timezone(timedelta(hours=-5))  # Colombia no tiene horario de verano
 GRAPH_VERSION = "v26.0"
 DEFAULT_PHONE_ID = "1331771733361816"
@@ -47,7 +76,12 @@ OPT_OUT_CONFIRM = {
     "es": "Listo, te dimos de baja: Nexa no te volverá a escribir. Gracias por avisarnos.",
     "en": "Done, you're unsubscribed: Nexa won't message you again. Thanks for letting us know.",
 }
-FALLBACK = {"es": "Ya te respondemos en un momento.", "en": "We'll get back to you in a moment."}
+FALLBACK = {"es": "¡Hola! Soy Nexa, la asistente virtual de Clonexa. En un momento te respondo.",
+            "en": "Hi! I'm Nexa, Clonexa's virtual assistant. I'll get back to you in a moment."}
+N8N_TIMEOUT = 10.0  # segundos; despues va el respaldo
+ALERT_EVERY = 15 * 60.0  # un aviso a Telegram como maximo cada 15 minutos
+DEFAULT_ALERT_URL = "https://main-production-54df.up.railway.app/webhook/nexa-wa-avisos"
+DEFAULT_ALERT_CHAT = "5126243056"
 
 
 # ---------------------------------------------------------------- configuracion
@@ -61,6 +95,16 @@ def phone_id() -> str:
 
 def n8n_url() -> str:
     return env("NEXA_WA_N8N_URL") or DEFAULT_N8N_URL
+
+
+def alert_url() -> str:
+    return env("NEXA_WA_ALERT_URL") or DEFAULT_ALERT_URL
+
+
+def mask(wa_id: Optional[str]) -> str:
+    """Numero en el log: solo los ultimos 4 digitos."""
+    wa_id = str(wa_id or "")
+    return f"***{wa_id[-4:]}" if wa_id else "-"
 
 
 def console_url(contact_id: str) -> str:
@@ -325,24 +369,71 @@ async def send_text(wa_id: str, body: str) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+LAST_FORWARD_ERROR = {"detail": ""}
+
+
 async def forward(payload: dict) -> bool:
-    """Reenvio a n8n con X-Nexa-Forward; un reintento."""
+    """Reenvio a n8n con X-Nexa-Forward. Un solo intento con N8N_TIMEOUT en total:
+    si n8n no contesta a tiempo, process_webhook manda el respaldo."""
     secret = env("NEXA_WA_FORWARD_SECRET")
     if not secret:
-        log.warning("nexa_wa: NEXA_WA_FORWARD_SECRET no configurado; no se reenvia a n8n")
+        LAST_FORWARD_ERROR["detail"] = "NEXA_WA_FORWARD_SECRET no configurado"
         return False
-    for attempt in range(2):
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(n8n_url(), json=payload, headers={"X-Nexa-Forward": secret})
-            if 200 <= r.status_code < 300:
-                return True
-            log.warning("nexa_wa: n8n respondio %s (intento %s)", r.status_code, attempt + 1)
-        except httpx.HTTPError as exc:
-            log.warning("nexa_wa: n8n no respondio (%s, intento %s)", type(exc).__name__, attempt + 1)
-        if attempt == 0:
-            await asyncio.sleep(1)
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=N8N_TIMEOUT) as client:
+            r = await asyncio.wait_for(client.post(n8n_url(), json=payload, headers={"X-Nexa-Forward": secret}), N8N_TIMEOUT)
+        ms = int((time.monotonic() - started) * 1000)
+        if 200 <= r.status_code < 300:
+            log.info("nexa_wa n8n_respuesta status=%s ms=%s", r.status_code, ms)
+            return True
+        LAST_FORWARD_ERROR["detail"] = f"n8n respondio {r.status_code} en {ms} ms"
+    except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+        ms = int((time.monotonic() - started) * 1000)
+        LAST_FORWARD_ERROR["detail"] = f"n8n no respondio ({type(exc).__name__}, {ms} ms)"
     return False
+
+
+# ---------------------------------------------------------------- aviso a Telegram (maximo 1 cada 15 min)
+ALERT_STATE = {"last": None, "suppressed": 0}
+
+
+async def _deliver_alert(text_: str) -> bool:
+    """Por el nodo "Aviso del backend" del flujo "Nexa - WhatsApp ventas" de n8n
+    (X-Nexa-Forward) -> Telegram. Sin token de Telegram en el backend."""
+    secret = env("NEXA_WA_FORWARD_SECRET")
+    if not secret:
+        return False
+    chat = env("NEXA_WA_ALERT_CHAT_ID") or DEFAULT_ALERT_CHAT
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(alert_url(), json={"texto": text_, "chat_id": chat}, headers={"X-Nexa-Forward": secret})
+        return 200 <= r.status_code < 300
+    except httpx.HTTPError:
+        return False
+
+
+async def alert(kind: str, detail: str = "", *, at: Optional[float] = None) -> bool:
+    """Error del webhook: siempre al log; a Telegram como maximo cada ALERT_EVERY.
+    Nunca levanta (no puede tumbar el webhook)."""
+    detail = (detail or "")[:300]
+    log.error("nexa_wa ERROR %s: %s", kind, detail)
+    at = time.monotonic() if at is None else at
+    last = ALERT_STATE["last"]
+    if last is not None and at - last < ALERT_EVERY:
+        ALERT_STATE["suppressed"] += 1
+        return False
+    ALERT_STATE["last"] = at
+    extra = f"\n(+{ALERT_STATE['suppressed']} errores más sin aviso en los últimos 15 min)" if ALERT_STATE["suppressed"] else ""
+    ALERT_STATE["suppressed"] = 0
+    text_ = f"⚠️ Nexa WhatsApp: {kind}\n{detail}{extra}\nRevisa los logs de Railway (nexa_wa)."
+    try:
+        ok = await _deliver_alert(text_)
+    except Exception as exc:  # noqa: BLE001 - el aviso nunca tumba el webhook
+        ok = False
+        log.error("nexa_wa aviso_telegram fallo (%s)", type(exc).__name__)
+    log.info("nexa_wa aviso_telegram enviado=%s", ok)
+    return ok
 
 
 Sender = Callable[[str, str], Awaitable[dict]]
@@ -351,76 +442,151 @@ Forwarder = Callable[[dict], Awaitable[bool]]
 
 async def _reply_from_backend(db: AsyncSession, contact: dict, body: str, send: Sender, kind: str = "text") -> None:
     result = await send(contact["wa_id"], body)
+    if result.get("ok"):
+        log.info("nexa_wa respuesta_backend enviada wa=%s meta_id=%s", mask(contact["wa_id"]), result.get("meta_id"))
+    else:
+        await alert("no se pudo enviar la respuesta por WhatsApp", f"{mask(contact['wa_id'])}: {result.get('error')}")
     await insert_message(db, contact["id"], direction="out", meta_id=result.get("meta_id"), kind=kind, body=body,
                          status="sent" if result.get("ok") else "failed", error=result.get("error"), raw={"origen": "backend"})
     await touch_contact(db, contact["id"], inbound=False, preview=body)
 
 
 # ---------------------------------------------------------------- el webhook, en segundo plano
+def describe(payload: Any) -> str:
+    """Forma del payload para el log, sin contenido: objeto, campos y cuantos
+    mensajes/estados trae. Asi se ve por que un POST no guardo nada."""
+    if not isinstance(payload, dict):
+        return f"tipo={type(payload).__name__}"
+    fields, msgs, sts, phones = [], 0, 0, set()
+    for entry in payload.get("entry") or []:
+        for change in (entry or {}).get("changes") or [] if isinstance(entry, dict) else []:
+            if not isinstance(change, dict):
+                continue
+            fields.append(str(change.get("field"))[:40])
+            value = change.get("value") if isinstance(change.get("value"), dict) else {}
+            msgs += len(value.get("messages") or [])
+            sts += len(value.get("statuses") or [])
+            pid = (value.get("metadata") or {}).get("phone_number_id")
+            if pid:
+                phones.add(str(pid)[:32])
+    if "field" in payload and "entry" not in payload:  # muestra del panel de Meta
+        fields.append(f"muestra:{str(payload.get('field'))[:40]}")
+    return (f"object={str(payload.get('object'))[:40]} campos={','.join(fields) or '-'} mensajes={msgs} estados={sts} "
+            f"numero={','.join(sorted(phones)) or '-'}")
+
+
+async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, send: Sender, fwd: Forwarder) -> None:
+    m = parse_message(raw)
+    if not m["meta_id"] or not m["wa_id"]:
+        log.warning("nexa_wa mensaje_sin_id tipo=%s: se ignora", m["type"])
+        return
+    wa = mask(m["wa_id"])
+    contact = await upsert_contact(db, m["wa_id"], names.get(m["wa_id"]))
+    new_id = await insert_message(db, contact["id"], direction="in", meta_id=m["meta_id"], kind=m["type"], body=m["text"],
+                                  reply_id=m["reply_id"], raw=raw, at=m["at"])
+    if not new_id:
+        out["duplicates"] += 1
+        await db.rollback()
+        log.info("nexa_wa duplicado wa=%s meta_id=%s: ya estaba guardado", wa, m["meta_id"])
+        return
+    await touch_contact(db, contact["id"], inbound=True, preview=m["text"] or f"[{m['type']}]", at=m["at"])
+    await db.commit()
+    out["messages"] += 1
+    log.info("nexa_wa guardado wa=%s tipo=%s contacto=%s meta_id=%s", wa, m["type"], contact["id"][:8], m["meta_id"])
+    if contact["stage"] == "baja":
+        out["skipped"] += 1
+        log.info("nexa_wa no_responde wa=%s motivo=baja", wa)
+        return
+    if m["type"] == "text" and is_opt_out(m["text"] or ""):
+        await set_stage(db, contact["id"], "baja")
+        lang = "en" if (contact.get("language") or "").startswith("en") else "es"
+        await _reply_from_backend(db, contact, OPT_OUT_CONFIRM[lang], send)
+        await db.commit()
+        out["opt_out"] += 1
+        log.info("nexa_wa baja wa=%s", wa)
+        return
+    if contact["nexa_paused"]:
+        out["skipped"] += 1
+        log.info("nexa_wa no_responde wa=%s motivo=pausado", wa)
+        return
+    if m["at"] and now() - m["at"] > timedelta(hours=24):
+        out["skipped"] += 1  # fuera de la ventana de 24 h: no se responde
+        log.info("nexa_wa no_responde wa=%s motivo=mas_de_24h", wa)
+        return
+    if not PER_NUMBER.allow(m["wa_id"]):
+        log.warning("nexa_wa no_responde wa=%s motivo=limite_%s_por_minuto", wa, PER_NUMBER_LIMIT)
+        out["skipped"] += 1
+        return
+    contact = await contact_by_id(db, contact["id"]) or contact
+    body = {
+        "mensaje": {"meta_id": m["meta_id"], "tipo": m["type"], "texto": m["text"] or "", "reply_id": m["reply_id"],
+                    "respondible": is_answerable(m["type"]), "creado": (m["at"] or now()).isoformat()},
+        "contacto": contact_public(contact),
+        "historial": await history(db, contact["id"]),
+        "primer_mensaje": not contact["consent_seen"],
+        "ahora": datetime.now(BOGOTA).isoformat(),
+    }
+    LAST_FORWARD_ERROR["detail"] = ""
+    started = time.monotonic()
+    try:
+        ok = await asyncio.wait_for(fwd(body), N8N_TIMEOUT + 1)
+    except asyncio.TimeoutError:
+        ok = False
+        LAST_FORWARD_ERROR["detail"] = f"n8n no respondio en {int(N8N_TIMEOUT)} s"
+    except Exception as exc:  # noqa: BLE001 - igual va el respaldo
+        ok = False
+        LAST_FORWARD_ERROR["detail"] = f"reenvio fallo ({type(exc).__name__})"
+    ms = int((time.monotonic() - started) * 1000)
+    if ok:
+        out["forwarded"] += 1
+        log.info("nexa_wa reenviado_a_n8n wa=%s ms=%s", wa, ms)
+        return
+    detail = LAST_FORWARD_ERROR["detail"] or "n8n no acepto el mensaje"
+    await alert("n8n no respondió; se envió la respuesta de respaldo", f"{wa}: {detail}")
+    lang = "en" if (contact.get("language") or "").startswith("en") else "es"
+    await _reply_from_backend(db, contact, FALLBACK[lang], send)
+    await db.commit()
+    out["fallback"] += 1
+
+
 async def process_webhook(db: AsyncSession, payload: dict, *, send: Optional[Sender] = None, fwd: Optional[Forwarder] = None) -> dict:
     send = send or send_text
     fwd = fwd or forward
-    out = {"messages": 0, "duplicates": 0, "statuses": 0, "forwarded": 0, "opt_out": 0, "skipped": 0}
+    out = {"messages": 0, "duplicates": 0, "statuses": 0, "forwarded": 0, "fallback": 0, "opt_out": 0, "skipped": 0, "errors": 0,
+           "other_number": 0}
+    log.info("nexa_wa tipo %s", describe(payload))
+    ours = phone_id()
     for value in iter_changes(payload):
+        pid = str((value.get("metadata") or {}).get("phone_number_id") or "")
+        if pid and pid != ours:
+            # p. ej. la muestra del panel de Meta (123456123): no se guarda un contacto falso
+            out["other_number"] += 1
+            log.warning("nexa_wa otro_numero phone_number_id=%s (esperado %s): se ignora", pid[:32], ours)
+            continue
         names = {}
         for c in value.get("contacts") or []:
             if isinstance(c, dict) and c.get("wa_id"):
                 names[str(c["wa_id"])] = _clip((c.get("profile") or {}).get("name"), 200)
-        for st in value.get("statuses") or []:
-            if isinstance(st, dict) and await save_status(db, st):
-                out["statuses"] += 1
-        await db.commit()
+        try:
+            for st in value.get("statuses") or []:
+                if isinstance(st, dict) and await save_status(db, st):
+                    out["statuses"] += 1
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            out["errors"] += 1
+            await alert("no se pudo guardar un estado de entrega", type(exc).__name__)
         for raw in value.get("messages") or []:
             if not isinstance(raw, dict):
                 continue
-            m = parse_message(raw)
-            if not m["meta_id"] or not m["wa_id"]:
-                continue
-            contact = await upsert_contact(db, m["wa_id"], names.get(m["wa_id"]))
-            new_id = await insert_message(db, contact["id"], direction="in", meta_id=m["meta_id"], kind=m["type"], body=m["text"],
-                                          reply_id=m["reply_id"], raw=raw, at=m["at"])
-            if not new_id:
-                out["duplicates"] += 1
+            try:
+                await _process_message(db, raw, names, out, send, fwd)
+            except Exception as exc:  # noqa: BLE001 - un mensaje malo no tumba los demas
                 await db.rollback()
-                continue
-            await touch_contact(db, contact["id"], inbound=True, preview=m["text"] or f"[{m['type']}]", at=m["at"])
-            await db.commit()
-            out["messages"] += 1
-            if contact["stage"] == "baja":
-                out["skipped"] += 1
-                continue
-            if m["type"] == "text" and is_opt_out(m["text"] or ""):
-                await set_stage(db, contact["id"], "baja")
-                lang = "en" if (contact.get("language") or "").startswith("en") else "es"
-                await _reply_from_backend(db, contact, OPT_OUT_CONFIRM[lang], send)
-                await db.commit()
-                out["opt_out"] += 1
-                continue
-            if contact["nexa_paused"]:
-                out["skipped"] += 1
-                continue
-            if m["at"] and now() - m["at"] > timedelta(hours=24):
-                out["skipped"] += 1  # fuera de la ventana de 24 h: no se responde
-                continue
-            if not PER_NUMBER.allow(m["wa_id"]):
-                log.warning("nexa_wa: limite de %s mensajes por minuto superado por un numero", PER_NUMBER_LIMIT)
-                out["skipped"] += 1
-                continue
-            contact = await contact_by_id(db, contact["id"]) or contact
-            body = {
-                "mensaje": {"meta_id": m["meta_id"], "tipo": m["type"], "texto": m["text"] or "", "reply_id": m["reply_id"],
-                            "respondible": is_answerable(m["type"]), "creado": (m["at"] or now()).isoformat()},
-                "contacto": contact_public(contact),
-                "historial": await history(db, contact["id"]),
-                "primer_mensaje": not contact["consent_seen"],
-                "ahora": datetime.now(BOGOTA).isoformat(),
-            }
-            if await fwd(body):
-                out["forwarded"] += 1
-            else:
-                lang = "en" if (contact.get("language") or "").startswith("en") else "es"
-                await _reply_from_backend(db, contact, FALLBACK[lang], send)
-                await db.commit()
+                out["errors"] += 1
+                log.exception("nexa_wa error procesando un mensaje")
+                await alert("no se pudo guardar o procesar un mensaje", f"{mask(raw.get('from'))}: {type(exc).__name__}")
+    log.info("nexa_wa resultado %s", json.dumps(out))
     return out
 
 

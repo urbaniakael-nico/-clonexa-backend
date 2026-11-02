@@ -6,13 +6,15 @@ Ninguna ruta es abierta; cada una exige su credencial en el servidor:
   Responde 200 de inmediato y procesa en segundo plano (app/services/nexa_whatsapp.py).
 - POST /outbound y GET /daily-summary: los llama n8n con X-Nexa-Forward =
   NEXA_WA_FORWARD_SECRET.
-Sin la variable, 503. Nunca se registra ni se devuelve un secreto.
+Sin la variable, 503. Nunca se registra ni se devuelve un secreto: el log de
+acceso de uvicorn tapa hub.verify_token (RedactVerifyToken).
 La consola (solo Admin V2) vive en app/web/nexa_wa_routes.py.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
@@ -29,6 +31,28 @@ log = logging.getLogger("clonexa.nexa_wa")
 MAX_BODY = 1_000_000
 SESSION_FACTORY = None  # las pruebas lo cambian; por defecto la sesion de la app
 SERVICE_PER_IP = nw.RateLimit(240, 60.0)
+
+_TOKEN_IN_QUERY = re.compile(r"(hub[._]verify_token=)[^&\s\"]*", re.I)
+
+
+class RedactVerifyToken(logging.Filter):
+    """El log de acceso de uvicorn imprime la URL completa: la verificacion de
+    Meta llevaba el token de verificacion en claro. Se reemplaza por ***."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.args, tuple) and record.args:
+                record.args = tuple(_TOKEN_IN_QUERY.sub(r"\1***", a) if isinstance(a, str) else a for a in record.args)
+            if isinstance(record.msg, str) and "verify_token" in record.msg:
+                record.msg = _TOKEN_IN_QUERY.sub(r"\1***", record.msg)
+        except Exception:  # noqa: BLE001 - un filtro de log nunca tumba nada
+            pass
+        return True
+
+
+_access = logging.getLogger("uvicorn.access")
+if not any(isinstance(f, RedactVerifyToken) for f in _access.filters):
+    _access.addFilter(RedactVerifyToken())
 
 
 def _session_factory():
@@ -69,11 +93,10 @@ async def verify(hub_mode: str = Query(default="", alias="hub.mode"), hub_token:
 async def run_webhook(payload: dict) -> None:
     try:
         async with _session_factory()() as db:
-            result = await nw.process_webhook(db, payload)
-        if result["messages"] or result["statuses"]:
-            log.info("nexa_wa: %s", json.dumps(result))
-    except Exception:  # segundo plano: se registra y no tumba nada
-        log.exception("nexa_wa: no se pudo procesar el webhook")
+            await nw.process_webhook(db, payload)
+    except Exception as exc:  # segundo plano: se registra, se avisa y no tumba nada
+        log.exception("nexa_wa error: no se pudo procesar el webhook")
+        await nw.alert("no se pudo procesar el webhook (base de datos?)", type(exc).__name__)
 
 
 @router.post("/webhook", include_in_schema=False)
@@ -82,14 +105,19 @@ async def webhook(request: Request, background: BackgroundTasks):
     if not secret:
         raise HTTPException(status_code=503, detail="not_configured")
     body = await request.body()
+    log.info("nexa_wa recibido bytes=%s ip=%s", len(body), _ip(request))
     if len(body) > MAX_BODY:
+        log.warning("nexa_wa rechazado: cuerpo de %s bytes", len(body))
         raise HTTPException(status_code=413, detail="too_large")
     if not nw.signature_ok(body, request.headers.get("x-hub-signature-256") or "", secret):
+        log.warning("nexa_wa firma_mala ip=%s (cabecera %s)", _ip(request), "presente" if request.headers.get("x-hub-signature-256") else "ausente")
         raise HTTPException(status_code=401, detail="invalid_signature")
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
+        log.warning("nexa_wa json_malo")
         raise HTTPException(status_code=400, detail="invalid_json") from None
+    log.info("nexa_wa firma_ok")
     background.add_task(run_webhook, payload)
     return {"ok": True}
 
