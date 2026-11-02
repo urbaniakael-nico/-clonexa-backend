@@ -1,8 +1,9 @@
 """Bot de Telegram · interruptor bot_gps_stop (VOLTAGE).
 
 - Ubicación que llega sin turno abierto (en vivo o actual): se descarta, no se guarda.
-- "Turno finalizado" con el recordatorio y el botón "📍 Apagar ubicación"; el
-  botón responde con los pasos; un solo recordatorio si siguen llegando.
+- "Turno finalizado" con el recordatorio y el botón "📍 Apagar ubicación", una sola
+  vez por turno (marcado en la base); el botón da los pasos y el menú, y si se
+  toca otra vez solo los pasos. Las ubicaciones después del cierre: en silencio.
 - Inicio de turno: recomienda 8 horas. Dinero "$1.10 USD"; sin "Descuento del
   corte" cuando es 0. Español / inglés.
 - Webhook: con el interruptor recibe edited_message (ubicación en vivo), mide la
@@ -91,33 +92,46 @@ async def run_location(update, db=None):
                                                  update=update, message=message, telegram_user_id="7", username=None, chat_id="7", send_replies=True)
 
 
-# ------------------------------------------------------------ 1) y 4) ubicaciones
+# ------------------------------------------------------------ marcas en la base (059D)
+class Marks:
+    """Como company_telegram_pending_actions: una marca por (acción, turno)."""
+
+    def __init__(self):
+        self.rows: dict[tuple, str] = {}
+        self.calls: list[tuple] = []
+
+    async def claim(self, db, company_id, telegram_user_id, employee_id, marker, action=bot_gps_stop.REMINDER_ACTION):
+        self.calls.append((action, marker))
+        key = (str(company_id), str(telegram_user_id), action)
+        if self.rows.get(key) == marker:
+            return False
+        self.rows[key] = marker
+        return True
+
+
+@pytest.fixture()
+def marks(monkeypatch):
+    m = Marks()
+    monkeypatch.setattr(bot_gps_stop, "claim_reminder", m.claim)
+    return m
+
+
+REMINDER = "📍 Recuerda apagar tu ubicación en vivo. Ya no la estamos registrando."
+BUTTON = {"inline_keyboard": [[{"text": "📍 Apagar ubicación", "callback_data": "clx:gps:stop"}]]}
+
+
+# ------------------------------------------------------------ 1) y 3) ubicaciones
 @pytest.mark.asyncio
-async def test_live_location_after_shift_is_discarded_and_reminds_once(monkeypatch, switch, outbox):
+async def test_twenty_live_locations_after_shift_are_silent_and_not_saved(monkeypatch, switch, outbox, marks):
     switch(True)
     _emp, saved = location_setup(monkeypatch, "checked_out")
-    claims: list[str] = []
-
-    async def claim(db, company_id, telegram_user_id, employee_id, marker):
-        first = marker not in claims
-        claims.append(marker)
-        return first
-
-    monkeypatch.setattr(bot_gps_stop, "claim_reminder", claim)
-
-    first = await run_location(live_update())
-    assert first.action == "gps_live_ignored_reminder_sent"
+    for _ in range(20):
+        item = await run_location(live_update())
+        assert item.action == "gps_live_ignored_closed_shift"
     saved.assert_not_awaited()  # no se guarda: no sale en CRM ni en GPS
-    assert len(outbox) == 1
-    assert outbox[0]["text"] == "📍 Recuerda apagar tu ubicación en vivo. Ya no la estamos registrando."
-    assert outbox[0]["reply_markup"] == {"inline_keyboard": [[{"text": "📍 Apagar ubicación", "callback_data": "clx:gps:stop"}]]}
-
-    for _ in range(5):  # siguen llegando actualizaciones: ni se guardan ni se repite el aviso
-        again = await run_location(live_update())
-        assert again.action == "gps_live_ignored_closed_shift"
-    saved.assert_not_awaited()
-    assert len(outbox) == 1
-    assert set(claims) == {CLOSED_AT.isoformat()}
+    assert outbox == [], "sin recordatorio aparte: en silencio"
+    assert marks.calls == []
+    bots._send_dynamic_menu.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -140,46 +154,54 @@ async def test_live_location_during_shift_is_still_saved(monkeypatch, switch, ou
 
 
 @pytest.mark.asyncio
-async def test_switch_off_live_location_after_shift_is_as_before(monkeypatch, switch, outbox):
+async def test_switch_off_live_location_after_shift_is_as_before(monkeypatch, switch, outbox, marks):
     switch(False)
     _emp, saved = location_setup(monkeypatch, "checked_out")
-    monkeypatch.setattr(bot_gps_stop, "claim_reminder", AsyncMock(side_effect=AssertionError("apagado: sin recordatorio")))
     item = await run_location(live_update())
     assert item.action == "gps_live_ignored_closed_shift"
     saved.assert_not_awaited()
-    assert outbox == []
+    assert outbox == [] and marks.calls == []
 
 
-# ------------------------------------------------------------ 2) y 3) cierre y botón
-def test_checkout_message_adds_reminder_and_button(switch):
-    sent = []
-
-    async def box(token, chat_id, text_value, reply_markup=None):
-        sent.append((text_value, reply_markup))
-
-    import asyncio
-
-    original = bots._send_telegram_message
-    bots._send_telegram_message = box
-    try:
-        switch(True)
-        asyncio.run(bots._send_checkout_message_059C("T", "7", "🏁 Turno finalizado.", "es"))
-        asyncio.run(bots._send_checkout_message_059C("T", "7", "🏁 Shift ended.", "en"))
-        switch(False)
-        asyncio.run(bots._send_checkout_message_059C("T", "7", "🏁 Turno finalizado.", "es"))
-    finally:
-        bots._send_telegram_message = original
-    assert sent[0] == ("🏁 Turno finalizado.\n\n📍 Recuerda apagar tu ubicación en vivo. Ya no la estamos registrando.",
-                       {"inline_keyboard": [[{"text": "📍 Apagar ubicación", "callback_data": "clx:gps:stop"}]]})
-    assert sent[1][0].endswith("📍 Remember to turn off your live location. We are no longer recording it.")
-    assert sent[1][1]["inline_keyboard"][0][0]["text"] == "📍 Turn off location"
-    assert sent[2] == ("🏁 Turno finalizado.", None), "apagado: el mensaje de siempre"
+# ------------------------------------------------------------ 2) y 4) cierre y botón
+def checkout_setup(monkeypatch, close_at=CLOSED_AT):
+    emp = employee()
+    monkeypatch.setattr(bots, "_get_current_attendance_status",
+                        AsyncMock(return_value=SimpleNamespace(status="checked_out", check_in_at=None, check_out_at=close_at)))
+    return emp
 
 
 @pytest.mark.asyncio
-async def test_end_shift_summary_flow_sends_reminder_and_never_loses_the_close(monkeypatch, switch, outbox):
+async def test_checkout_message_reminds_once_per_shift(monkeypatch, switch, outbox, marks):
     switch(True)
-    emp = employee()
+    emp = checkout_setup(monkeypatch)
+    db = SimpleNamespace(commit=AsyncMock())
+    await bots._send_checkout_message_059C("T", "7", "🏁 Turno finalizado.", "es", db=db, employee=emp, telegram_user_id="7")
+    await bots._send_checkout_message_059C("T", "7", "🏁 Turno finalizado.", "es", db=db, employee=emp, telegram_user_id="7")
+    assert outbox[0]["text"] == f"🏁 Turno finalizado.\n\n{REMINDER}" and outbox[0]["reply_markup"] == BUTTON
+    assert outbox[1] == {"chat_id": "7", "text": "🏁 Turno finalizado.", "reply_markup": None}, "mismo turno: nunca se repite"
+    assert marks.rows == {(str(COMPANY), "7", "gps_stop_reminded"): CLOSED_AT.isoformat()}
+
+    checkout_setup(monkeypatch, datetime(2026, 11, 2, 22, 0, tzinfo=timezone.utc))  # turno nuevo: otra vez, una sola
+    await bots._send_checkout_message_059C("T", "7", "🏁 Shift ended.", "en", db=db, employee=emp, telegram_user_id="7")
+    assert outbox[2]["text"].endswith("📍 Remember to turn off your live location. We are no longer recording it.")
+    assert outbox[2]["reply_markup"]["inline_keyboard"][0][0]["text"] == "📍 Turn off location"
+
+
+@pytest.mark.asyncio
+async def test_checkout_message_switch_off_is_as_before(monkeypatch, switch, outbox, marks):
+    switch(False)
+    emp = checkout_setup(monkeypatch)
+    await bots._send_checkout_message_059C("T", "7", "🏁 Turno finalizado.", "es", db=SimpleNamespace(), employee=emp, telegram_user_id="7")
+    assert outbox == [{"chat_id": "7", "text": "🏁 Turno finalizado.", "reply_markup": None}] and marks.calls == []
+
+
+def stop_update(n=9):
+    return {"update_id": n, "callback_query": {"id": f"cb{n}", "data": "clx:gps:stop", "from": {"id": 7},
+                                              "message": {"message_id": 40, "chat": {"id": 7}, "text": REMINDER}}}
+
+
+async def finish_shift(monkeypatch, emp):
     monkeypatch.setattr(bots, "_get_pending_end_shift_summary", AsyncMock(return_value={"employee_id": str(emp.id)}))
     monkeypatch.setattr(bots, "_clear_pending_end_shift_summary", AsyncMock())
     monkeypatch.setattr(bots, "ensure_company_exists", AsyncMock(return_value=SimpleNamespace(name="VOLTAGE")))
@@ -190,25 +212,63 @@ async def test_end_shift_summary_flow_sends_reminder_and_never_loses_the_close(m
                                                       telegram_user_id="7", username=None, chat_id="7", text_value="Instalé 3 tableros",
                                                       language="es", send_replies=True)
     assert item.action == "check_out" and item.ok is True
-    close.assert_awaited_once()  # el cierre se registra antes de cualquier mensaje
-    assert outbox[0]["text"] == ("🏁 Turno finalizado.\n\n📝 Resumen de gestión guardado en el cierre de jornada.\n\n"
-                                 "📍 Recuerda apagar tu ubicación en vivo. Ya no la estamos registrando.")
-    assert outbox[0]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "clx:gps:stop"
+    close.assert_awaited_once()  # el cierre se registra antes de cualquier mensaje: nunca se pierde
+    return db
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language,steps,answer", [
-    ("es", "1. Toca el mapa de ubicación en vivo arriba en este chat.\n2. Toca 'Dejar de compartir'.", "✅ Clonexa ya no registra tu ubicación."),
-    ("en", "1. Tap the live location map above in this chat.\n2. Tap 'Stop sharing'.", "✅ Clonexa is no longer recording your location."),
-])
-async def test_stop_button_replies_with_steps(monkeypatch, switch, outbox, language, steps, answer):
+async def test_full_flow_finish_twenty_locations_and_button_twice(monkeypatch, switch, outbox, marks):
+    """Finalizar + 20 ubicaciones en vivo + tocar el botón 2 veces: un recordatorio, sin bucle."""
     switch(True)
-    monkeypatch.setattr(bots, "_get_user_language", AsyncMock(return_value=language))
-    update = {"update_id": 9, "callback_query": {"id": "cb1", "data": "clx:gps:stop", "from": {"id": 7}, "message": {"chat": {"id": 7}, "text": "x"}}}
-    item = await bots._process_telegram_update_052C(None, bot=SimpleNamespace(company_id=COMPANY), token="T", update=update, send_replies=True)
+    emp, saved = location_setup(monkeypatch, "checked_out")
+    edits = []
+
+    async def tg(token, method, payload=None):
+        edits.append((method, payload))
+
+    monkeypatch.setattr(bots, "telegram_call", tg)
+    db = await finish_shift(monkeypatch, emp)
+    assert outbox[0]["text"] == ("🏁 Turno finalizado.\n\n📝 Resumen de gestión guardado en el cierre de jornada.\n\n" + REMINDER)
+    assert outbox[0]["reply_markup"] == BUTTON
+    assert bots._send_dynamic_menu.await_count == 1
+
+    for _ in range(20):
+        await run_location(live_update(), db=db)
+    assert len(outbox) == 1, "20 ubicaciones después: 0 mensajes extra"
+    saved.assert_not_awaited()
+
+    first = await bots._process_telegram_update_052C(db, bot=SimpleNamespace(company_id=COMPANY), token="T", update=stop_update(9), send_replies=True)
+    assert first.action == "gps_stop_steps"
+    assert outbox[1]["text"] == ("Telegram no permite que un bot apague tu ubicación. Para detenerla:\n1. Toca el mapa de ubicación en vivo arriba en este chat.\n"
+                                 "2. Toca 'Dejar de compartir'.\n\n✅ Clonexa ya no registra tu ubicación.")
+    assert outbox[1]["reply_markup"] is None
+    assert bots._send_dynamic_menu.await_count == 2, "después de las instrucciones, el menú"
+    assert edits == [("editMessageReplyMarkup", {"chat_id": "7", "message_id": 40, "reply_markup": {"inline_keyboard": []}})], "el botón se quita"
+
+    again = await bots._process_telegram_update_052C(db, bot=SimpleNamespace(company_id=COMPANY), token="T", update=stop_update(10), send_replies=True)
+    assert again.action == "gps_stop_steps_again"
+    assert outbox[2]["text"] == outbox[1]["text"] and outbox[2]["reply_markup"] is None, "solo las instrucciones"
+    assert bots._send_dynamic_menu.await_count == 2, "sin menú ni recordatorio otra vez"
+    assert len(outbox) == 3 and sum(REMINDER in m["text"] for m in outbox) == 1, "el recordatorio salió una sola vez"
+    assert marks.rows == {(str(COMPANY), "7", "gps_stop_reminded"): CLOSED_AT.isoformat(),
+                          (str(COMPANY), "7", "gps_stop_attended"): CLOSED_AT.isoformat()}
+
+    for _ in range(20):  # y si siguen llegando ubicaciones, tampoco
+        await run_location(live_update(), db=db)
+    assert len(outbox) == 3
+
+
+@pytest.mark.asyncio
+async def test_stop_button_in_english(monkeypatch, switch, outbox, marks):
+    switch(True)
+    emp, _saved = location_setup(monkeypatch, "checked_out", language="en")
+    monkeypatch.setattr(bots, "telegram_call", AsyncMock())
+    item = await bots._process_telegram_update_052C(SimpleNamespace(commit=AsyncMock()), bot=SimpleNamespace(company_id=COMPANY), token="T",
+                                                    update=stop_update(), send_replies=True)
     assert item.action == "gps_stop_steps"
-    assert steps in outbox[0]["text"] and outbox[0]["text"].endswith(answer)
-    bots._answer_callback_query.assert_awaited_once_with("T", "cb1", answer)
+    assert "1. Tap the live location map above in this chat.\n2. Tap 'Stop sharing'." in outbox[0]["text"]
+    assert outbox[0]["text"].endswith("✅ Clonexa is no longer recording your location.")
+    bots._answer_callback_query.assert_awaited_once_with("T", "cb9", "✅ Clonexa is no longer recording your location.")
 
 
 @pytest.mark.asyncio

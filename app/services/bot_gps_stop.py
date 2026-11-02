@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 KEY = "bot_gps_stop"
 MODULE = "workforce"
 STOP_CALLBACK = "clx:gps:stop"
-REMINDER_ACTION = "gps_stop_reminded"
+REMINDER_ACTION = "gps_stop_reminded"  # 059D: recordatorio enviado en "Turno finalizado" (por turno)
+ATTENDED_ACTION = "gps_stop_attended"  # 059D: boton "Apagar ubicacion" atendido (por turno)
 LIVE_UPDATES = ["message", "edited_message", "callback_query"]
 LEGACY_UPDATES = ["message", "callback_query"]
 
@@ -86,8 +87,10 @@ def close_marker(status: Any) -> str:
     return at.isoformat() if hasattr(at, "isoformat") else "sin-salida"
 
 
-async def claim_reminder(db: AsyncSession, company_id: Any, telegram_user_id: str, employee_id: Any, marker: str) -> bool:
-    """True solo la primera vez para este cierre (atomico: dos ubicaciones a la vez no mandan dos)."""
+async def claim_reminder(db: AsyncSession, company_id: Any, telegram_user_id: str, employee_id: Any, marker: str,
+                         action: str = REMINDER_ACTION) -> bool:
+    """True solo la primera vez para este turno (marcado por su hora de salida) y esta
+    accion; atomico: dos mensajes a la vez no cuentan dos. Queda guardado en la base."""
     row = (await db.execute(text("""
         INSERT INTO company_telegram_pending_actions (company_id, telegram_user_id, employee_id, action, payload_json, updated_at)
         VALUES (CAST(:c AS uuid), :t, CAST(:e AS uuid), :a, CAST(:p AS jsonb), now())
@@ -95,8 +98,8 @@ async def claim_reminder(db: AsyncSession, company_id: Any, telegram_user_id: st
            SET payload_json = EXCLUDED.payload_json, employee_id = EXCLUDED.employee_id, updated_at = now()
          WHERE company_telegram_pending_actions.payload_json->>'close' IS DISTINCT FROM EXCLUDED.payload_json->>'close'
         RETURNING id
-    """), {"c": str(company_id), "t": str(telegram_user_id), "e": str(employee_id), "a": REMINDER_ACTION,
-           "p": json.dumps({"close": marker})})).first()
+    """), {"c": str(company_id), "t": str(telegram_user_id), "e": str(employee_id),
+           "p": json.dumps({"close": marker}), "a": action})).first()
     await db.commit()
     return row is not None
 

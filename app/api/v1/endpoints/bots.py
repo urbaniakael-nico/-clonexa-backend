@@ -1945,13 +1945,49 @@ def _bot_money_059C(value: Any) -> str:
     return bot_gps_stop.money(value, company_locale.CURRENT_CURRENCY.get(), _format_money)
 
 
-async def _send_checkout_message_059C(token: str, chat_id: str | None, message_text: str, language: str) -> None:
-    """Cierre de turno: con el interruptor, el recordatorio de apagar la ubicación y su botón."""
-    if GPS_STOP_059C.get():
-        await _send_telegram_message(token, chat_id, f"{message_text}\n\n{_txt(language, 'gps_stop_reminder')}",
-                                     reply_markup=_gps_stop_keyboard_059C(language))
-    else:
-        await _send_telegram_message(token, chat_id, message_text)
+async def _send_checkout_message_059C(token: str, chat_id: str | None, message_text: str, language: str, *,
+                                      db: AsyncSession | None = None, employee: Any = None, telegram_user_id: str | None = None) -> None:
+    """Cierre de turno: con el interruptor, el recordatorio de apagar la ubicación y su botón,
+    UNA sola vez por turno (059D: queda marcado en la base con la hora de salida)."""
+    if GPS_STOP_059C.get() and db is not None and employee is not None and telegram_user_id:
+        from app.services import bot_gps_stop
+
+        current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+        if await bot_gps_stop.claim_reminder(db, employee.company_id, telegram_user_id, employee.id, bot_gps_stop.close_marker(current)):
+            await _send_telegram_message(token, chat_id, f"{message_text}\n\n{_txt(language, 'gps_stop_reminder')}",
+                                         reply_markup=_gps_stop_keyboard_059C(language))
+            return
+    await _send_telegram_message(token, chat_id, message_text)
+
+
+async def _process_gps_stop_button_059D(db: AsyncSession, *, bot: Any, token: str, update: dict[str, Any], update_id: Any,
+                                        telegram_user_id: str | None, username: str | None, chat_id: str | None,
+                                        callback_query_id: str | None, language: str, send_replies: bool) -> "TelegramBotPollItem":
+    """Botón "Apagar ubicación": la primera vez de este turno, pasos + menú y el botón se quita;
+    las siguientes, solo los pasos (nunca otro recordatorio ni otro botón)."""
+    from app.services import bot_gps_stop
+
+    if callback_query_id:
+        await _answer_callback_query(token, callback_query_id, _txt(language, "gps_stop_answer"))
+    employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username) if telegram_user_id else None
+    first = False
+    if employee is not None:
+        current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+        first = await bot_gps_stop.claim_reminder(db, bot.company_id, telegram_user_id, employee.id, bot_gps_stop.close_marker(current),
+                                                  action=bot_gps_stop.ATTENDED_ACTION)
+    if send_replies:
+        source = (update.get("callback_query") or {}).get("message") or {}
+        if source.get("message_id"):
+            with contextlib.suppress(Exception):  # quitar el botón del mensaje; si falla, igual sigue
+                await telegram_call(token, "editMessageReplyMarkup", payload={"chat_id": chat_id, "message_id": source.get("message_id"),
+                                                                             "reply_markup": {"inline_keyboard": []}})
+        await _send_telegram_message(token, chat_id, _txt(language, "gps_stop_steps"))
+        if first:
+            company = await ensure_company_exists(db, bot.company_id)
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+    return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_stop_steps" if first else "gps_stop_steps_again",
+                               message="Pasos para apagar la ubicación enviados.", employee_id=employee.id if employee else None,
+                               employee_name=employee.full_name if employee else None, telegram_user_id=telegram_user_id, telegram_username=username)
 # CLONEXA_059C_BOT_GPS_STOP_END
 
 
@@ -2891,7 +2927,8 @@ async def _process_end_shift_summary_text(
 
     if send_replies:
         company = await ensure_company_exists(db, bot.company_id)
-        await _send_checkout_message_059C(token, chat_id, f"{message_text}\n\n{_txt(language, 'end_shift_summary_saved')}", language)
+        await _send_checkout_message_059C(token, chat_id, f"{message_text}\n\n{_txt(language, 'end_shift_summary_saved')}", language,
+                                          db=db, employee=employee, telegram_user_id=telegram_user_id)
         await _send_dynamic_menu(
             db,
             token=token,
@@ -4940,23 +4977,8 @@ async def _process_telegram_location(
     if is_live_location:
         # Si Telegram sigue enviando ubicación después de finalizar turno,
         # CLONEXA la ignora para no contaminar CRM/Reportes de una jornada cerrada.
-        if GPS_STOP_059C.get():
-            # 059C: un solo recordatorio por cierre, con el botón para apagarla.
-            from app.services import bot_gps_stop
-
-            if await bot_gps_stop.claim_reminder(db, bot.company_id, telegram_user_id, employee.id, bot_gps_stop.close_marker(current)):
-                if send_replies:
-                    await _send_telegram_message(token, chat_id, _txt(language, "gps_stop_reminder"), reply_markup=_gps_stop_keyboard_059C(language))
-                return TelegramBotPollItem(
-                    update_id=update_id,
-                    ok=True,
-                    action="gps_live_ignored_reminder_sent",
-                    message="Ubicación en vivo descartada (sin turno); recordatorio enviado.",
-                    employee_id=employee.id,
-                    employee_name=employee.full_name,
-                    telegram_user_id=telegram_user_id,
-                    telegram_username=username,
-                )
+        # 059D: con bot_gps_stop tampoco hay mensaje: se descarta en silencio (el recordatorio
+        # va una sola vez, en "Turno finalizado").
         return TelegramBotPollItem(
             update_id=update_id,
             ok=True,
@@ -5085,12 +5107,9 @@ async def _process_telegram_update_052C(
         if bot_gps_stop.edited_without_location(update):
             return TelegramBotPollItem(update_id=update_id, ok=True, action="edited_ignored", message="Mensaje editado ignorado.")
         if text_value == bot_gps_stop.STOP_CALLBACK:
-            if callback_query_id:
-                await _answer_callback_query(token, callback_query_id, _txt(language, "gps_stop_answer"))
-            if send_replies:
-                await _send_telegram_message(token, chat_id, _txt(language, "gps_stop_steps"))
-            return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_stop_steps", message="Pasos para apagar la ubicación enviados.",
-                                       telegram_user_id=telegram_user_id, telegram_username=username)
+            return await _process_gps_stop_button_059D(db, bot=bot, token=token, update=update, update_id=update_id, telegram_user_id=telegram_user_id,
+                                                       username=username, chat_id=chat_id, callback_query_id=callback_query_id, language=language,
+                                                       send_replies=send_replies)
 
     if callback_query_id:
         await _answer_callback_query(token, callback_query_id)
@@ -5550,7 +5569,7 @@ async def _process_telegram_update_052C(
 
     if send_replies:
         if command_config.get("event_type") == "check_out" and created:
-            await _send_checkout_message_059C(token, chat_id, message_text, language)
+            await _send_checkout_message_059C(token, chat_id, message_text, language, db=db, employee=employee, telegram_user_id=telegram_user_id)
         else:
             await _send_telegram_message(token, chat_id, message_text)
         await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)

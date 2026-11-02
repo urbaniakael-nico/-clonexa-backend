@@ -100,7 +100,19 @@ async def test_switch_per_company_and_one_reminder_per_close(pg_url):
         assert await claim(VOLTAGE, emp, "2026-11-02T22:00:00+00:00") is True, "cierre nuevo: avisa otra vez"
         assert await claim(other, other_emp, close_a) is True, "otra empresa, mismo Telegram: lo suyo"
 
+        # 059D: "botón atendido" es otra marca del mismo turno; tocarlo varias veces cuenta una.
+        async def press(marker):
+            async with Session() as s:
+                return await bot_gps_stop.claim_reminder(s, VOLTAGE, "7", emp, marker, action=bot_gps_stop.ATTENDED_ACTION)
+
+        presses = await asyncio.gather(*(press("2026-11-02T22:00:00+00:00") for _ in range(4)))
+        assert sorted(presses) == [False, False, False, True]
+        assert await claim(VOLTAGE, emp, "2026-11-02T22:00:00+00:00") is False, "el botón no reabre el recordatorio"
+
         async with Session() as db:
+            attended = (await db.execute(text("""SELECT count(*) FROM company_telegram_pending_actions
+                WHERE action = 'gps_stop_attended' AND company_id = CAST(:c AS uuid)"""), {"c": VOLTAGE})).scalar()
+            assert attended == 1
             rows = (await db.execute(text("""SELECT company_id::text AS c, payload_json->>'close' AS close FROM company_telegram_pending_actions
                 WHERE action = 'gps_stop_reminded' ORDER BY c"""))).mappings().all()
         assert sorted((r["c"], r["close"]) for r in rows) == sorted([(VOLTAGE, "2026-11-02T22:00:00+00:00"), (other, close_a)])
