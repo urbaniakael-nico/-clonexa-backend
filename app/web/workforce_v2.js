@@ -21,7 +21,10 @@
   const CSV_HEAD = ["Nombre", "Documento", "Rol", "Telefono", "Correo", "Telegram ID", "Fecha ingreso", "Hora ordinaria", "Hora extra", "Descuento 1", "Descuento 2", "Estado"];
 
   // pins: null = CRM VELVET-LAB apagado (el servidor responde 404) y no se muestra nada de PIN.
-  const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null };
+  // wl: null = interruptor work_locations apagado: no se muestra nada de lugares y el
+  // formulario conserva Descuento 2 (todo exactamente como antes).
+  const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null,
+    wl: null, wlFilter: "all", selected: new Set() };
   let ctx = null;
   let bound = false;
 
@@ -54,18 +57,58 @@
     return fold([e.full_name, e.document_id, roleOf(e), roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date, STATUS[statusOf(e)]].join(" "));
   }
 
-  function visible(list, filter, query, roles) {
+  // 059A Lugares de trabajo (solo con wl): lugar actual de cada empleado.
+  // wl = { locations: [{id, name, code, timezone, is_active}], assignments: {employee_id: location_id|null} }
+  const WL_NONE = "none";
+  function wlPlaceId(wl, e) {
+    if (!wl) return null;
+    const id = (wl.assignments || {})[String(e && e.id)] || null;
+    return id && arr(wl.locations).some((l) => l.id === id) ? id : null;
+  }
+  function wlPlaceName(wl, e) {
+    const id = wlPlaceId(wl, e);
+    const loc = id ? arr(wl.locations).find((l) => l.id === id) : null;
+    return loc ? loc.name : "Sin asignar";
+  }
+  function wlFilters(wl) {
+    if (!wl) return [];
+    return [["all", "Todos"], ...arr(wl.locations).filter((l) => l.is_active).map((l) => [l.id, l.name]), [WL_NONE, "Sin asignar"]];
+  }
+  function wlMatch(wl, e, wlFilter) {
+    if (!wl || !wlFilter || wlFilter === "all") return true;
+    const id = wlPlaceId(wl, e);
+    return wlFilter === WL_NONE ? !id : id === wlFilter;
+  }
+
+  function visible(list, filter, query, roles, wl = null, wlFilter = "all") {
     const q = fold(query).trim();
     return arr(list)
       .filter((e) => filter === "all" || statusOf(e) === filter)
-      .filter((e) => !q || searchText(e, roles).includes(q))
+      .filter((e) => wlMatch(wl, e, wlFilter))
+      .filter((e) => !q || (searchText(e, roles) + (wl ? " " + fold(wlPlaceName(wl, e)) : "")).includes(q))
       .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || ""), "es", { sensitivity: "base" }));
   }
 
-  function csvText(list, roles) {
-    const rows = [CSV_HEAD].concat(arr(list).map((e) => [e.full_name, e.document_id, roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date,
-      e.hourly_rate_regular, e.hourly_rate_extra, e.deduction_1, e.deduction_2, STATUS[statusOf(e)]]));
+  function csvText(list, roles, wl = null) {
+    const head = wl ? [...CSV_HEAD, "Lugar"] : CSV_HEAD;
+    const rows = [head].concat(arr(list).map((e) => {
+      const line = [e.full_name, e.document_id, roleLabel(roles, roleOf(e)), e.phone, e.email, e.telegram_user_id, e.hire_date,
+        e.hourly_rate_regular, e.hourly_rate_extra, e.deduction_1, e.deduction_2, STATUS[statusOf(e)]];
+      return wl ? [...line, wlPlaceName(wl, e)] : line;
+    }));
     return rows.map((line) => line.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  }
+
+  // Con lugares, Descuento 2 no está en el formulario: se envía el valor ya
+  // guardado (o 0 al crear) para que el dato y la nómina no cambien.
+  function keepDeduction2(values, original) {
+    const kept = original && original.deduction_2 !== undefined && original.deduction_2 !== null ? String(original.deduction_2) : "0";
+    return { ...values, deduction_2: kept };
+  }
+
+  function assignLabel(count, placeName) {
+    const who = count === 1 ? "1 empleado" : `${count} empleados`;
+    return placeName === "Sin asignar" ? `Quitar el lugar a ${who}` : `Asignar ${who} a ${placeName}`;
   }
 
   // Mismo cuerpo que payloadFromPersonalRow de la pantalla de siempre.
@@ -209,17 +252,32 @@
   // ingreso, horas (ordinaria y extra) y descuentos (1 y 2). Cabe a 1280 px sin desplazar.
   const pairLine = (label, value) => `<span class="wf-kv"><span class="wf-sub">${h(label)}</span> ${value}</span>`;
 
+  // 059A: chip del lugar y casilla de selección (solo con lugares).
+  function placeChip(e) {
+    if (!model.wl) return "";
+    const id = wlPlaceId(model.wl, e);
+    return `<span class="wf-place ${id ? "" : "is-none"}">${h(wlPlaceName(model.wl, e))}</span>`;
+  }
+  function pickBox(e) {
+    if (!model.wl || !model.wl.can_assign) return "";
+    const id = String(e.id || "");
+    return `<input type="checkbox" class="wf-pick" data-wf2-pick="${h(id)}" ${model.selected.has(id) ? "checked" : ""} aria-label="Seleccionar a ${h(e.full_name || "empleado")}">`;
+  }
+
   function tableView(list) {
-    return `<div class="wf-table-wrap wf-scroll"><table class="wf-table">
+    const wl = Boolean(model.wl);
+    const pick = wl && model.wl.can_assign;
+    const allOn = pick && list.length > 0 && list.every((e) => model.selected.has(String(e.id)));
+    return `<div class="wf-table-wrap wf-scroll"><table class="wf-table${wl ? " wf-has-wl" : ""}">
       <thead>
-        <tr><th class="wf-group" colspan="3" scope="colgroup">Persona</th><th class="wf-group" colspan="3" scope="colgroup">Contrato</th>
+        <tr><th class="wf-group" colspan="${wl ? 4 : 3}" scope="colgroup">Persona</th><th class="wf-group" colspan="3" scope="colgroup">Contrato</th>
           <th class="wf-th" rowspan="2" scope="col">Estado</th><th class="wf-th" rowspan="2" scope="col">Acciones</th></tr>
-        <tr><th class="wf-th" scope="col">Nombre</th><th class="wf-th" scope="col">Rol</th><th class="wf-th" scope="col">Documento · teléfono · correo · Telegram ID</th>
+        <tr><th class="wf-th" scope="col">${pick ? `<label class="wf-pickhead"><input type="checkbox" class="wf-pick" data-wf2-pick-all ${allOn ? "checked" : ""} aria-label="Seleccionar todos los que se ven"> Nombre</label>` : "Nombre"}</th><th class="wf-th" scope="col">Rol</th>${wl ? '<th class="wf-th" scope="col">Lugar</th>' : ""}<th class="wf-th" scope="col">Documento · teléfono · correo · Telegram ID</th>
           <th class="wf-th" scope="col">Ingreso</th><th class="wf-th wf-num" scope="col">Hora ordinaria · extra</th><th class="wf-th wf-num" scope="col">Descuentos</th></tr>
       </thead>
       <tbody>${list.map((e) => `<tr class="wf-row wf-row-${statusOf(e)}" data-wf2-row="${h(e.id)}">
-        <td class="wf-namecell"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span>${pinBadge(e)}</td>
-        <td class="wf-role">${rolePill(e)}</td>
+        <td class="wf-namecell">${pick ? `<label class="wf-pickname">${pickBox(e)}<span class="wf-name">${h(e.full_name || "Sin nombre")}</span></label>` : `<span class="wf-name">${h(e.full_name || "Sin nombre")}</span>`}${pinBadge(e)}</td>
+        <td class="wf-role">${rolePill(e)}</td>${wl ? `<td class="wf-placecell">${placeChip(e)}</td>` : ""}
         <td class="wf-contact">${pairLine("Doc.", dash(e.document_id))}${pairLine("Tel.", dash(e.phone))}${pairLine("Correo", `<span class="wf-wrap">${dash(e.email)}</span>`)}${pairLine("Telegram", dash(e.telegram_user_id))}</td>
         <td class="wf-date">${dash(e.hire_date)}</td>
         <td class="wf-num">${pairLine("Ord.", h(money(e.hourly_rate_regular)))}${pairLine("Extra", h(money(e.hourly_rate_extra)))}</td>
@@ -233,8 +291,8 @@
   function cardsView(list) {
     const line = (label, value) => `<div class="wf-card-line"><span class="wf-card-label">${h(label)}</span><span class="wf-card-value">${value}</span></div>`;
     return `<div class="wf-cards">${list.map((e) => `<article class="wf-card wf-row-${statusOf(e)}" data-wf2-card="${h(e.id)}">
-      <div class="wf-card-head"><span class="wf-name">${h(e.full_name || "Sin nombre")}</span>${statusPill(e)}</div>
-      <div class="wf-card-role">${rolePill(e)}${pinBadge(e)}</div>
+      <div class="wf-card-head">${model.wl ? `<label class="wf-card-pick">${pickBox(e)}<span class="wf-name">${h(e.full_name || "Sin nombre")}</span></label>` : `<span class="wf-name">${h(e.full_name || "Sin nombre")}</span>`}${statusPill(e)}</div>
+      <div class="wf-card-role">${rolePill(e)}${placeChip(e)}${pinBadge(e)}</div>
       <div class="wf-card-group"><span class="wf-card-title">Persona</span>
         ${line("Documento", dash(e.document_id))}${line("Teléfono", dash(e.phone))}${line("Correo", dash(e.email))}${line("Telegram ID", dash(e.telegram_user_id))}</div>
       <div class="wf-card-group"><span class="wf-card-title">Contrato</span>
@@ -242,6 +300,64 @@
         ${line("Descuento 1", h(money(e.deduction_1)))}${line("Descuento 2", h(money(e.deduction_2)))}</div>
       <div class="wf-card-actions">${menu(e)}</div>
     </article>`).join("")}</div>`;
+  }
+
+  // ------------------------------------------------------------ 059A lugares
+  const TIMEZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage",
+    "Pacific/Honolulu", "America/Puerto_Rico", "America/Bogota", "America/Mexico_City", "America/Lima", "America/Santiago", "Europe/Madrid"];
+
+  function placeOptions(selected, { includeInactive = false } = {}) {
+    const locs = arr(model.wl && model.wl.locations).filter((l) => l.is_active || includeInactive || l.id === selected);
+    return [`<option value="${WL_NONE}" ${!selected ? "selected" : ""}>Sin asignar</option>`]
+      .concat(locs.map((l) => `<option value="${h(l.id)}" ${l.id === selected ? "selected" : ""}>${h(l.name)}${l.is_active ? "" : " (desactivado)"}</option>`)).join("");
+  }
+
+  function placeSelect(e) {
+    const current = e && e.id ? wlPlaceId(model.wl, e) : null;
+    const disabled = model.wl.can_assign ? "" : "disabled";
+    return `<label class="wf-field"><span>Lugar de trabajo</span><select name="work_location_id" ${disabled}>${placeOptions(current)}</select></label>`;
+  }
+
+  function assignModal(md, err) {
+    const target = md.target || WL_NONE;
+    const loc = arr(model.wl.locations).find((l) => l.id === target);
+    const label = assignLabel(md.ids.length, loc ? loc.name : "Sin asignar");
+    return `<div class="wf-modal" data-wf2-modal><form class="wf-modal-card" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle" data-wf2-assignform>
+      <h2 id="wf2ModalTitle">Asignar lugar</h2>
+      <p>${md.ids.length === 1 ? "1 empleado seleccionado." : `${md.ids.length} empleados seleccionados.`} Cada traslado queda en el historial con la fecha y quién lo hizo.</p>${err}
+      <label class="wf-field"><span>Lugar de trabajo</span><select name="work_location_id" data-wf2-assign-target>${placeOptions(target === WL_NONE ? null : target)}</select></label>
+      <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>${h(label)}</button>
+        <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></form></div>`;
+  }
+
+  function placesModal(md, err) {
+    const rows = md.rows;
+    const tzOptions = (tz) => [...new Set([tz, ...TIMEZONES].filter(Boolean))].map((z) => `<option value="${h(z)}" ${z === tz ? "selected" : ""}>${h(z)}</option>`).join("");
+    return `<div class="wf-modal" data-wf2-modal><form class="wf-modal-card wf-places" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle" data-wf2-placesform>
+      <h2 id="wf2ModalTitle">Administrar lugares</h2>
+      <p>Los lugares no se borran: desactívalos y dejan de ofrecerse (el historial los conserva). El orden es el de las secciones del CRM Campo.</p>${err}
+      <div class="wf-places-list">${rows.map((r, i) => `<fieldset class="wf-fieldset wf-place-row" data-wf2-place-row="${i}"><legend>${h(r.name || "Lugar nuevo")}</legend><div class="wf-form-grid">
+        <label class="wf-field"><span>Nombre</span><input data-wf2-place-field="name" data-i="${i}" value="${h(r.name)}" required minlength="2" maxlength="80" autocomplete="off"></label>
+        <label class="wf-field"><span>Estado / sigla</span><input data-wf2-place-field="code" data-i="${i}" value="${h(r.code || "")}" maxlength="8" autocomplete="off"></label>
+        <label class="wf-field"><span>Zona horaria</span><select data-wf2-place-field="timezone" data-i="${i}">${tzOptions(r.timezone)}</select></label>
+        <label class="wf-field wf-check"><input type="checkbox" data-wf2-place-field="is_active" data-i="${i}" ${r.is_active ? "checked" : ""}><span>Activo</span></label>
+      </div><div class="wf-place-move">
+        <button class="client-btn" type="button" data-wf2-place-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Subir ${h(r.name)}">↑ Subir</button>
+        <button class="client-btn" type="button" data-wf2-place-down="${i}" ${i === rows.length - 1 ? "disabled" : ""} aria-label="Bajar ${h(r.name)}">↓ Bajar</button>
+      </div></fieldset>`).join("")}</div>
+      <button class="client-btn" type="button" data-wf2-place-add>+ Agregar lugar</button>
+      <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar lugares</button>
+        <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></form></div>`;
+  }
+
+  function selectionBar() {
+    if (!model.wl || !model.wl.can_assign || !model.selected.size) return "";
+    const n = model.selected.size;
+    return `<div class="wf-selbar" role="region" aria-label="Selección">
+      <strong>${n === 1 ? "1 seleccionado" : `${n} seleccionados`}</strong>
+      <button class="wf-btn-primary" type="button" data-wf2-assign>Asignar lugar</button>
+      <button class="client-btn" type="button" data-wf2-pick-clear>Quitar selección</button>
+    </div>`;
   }
 
   function modalView() {
@@ -263,6 +379,8 @@
         <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar PIN</button>
           <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></form></div>`;
     }
+    if (md.type === "assign") return assignModal(md, err);
+    if (md.type === "places") return placesModal(md, err);
     const e = md.employee || {};
     const field = (name, label, attrs = "") => `<label class="wf-field"><span>${h(label)}</span><input name="${name}" value="${h(e[name] ?? "")}" ${attrs}></label>`;
     const role = roleOf(e);
@@ -281,7 +399,7 @@
         ${field("hourly_rate_regular", "Hora ordinaria", 'type="number" step="0.01" min="0"')}
         ${field("hourly_rate_extra", "Hora extra", 'type="number" step="0.01" min="0"')}
         ${field("deduction_1", "Descuento 1", 'type="number" step="0.01" min="0"')}
-        ${field("deduction_2", "Descuento 2", 'type="number" step="0.01" min="0"')}
+        ${model.wl ? placeSelect(e) : field("deduction_2", "Descuento 2", 'type="number" step="0.01" min="0"')}
         <label class="wf-field"><span>Estado</span><select name="status">${Object.entries(STATUS).map(([v, l]) => `<option value="${v}" ${statusOf(e) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       </div></fieldset>
       <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar</button>
@@ -291,7 +409,8 @@
 
   function view() {
     const s = stats(model.employees);
-    const list = visible(model.employees, model.filter, model.query, roles());
+    const list = visible(model.employees, model.filter, model.query, roles(), model.wl, model.wlFilter);
+    const placeFilters = wlFilters(model.wl);
     return `<div class="wf-root">
       <header class="client-hero wf-head">
         <div class="wf-head-text"><div class="client-eyebrow">Workforce</div><h1 class="client-title">Personal</h1>
@@ -300,6 +419,7 @@
           <button class="wf-btn-primary" type="button" data-wf2-add>+ Agregar empleado</button>
           <button class="client-btn" type="button" data-personal-history>Historial</button>
           <button class="client-btn" type="button" data-personal-asistencia>Asistencia</button>
+          ${model.wl && model.wl.can_manage ? '<button class="client-btn" type="button" data-wf2-places>Administrar lugares</button>' : ""}
           <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
         </div>
       </header>
@@ -315,8 +435,10 @@
         <div class="wf-tools">
           <input class="wf-search" type="search" data-wf2-search value="${h(model.query)}" placeholder="Buscar en personal" aria-label="Buscar por nombre, rol, teléfono, correo o Telegram">
           <div class="wf-filters" role="group" aria-label="Filtrar por estado">${FILTERS.map(([k, l]) => `<button type="button" class="wf-filter ${model.filter === k ? "is-active" : ""}" aria-pressed="${model.filter === k}" data-wf2-filter="${k}">${l}</button>`).join("")}</div>
+          ${placeFilters.length ? `<div class="wf-filters wf-place-filters" role="group" aria-label="Filtrar por lugar">${placeFilters.map(([k, l]) => `<button type="button" class="wf-filter ${model.wlFilter === k ? "is-active" : ""}" aria-pressed="${model.wlFilter === k}" data-wf2-place-filter="${h(k)}">${h(l)}</button>`).join("")}</div>` : ""}
           <button class="client-btn wf-csv" type="button" data-wf2-csv>Exportar CSV</button>
         </div>
+        ${selectionBar()}
         <p class="wf-count">${model.loaded ? `Mostrando ${list.length} de ${s.total}` : "Cargando personal…"}</p>
         ${model.loaded && !list.length ? `<div class="wf-empty">${s.total ? "No hay coincidencias para la búsqueda o el filtro." : "Aún no hay empleados. Usa “+ Agregar empleado”."}</div>` : ""}
         ${list.length ? tableView(list) + cardsView(list) : ""}
@@ -382,8 +504,25 @@
     draw();
   }
 
+  // 059A: lugares (con sesión: authApi). Solo si client.js dice que el
+  // interruptor está encendido; si el servidor no responde, no se muestra nada.
+  const wlBase = () => `/work-locations/companies/${encodeURIComponent(ctx.companyId)}`;
+  async function loadPlaces() {
+    if (!ctx.workLocations || typeof ctx.authApi !== "function") { model.wl = null; return; }
+    try {
+      const data = await ctx.authApi(wlBase());
+      model.wl = { locations: arr(data && data.locations), assignments: (data && data.assignments) || {},
+        can_manage: Boolean(data && data.can_manage), can_assign: Boolean(data && data.can_assign) };
+      const ok = wlFilters(model.wl).some(([k]) => k === model.wlFilter);
+      if (!ok) model.wlFilter = "all";
+    } catch (_) {
+      model.wl = null;
+    }
+  }
+
   async function load() {
     loadPins().then(() => { if (model.loaded) draw(); });
+    const places = loadPlaces();
     try {
       const data = await ctx.personalApi(`/employees?company_id=${encodeURIComponent(ctx.companyId)}&include_archived=true`);
       model.employees = arr(data);
@@ -391,13 +530,63 @@
     } catch (error) {
       model.error = error.message || "No se pudo cargar personal.";
     }
+    await places;
+    const ids = new Set(model.employees.map((e) => String(e.id)));
+    model.selected = new Set([...model.selected].filter((id) => ids.has(id)));
     model.loaded = true;
     draw();
   }
 
   function errorText(error) {
     const raw = String((error && error.message) || error || "");
-    try { const d = JSON.parse(raw); return typeof d.detail === "string" ? d.detail : raw; } catch (_) { return raw || "No se pudo guardar."; }
+    const json = raw.indexOf("{");
+    try { const d = JSON.parse(json >= 0 ? raw.slice(json) : raw); return typeof d.detail === "string" ? d.detail : raw; } catch (_) { return raw || "No se pudo guardar."; }
+  }
+
+  async function assignPlace(ids, target, source = "personal") {
+    return ctx.authApi(`${wlBase()}/assign`, { method: "POST", body: JSON.stringify({ employee_ids: ids, work_location_id: target === WL_NONE ? null : target, source }) });
+  }
+
+  async function saveAssign(form) {
+    const target = form.elements.work_location_id.value;
+    const ids = model.modal.ids.slice();
+    model.busy = true;
+    draw();
+    try {
+      const out = await assignPlace(ids, target, "personal_multiple");
+      const loc = arr(model.wl.locations).find((l) => l.id === target);
+      model.modal = null;
+      model.selected = new Set();
+      model.notice = `${loc ? `Lugar ${loc.name}` : "Sin asignar"}: ${out && out.changed !== undefined ? out.changed : ids.length} empleado(s) cambiado(s).`;
+      await load();
+    } catch (error) {
+      if (model.modal) model.modal.error = errorText(error);
+    } finally {
+      model.busy = false;
+      draw();
+    }
+  }
+
+  function placesRows() {
+    return arr(model.wl && model.wl.locations).map((l) => ({ id: l.id, name: l.name, code: l.code || "", timezone: l.timezone, is_active: l.is_active }));
+  }
+
+  async function savePlaces() {
+    const rows = model.modal.rows;
+    if (rows.some((r) => String(r.name || "").trim().length < 2)) { model.modal.error = "Cada lugar necesita un nombre."; draw(); return; }
+    model.busy = true;
+    draw();
+    try {
+      await ctx.authApi(`${wlBase()}/locations`, { method: "PUT", body: JSON.stringify({ locations: rows }) });
+      model.modal = null;
+      model.notice = "Lugares guardados.";
+      await load();
+    } catch (error) {
+      if (model.modal) model.modal.error = errorText(error);
+    } finally {
+      model.busy = false;
+      draw();
+    }
   }
 
   async function save(form) {
@@ -405,13 +594,25 @@
     const values = {};
     FIELDS.forEach((k) => { const el = form.elements[k]; values[k] = el ? String(el.value).trim() : ""; });
     if (!values.full_name || values.full_name.length < 2) { model.modal.error = "Nombre completo es obligatorio."; draw(); return; }
+    const original = model.modal.employee || {};
+    const placeEl = model.wl && form.elements.work_location_id;
+    const place = placeEl && !placeEl.disabled ? placeEl.value : null;
     model.busy = true;
     draw();
     try {
-      const body = JSON.stringify(payloadOf(ctx.companyId, values));
-      await ctx.personalApi(id ? `/employees/${encodeURIComponent(id)}` : "/employees", { method: id ? "PATCH" : "POST", body });
+      const body = JSON.stringify(payloadOf(ctx.companyId, model.wl ? keepDeduction2(values, id ? original : null) : values));
+      const saved = await ctx.personalApi(id ? `/employees/${encodeURIComponent(id)}` : "/employees", { method: id ? "PATCH" : "POST", body });
+      const savedId = id || (saved && saved.id);
+      let placeError = "";
+      if (place !== null && savedId) {
+        const before = id ? wlPlaceId(model.wl, original) : null;
+        const next = place === WL_NONE ? null : place;
+        if (before !== next) {
+          try { await assignPlace([String(savedId)], place, "personal_form"); } catch (error) { placeError = errorText(error); }
+        }
+      }
       model.modal = null;
-      model.notice = id ? "Empleado guardado." : "Empleado agregado.";
+      model.notice = (id ? "Empleado guardado." : "Empleado agregado.") + (placeError ? ` El lugar no se pudo guardar: ${placeError}` : "");
       await load();
     } catch (error) {
       if (model.modal) model.modal.error = errorText(error);
@@ -438,8 +639,8 @@
   }
 
   function exportCsv() {
-    const list = visible(model.employees, model.filter, model.query, roles());
-    const blob = new Blob(["﻿" + csvText(list, roles())], { type: "text/csv;charset=utf-8" });
+    const list = visible(model.employees, model.filter, model.query, roles(), model.wl, model.wlFilter);
+    const blob = new Blob(["﻿" + csvText(list, roles(), model.wl)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -463,6 +664,7 @@
     if (model.menu && !t.closest(".wf-menu-list")) { model.menu = ""; draw(); }
     const filter = t.closest("[data-wf2-filter]");
     if (filter) { model.filter = filter.getAttribute("data-wf2-filter"); draw(); return; }
+    if (model.wl && onPlaceClick(t)) return;
     if (t.closest("[data-wf2-csv]")) { exportCsv(); return; }
     if (t.closest("[data-wf2-add]")) { model.notice = ""; model.modal = { type: "edit", employee: { status: "active", role: (roles()[0] || ["operator"])[0] } }; draw(); return; }
     const edit = t.closest("[data-wf2-edit]");
@@ -480,8 +682,64 @@
     if (t.closest("[data-wf2-close]") || (t.matches && t.matches("[data-wf2-modal]"))) { model.modal = null; draw(); }
   }
 
+  // 059A: selección múltiple, asignar lugar, filtro por lugar y Administrar lugares.
+  function onPlaceClick(t) {
+    const pf = t.closest("[data-wf2-place-filter]");
+    if (pf) { model.wlFilter = pf.getAttribute("data-wf2-place-filter"); draw(); return true; }
+    if (t.closest("[data-wf2-pick-clear]")) { model.selected = new Set(); draw(); return true; }
+    if (t.closest("[data-wf2-assign]")) {
+      model.notice = "";
+      model.modal = { type: "assign", ids: [...model.selected], target: (arr(model.wl.locations).find((l) => l.is_active) || {}).id || WL_NONE };
+      draw();
+      return true;
+    }
+    if (t.closest("[data-wf2-places]")) { model.notice = ""; model.modal = { type: "places", rows: placesRows() }; draw(); return true; }
+    if (model.modal && model.modal.type === "places") {
+      const rows = model.modal.rows;
+      const up = t.closest("[data-wf2-place-up]");
+      const down = t.closest("[data-wf2-place-down]");
+      const move = (i, d) => { const j = i + d; if (j < 0 || j >= rows.length) return; [rows[i], rows[j]] = [rows[j], rows[i]]; draw(); };
+      if (up) { move(Number(up.getAttribute("data-wf2-place-up")), -1); return true; }
+      if (down) { move(Number(down.getAttribute("data-wf2-place-down")), 1); return true; }
+      if (t.closest("[data-wf2-place-add]")) {
+        rows.push({ id: null, name: "", code: "", timezone: (rows[rows.length - 1] || {}).timezone || "America/New_York", is_active: true });
+        draw();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function onChange(event) {
+    const t = event.target;
+    if (!t || !t.matches || !inside(t)) return;
+    if (t.matches("[data-wf2-pick]")) {
+      const id = t.getAttribute("data-wf2-pick");
+      if (t.checked) model.selected.add(id); else model.selected.delete(id);
+      draw();
+      return;
+    }
+    if (t.matches("[data-wf2-pick-all]")) {
+      const list = visible(model.employees, model.filter, model.query, roles(), model.wl, model.wlFilter);
+      list.forEach((e) => { if (t.checked) model.selected.add(String(e.id)); else model.selected.delete(String(e.id)); });
+      draw();
+      return;
+    }
+    if (t.matches("[data-wf2-assign-target]") && model.modal && model.modal.type === "assign") { model.modal.target = t.value; draw(); return; }
+    if (t.matches("[data-wf2-place-field]") && model.modal && model.modal.type === "places") placeField(t, true);
+  }
+
+  function placeField(t, redraw) {
+    const row = model.modal.rows[Number(t.getAttribute("data-i"))];
+    if (!row) return;
+    const key = t.getAttribute("data-wf2-place-field");
+    row[key] = key === "is_active" ? t.checked : t.value;
+    if (redraw && key !== "name" && key !== "code") draw();
+  }
+
   function onInput(event) {
     const t = event.target;
+    if (t && t.matches && inside(t) && t.matches("[data-wf2-place-field]") && model.modal && model.modal.type === "places") { placeField(t, false); return; }
     if (!t || !t.matches || !inside(t) || !t.matches("[data-wf2-search]")) return;
     model.query = t.value;
     draw();
@@ -490,6 +748,8 @@
   function onSubmit(event) {
     const form = event.target;
     if (form && form.matches && inside(form) && form.matches("[data-wf2-pinform]")) { event.preventDefault(); savePin(form); return; }
+    if (form && form.matches && inside(form) && form.matches("[data-wf2-assignform]")) { event.preventDefault(); saveAssign(form); return; }
+    if (form && form.matches && inside(form) && form.matches("[data-wf2-placesform]")) { event.preventDefault(); savePlaces(); return; }
     if (!form || !form.matches || !inside(form) || !form.matches("[data-wf2-form]")) return;
     event.preventDefault();
     save(form);
@@ -509,8 +769,12 @@
     model.notice = "";
     model.error = "";
     model.pins = null;
+    model.wl = null;
+    model.wlFilter = "all";
+    model.selected = new Set();
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
+      document.addEventListener("change", onChange);
       document.addEventListener("input", onInput);
       document.addEventListener("submit", onSubmit);
       document.addEventListener("keydown", onKey);
@@ -520,5 +784,6 @@
     await load();
   }
 
-  window.CxWorkforceV2 = { mount, view, model, statusOf, stats, visible, csvText, payloadOf, roleLabel, roleEnabled, pair, contrast, FIELDS, CSV_HEAD };
+  window.CxWorkforceV2 = { mount, view, model, statusOf, stats, visible, csvText, payloadOf, roleLabel, roleEnabled, pair, contrast, FIELDS, CSV_HEAD,
+    wlPlaceId, wlPlaceName, wlFilters, wlMatch, keepDeduction2, assignLabel, WL_NONE };
 })();

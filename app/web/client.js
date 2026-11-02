@@ -4826,6 +4826,8 @@
       return;
     }
 
+    if (cxWorkLocationsOn059A() && await cxCrmPlacesMount059A()) return; // 059A: CRM por lugar
+
     if (isClientModuleActive("gps")) ensureGpsStyles();
 
     const company = state.company || {};
@@ -33964,11 +33966,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxWorkforceV2Css051B";
           link.rel = "stylesheet";
-          link.href = "/client-static/workforce_v2.css?v=056F";
+          link.href = "/client-static/workforce_v2.css?v=059A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/workforce_v2.js?v=056F";
+        script.src = "/client-static/workforce_v2.js?v=059A";
         script.onload = () => resolve();
         script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
         document.head.appendChild(script);
@@ -33999,10 +34001,111 @@ function inventoryCreatePayload() {
       roles: () => cxPersonalRoleList051A(),
       configured: () => cxEmployeeRolesConfigured051A(),
       host: () => document.getElementById("cxWorkforceV2Host051B"),
+      workLocations: cxWorkLocationsOn059A(), // 059A: lugares solo con el interruptor
+      authApi: api,
     });
     return true;
   }
   /* CLONEXA_051B_WORKFORCE_V2_END */
+
+  /* CLONEXA_059A_WORK_LOCATIONS_START: Lugares de trabajo (interruptor
+     work_locations en settings del modulo workforce, apagado por defecto; hoy
+     solo VOLTAGE). Sin el interruptor, o si su archivo no carga, Personal y
+     CRM Campo siguen exactamente igual. */
+  function cxWorkLocationsOn059A() {
+    const item = activeClientModules().find((m) => m.code === "workforce");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.work_locations === true;
+  }
+
+  let cxCrmPlacesLoading059A = null;
+  function cxCrmPlacesLoad059A() {
+    if (window.CxCrmPlaces) return Promise.resolve();
+    if (!cxCrmPlacesLoading059A) {
+      cxCrmPlacesLoading059A = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxCrmPlacesCss059A")) {
+          const link = document.createElement("link");
+          link.id = "cxCrmPlacesCss059A";
+          link.rel = "stylesheet";
+          link.href = "/client-static/crm_places.css?v=059A";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/crm_places.js?v=059A";
+        script.onload = () => resolve();
+        script.onerror = () => { cxCrmPlacesLoading059A = null; reject(new Error("crm_places")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxCrmPlacesLoading059A;
+  }
+
+  // Las mismas tarjetas de arriba de CRM Campo (Activos, En pausa y las dos de
+  // modulo), con la suma de todos los lugares.
+  function cxCrmPlacesTopCrm059A(board = {}) {
+    const summary = board.summary || {};
+    const modules = Array.isArray(board.active_modules) ? board.active_modules : [];
+    return { summary, snapshot: { summary, active_modules: modules }, activeModules: modules.map(cxCrmNormalizeCode018B), todayEvents: [], working: [], onBreak: [], people: [] };
+  }
+
+  function cxCrmPlacesTop059A(board = {}) {
+    const crm = cxCrmPlacesTopCrm059A(board);
+    const cards = crmPickSummaryModules018B(crm);
+    return `<div class="client-kpi-grid">
+      <div class="client-kpi"><span>Activos</span><strong>${h(Number(crm.summary.active_now || 0))}</strong></div>
+      <div class="client-kpi"><span>En pausa</span><strong>${h(Number(crm.summary.on_break || 0))}</strong></div>
+      ${crmRenderTopKpiCard024D(cards[0], crm)}
+      ${crmRenderTopKpiCard024D(cards[1], crm)}
+    </div>`;
+  }
+
+  // El detalle de siempre: la tarjeta grande del colaborador del CRM.
+  function cxCrmPlacesDetail059A(row = {}, board = {}) {
+    const crm = crmNormalizeSnapshot018B({ employees: [row], active_modules: board.active_modules || [], summary: board.summary || {} });
+    const cards = crmPickSummaryModules018B(cxCrmPlacesTopCrm059A(board));
+    return renderCrmCollaboratorCards(crm.people, cards);
+  }
+
+  async function cxCrmPlacesMount059A() {
+    try { await cxCrmPlacesLoad059A(); } catch (_) { return false; }
+    if (!window.CxCrmPlaces || typeof window.CxCrmPlaces.mount !== "function") return false;
+    if (isClientModuleActive("gps")) ensureGpsStyles();
+    const company = state.company || {};
+    $("app").innerHTML = `
+      <main class="client-shell">
+        <div class="client-layout">
+          <aside class="client-sidebar">
+            <div class="client-logo">${logo(company, normalizeBranding(state.branding || {}))}</div>
+            <h2 class="client-company-name">${h(company.name || "Empresa")}</h2>
+            <div class="client-muted">${h(company.slug || "tenant")}</div>
+            <nav class="client-nav">${renderClientNav("crm")}</nav>
+            <div class="client-footer-id"><strong>Tenant activo</strong><br>${h(state.companyId || "")}</div>
+          </aside>
+          <section class="client-main">
+            <header class="client-hero">
+              <div class="client-eyebrow">Modulo CRM Campo</div>
+              <h1 class="client-title">CRM Campo</h1>
+              <p class="client-muted">Vista viva por lugar de trabajo: quién está en turno, en pausa y dónde.</p>
+              <div class="client-actions">
+                <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+                <button class="client-btn" type="button" data-client-module="crm">Actualizar</button>
+              </div>
+            </header>
+            <section class="client-panel"><div id="cxCrmPlacesHost059A"></div></section>
+          </section>
+        </div>
+      </main>`;
+    return window.CxCrmPlaces.mount({
+      companyId: state.companyId,
+      api,
+      host: () => document.getElementById("cxCrmPlacesHost059A"),
+      top: cxCrmPlacesTop059A,
+      detail: cxCrmPlacesDetail059A,
+      afterDetail: () => crmStartRealtimeTimers018B(),
+    });
+  }
+  /* CLONEXA_059A_WORK_LOCATIONS_END */
 
   async function renderPersonalModule() {
     await cxLoadEmployeeRoles051A();
