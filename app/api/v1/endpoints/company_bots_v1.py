@@ -177,17 +177,42 @@ async def claim_telegram_update(db: AsyncSession, company_id: str, update_id: An
     return claimed
 
 
-def update_age_seconds(update: dict[str, Any], now: float | None = None) -> float | None:
+def update_age_seconds(update: dict[str, Any], now: float | None = None, use_edit_date: bool = False) -> float | None:
     """Edad del mensaje segun su fecha. Un callback_query no trae fecha propia
-    (la de su mensaje es la del menu del bot), asi que no se puede medir."""
+    (la de su mensaje es la del menu del bot), asi que no se puede medir.
+    059C (use_edit_date): una actualizacion de ubicacion en vivo llega como
+    edited_message con la fecha del mensaje original; su edad es la de edit_date."""
     message = update.get("message") or update.get("edited_message")
     if not isinstance(message, dict):
         return None
     try:
-        sent_at = int(message.get("date"))
+        sent_at = int(message.get("edit_date") or message.get("date")) if use_edit_date else int(message.get("date"))
     except (TypeError, ValueError):
         return None
     return (time.time() if now is None else now) - sent_at
+
+
+async def ensure_live_location_updates_059C(company_id: str, token: str, webhook_url: str, secret: str) -> None:
+    """059C: re-registra el MISMO webhook (misma URL y secreto, sin borrar pendientes)
+    agregando edited_message, para que lleguen las actualizaciones de la ubicacion en vivo."""
+    from app.services import bot_gps_stop
+
+    try:
+        payload: dict[str, Any] = {"url": webhook_url, "allowed_updates": bot_gps_stop.allowed_updates(True), "drop_pending_updates": False}
+        if secret:
+            payload["secret_token"] = secret
+        result = await telegram_post(token, "setWebhook", payload)
+        if not (isinstance(result, dict) and result.get("ok")):
+            return
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("""
+                UPDATE company_bot_instances
+                   SET config_json = COALESCE(config_json, '{}'::jsonb) || '{"live_updates_059C": true}'::jsonb, updated_at = now()
+                 WHERE company_id::text = :company_id AND channel = 'telegram'
+            """), {"company_id": company_id})
+            await db.commit()
+    except Exception as exc:
+        logger.warning("No se pudo habilitar edited_message en el webhook de %s (%s)", company_id, type(exc).__name__)
 
 
 async def active_modules(db: AsyncSession, company_id: str) -> set[str]:
@@ -1187,9 +1212,12 @@ async def activate_company_telegram_webhook(
     bot_user = me.get("result") or {}
     bot_username = clean(bot_user.get("username"))
 
+    from app.services import bot_gps_stop
+
+    live_updates = await bot_gps_stop.is_on(db, company_id)  # 059C: con bot_gps_stop, tambien edited_message
     set_webhook_payload = {
         "url": webhook_url,
-        "allowed_updates": ["message", "callback_query"],
+        "allowed_updates": bot_gps_stop.allowed_updates(live_updates),
         "drop_pending_updates": True,
         "secret_token": webhook_secret,
     }
@@ -1205,6 +1233,8 @@ async def activate_company_telegram_webhook(
         "listener_running": False,
         "listener_error": None,
     }
+    if live_updates:
+        config_json["live_updates_059C"] = True
 
     await db.execute(
         text("""
@@ -1310,14 +1340,22 @@ async def company_telegram_webhook(
     # Telegram recibe 200 de inmediato (nunca reintenta por lentitud); el trabajo,
     # incluidas las respuestas al chat, sigue en segundo plano.
     update_id = update.get("update_id") if isinstance(update, dict) else None
-    age = update_age_seconds(update) if isinstance(update, dict) else None
+    from app.services import bot_gps_stop
+
+    live_updates = flow_code == "field_operations" and await bot_gps_stop.is_on(db, company_id)  # 059C
+    if live_updates and not config_json.get("live_updates_059C"):
+        background_tasks.add_task(ensure_live_location_updates_059C, company_id, token,
+                                  clean(config_json.get("webhook_url")) or f"{public_base_url()}/api/v1/company-bots-v1/telegram/webhook/{company_id}",
+                                  expected_secret)
+    age = update_age_seconds(update, use_edit_date=live_updates) if isinstance(update, dict) else None
 
     if not await claim_telegram_update(db, company_id, update_id):
         return {"ok": True, "ignored": "duplicate_update"}
 
     if age is not None and age > STALE_UPDATE_SECONDS:
         logger.warning("Telegram update %s de la empresa %s descartado: llego %d s tarde", update_id, company_id, int(age))
-        background_tasks.add_task(send_message, token, extract_update(update).get("chat_id"), STALE_UPDATE_REPLY)
+        if not (live_updates and isinstance(update.get("edited_message"), dict)):  # 059C: una ubicacion en vivo atrasada, en silencio
+            background_tasks.add_task(send_message, token, extract_update(update).get("chat_id"), STALE_UPDATE_REPLY)
         return {"ok": True, "ignored": "stale_update"}
 
     background_tasks.add_task(process_company_telegram_update, company_id, flow_code, token, update)

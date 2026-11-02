@@ -1897,6 +1897,64 @@ BOT_TEXTS["fr"].update({
 })
 
 
+# CLONEXA_059C_BOT_GPS_STOP_START: textos del interruptor bot_gps_stop (VOLTAGE).
+BOT_TEXTS["es"].update({
+    "gps_stop_reminder": "📍 Recuerda apagar tu ubicación en vivo. Ya no la estamos registrando.",
+    "btn_gps_stop": "📍 Apagar ubicación",
+    "gps_stop_steps": "Telegram no permite que un bot apague tu ubicación. Para detenerla:\n1. Toca el mapa de ubicación en vivo arriba en este chat.\n2. Toca 'Dejar de compartir'.\n\n✅ Clonexa ya no registra tu ubicación.",
+    "gps_stop_answer": "✅ Clonexa ya no registra tu ubicación.",
+    "gps_required_for_start_059C": "📍 Para iniciar turno, comparte tu ubicación en vivo: toca 📎 › Ubicación › Compartir ubicación en vivo.\n⏱️ Elige «8 horas»: así se apaga sola al final de la jornada. No elijas «Hasta que la desactive».",
+    "shift_summary_059C": "Feliz descanso, {employee_name}.\n\nTotal acumulado del corte:\nOrdinarias: {regular}\nExtras: {extra}\n\nProyección pago: {projected_pay}{discount_line}\nTotal estimado: {estimated_total}",
+    "shift_discount_059C": "Descuento del corte: {discount}",
+})
+BOT_TEXTS["en"].update({
+    "gps_stop_reminder": "📍 Remember to turn off your live location. We are no longer recording it.",
+    "btn_gps_stop": "📍 Turn off location",
+    "gps_stop_steps": "Telegram does not let a bot turn off your location. To stop it:\n1. Tap the live location map above in this chat.\n2. Tap 'Stop sharing'.\n\n✅ Clonexa is no longer recording your location.",
+    "gps_stop_answer": "✅ Clonexa is no longer recording your location.",
+    "gps_required_for_start_059C": "📍 To start your shift, share your live location: tap 📎 › Location › Share live location.\n⏱️ Choose \"8 hours\" so it turns off by itself at the end of the workday. Do not choose \"Until I turn it off\".",
+    "shift_summary_059C": "Rest well, {employee_name}.\n\nCurrent payroll period total:\nRegular: {regular}\nOvertime: {extra}\n\nProjected pay: {projected_pay}{discount_line}\nEstimated total: {estimated_total}",
+    "shift_discount_059C": "Period discount: {discount}",
+})
+BOT_TEXTS["fr"].update({
+    "gps_stop_reminder": "📍 Pense à désactiver ta position en direct. Nous ne l'enregistrons plus.",
+    "btn_gps_stop": "📍 Désactiver la position",
+    "gps_stop_steps": "Telegram ne permet pas à un bot de désactiver ta position. Pour l'arrêter :\n1. Touche la carte de position en direct plus haut dans ce chat.\n2. Touche « Arrêter le partage ».\n\n✅ Clonexa n'enregistre plus ta position.",
+    "gps_stop_answer": "✅ Clonexa n'enregistre plus ta position.",
+    "gps_required_for_start_059C": "📍 Pour commencer le service, partage ta position en direct : touche 📎 › Position › Partager ma position en direct.\n⏱️ Choisis « 8 heures » : elle s'arrête seule à la fin de la journée. Ne choisis pas « Jusqu'à ce que je la désactive ».",
+    "shift_summary_059C": "Bon repos, {employee_name}.\n\nTotal cumulé de la période :\nOrdinaires : {regular}\nSupplémentaires : {extra}\n\nProjection paiement : {projected_pay}{discount_line}\nTotal estimé : {estimated_total}",
+    "shift_discount_059C": "Remise de la période : {discount}",
+})
+
+# Encendido solo si la empresa del bot tiene bot_gps_stop; se lee una vez por mensaje.
+GPS_STOP_059C: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_gps_stop", default=False)
+
+
+def _gps_stop_keyboard_059C(language: str) -> dict[str, Any]:
+    from app.services import bot_gps_stop
+
+    return {"inline_keyboard": [[{"text": _txt(language, "btn_gps_stop"), "callback_data": bot_gps_stop.STOP_CALLBACK}]]}
+
+
+def _bot_money_059C(value: Any) -> str:
+    """Con el interruptor: moneda de la empresa ("$1.10 USD"); con COP, el texto de siempre."""
+    if not GPS_STOP_059C.get():
+        return _format_money(value)
+    from app.services import bot_gps_stop, company_locale
+
+    return bot_gps_stop.money(value, company_locale.CURRENT_CURRENCY.get(), _format_money)
+
+
+async def _send_checkout_message_059C(token: str, chat_id: str | None, message_text: str, language: str) -> None:
+    """Cierre de turno: con el interruptor, el recordatorio de apagar la ubicación y su botón."""
+    if GPS_STOP_059C.get():
+        await _send_telegram_message(token, chat_id, f"{message_text}\n\n{_txt(language, 'gps_stop_reminder')}",
+                                     reply_markup=_gps_stop_keyboard_059C(language))
+    else:
+        await _send_telegram_message(token, chat_id, message_text)
+# CLONEXA_059C_BOT_GPS_STOP_END
+
+
 def _txt(language: str | None, key: str, **kwargs: Any) -> str:
     lang = _lang(language)
     template = BOT_TEXTS.get(lang, BOT_TEXTS[DEFAULT_LANGUAGE]).get(key)
@@ -2833,11 +2891,7 @@ async def _process_end_shift_summary_text(
 
     if send_replies:
         company = await ensure_company_exists(db, bot.company_id)
-        await _send_telegram_message(
-            token,
-            chat_id,
-            f"{message_text}\n\n{_txt(language, 'end_shift_summary_saved')}",
-        )
+        await _send_checkout_message_059C(token, chat_id, f"{message_text}\n\n{_txt(language, 'end_shift_summary_saved')}", language)
         await _send_dynamic_menu(
             db,
             token=token,
@@ -4456,6 +4510,23 @@ async def _shift_end_summary_message(
         fallback_projection=shift_projection,
     ) or shift_projection
 
+    if GPS_STOP_059C.get():
+        from app.services import bot_gps_stop
+
+        discount_value = Decimal(str(cutoff_projection["discount_total"]))
+        discount_line = "" if bot_gps_stop.is_zero(discount_value) else "\n" + _txt(language, "shift_discount_059C", discount=_bot_money_059C(discount_value))
+        summary = _txt(
+            language,
+            "shift_summary_059C",
+            employee_name=(employee.full_name or "").strip() or "colaborador",
+            regular=_format_minutes(int(cutoff_projection["regular_minutes"])),
+            extra=_format_minutes(int(cutoff_projection["extra_minutes"])),
+            projected_pay=_bot_money_059C(Decimal(str(cutoff_projection["projected_pay"]))),
+            discount_line=discount_line,
+            estimated_total=_bot_money_059C(Decimal(str(cutoff_projection["estimated_total"]))),
+        )
+        return f"{base}\n\n{summary}"
+
     summary = _txt(
         language,
         "shift_summary",
@@ -4869,6 +4940,23 @@ async def _process_telegram_location(
     if is_live_location:
         # Si Telegram sigue enviando ubicación después de finalizar turno,
         # CLONEXA la ignora para no contaminar CRM/Reportes de una jornada cerrada.
+        if GPS_STOP_059C.get():
+            # 059C: un solo recordatorio por cierre, con el botón para apagarla.
+            from app.services import bot_gps_stop
+
+            if await bot_gps_stop.claim_reminder(db, bot.company_id, telegram_user_id, employee.id, bot_gps_stop.close_marker(current)):
+                if send_replies:
+                    await _send_telegram_message(token, chat_id, _txt(language, "gps_stop_reminder"), reply_markup=_gps_stop_keyboard_059C(language))
+                return TelegramBotPollItem(
+                    update_id=update_id,
+                    ok=True,
+                    action="gps_live_ignored_reminder_sent",
+                    message="Ubicación en vivo descartada (sin turno); recordatorio enviado.",
+                    employee_id=employee.id,
+                    employee_name=employee.full_name,
+                    telegram_user_id=telegram_user_id,
+                    telegram_username=username,
+                )
         return TelegramBotPollItem(
             update_id=update_id,
             ok=True,
@@ -4907,11 +4995,15 @@ async def _process_telegram_update(
     # Fase A: el mensaje se atiende con la zona y la moneda de la empresa del bot.
     from app.services import company_locale
 
+    from app.services import bot_gps_stop
+
     tokens = company_locale.use(await company_locale.get_company_locale(db, bot.company_id))
     phone = PHONE_LANGUAGE_052D.set(_phone_language_052D(update))
+    gps_stop = GPS_STOP_059C.set(await bot_gps_stop.is_on(db, bot.company_id))  # 059C
     try:
         return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
     finally:
+        GPS_STOP_059C.reset(gps_stop)
         PHONE_LANGUAGE_052D.reset(phone)
         company_locale.reset(tokens)
 
@@ -4985,6 +5077,20 @@ async def _process_telegram_update_052C(
 
     # CLONEXA 015C-R5: language exists for every update, including Telegram callbacks.
     language = await _get_user_language(db, bot.company_id, telegram_user_id) if telegram_user_id else "es"
+
+    # 059C: con edited_message habilitado, un texto editado no repite la acción.
+    if GPS_STOP_059C.get():
+        from app.services import bot_gps_stop
+
+        if bot_gps_stop.edited_without_location(update):
+            return TelegramBotPollItem(update_id=update_id, ok=True, action="edited_ignored", message="Mensaje editado ignorado.")
+        if text_value == bot_gps_stop.STOP_CALLBACK:
+            if callback_query_id:
+                await _answer_callback_query(token, callback_query_id, _txt(language, "gps_stop_answer"))
+            if send_replies:
+                await _send_telegram_message(token, chat_id, _txt(language, "gps_stop_steps"))
+            return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_stop_steps", message="Pasos para apagar la ubicación enviados.",
+                                       telegram_user_id=telegram_user_id, telegram_username=username)
 
     if callback_query_id:
         await _answer_callback_query(token, callback_query_id)
@@ -5315,7 +5421,7 @@ async def _process_telegram_update_052C(
             await _send_telegram_message(
                 token,
                 chat_id,
-                _txt(language, "gps_location_pending" if pending else "gps_required_for_start"),
+                _txt(language, "gps_location_pending" if pending else ("gps_required_for_start_059C" if GPS_STOP_059C.get() else "gps_required_for_start")),
                 reply_markup=_remove_reply_keyboard(),
             )
         return TelegramBotPollItem(
@@ -5443,7 +5549,10 @@ async def _process_telegram_update_052C(
     await db.commit()
 
     if send_replies:
-        await _send_telegram_message(token, chat_id, message_text)
+        if command_config.get("event_type") == "check_out" and created:
+            await _send_checkout_message_059C(token, chat_id, message_text, language)
+        else:
+            await _send_telegram_message(token, chat_id, message_text)
         await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
 
     return TelegramBotPollItem(
