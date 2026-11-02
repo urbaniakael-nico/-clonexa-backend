@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from app.api.v1.endpoints.bots import (
     get_telegram_instance,
 )
 from app.core.database import AsyncSessionLocal
+from app.services.ddl_once import ddl_once
 from app.integrations.telegram.api import telegram_call
 
 router = APIRouter()
@@ -42,6 +44,7 @@ def public_base_url() -> str:
     return os.getenv("PUBLIC_BASE_URL", "https://clonexa-backend-production.up.railway.app").rstrip("/")
 
 
+@ddl_once("company_bot_storage")  # 060A: sin DDL (ni bloqueos de tabla) en cada mensaje
 async def ensure_company_bot_storage(db: AsyncSession) -> None:
     await db.execute(text('CREATE EXTENSION IF NOT EXISTS "pgcrypto";'))
 
@@ -1271,25 +1274,73 @@ async def process_company_telegram_update(
     token: str,
     update: dict[str, Any],
 ) -> None:
-    """Procesa un update ya aceptado (Telegram ya recibio su 200), con sesion propia."""
-    try:
-        async with AsyncSessionLocal() as db:
-            if flow_code == "velvet_references":
-                await handle_velvet_references(db=db, token=token, company_id=company_id, update=update)
-                return
+    """Procesa un update ya aceptado (Telegram ya recibio su 200), con sesion propia.
 
-            if flow_code == "field_operations":
-                bot = await get_telegram_instance(db, UUID(company_id))
-                if bot is None or not bot.bot_token_encrypted:
+    060A: los updates de un mismo chat van en orden, uno a la vez (los demas chats no
+    esperan); un choque de concurrencia en Postgres se reintenta con sesion nueva; si
+    aun asi falla una accion, la persona recibe "No pudimos registrar tu accion"
+    (nunca silencio) y el log trae el error real (sin secretos)."""
+    from app.services import telegram_chat_queue as queue
+
+    kind = queue.update_kind(update)
+    meta = {"update_id": update.get("update_id"), "kind": kind, "tg_user": queue.user_id_of(update)}
+
+    async def work() -> None:
+        async with AsyncSessionLocal() as db:
+            try:
+                if flow_code == "velvet_references":
+                    await handle_velvet_references(db=db, token=token, company_id=company_id, update=update)
                     return
-                await _process_telegram_update(db, bot=bot, token=token, update=update, send_replies=True)
+
+                if flow_code == "field_operations":
+                    bot = await get_telegram_instance(db, UUID(company_id))
+                    if bot is None or not bot.bot_token_encrypted:
+                        return
+                    await _process_telegram_update(db, bot=bot, token=token, update=update, send_replies=True)
+            except Exception:
+                with contextlib.suppress(Exception):
+                    await db.rollback()
+                raise
+
+    def retrying(attempt: int, exc: BaseException) -> None:
+        info = queue.describe_error(exc)
+        logger.warning("Telegram update %s (%s) de la empresa %s: choque de concurrencia (%s %s), reintento %d",
+                       meta["update_id"], kind, company_id, info["sqlstate"], info["driver_type"], attempt)
+
+    key = f"{company_id}:{queue.chat_id_of(update) or meta['tg_user'] or meta['update_id']}"
+    try:
+        await queue.run_in_order(key, work, on_retry=retrying)
     except Exception as exc:
+        info = queue.describe_error(exc)
         logger.warning(
-            "Telegram update %s de la empresa %s fallo en segundo plano (%s)",
-            update.get("update_id"),
-            company_id,
-            type(exc).__name__,
+            "Telegram update %s de la empresa %s fallo en segundo plano (%s) tipo=%s usuario_telegram=%s driver=%s sqlstate=%s mensaje=%s",
+            meta["update_id"], company_id, info["type"], kind, meta["tg_user"], info["driver_type"], info["sqlstate"], info["message"],
         )
+        if flow_code == "field_operations" and queue.is_action(update):
+            await send_failure_reply_060A(token, update)
+
+
+FAILURE_REPLY_060A = {
+    "es": "⚠️ No pudimos registrar tu acción, intenta de nuevo.",
+    "en": "⚠️ We couldn't register your action, please try again.",
+}
+
+
+async def send_failure_reply_060A(token: str, update: dict[str, Any]) -> None:
+    """Nunca silencio: la persona sabe que debe tocar otra vez. Sin la base (puede ser lo que fallo)."""
+    from app.services import telegram_chat_queue as queue
+
+    chat_id = queue.chat_id_of(update)
+    if not chat_id:
+        return
+    callback = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
+    source = callback or update.get("message") or {}
+    code = str(((source or {}).get("from") or {}).get("language_code") or "").lower()[:2]
+    with contextlib.suppress(Exception):
+        if callback and callback.get("id"):
+            await telegram_post(token, "answerCallbackQuery", {"callback_query_id": callback.get("id")})
+    with contextlib.suppress(Exception):
+        await send_message(token, chat_id, FAILURE_REPLY_060A.get(code, FAILURE_REPLY_060A["es"]))
 
 
 @router.post("/telegram/webhook/{company_id}")
@@ -1300,6 +1351,17 @@ async def company_telegram_webhook(
     db: AsyncSession = Depends(get_db),
     x_telegram_bot_api_secret_token: str | None = Header(None),
 ) -> dict[str, Any]:
+    from app.services import bot_punch_gps
+
+    # 060B: con bot_punch_gps, cada actualizacion de una ubicacion en vivo se descarta
+    # aqui, antes de tocar la base (la sesion no abre conexion) y sin responder.
+    try:
+        early_update = await request.json()
+    except Exception:
+        early_update = None
+    if bot_punch_gps.drop_early(company_id, early_update, x_telegram_bot_api_secret_token):
+        return {"ok": True, "ignored": "live_location_update"}
+
     await ensure_company_bot_storage(db)
 
     row = await bot_config_row(db, company_id)
@@ -1343,6 +1405,10 @@ async def company_telegram_webhook(
     from app.services import bot_gps_stop
 
     live_updates = flow_code == "field_operations" and await bot_gps_stop.is_on(db, company_id)  # 059C
+    punch_on = flow_code == "field_operations" and await bot_punch_gps.is_on(db, company_id)  # 060B
+    bot_punch_gps.remember(company_id, punch_on, expected_secret)
+    if punch_on and bot_punch_gps.is_live_edit(update):
+        return {"ok": True, "ignored": "live_location_update"}
     if live_updates and not config_json.get("live_updates_059C"):
         background_tasks.add_task(ensure_live_location_updates_059C, company_id, token,
                                   clean(config_json.get("webhook_url")) or f"{public_base_url()}/api/v1/company-bots-v1/telegram/webhook/{company_id}",

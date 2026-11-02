@@ -46,6 +46,7 @@ from app.schemas.bot import (
     TelegramBotPollOut,
     TelegramBotTestOut,
 )
+from app.services.ddl_once import ddl_once
 from app.services.event_engine import EventEngine
 from app.services.shoplink_whatsapp_web import (
     whatsapp_line,
@@ -137,6 +138,7 @@ async def ensure_company_exists(db: AsyncSession, company_id: UUID) -> Company:
     return company
 
 
+@ddl_once("bot_storage")  # 060A: sin DDL (ni bloqueos de tabla) en cada mensaje
 async def ensure_bot_storage(db: AsyncSession) -> None:
     await db.execute(text('CREATE EXTENSION IF NOT EXISTS "pgcrypto";'))
     await db.execute(text("""
@@ -1953,6 +1955,16 @@ async def _send_checkout_message_059C(token: str, chat_id: str | None, message_t
         from app.services import bot_gps_stop
 
         current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+        if PUNCH_GPS_060.get():
+            # 060B: el recordatorio solo si compartio ubicacion en vivo en este turno.
+            from app.services import bot_punch_gps
+
+            shared = await bot_punch_gps.take_live_shared(db, company_id=employee.company_id, telegram_user_id=telegram_user_id,
+                                                          since=getattr(current, "check_in_at", None))
+            await db.commit()
+            if not shared:
+                await _send_telegram_message(token, chat_id, message_text)
+                return
         if await bot_gps_stop.claim_reminder(db, employee.company_id, telegram_user_id, employee.id, bot_gps_stop.close_marker(current)):
             await _send_telegram_message(token, chat_id, f"{message_text}\n\n{_txt(language, 'gps_stop_reminder')}",
                                          reply_markup=_gps_stop_keyboard_059C(language))
@@ -1989,6 +2001,131 @@ async def _process_gps_stop_button_059D(db: AsyncSession, *, bot: Any, token: st
                                message="Pasos para apagar la ubicación enviados.", employee_id=employee.id if employee else None,
                                employee_name=employee.full_name if employee else None, telegram_user_id=telegram_user_id, telegram_username=username)
 # CLONEXA_059C_BOT_GPS_STOP_END
+
+
+# CLONEXA_060B_BOT_PUNCH_GPS_START: ubicacion solo en cada marcacion (interruptor bot_punch_gps, VOLTAGE).
+PUNCH_GPS_060: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_punch_gps", default=False)
+BOT_TEXTS["es"]["punch_shift_started_060"] = "✅ Ubicación recibida.\nInicio de turno registrado."
+BOT_TEXTS["en"]["punch_shift_started_060"] = "✅ Location received.\nShift started."
+BOT_TEXTS["fr"]["punch_shift_started_060"] = "✅ Position reçue.\nDébut de service enregistré."
+
+
+def _punch_location_060(message: dict[str, Any], gps_event: Any, *, via_live: bool) -> dict[str, Any]:
+    """Lo que la marcacion guarda de su ubicacion: hora, lat/lng, precision y perimetro."""
+    location = message.get("location") or {}
+    payload = dict(getattr(gps_event, "payload_json", None) or {})
+    at = getattr(gps_event, "occurred_at", None)
+    return {
+        "gps_event_id": str(getattr(gps_event, "id", "") or ""),
+        "located_at": at.isoformat() if hasattr(at, "isoformat") else None,
+        "latitude": location.get("latitude"),
+        "longitude": location.get("longitude"),
+        "horizontal_accuracy": location.get("horizontal_accuracy"),
+        "gps_status": payload.get("gps_status") or "unconfigured",
+        "gps_status_label": payload.get("gps_status_label") or "Sin perímetro",
+        "matched_perimeter_name": payload.get("matched_perimeter_name"),
+        "via_live_location": via_live,
+    }
+
+
+async def _request_punch_location_060(db: AsyncSession, *, bot: Any, token: str, update_id: Any, employee: Any, command: str, args: str,
+                                      telegram_user_id: str, username: str | None, chat_id: str | None, language: str,
+                                      send_replies: bool) -> "TelegramBotPollItem":
+    """Marcacion tocada: queda pendiente hasta que llegue la ubicacion de ese momento."""
+    from app.services import bot_punch_gps
+
+    await bot_punch_gps.set_pending(db, company_id=bot.company_id, telegram_user_id=telegram_user_id, username=username,
+                                    employee_id=employee.id, chat_id=chat_id, language=_lang(language), command=command, args=args)
+    await db.commit()
+    if send_replies:
+        await _send_telegram_message(token, chat_id, bot_punch_gps.t(_lang(language), "prompt"), reply_markup=bot_punch_gps.keyboard(_lang(language)))
+    return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_punch_requested", message=f"Ubicación pedida para {command}.",
+                               employee_id=employee.id, employee_name=employee.full_name, telegram_user_id=telegram_user_id,
+                               telegram_username=username)
+
+
+async def _process_punch_location_060(db: AsyncSession, *, bot: Any, token: str, update: dict[str, Any], message: dict[str, Any],
+                                      employee: Any, company: Any, telegram_user_id: str, username: str | None, chat_id: str | None,
+                                      language: str, latitude: float, longitude: float, send_replies: bool) -> "TelegramBotPollItem":
+    """Llego una ubicacion (no una actualizacion en vivo: esas se ignoran en el webhook)."""
+    from app.services import bot_punch_gps
+
+    update_id = update.get("update_id")
+    via_live = _is_live_location_message(message)
+    base = {"employee_id": employee.id, "employee_name": employee.full_name, "telegram_user_id": telegram_user_id, "telegram_username": username}
+    pending = await bot_punch_gps.get_pending(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+    current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+
+    if pending is None:
+        if via_live:
+            # Comparte en vivo sin marcacion pendiente: nada se guarda; solo se anota
+            # para recordarle apagarla al finalizar (si tiene turno abierto).
+            if _current_status_key(current) in {"working", "on_break"}:
+                await bot_punch_gps.mark_live_shared(db, company_id=bot.company_id, telegram_user_id=telegram_user_id, employee_id=employee.id)
+                await db.commit()
+            return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_live_ignored_no_punch",
+                                       message="Ubicación en vivo sin marcación pendiente: ignorada.", **base)
+        if send_replies:
+            await _send_telegram_message(token, chat_id, bot_punch_gps.t(language, "no_pending"), reply_markup=_remove_reply_keyboard())
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+        return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_no_pending", message="Ubicación sin marcación pendiente.", **base)
+
+    command = str(pending.get("command") or "")
+    args = str(pending.get("args") or "")
+    command_config = TELEGRAM_COMMANDS.get(command)
+    if command_config is None:
+        await bot_punch_gps.clear_pending(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await db.commit()
+        return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_punch_unknown", message="Marcación pendiente desconocida.", **base)
+
+    ok, error = _validate_turn_transition(current=current, command_config=command_config, language=language)
+    if not ok:
+        await bot_punch_gps.clear_pending(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(token, chat_id, error or _txt(language, "must_start_shift"), reply_markup=_remove_reply_keyboard())
+            await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+        return TelegramBotPollItem(update_id=update_id, ok=False, action="turn_validation_failed", message=error or "Transición inválida.", **base)
+
+    gps_event = await _create_gps_location_event(db, bot=bot, employee=employee, update=update, message=message, latitude=latitude,
+                                                 longitude=longitude, language=language,
+                                                 source_ref_suffix=f"gps_punch:{command_config.get('event_type')}")
+    punch = _punch_location_060(message, gps_event, via_live=via_live)
+    await bot_punch_gps.clear_pending(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+    if via_live:
+        await bot_punch_gps.mark_live_shared(db, company_id=bot.company_id, telegram_user_id=telegram_user_id, employee_id=employee.id)
+    turn_action = command_config.get("turn_action")
+
+    if turn_action == "end_shift" and not args:
+        # Finalizar sigue pidiendo el resumen del dia; la salida lleva esta ubicacion.
+        await _set_pending_end_shift_summary(db, company_id=bot.company_id, telegram_user_id=telegram_user_id, telegram_username=username,
+                                             employee_id=employee.id, chat_id=chat_id, language=language, punch_location=punch)
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(token, chat_id, _txt(language, "end_shift_summary_prompt"), reply_markup=_remove_reply_keyboard())
+        return TelegramBotPollItem(update_id=update_id, ok=True, action="end_shift_summary_requested",
+                                   message=_txt(language, "end_shift_summary_required"), event_created=False, **base)
+
+    if command in bot_punch_gps.MATERIAL_COMMANDS:
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(token, chat_id, bot_punch_gps.t(language, "material_ok"), reply_markup=_remove_reply_keyboard())
+            await _send_materials_webapp_button(token=token, chat_id=chat_id, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        return TelegramBotPollItem(update_id=update_id, ok=True, action="materials_webapp_button", message="Botón Web App Materiales enviado.", **base)
+
+    created, message_text = await _create_bot_attendance_event(db, bot=bot, employee=employee, update=update, message=message, command=command,
+                                                               args=args, command_config=command_config, language=language, punch_location=punch)
+    await db.commit()
+    if send_replies:
+        if command_config.get("event_type") == "check_out" and created:
+            await _send_checkout_message_059C(token, chat_id, message_text, language, db=db, employee=employee, telegram_user_id=telegram_user_id)
+        else:
+            reply = _txt(language, "punch_shift_started_060") if turn_action == "start_shift" and created else message_text
+            await _send_telegram_message(token, chat_id, reply, reply_markup=_remove_reply_keyboard())
+        await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
+    return TelegramBotPollItem(update_id=update_id, ok=created, action=command_config["event_type"], message=message_text,
+                               event_created=created, **base)
+# CLONEXA_060B_BOT_PUNCH_GPS_END
 
 
 def _txt(language: str | None, key: str, **kwargs: Any) -> str:
@@ -2178,6 +2315,7 @@ def _employee_can_request_material(employee: Employee | None) -> bool:
 
 
 
+@ddl_once("gps_perimeter_storage")  # 060A: sin DDL (ni bloqueos de tabla) en cada mensaje
 async def _ensure_gps_perimeter_storage(db: AsyncSession) -> None:
     """
     014B GPS:
@@ -2368,7 +2506,7 @@ def _menu_keyboard(language: str, enabled_modules: set[str], status_text: str | 
     extra_rows: list[list[dict[str, str]]] = []
     if "materials" in enabled_modules and "inventory" in enabled_modules and _employee_can_request_material(employee):
         extra_rows.append([{"text": _txt(language, "btn_material"), "callback_data": "clx:cmd:material"}])
-    if "gps" in enabled_modules:
+    if "gps" in enabled_modules and not PUNCH_GPS_060.get():  # 060B: sin seguimiento aparte, la ubicacion va en cada marcacion
         extra_rows.append([{"text": _txt(language, "btn_location"), "callback_data": "clx:cmd:ubicacion"}])
     if "field" in enabled_modules:
         extra_rows.append([{"text": _txt(language, "btn_task"), "callback_data": "clx:cmd:tarea"}])
@@ -2745,6 +2883,7 @@ async def _set_pending_end_shift_summary(
     employee_id: UUID,
     chat_id: str | None,
     language: str,
+    punch_location: dict[str, Any] | None = None,
 ) -> None:
     await ensure_bot_storage(db)
     await db.execute(
@@ -2787,6 +2926,7 @@ async def _set_pending_end_shift_summary(
                     "chat_id": chat_id,
                     "language": _lang(language),
                     "reason": "end_shift_summary_required",
+                    **({"punch_location": punch_location} if punch_location else {}),  # 060B
                 }
             ),
         },
@@ -2906,6 +3046,7 @@ async def _process_end_shift_summary_text(
         )
 
     command_config = TELEGRAM_COMMANDS["/salida"]
+    pending_payload = _pending_payload(pending)  # 060B: jsonb puede llegar como texto
     created, message_text = await _create_bot_attendance_event(
         db,
         bot=bot,
@@ -2916,6 +3057,7 @@ async def _process_end_shift_summary_text(
         args=summary,
         command_config=command_config,
         language=language,
+        punch_location=pending_payload.get("punch_location") if PUNCH_GPS_060.get() else None,  # 060B
     )
 
     await _clear_pending_end_shift_summary(
@@ -2951,6 +3093,7 @@ async def _process_end_shift_summary_text(
     )
 
 
+@ddl_once("material_requests_storage")  # 060A: sin DDL (ni bloqueos de tabla) en cada mensaje
 async def _ensure_material_requests_storage(db: AsyncSession) -> None:
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS material_requests (
@@ -4639,6 +4782,7 @@ async def _create_bot_attendance_event(
     args: str,
     command_config: dict[str, Any],
     language: str = DEFAULT_LANGUAGE,
+    punch_location: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     update_id = str(update.get("update_id") or "")
     message_id = str(message.get("message_id") or "")
@@ -4706,6 +4850,13 @@ async def _create_bot_attendance_event(
         },
         occurred_at=occurred_at,
     )
+    if punch_location:
+        # 060B: la marcacion guarda la ubicacion de ese momento (CRM Campo / GPS).
+        with contextlib.suppress(Exception):
+            event.latitude = Decimal(str(punch_location.get("latitude")))
+            event.longitude = Decimal(str(punch_location.get("longitude")))
+        event.payload_json = {**(event.payload_json or {}), "punch_location": punch_location,
+                              "gps_status": punch_location.get("gps_status"), "gps_status_label": punch_location.get("gps_status_label")}
     db.add(event)
     await db.flush()
 
@@ -4829,6 +4980,11 @@ async def _process_telegram_location(
         longitude = float(location.get("longitude"))
     except Exception:
         return TelegramBotPollItem(update_id=update_id, ok=False, action="gps_location_invalid", message="Ubicación inválida.")
+
+    if PUNCH_GPS_060.get():  # 060B: la ubicacion es de una marcacion
+        return await _process_punch_location_060(db, bot=bot, token=token, update=update, message=message, employee=employee, company=company,
+                                                 telegram_user_id=telegram_user_id, username=username, chat_id=chat_id, language=language,
+                                                 latitude=latitude, longitude=longitude, send_replies=send_replies)
 
     pending = await _get_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
     current = await _get_current_attendance_status(db, employee.company_id, employee.id)
@@ -5022,9 +5178,13 @@ async def _process_telegram_update(
     tokens = company_locale.use(await company_locale.get_company_locale(db, bot.company_id))
     phone = PHONE_LANGUAGE_052D.set(_phone_language_052D(update))
     gps_stop = GPS_STOP_059C.set(await bot_gps_stop.is_on(db, bot.company_id))  # 059C
+    from app.services import bot_punch_gps
+
+    punch = PUNCH_GPS_060.set(await bot_punch_gps.is_on(db, bot.company_id))  # 060B
     try:
         return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
     finally:
+        PUNCH_GPS_060.reset(punch)
         GPS_STOP_059C.reset(gps_stop)
         PHONE_LANGUAGE_052D.reset(phone)
         company_locale.reset(tokens)
@@ -5096,6 +5256,12 @@ async def _process_telegram_update_052C(
 
     telegram_user_id, username, first_name, chat_id, raw_text, callback_query_id = _telegram_identity_from_update(update)
     text_value = (raw_text or "").strip()
+
+    if PUNCH_GPS_060.get():
+        from app.services import bot_punch_gps
+
+        if bot_punch_gps.is_live_edit(update):  # 060B: actualizacion en vivo: nada que hacer
+            return TelegramBotPollItem(update_id=update_id, ok=True, action="gps_live_update_ignored", message="Actualización en vivo ignorada.")
 
     # CLONEXA 015C-R5: language exists for every update, including Telegram callbacks.
     language = await _get_user_language(db, bot.company_id, telegram_user_id) if telegram_user_id else "es"
@@ -5338,6 +5504,8 @@ async def _process_telegram_update_052C(
             )
 
     command_config = TELEGRAM_COMMANDS.get(command)
+    if PUNCH_GPS_060.get() and command == "/ubicacion":
+        command_config = None  # 060B: ya no hay seguimiento de ubicacion aparte
     if command_config is None:
         employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
         reply = _txt(language, "unknown")
@@ -5423,6 +5591,14 @@ async def _process_telegram_update_052C(
             telegram_user_id=telegram_user_id,
             telegram_username=username,
         )
+
+    if PUNCH_GPS_060.get() and "gps" in enabled_modules and telegram_user_id:
+        from app.services import bot_punch_gps
+
+        if bot_punch_gps.needs_location(command, command_config):  # 060B: ubicacion de este momento
+            return await _request_punch_location_060(db, bot=bot, token=token, update_id=update_id, employee=employee, command=command,
+                                                     args=args, telegram_user_id=telegram_user_id, username=username, chat_id=chat_id,
+                                                     language=language, send_replies=send_replies)
 
     if command_config.get("turn_action") == "start_shift" and "gps" in enabled_modules:
         pending = await _get_pending_gps_checkin(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)

@@ -150,3 +150,49 @@ def test_cutoff_closes_old_bot_shift_and_other_companies(pg_url):
             await engine.dispose()
 
     asyncio.run(run())
+
+
+MODULES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS modules (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE NOT NULL, name text);
+CREATE TABLE IF NOT EXISTS company_modules (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid, module_id uuid,
+  enabled boolean DEFAULT true, settings jsonb DEFAULT '{}'::jsonb)
+"""
+
+
+def test_cutoff_skips_companies_with_open_shift_alert(pg_url):
+    """060C: con open_shift_alert (VOLTAGE) el turno nunca se cierra solo a las 00:00;
+    otra empresa con el mismo turno viejo y sin el interruptor se corta como siempre."""
+    async def run():
+        engine = create_async_engine(pg_url)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with maker() as db:
+                for stmt in [s for s in MODULES_SCHEMA.split(";") if s.strip()]:
+                    await db.execute(text(stmt))
+                await db.execute(text("TRUNCATE company_modules, modules"))
+                ids = await _seed(db)  # urb: turno de bot abierto; otra: mini panel abierto
+                mid = (await db.execute(text("INSERT INTO modules (code, name) VALUES ('workforce', 'Personal') RETURNING id::text"))).scalar()
+                await db.execute(text("""INSERT INTO company_modules (company_id, module_id, enabled, settings) VALUES
+                                         (CAST(:u AS uuid), CAST(:m AS uuid), true, '{"open_shift_alert": true, "bot_punch_gps": true}'::jsonb),
+                                         (CAST(:o AS uuid), CAST(:m AS uuid), true, '{"open_shift_alert": false}'::jsonb)"""),
+                                 {"u": ids["urb"], "o": ids["otra"], "m": mid})
+                await db.commit()
+                assert await cutoff.companies_without_cutoff(db) == {ids["urb"]}
+
+                done = await cutoff.run_all_cutoffs(db, utc("2026-10-11T16:00:00"))
+                by_company = {d["company_id"]: d for d in done}
+                assert ids["urb"] not in by_company, "con open_shift_alert no hay corte de las 00:00"
+                assert by_company[ids["otra"]]["sessions"] == 1, "las demás empresas siguen igual"
+                status = (await db.execute(text("SELECT status, check_out_at FROM workforce_attendance_status WHERE employee_id = CAST(:e AS uuid)"),
+                                           {"e": ids["nico"]})).mappings().first()
+                assert status["status"] == "working" and status["check_out_at"] is None, "el turno sigue abierto"
+                closed = (await db.execute(text("SELECT count(*) FROM workforce_attendance_events WHERE company_id = CAST(:c AS uuid) AND event_type = 'check_out'"),
+                                           {"c": ids["urb"]})).scalar()
+                assert closed == 0
+                await db.execute(text("DROP TABLE company_modules"))
+                await db.execute(text("DROP TABLE modules"))
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())

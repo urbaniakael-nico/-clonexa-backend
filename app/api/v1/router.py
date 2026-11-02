@@ -28,6 +28,7 @@ for _module_name, _prefix, _tags in [
     ("workforce_sessions", "/workforce-sessions", ["workforce_sessions"]),
     ("employee_roles", "/employee-roles", ["employee_roles"]),
     ("work_locations", "/work-locations", ["work_locations"]),
+    ("open_shifts", "/open-shifts", ["open_shifts"]),
     ("gps", "/gps", ["gps"]),
     ("inventory", "/inventory", ["inventory"]),
     ("materials", "/materials", ["materials"]),

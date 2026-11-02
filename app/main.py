@@ -592,6 +592,17 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.payroll").warning("No se pudo iniciar el corte automatico de nomina: %s", exc)
 
     try:
+        # 060B/060C: recordatorio de ubicacion a los 3 min (bot_punch_gps) y aviso de
+        # turno abierto (open_shift_alert). Sin interruptores encendidos no envia nada.
+        from app.services.bot_punch_gps import start_loop as start_bot_punch_loop
+
+        start_bot_punch_loop()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.bot_punch_gps").warning("No se pudo iniciar el ciclo del bot: %s", exc)
+
+    try:
         # Turnos: propuestas de cambio vencidas pasan al siguiente candidato (calculado desde la base).
         from app.services.shifts import start_expire_loop
 

@@ -177,7 +177,8 @@ async def test_write_entry_inserts_only_metadata_and_prunes_180_days(monkeypatch
 
     session = FakeSession()
     monkeypatch.setattr(database, "AsyncSessionLocal", lambda: session)
-    monkeypatch.setattr(audit, "_last_prune", 0.0)
+    # Hace 13 h (no 0.0: en Windows time.monotonic() cuenta desde el encendido del equipo).
+    monkeypatch.setattr(audit, "_last_prune", audit.time.monotonic() - 13 * 3600)
     await audit.write_entry({"actor": "x", "ip": "1.1.1.1", "method": "POST", "path": "/a", "company_id": None,
                              "status_code": 200, "surface": "v2plus", "detail": {"company_name": "Demo"}})
     insert, params = session.statements[0]

@@ -34008,6 +34008,7 @@ function inventoryCreatePayload() {
       workLocations: cxWorkLocationsOn059A(), // 059A: lugares solo con el interruptor
       authApi: api,
     });
+    cxOpenShiftsAttach060C("cxWorkforceV2Host051B"); // 060C: solo con open_shift_alert
     return true;
   }
   /* CLONEXA_051B_WORKFORCE_V2_END */
@@ -34100,7 +34101,7 @@ function inventoryCreatePayload() {
           </section>
         </div>
       </main>`;
-    return window.CxCrmPlaces.mount({
+    const mounted = await window.CxCrmPlaces.mount({
       companyId: state.companyId,
       api,
       host: () => document.getElementById("cxCrmPlacesHost059A"),
@@ -34108,8 +34109,58 @@ function inventoryCreatePayload() {
       detail: cxCrmPlacesDetail059A,
       afterDetail: () => crmStartRealtimeTimers018B(),
     });
+    if (mounted) cxOpenShiftsAttach060C("cxCrmPlacesHost059A"); // 060C: solo con open_shift_alert
+    return mounted;
   }
   /* CLONEXA_059A_WORK_LOCATIONS_END */
+
+  /* CLONEXA_060C_OPEN_SHIFTS_START: Turnos abiertos y "Cerrar turno" (interruptor
+     open_shift_alert en settings del modulo workforce, apagado por defecto; hoy solo
+     VOLTAGE). Se monta arriba de CRM Campo por lugar y de Personal v2. Sin el
+     interruptor, sin turnos abiertos o si su archivo no carga: nada cambia. */
+  function cxOpenShiftsOn060C() {
+    const item = activeClientModules().find((m) => m.code === "workforce");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.open_shift_alert === true;
+  }
+
+  let cxOpenShiftsLoading060C = null;
+  function cxOpenShiftsLoad060C() {
+    if (window.CxOpenShifts) return Promise.resolve();
+    if (!cxOpenShiftsLoading060C) {
+      cxOpenShiftsLoading060C = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxOpenShiftsCss060C")) {
+          const link = document.createElement("link");
+          link.id = "cxOpenShiftsCss060C";
+          link.rel = "stylesheet";
+          link.href = "/client-static/open_shifts.css?v=060C";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/open_shifts.js?v=060C";
+        script.onload = () => resolve();
+        script.onerror = () => { cxOpenShiftsLoading060C = null; reject(new Error("open_shifts")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxOpenShiftsLoading060C;
+  }
+
+  async function cxOpenShiftsAttach060C(anchorId) {
+    if (!cxOpenShiftsOn060C()) return false;
+    try { await cxOpenShiftsLoad060C(); } catch (_) { return false; }
+    const anchor = document.getElementById(anchorId);
+    if (!anchor || !window.CxOpenShifts || typeof window.CxOpenShifts.mount !== "function") return false;
+    let slot = document.getElementById("cxOpenShiftsHost060C");
+    if (!slot) {
+      slot = document.createElement("div");
+      slot.id = "cxOpenShiftsHost060C";
+      anchor.parentNode.insertBefore(slot, anchor);
+    }
+    return window.CxOpenShifts.mount({ companyId: state.companyId, api, host: () => document.getElementById("cxOpenShiftsHost060C") });
+  }
+  /* CLONEXA_060C_OPEN_SHIFTS_END */
 
   async function renderPersonalModule() {
     await cxLoadEmployeeRoles051A();

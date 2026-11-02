@@ -335,7 +335,7 @@ test('tema: CSS nuevos sin colores fijos salvo los respaldos semánticos', () =>
 
 test('059B: el navegador pide client.js y crm_places nuevos (versión en la URL) y la caída al CRM de siempre avisa', () => {
   const html = readFileSync('app/web/client.html', 'utf8');
-  assert.match(html, /\/client-static\/client\.js\?v=[^"]*_059B"/, 'client.js con la versión 059B');
+  assert.match(html, /\/client-static\/client\.js\?v=[^"]*_059B[^"]*"/, 'client.js con la versión 059B (o posterior)');
   assert.match(CLIENT, /crm_places\.js\?v=059B/);
   assert.match(CLIENT, /crm_places\.css\?v=059B/);
   const i = CLIENT.indexOf('async function renderCrmModule()');

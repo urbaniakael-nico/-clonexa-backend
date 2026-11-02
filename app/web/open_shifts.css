@@ -1,0 +1,28 @@
+/* Turnos abiertos (interruptor open_shift_alert). Sin colores propios: el tema
+   de la empresa (--cx-*); el aviso de "mas de N h" usa el color de acento. */
+.cxos-root {
+  --cxos-line: color-mix(in srgb, var(--cx-text) 20%, transparent);
+  display: grid; gap: 8px; margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; min-width: 0;
+  border: 1px solid var(--cxos-line); background: var(--cx-bg); color: var(--cx-text);
+}
+.cxos-root * { box-sizing: border-box; }
+.cxos-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
+.cxos-head h3 { margin: 0; font-size: 18px; }
+.cxos-badge { font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 2px solid var(--cx-primary); }
+.cxos-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cxos-row {
+  display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: 10px; border: 1px solid var(--cxos-line);
+}
+.cxos-row.is-long { border-left: 4px solid var(--cx-primary); }
+.cxos-main { display: grid; gap: 2px; min-width: 0; font-size: 14px; }
+.cxos-form { flex: 1 1 100%; display: grid; gap: 8px; }
+.cxos-form label { display: grid; gap: 4px; font-size: 14px; font-weight: 600; }
+.cxos-form input, .cxos-form textarea {
+  font: inherit; min-height: 44px; padding: 8px 10px; border-radius: 10px; width: 100%;
+  border: 1px solid var(--cxos-line); background: var(--cx-bg); color: var(--cx-text);
+}
+.cxos-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cxos-error { margin: 0; font-weight: 700; }
+.cxos-saved { margin: 0; font-weight: 600; }
+.cxos-root button:focus-visible, .cxos-root input:focus-visible, .cxos-root textarea:focus-visible { outline: 3px solid var(--cx-primary); outline-offset: 2px; }

@@ -370,10 +370,33 @@ async def companies_with_open_work(db: AsyncSession) -> list[str]:
     return [str(row["company_id"]) for row in result.mappings().all()]
 
 
+async def companies_without_cutoff(db: AsyncSession) -> set[str]:
+    """060C: empresas con el interruptor open_shift_alert (hoy VOLTAGE): su turno vive
+    en el servidor y NUNCA se cierra solo; el supervisor recibe el aviso y lo cierra con
+    la hora real desde el portal. Por eso el corte de las 00:00 no las toca. Las demas
+    empresas siguen igual. Ante cualquier error: ninguna excluida (el corte de siempre)."""
+    try:
+        if not (await db.execute(text("SELECT to_regclass('company_modules') IS NOT NULL"))).scalar():
+            return set()
+        rows = (await db.execute(text("""
+            SELECT cm.company_id::text FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+            WHERE lower(m.code) = 'workforce' AND COALESCE(cm.enabled, true) IS TRUE
+              AND (cm.settings::jsonb ->> 'open_shift_alert') = 'true'
+        """))).all()
+    except Exception as exc:
+        await db.rollback()
+        log.warning("No se pudo leer open_shift_alert para el corte diario: %s", type(exc).__name__)
+        return set()
+    return {str(r[0]) for r in rows}
+
+
 async def run_all_cutoffs(db: AsyncSession, now_utc: datetime | None = None) -> list[dict]:
     now_utc = now_utc or datetime.now(timezone.utc)
     done = []
+    skip = await companies_without_cutoff(db)
     for company_id in await companies_with_open_work(db):
+        if company_id in skip:
+            continue  # 060C: open_shift_alert: el turno no se cierra solo
         try:
             done.append(await run_company_cutoff(db, company_id, now_utc))
         except Exception as exc:  # una empresa con datos raros no frena a las demas

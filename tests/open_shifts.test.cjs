@@ -1,0 +1,120 @@
+// Turnos abiertos y "Cerrar turno" (interruptor open_shift_alert).
+// - Apagado (otra empresa): client.js no carga el archivo ni cambia CRM Campo / Personal.
+// - Encendido (VOLTAGE): lista de turnos abiertos con horas, "más de 12 h", y Cerrar
+//   turno con la hora real de salida EN LA HORA DEL LUGAR y nota obligatoria.
+const { readFileSync } = require('node:fs');
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+
+const SRC = readFileSync('app/web/open_shifts.js', 'utf8');
+const CSS = readFileSync('app/web/open_shifts.css', 'utf8');
+const CLIENT = readFileSync('app/web/client.js', 'utf8').replace(/\r\n/g, '\n');
+
+function load() {
+  const window = {};
+  const listeners = {};
+  const document = { addEventListener: (t, f) => { listeners[t] = f; } };
+  vm.runInNewContext(SRC, { window, document, Intl, Date, setInterval: () => 1, clearInterval: () => {}, console });
+  return { O: window.CxOpenShifts, listeners };
+}
+
+const DATA = {
+  ok: true, alert_hours: 12, can_close: true, long_open: 1,
+  shifts: [
+    { employee_id: 'e1', employee_name: 'Ana <b>', status: 'working', shift_started_at: '2026-11-01T11:00:00Z', hours_open: 13.5,
+      work_location_id: 'va', work_location_name: 'Virginia', timezone: 'America/New_York' },
+    { employee_id: 'e2', employee_name: 'Dan', status: 'on_break', shift_started_at: '2026-11-02T19:00:00Z', hours_open: 5,
+      work_location_id: null, work_location_name: null, timezone: 'America/Chicago' },
+  ],
+};
+
+test('hora del lugar <-> UTC, también con cambio de horario', () => {
+  const { O } = load();
+  assert.equal(O.zonedToUtcIso('2026-11-02T18:30', 'America/New_York'), '2026-11-02T23:30:00Z', 'EST = UTC-5');
+  assert.equal(O.zonedToUtcIso('2026-07-02T18:30', 'America/New_York'), '2026-07-02T22:30:00Z', 'EDT = UTC-4');
+  assert.equal(O.zonedToUtcIso('2026-11-02T18:30', 'America/Chicago'), '2026-11-03T00:30:00Z');
+  assert.equal(O.utcToZonedInput('2026-11-02T23:30:00Z', 'America/New_York'), '2026-11-02T18:30');
+  assert.equal(O.zonedToUtcIso('mañana', 'America/New_York'), '');
+  assert.equal(O.hoursLabel(13.5), '13 h 30 min');
+});
+
+test('validación igual que el servidor: salida después del inicio, no futura, nota obligatoria', () => {
+  const { O } = load();
+  const shift = DATA.shifts[0];
+  const now = Date.parse('2026-11-02T02:00:00Z');
+  assert.equal(O.validate({ end_local: '', note: 'olvidó finalizar' }, shift, now).field, 'end_at');
+  assert.equal(O.validate({ end_local: '2026-11-01T05:00', note: 'olvidó finalizar' }, shift, now).field, 'end_at', 'antes del inicio');
+  assert.equal(O.validate({ end_local: '2026-11-02T08:00', note: 'olvidó finalizar' }, shift, now).field, 'end_at', 'futuro');
+  assert.equal(O.validate({ end_local: '2026-11-01T18:30', note: ' ok ' }, shift, now).field, 'note');
+  assert.equal(JSON.stringify(O.validate({ end_local: '2026-11-01T18:30', note: '  salió  6:30 pm ' }, shift, now)),
+    JSON.stringify({ ok: true, body: { end_at: '2026-11-01T23:30:00Z', note: 'salió 6:30 pm' } }));
+});
+
+test('vista: escapa nombres, marca más de 12 h, sin turnos no dibuja nada', () => {
+  const { O } = load();
+  const html = O.view(DATA);
+  assert.match(html, /Turnos abiertos \(2\)/);
+  assert.match(html, /1 con más de 12 h/);
+  assert.match(html, /Ana &lt;b&gt;/);
+  assert.ok(!html.includes('Ana <b>'));
+  assert.match(html, /Virginia · Trabajando/);
+  assert.match(html, /Sin lugar asignado · En pausa/);
+  assert.equal((html.match(/data-cxos-open=/g) || []).length, 2);
+  assert.equal((html.match(/is-long/g) || []).length, 1);
+  assert.ok(!O.view({ ...DATA, can_close: false }).includes('data-cxos-open'), 'sin permiso: solo lectura');
+  assert.equal(O.view({ ...DATA, shifts: [] }), '');
+});
+
+test('cerrar turno: envía hora del lugar en UTC y nota, recarga y confirma', async () => {
+  const { O } = load();
+  const calls = [];
+  const host = { innerHTML: '', contains: () => true };
+  let data = JSON.parse(JSON.stringify(DATA));
+  const api = async (path, opts) => {
+    calls.push([path, opts]);
+    if (opts && opts.method === 'POST') { data = { ...data, shifts: data.shifts.slice(1), long_open: 0 }; return { ok: true }; }
+    return data;
+  };
+  await O.mount({ companyId: 'c1', api, host: () => host });
+  assert.equal(calls[0][0], '/open-shifts/companies/c1');
+  O.model.open = 'e1';
+  await O.submit('e1', { end_local: '2026-11-01T18:30', note: 'Olvidó finalizar' });
+  const post = calls.find((c) => c[1] && c[1].method === 'POST');
+  assert.equal(post[0], '/open-shifts/companies/c1/employees/e1/close');
+  assert.deepEqual(JSON.parse(post[1].body), { end_at: '2026-11-01T23:30:00Z', note: 'Olvidó finalizar' });
+  assert.match(host.innerHTML, /cerrado\. Quedó en la auditoría/);
+  assert.match(host.innerHTML, /Turnos abiertos \(1\)/);
+});
+
+test('error del servidor se muestra y no se envía con nota vacía', async () => {
+  const { O } = load();
+  const host = { innerHTML: '', contains: () => true };
+  let posts = 0;
+  const api = async (path, opts) => {
+    if (opts && opts.method === 'POST') { posts += 1; throw new Error('422 Unprocessable {"detail":"Esa persona no tiene un turno abierto."}'); }
+    return DATA;
+  };
+  await O.mount({ companyId: 'c1', api, host: () => host });
+  O.model.open = 'e1';
+  await O.submit('e1', { end_local: '2026-11-01T18:30', note: '' });
+  assert.equal(posts, 0);
+  assert.match(host.innerHTML, /La nota es obligatoria/);
+  await O.submit('e1', { end_local: '2026-11-01T18:30', note: 'Olvidó finalizar' });
+  assert.equal(posts, 1);
+  assert.match(host.innerHTML, /Esa persona no tiene un turno abierto\./);
+});
+
+test('client.js: solo con el interruptor, arriba de CRM Campo por lugar y de Personal v2', () => {
+  assert.match(CLIENT, /return settings\.open_shift_alert === true;/);
+  assert.match(CLIENT, /async function cxOpenShiftsAttach060C\(anchorId\) \{\n    if \(!cxOpenShiftsOn060C\(\)\) return false;/);
+  assert.match(CLIENT, /if \(mounted\) cxOpenShiftsAttach060C\("cxCrmPlacesHost059A"\);/);
+  assert.match(CLIENT, /authApi: api,\n    \}\);\n    cxOpenShiftsAttach060C\("cxWorkforceV2Host051B"\);/);
+  assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=060C/);
+  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C"/, 'el navegador pide el client.js nuevo');
+});
+
+test('CSS sin colores propios (solo el tema)', () => {
+  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(CSS), 'sin hex');
+  assert.ok(!/rgb\(|hsl\(/i.test(CSS));
+});
