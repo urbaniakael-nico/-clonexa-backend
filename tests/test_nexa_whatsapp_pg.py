@@ -447,6 +447,28 @@ def test_otro_numero_no_se_guarda(client, pg_url, fakes, caplog):
     assert any("otro_numero" in rec.getMessage() for rec in caplog.records)
 
 
+def test_mensaje_sin_from_toma_el_numero_de_contacts(client, pg_url, fakes):
+    msg = _text("wamid.C1", "Hola")
+    msg.pop("from")
+    assert _hook(client, _envelope([msg])).status_code == 200
+    assert _contact(pg_url, WA) is not None
+    assert [m["meta_id"] for m in _msgs(pg_url)] == ["wamid.C1"] and len(fakes.forwarded) == 1
+
+
+def test_mensaje_sin_id_ni_numero_deja_la_forma_en_el_log_y_avisa(client, pg_url, fakes, caplog):
+    caplog.set_level("INFO", logger="clonexa.nexa_wa")
+    msg = _text("wamid.C2", "Hola secreto")
+    msg.pop("from")
+    msg.pop("id")
+    payload = _envelope([msg])
+    payload["entry"][0]["changes"][0]["value"]["contacts"] = [{"profile": {"name": "Ana"}, "user_id": "CO.123"}]
+    _hook(client, payload)
+    line = next(rec.getMessage() for rec in caplog.records if "mensaje_sin_id" in rec.getMessage())
+    assert "id=no from=no" in line and "campos_mensaje=text,timestamp,type" in line and "campos_contacto=profile,user_id/profile:name" in line
+    assert "Hola secreto" not in line and "CO.123" not in line and "Ana" not in line  # solo nombres de campos
+    assert len(fakes.alerts) == 1 and _contact(pg_url, WA) is None
+
+
 def test_cada_paso_queda_en_el_log_sin_secretos(client, pg_url, fakes, caplog):
     caplog.set_level("INFO", logger="clonexa.nexa_wa")
     _hook(client, _envelope([_text("wamid.L1", "Hola")]))

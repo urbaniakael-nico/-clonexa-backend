@@ -475,10 +475,27 @@ def describe(payload: Any) -> str:
             f"numero={','.join(sorted(phones)) or '-'}")
 
 
-async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, send: Sender, fwd: Forwarder) -> None:
+def _keys(value: Any) -> str:
+    """Solo los nombres de los campos (nunca valores): para ver la forma real."""
+    return ",".join(sorted(str(k)[:30] for k in value)) if isinstance(value, dict) else type(value).__name__
+
+
+async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, send: Sender, fwd: Forwarder,
+                           contacts: Optional[list] = None) -> None:
     m = parse_message(raw)
+    contacts = [c for c in contacts or [] if isinstance(c, dict)]
+    if not m["wa_id"]:
+        # Meta puede no repetir "from" en el mensaje: el numero viene en contacts[].wa_id.
+        ids = {str(c["wa_id"]) for c in contacts if c.get("wa_id")}
+        if len(ids) == 1:
+            m["wa_id"] = _clip(ids.pop(), 32)
+            log.info("nexa_wa numero_desde_contacts (el mensaje no traia from)")
     if not m["meta_id"] or not m["wa_id"]:
-        log.warning("nexa_wa mensaje_sin_id tipo=%s: se ignora", m["type"])
+        shape = (f"id={'si' if raw.get('id') else 'no'} from={'si' if raw.get('from') else 'no'} campos_mensaje={_keys(raw)} "
+                 f"campos_contacto={'|'.join(_keys(c) + ('/profile:' + _keys(c.get('profile')) if c.get('profile') else '') for c in contacts) or '-'}")
+        log.warning("nexa_wa mensaje_sin_id tipo=%s %s: no se puede guardar", m["type"], shape)
+        out["errors"] += 1
+        await alert("llegó un mensaje de Meta sin id o sin número: no se guardó", f"tipo={m['type']} {shape}")
         return
     wa = mask(m["wa_id"])
     contact = await upsert_contact(db, m["wa_id"], names.get(m["wa_id"]))
@@ -580,7 +597,7 @@ async def process_webhook(db: AsyncSession, payload: dict, *, send: Optional[Sen
             if not isinstance(raw, dict):
                 continue
             try:
-                await _process_message(db, raw, names, out, send, fwd)
+                await _process_message(db, raw, names, out, send, fwd, contacts=value.get("contacts") or [])
             except Exception as exc:  # noqa: BLE001 - un mensaje malo no tumba los demas
                 await db.rollback()
                 out["errors"] += 1
