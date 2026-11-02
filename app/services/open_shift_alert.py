@@ -58,6 +58,18 @@ class Invalid(ValueError):
         self.message = message
 
 
+class TooEarly(Invalid):
+    """El turno aun no pasa el limite de horas de la empresa: no se cierra (400)."""
+
+    def __init__(self, hours: float):
+        super().__init__("employee_id", f"Este turno aún no supera {hours_number(hours)} horas")
+
+
+def hours_number(value: float) -> str:
+    """12.0 -> "12"; 12.5 -> "12.5"."""
+    return f"{float(value):g}"
+
+
 def tr(language: str | None, key: str, **kwargs: Any) -> str:
     return TEXTS[language if language in TEXTS else "es"][key].format(**kwargs)
 
@@ -277,9 +289,12 @@ def clean_note(value: Any) -> str:
 
 
 async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body: Any, *, actor: str,
-                      actor_user_id: str | None, now_utc: datetime | None = None) -> dict[str, Any]:
+                      actor_user_id: str | None, now_utc: datetime | None = None,
+                      min_hours: float = 0.0) -> dict[str, Any]:
     """Cierra un turno abierto con la hora real de salida y la nota. Nunca abre ni cambia
-    otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto."""
+    otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto.
+    Con `min_hours` (el limite del aviso, 12 por defecto) un turno mas nuevo no se cierra:
+    TooEarly. El portal siempre lo pasa."""
     now_utc = now_utc or datetime.now(timezone.utc)
     body = body if isinstance(body, dict) else {}
     end_at = parse_end_at(body.get("end_at"))
@@ -295,6 +310,8 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
     if not row or row["status"] not in {"working", "on_break"}:
         raise Invalid("employee_id", "Esa persona no tiene un turno abierto.")
     started = aware(row["check_in_at"])
+    if min_hours > 0 and (started is None or hours_open(started, now_utc) < min_hours):
+        raise TooEarly(min_hours)
     if started is not None and end_at <= started:
         raise Invalid("end_at", "La salida debe ser después del inicio del turno.")
     if end_at > now_utc + timedelta(minutes=2):

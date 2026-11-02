@@ -34134,11 +34134,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxOpenShiftsCss060C";
           link.rel = "stylesheet";
-          link.href = "/client-static/open_shifts.css?v=060C";
+          link.href = "/client-static/open_shifts.css?v=060D";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/open_shifts.js?v=060C";
+        script.src = "/client-static/open_shifts.js?v=060D";
         script.onload = () => resolve();
         script.onerror = () => { cxOpenShiftsLoading060C = null; reject(new Error("open_shifts")); };
         document.head.appendChild(script);

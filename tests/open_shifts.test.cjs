@@ -51,19 +51,48 @@ test('validación igual que el servidor: salida después del inicio, no futura, 
     JSON.stringify({ ok: true, body: { end_at: '2026-11-01T23:30:00Z', note: 'salió 6:30 pm' } }));
 });
 
-test('vista: escapa nombres, marca más de 12 h, sin turnos no dibuja nada', () => {
+test('vista: solo turnos de más de 12 h, con su botón; escapa nombres; N = 0 no dibuja nada', () => {
   const { O } = load();
   const html = O.view(DATA);
-  assert.match(html, /Turnos abiertos \(2\)/);
-  assert.match(html, /1 con más de 12 h/);
+  assert.match(html, /<h3>Turnos de más de 12 h \(1\)<\/h3>/);
+  assert.ok(!html.includes('Turnos abiertos'), 'el título viejo ya no sale');
   assert.match(html, /Ana &lt;b&gt;/);
   assert.ok(!html.includes('Ana <b>'));
   assert.match(html, /Virginia · Trabajando/);
-  assert.match(html, /Sin lugar asignado · En pausa/);
-  assert.equal((html.match(/data-cxos-open=/g) || []).length, 2);
-  assert.equal((html.match(/is-long/g) || []).length, 1);
+  assert.ok(!html.includes('Dan'), 'el turno de 5 h no aparece aquí (solo en la vista por lugar)');
+  assert.equal((html.match(/data-cxos-open=/g) || []).length, 1, 'un solo botón Cerrar turno: el de 13 h');
   assert.ok(!O.view({ ...DATA, can_close: false }).includes('data-cxos-open'), 'sin permiso: solo lectura');
   assert.equal(O.view({ ...DATA, shifts: [] }), '');
+  assert.equal(O.view({ ...DATA, shifts: [DATA.shifts[1]] }), '', 'solo turnos normales: la sección no se muestra');
+  const seven = { ...DATA.shifts[1], employee_id: 'e7', employee_name: 'Eva', hours_open: 7 };
+  assert.equal(O.view({ ...DATA, shifts: [seven] }), '', 'turno de 7 h: no aparece');
+  assert.match(O.view({ ...DATA, alert_hours: 6, shifts: [seven] }), /Turnos de más de 6 h \(1\)/, 'límite de la empresa');
+});
+
+test('turno de 7 h no se puede cerrar desde la pantalla (no hay botón ni envío)', async () => {
+  const { O } = load();
+  const host = { innerHTML: '', contains: () => true };
+  let posts = 0;
+  const seven = { ...DATA.shifts[1], employee_id: 'e7', employee_name: 'Eva', hours_open: 7 };
+  const api = async (path, opts) => { if (opts && opts.method === 'POST') posts += 1; return { ...DATA, shifts: [seven] }; };
+  await O.mount({ companyId: 'c1', api, host: () => host });
+  assert.equal(host.innerHTML, '');
+  O.model.open = 'e7';
+  await O.submit('e7', { end_local: '2026-11-01T18:30', note: 'Olvidó finalizar' });
+  assert.equal(posts, 0);
+});
+
+test('el 400 del servidor (aún no supera 12 horas) se muestra tal cual', async () => {
+  const { O } = load();
+  const host = { innerHTML: '', contains: () => true };
+  const api = async (path, opts) => {
+    if (opts && opts.method === 'POST') throw new Error('400 Bad Request {"detail":"Este turno aún no supera 12 horas"}');
+    return DATA;
+  };
+  await O.mount({ companyId: 'c1', api, host: () => host });
+  O.model.open = 'e1';
+  await O.submit('e1', { end_local: '2026-11-01T18:30', note: 'Olvidó finalizar' });
+  assert.match(host.innerHTML, /Este turno aún no supera 12 horas/);
 });
 
 test('cerrar turno: envía hora del lugar en UTC y nota, recarga y confirma', async () => {
@@ -84,7 +113,7 @@ test('cerrar turno: envía hora del lugar en UTC y nota, recarga y confirma', as
   assert.equal(post[0], '/open-shifts/companies/c1/employees/e1/close');
   assert.deepEqual(JSON.parse(post[1].body), { end_at: '2026-11-01T23:30:00Z', note: 'Olvidó finalizar' });
   assert.match(host.innerHTML, /cerrado\. Quedó en la auditoría/);
-  assert.match(host.innerHTML, /Turnos abiertos \(1\)/);
+  assert.ok(!host.innerHTML.includes('Turnos de más de'), 'quedó en 0: solo el aviso de cerrado');
 });
 
 test('error del servidor se muestra y no se envía con nota vacía', async () => {
@@ -110,8 +139,9 @@ test('client.js: solo con el interruptor, arriba de CRM Campo por lugar y de Per
   assert.match(CLIENT, /async function cxOpenShiftsAttach060C\(anchorId\) \{\n    if \(!cxOpenShiftsOn060C\(\)\) return false;/);
   assert.match(CLIENT, /if \(mounted\) cxOpenShiftsAttach060C\("cxCrmPlacesHost059A"\);/);
   assert.match(CLIENT, /authApi: api,\n    \}\);\n    cxOpenShiftsAttach060C\("cxWorkforceV2Host051B"\);/);
-  assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=060C/);
-  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C"/, 'el navegador pide el client.js nuevo');
+  assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=060D/);
+  assert.match(CLIENT, /\/client-static\/open_shifts\.css\?v=060D/);
+  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C_060D"/, 'el navegador pide el client.js nuevo');
 });
 
 test('CSS sin colores propios (solo el tema)', () => {

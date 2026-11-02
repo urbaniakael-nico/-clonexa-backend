@@ -1,7 +1,9 @@
 // Turnos abiertos y "Cerrar turno" (interruptor open_shift_alert del modulo
 // workforce). client.js solo lo monta con el interruptor encendido, arriba de CRM
 // Campo y de Personal; sin el interruptor, o si este archivo no carga, esas
-// pantallas siguen igual. Sin turnos abiertos no dibuja nada.
+// pantallas siguen igual. Solo muestra los turnos que pasan el limite de la empresa
+// (12 h por defecto); sin ninguno no dibuja nada. Los turnos normales se ven solo en la
+// vista por lugar, sin boton de cerrar (060D).
 // Datos: GET /open-shifts/companies/{id}; cerrar: POST .../employees/{id}/close con
 // la hora real de salida (en la hora del LUGAR de la persona) y una nota obligatoria.
 // Nunca cierra solo: solo cuando el supervisor / direccion / dueno lo confirma.
@@ -71,8 +73,10 @@
   }
 
   // ------------------------------------------------------------ vista
+  const limitOf = (data) => (Number(data && data.alert_hours) > 0 ? Number(data.alert_hours) : 12);
+  const longShifts = (data) => arr(data && data.shifts).filter((s) => Number(s.hours_open || 0) >= limitOf(data));
+
   function rowView(s, data) {
-    const long = Number(s.hours_open || 0) >= Number(data.alert_hours || 12);
     const place = s.work_location_name || "Sin lugar asignado";
     const open = model.open === s.employee_id;
     const form = open ? `
@@ -89,11 +93,11 @@
           <button type="button" class="client-btn" data-cxos-cancel>Cancelar</button>
         </div>
       </form>` : "";
-    return `<li class="cxos-row${long ? " is-long" : ""}">
+    return `<li class="cxos-row is-long">
       <div class="cxos-main">
         <strong>${h(s.employee_name || "Colaborador")}</strong>
         <span>${h(place)} · ${h(STATUS[s.status] || s.status)}</span>
-        <span>Inicio ${h(localLabel(s.shift_started_at, s.timezone))} · <b>${h(hoursLabel(s.hours_open))}</b> abierto${long ? ` · más de ${h(data.alert_hours)} h` : ""}</span>
+        <span>Inicio ${h(localLabel(s.shift_started_at, s.timezone))} · <b>${h(hoursLabel(s.hours_open))}</b> abierto</span>
       </div>
       ${data.can_close && !open ? `<button type="button" class="client-btn" data-cxos-open="${h(s.employee_id)}">Cerrar turno</button>` : ""}
       ${form}
@@ -102,12 +106,12 @@
 
   function view(data) {
     if (!data) return "";
-    const shifts = arr(data.shifts);
+    const shifts = longShifts(data);
     const saved = model.saved ? `<p class="cxos-saved" role="status">${h(model.saved)}</p>` : "";
     if (!shifts.length) return saved ? `<section class="cxos-root">${saved}</section>` : "";
-    return `<section class="cxos-root" aria-label="Turnos abiertos">
-      <div class="cxos-head"><h3>Turnos abiertos (${shifts.length})</h3>
-        ${Number(data.long_open || 0) ? `<span class="cxos-badge">${h(data.long_open)} con más de ${h(data.alert_hours)} h</span>` : ""}</div>
+    const title = `Turnos de más de ${h(String(limitOf(data)))} h`;
+    return `<section class="cxos-root" aria-label="${title}">
+      <div class="cxos-head"><h3>${title} (${shifts.length})</h3></div>
       ${saved}
       <ul class="cxos-list">${shifts.map((s) => rowView(s, data)).join("")}</ul>
     </section>`;
@@ -131,7 +135,7 @@
     }
   }
 
-  function shiftOf(id) { return arr(model.data && model.data.shifts).find((s) => s.employee_id === id) || null; }
+  function shiftOf(id) { return longShifts(model.data).find((s) => s.employee_id === id) || null; }
 
   async function onClick(event) {
     const t = event.target;
@@ -191,5 +195,5 @@
     return ok;
   }
 
-  window.CxOpenShifts = { mount, view, model, validate, zonedToUtcIso, utcToZonedInput, localLabel, hoursLabel, tzOffsetMinutes, submit };
+  window.CxOpenShifts = { mount, view, longShifts, model, validate, zonedToUtcIso, utcToZonedInput, localLabel, hoursLabel, tzOffsetMinutes, submit };
 })();

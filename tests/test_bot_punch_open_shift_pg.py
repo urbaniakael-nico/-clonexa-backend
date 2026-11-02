@@ -443,7 +443,7 @@ async def test_manual_close_with_real_time_note_and_audit(maker):
 
         end = started + timedelta(hours=8, minutes=30)
         result = await open_shift_alert.close_shift(db, cid, ana, {"end_at": end.isoformat(), "note": "Olvidó finalizar; salió 6:30 pm"},
-                                                    actor="Sofía (supervisor)", actor_user_id=None)
+                                                    actor="Sofía (supervisor)", actor_user_id=None, min_hours=12)
         assert result["original_status"] == "working" and result["closed_by"] == "Sofía (supervisor)"
         row = (await db.execute(text("SELECT status, check_out_at FROM workforce_attendance_status WHERE employee_id = CAST(:e AS uuid)"),
                                 {"e": ana})).mappings().first()
@@ -468,3 +468,67 @@ async def test_manual_close_with_real_time_note_and_audit(maker):
             await open_shift_alert.close_shift(db, _other, people["carl"], {"end_at": now.isoformat(), "note": "de otra empresa"},
                                                actor="x", actor_user_id=None)
         await db.rollback()
+
+
+# ------------------------------------------------------------ 6) solo turnos de mas de 12 h (060D)
+@pytest.mark.asyncio
+async def test_portal_lists_and_closes_only_shifts_over_the_limit(maker):
+    """Turno de 7 h: no aparece y no se puede cerrar (400). Turno de 13 h: aparece y se
+    cierra con nota y auditoria. La otra empresa (sin interruptor) sigue igual."""
+    from fastapi import HTTPException
+
+    from app.api.v1.endpoints import open_shifts as routes
+
+    cid, other, people = await _alert_setup(maker)
+    now = datetime.now(timezone.utc)
+    boss = {"role": "supervisor", "name": "Sofía (supervisor)", "user_id": None}
+    async with maker() as db:
+        seven = await _employee(db, cid, "Eva", tg="105")
+        await _open_shift(db, cid, seven, now - timedelta(hours=7))
+
+        listed = await routes.get_open_shifts(uuid.UUID(cid), who=boss, db=db)
+        names = [s["employee_name"] for s in listed["shifts"]]
+        assert listed["alert_hours"] == 12 and listed["long_open"] == len(names) == 2
+        assert set(names) == {"Ana", "Carl"}, "Eva (7 h) y Dan (5 h) no aparecen"
+        assert all(s["hours_open"] >= 12 for s in listed["shifts"])
+
+        before = (await db.execute(text("SELECT count(*) FROM shift_manual_closes WHERE company_id = CAST(:c AS uuid)"), {"c": cid})).scalar()
+        with pytest.raises(HTTPException) as exc:
+            await routes.post_close(uuid.UUID(cid), uuid.UUID(seven), body={"end_at": now.isoformat(), "note": "Olvidó finalizar"},
+                                    who=boss, db=db)
+        assert exc.value.status_code == 400 and exc.value.detail == "Este turno aún no supera 12 horas"
+        status = (await db.execute(text("SELECT status FROM workforce_attendance_status WHERE employee_id = CAST(:e AS uuid)"),
+                                   {"e": seven})).scalar()
+        assert status == "working", "no lo cerró"
+        assert (await db.execute(text("SELECT count(*) FROM shift_manual_closes WHERE company_id = CAST(:c AS uuid)"), {"c": cid})).scalar() == before
+        assert (await db.execute(text("SELECT count(*) FROM workforce_attendance_events WHERE employee_id = CAST(:e AS uuid)"),
+                                 {"e": seven})).scalar() == 0
+
+        ana = people["ana"]
+        end = now - timedelta(hours=4)
+        done = await routes.post_close(uuid.UUID(cid), uuid.UUID(ana), body={"end_at": end.isoformat(), "note": "Olvidó finalizar; salió 6 pm"},
+                                       who=boss, db=db)
+        assert done["ok"] and done["closed"]["closed_by"] == "Sofía (supervisor)"
+        audit = await open_shift_alert.recent_closes(db, cid)
+        assert [a["employee_name"] for a in audit] == ["Ana"] and audit[0]["note"] == "Olvidó finalizar; salió 6 pm"
+        with pytest.raises(HTTPException) as exc:  # sin nota: igual que antes (422)
+            await routes.post_close(uuid.UUID(cid), uuid.UUID(people["carl"]), body={"end_at": end.isoformat(), "note": ""}, who=boss, db=db)
+        assert exc.value.status_code == 422
+        listed = await routes.get_open_shifts(uuid.UUID(cid), who=boss, db=db)
+        assert [s["employee_name"] for s in listed["shifts"]] == ["Carl"]
+
+        # limite configurable: con 6 h, el turno de 7 h ya aparece y se puede cerrar
+        await db.execute(text("INSERT INTO workforce_session_policy (company_id, alert_after_hours) VALUES (CAST(:c AS uuid), 6)"), {"c": cid})
+        await db.commit()
+        listed = await routes.get_open_shifts(uuid.UUID(cid), who=boss, db=db)
+        assert "Eva" in [s["employee_name"] for s in listed["shifts"]] and "Dan" not in [s["employee_name"] for s in listed["shifts"]]
+        with pytest.raises(HTTPException) as exc:
+            await routes.post_close(uuid.UUID(cid), uuid.UUID(people["dan"]), body={"end_at": now.isoformat(), "note": "Olvidó finalizar"},
+                                    who=boss, db=db)
+        assert exc.value.detail == "Este turno aún no supera 6 horas"
+
+        # otra empresa: sin interruptor, las rutas no existen para ella y su turno sigue igual
+        assert not await open_shift_alert.is_on(db, other)
+        ext = (await db.execute(text("SELECT status FROM workforce_attendance_status WHERE employee_id = CAST(:e AS uuid)"),
+                                {"e": people["ext"]})).scalar()
+        assert ext == "working"
