@@ -43,9 +43,12 @@ CREATE TABLE IF NOT EXISTS employees (id uuid PRIMARY KEY DEFAULT gen_random_uui
   hourly_rate_regular numeric DEFAULT 0, deduction_1 numeric DEFAULT 0, deduction_2 numeric DEFAULT 0);
 CREATE TABLE IF NOT EXISTS workforce_attendance_status (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid, status varchar(40),
   last_event_type varchar(40), last_event_at timestamptz);
-CREATE TABLE IF NOT EXISTS workforce_attendance_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid, event_type varchar(40),
-  employee_name varchar(200), employee_role varchar(80), telegram_user_id varchar(80), latitude numeric, longitude numeric, payload_json jsonb,
-  created_at timestamptz DEFAULT now(), occurred_at timestamptz);
+-- Igual que produccion (2026-11-01): la tabla de eventos NO tiene telegram_user_id.
+CREATE TABLE IF NOT EXISTS workforce_attendance_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid, employee_id uuid,
+  event_type varchar(40), event_label varchar(80), employee_name varchar(200), employee_role varchar(80), status_after varchar(40),
+  source varchar(40), notes text, created_at timestamptz DEFAULT now(), module_code varchar(40), source_channel varchar(40),
+  source_ref varchar(120), bot_instance_id uuid, detail text, payload_json jsonb, metadata_json jsonb, latitude numeric,
+  longitude numeric, evidence_url text, occurred_at timestamptz);
 CREATE TABLE IF NOT EXISTS company_gps_perimeters (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid, slot integer, name varchar(80),
   latitude_min numeric, latitude_max numeric, longitude_min numeric, longitude_max numeric, is_active boolean DEFAULT true)
 """

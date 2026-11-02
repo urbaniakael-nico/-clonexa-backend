@@ -4826,7 +4826,11 @@
       return;
     }
 
-    if (cxWorkLocationsOn059A() && await cxCrmPlacesMount059A()) return; // 059A: CRM por lugar
+    if (cxWorkLocationsOn059A()) { // 059A: CRM por lugar
+      if (await cxCrmPlacesMount059A()) return;
+      // 059B: si el tablero por lugar no carga, queda el CRM de siempre, pero avisa en la consola.
+      try { console.warn("CRM por lugar no cargo; se muestra el CRM de siempre"); } catch (_) {}
+    }
 
     if (isClientModuleActive("gps")) ensureGpsStyles();
 
@@ -34028,11 +34032,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxCrmPlacesCss059A";
           link.rel = "stylesheet";
-          link.href = "/client-static/crm_places.css?v=059A";
+          link.href = "/client-static/crm_places.css?v=059B";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/crm_places.js?v=059A";
+        script.src = "/client-static/crm_places.js?v=059B";
         script.onload = () => resolve();
         script.onerror = () => { cxCrmPlacesLoading059A = null; reject(new Error("crm_places")); };
         document.head.appendChild(script);

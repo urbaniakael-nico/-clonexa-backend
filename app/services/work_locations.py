@@ -328,14 +328,27 @@ async def _board_events(db: AsyncSession, company_id: str, since: datetime) -> l
     from app.api.v1.endpoints import crm_core_v1 as crm
 
     kinds = sorted(crm.START_EVENTS | crm.PAUSE_START_EVENTS | crm.PAUSE_END_EVENTS | crm.END_EVENTS)
-    rows = (await db.execute(text("""
-        SELECT employee_id::text AS employee_id, COALESCE(telegram_user_id::text, '') AS telegram_user_id,
-               lower(COALESCE(employee_name, '')) AS employee_name, lower(COALESCE(event_type, '')) AS event_type,
-               COALESCE(occurred_at, created_at) AS event_at
+    # Como el CRM de siempre: la tabla de eventos no tiene las mismas columnas
+    # en todas las bases (en produccion no existe telegram_user_id), asi que la
+    # consulta se arma con las que existen.
+    cols = await crm.table_column_types(db, "workforce_attendance_events")
+    if not cols or "event_type" not in cols or "company_id" not in cols:
+        return []
+    at_parts = [c for c in ("occurred_at", "created_at") if c in cols]
+    if not at_parts:
+        return []
+    at_expr = f"COALESCE({', '.join(at_parts)})" if len(at_parts) > 1 else at_parts[0]
+    employee_expr = "employee_id::text" if "employee_id" in cols else "NULL::text"
+    telegram_expr = "COALESCE(telegram_user_id::text, '')" if "telegram_user_id" in cols else "''"
+    name_expr = "lower(COALESCE(employee_name, ''))" if "employee_name" in cols else "''"
+    rows = (await db.execute(text(f"""
+        SELECT {employee_expr} AS employee_id, {telegram_expr} AS telegram_user_id,
+               {name_expr} AS employee_name, lower(COALESCE(event_type, '')) AS event_type,
+               {at_expr} AS event_at
         FROM workforce_attendance_events
-        WHERE company_id = CAST(:c AS uuid) AND COALESCE(occurred_at, created_at) >= :since
+        WHERE company_id = CAST(:c AS uuid) AND {at_expr} >= :since
           AND lower(COALESCE(event_type, '')) = ANY(:kinds)
-        ORDER BY COALESCE(occurred_at, created_at) ASC
+        ORDER BY {at_expr} ASC
         LIMIT 20000
     """), {"c": company_id, "since": since, "kinds": kinds})).mappings().all()
     return [dict(r) for r in rows]

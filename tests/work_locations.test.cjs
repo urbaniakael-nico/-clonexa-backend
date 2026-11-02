@@ -316,7 +316,7 @@ test('CRM: una sola llamada al tablero; si falla, mount devuelve false (CRM de s
 
 test('client.js: CRM y Personal solo cambian con work_locations; los ganchos 059A no tocan el resto', () => {
   assert.match(CLIENT, /function cxWorkLocationsOn059A\(\) \{[\s\S]{0,300}settings\.work_locations === true;/);
-  assert.match(CLIENT, /if \(cxWorkLocationsOn059A\(\) && await cxCrmPlacesMount059A\(\)\) return; \/\/ 059A/);
+  assert.match(CLIENT, /if \(cxWorkLocationsOn059A\(\)\) \{ \/\/ 059A: CRM por lugar\n\s+if \(await cxCrmPlacesMount059A\(\)\) return;/);
   assert.match(CLIENT, /workLocations: cxWorkLocationsOn059A\(\)/);
   assert.match(CLIENT, /authApi: api,/);
   const crm = CLIENT.slice(CLIENT.indexOf('async function renderCrmModule()'));
@@ -331,4 +331,14 @@ test('tema: CSS nuevos sin colores fijos salvo los respaldos semánticos', () =>
     assert.doesNotMatch(strip(css), /#[0-9a-f]{3,8}\b|rgba?\(/i, name);
   }
   assert.match(CRM_CSS, /@media \(max-width: 900px\)[\s\S]*cxp-sections\.is-all \{ grid-template-columns: minmax\(0, 1fr\)/, 'una debajo de otra en celular');
+});
+
+test('059B: el navegador pide client.js y crm_places nuevos (versión en la URL) y la caída al CRM de siempre avisa', () => {
+  const html = readFileSync('app/web/client.html', 'utf8');
+  assert.match(html, /\/client-static\/client\.js\?v=[^"]*_059B"/, 'client.js con la versión 059B');
+  assert.match(CLIENT, /crm_places\.js\?v=059B/);
+  assert.match(CLIENT, /crm_places\.css\?v=059B/);
+  const i = CLIENT.indexOf('async function renderCrmModule()');
+  const body = CLIENT.slice(i, i + 900);
+  assert.match(body, /if \(cxWorkLocationsOn059A\(\)\) \{[\s\S]*if \(await cxCrmPlacesMount059A\(\)\) return;[\s\S]*console\.warn\("CRM por lugar no cargo/);
 });
