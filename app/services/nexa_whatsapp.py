@@ -111,6 +111,16 @@ def console_url(contact_id: str) -> str:
     return f"{env('NEXA_WA_CONSOLE_URL') or DEFAULT_CONSOLE}#nexa/{contact_id}"
 
 
+def is_phone(wa_id: str) -> bool:
+    """Telefono (solo digitos) o id de usuario de WhatsApp (BSUID)."""
+    return str(wa_id or "").isdigit()
+
+
+def contact_key(c: dict) -> Optional[str]:
+    """wa_id del contacto del webhook: telefono si viene, si no su user_id (BSUID)."""
+    return _clip(c.get("wa_id") or c.get("user_id"), 32) if isinstance(c, dict) else None
+
+
 def same_secret(given: str, expected: str) -> bool:
     return bool(given) and bool(expected) and hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
 
@@ -204,7 +214,9 @@ def parse_message(m: dict) -> dict:
         ts = datetime.fromtimestamp(int(m.get("timestamp")), tz=timezone.utc)
     except (TypeError, ValueError, OverflowError):
         ts = None
-    return {"meta_id": _clip(m.get("id"), 200), "wa_id": _clip(m.get("from"), 32), "type": kind,
+    # Con los nombres de usuario de WhatsApp, Meta puede no mandar el telefono ("from"):
+    # llega from_user_id (BSUID, p. ej. "CO.1234..."). Ese id identifica al contacto.
+    return {"meta_id": _clip(m.get("id"), 200), "wa_id": _clip(m.get("from") or m.get("from_user_id"), 32), "type": kind,
             "text": _clip(body, 4096), "reply_id": _clip(reply_id, 256), "at": ts}
 
 
@@ -356,7 +368,9 @@ async def send_text(wa_id: str, body: str) -> dict:
     if not token:
         return {"ok": False, "error": "WA_TOKEN no configurado"}
     url = f"https://graph.facebook.com/{GRAPH_VERSION}/{phone_id()}/messages"
-    payload = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": wa_id, "type": "text", "text": {"body": body}}
+    # A un telefono se envia con "to"; a un usuario sin telefono (BSUID), con "recipient".
+    dest = {"to": wa_id} if is_phone(wa_id) else {"recipient": wa_id}
+    payload = {"messaging_product": "whatsapp", "recipient_type": "individual", **dest, "type": "text", "text": {"body": body}}
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
@@ -486,9 +500,9 @@ async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, 
     contacts = [c for c in contacts or [] if isinstance(c, dict)]
     if not m["wa_id"]:
         # Meta puede no repetir "from" en el mensaje: el numero viene en contacts[].wa_id.
-        ids = {str(c["wa_id"]) for c in contacts if c.get("wa_id")}
+        ids = {contact_key(c) for c in contacts} - {None}
         if len(ids) == 1:
-            m["wa_id"] = _clip(ids.pop(), 32)
+            m["wa_id"] = ids.pop()
             log.info("nexa_wa numero_desde_contacts (el mensaje no traia from)")
     if not m["meta_id"] or not m["wa_id"]:
         shape = (f"id={'si' if raw.get('id') else 'no'} from={'si' if raw.get('from') else 'no'} campos_mensaje={_keys(raw)} "
@@ -582,8 +596,10 @@ async def process_webhook(db: AsyncSession, payload: dict, *, send: Optional[Sen
             continue
         names = {}
         for c in value.get("contacts") or []:
-            if isinstance(c, dict) and c.get("wa_id"):
-                names[str(c["wa_id"])] = _clip((c.get("profile") or {}).get("name"), 200)
+            key = contact_key(c)
+            if key:
+                profile = c.get("profile") or {}
+                names[key] = _clip(profile.get("name") or profile.get("username"), 200)
         try:
             for st in value.get("statuses") or []:
                 if isinstance(st, dict) and await save_status(db, st):

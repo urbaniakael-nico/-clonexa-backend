@@ -156,7 +156,8 @@ class _Demo(BaseModel):
 
 class OutboundIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    wa_id: str = Field(min_length=5, max_length=32, pattern=r"^\d+$")
+    # telefono (digitos) o id de usuario de WhatsApp sin telefono (BSUID, p. ej. "CO.1234...")
+    wa_id: str = Field(min_length=5, max_length=32, pattern=r"^(\d+|[A-Z]{2}\.[A-Za-z0-9_-]+)$")
     mensajes: list[_Msg] = Field(default_factory=list, max_length=10)
     datos_detectados: _Datos = Field(default_factory=_Datos)
     etapa: Optional[Etapa] = None

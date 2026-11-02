@@ -71,12 +71,16 @@
     if (b.y === yesterday.y && b.mo === yesterday.mo && b.d === yesterday.d) return `Ayer ${clock(b)}`;
     return `${DOW[b.dow]} ${b.d} ${MON[b.mo]}${b.y !== today.y ? ` ${b.y}` : ""} · ${clock(b)}`;
   }
+  // Sin telefono: Meta manda un id de usuario (BSUID, "CO.1234..."), no un numero.
+  const isUserId = (wa) => /^[A-Z]{2}\./.test(String(wa || ""));
   function phone(wa) {
+    if (isUserId(wa)) return "Usuario de WhatsApp (sin número)";
     const d = String(wa || "").replace(/\D/g, "");
     if (d.length === 12 && d.startsWith("57")) return `+57 ${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8)}`;
     return d ? `+${d}` : "";
   }
   function waLink(wa) {
+    if (isUserId(wa)) return `<span class="vp-nx-wa">${h(phone(wa))}</span>`;
     const d = String(wa || "").replace(/\D/g, "");
     return d ? `<a class="vp-nx-wa" href="https://wa.me/${d}" target="_blank" rel="noopener noreferrer">${h(phone(d))}</a>` : "";
   }

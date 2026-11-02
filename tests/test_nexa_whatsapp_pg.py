@@ -447,6 +447,71 @@ def test_otro_numero_no_se_guarda(client, pg_url, fakes, caplog):
     assert any("otro_numero" in rec.getMessage() for rec in caplog.records)
 
 
+BSUID = "CO.1349120865530274191"
+
+
+def _bsuid_envelope(mid: str, body: str) -> dict:
+    """Forma real de produccion (2 nov 2026): sin telefono, con from_user_id y user_id."""
+    msg = {"from_user_id": BSUID, "id": mid, "timestamp": str(int(time.time())), "type": "text", "text": {"body": body}}
+    payload = _envelope([msg])
+    payload["entry"][0]["changes"][0]["value"]["contacts"] = [{"profile": {"name": "Ana", "username": "ana.g"}, "user_id": BSUID}]
+    return payload
+
+
+def test_usuario_sin_telefono_bsuid_se_guarda_y_se_reenvia(client, pg_url, fakes):
+    assert _hook(client, _bsuid_envelope("wamid.U1", "Hola")).status_code == 200
+    c = _contact(pg_url, BSUID)
+    assert c is not None and c["profile_name"] == "Ana"
+    assert [m["meta_id"] for m in _msgs(pg_url)] == ["wamid.U1"]
+    assert len(fakes.forwarded) == 1 and fakes.forwarded[0]["contacto"]["wa_id"] == BSUID
+    assert fakes.alerts == []
+
+
+def test_bsuid_n8n_caido_responde_respaldo(client, pg_url, fakes):
+    fakes.forward_ok = False
+    _hook(client, _bsuid_envelope("wamid.U2", "Hola"))
+    assert fakes.sent == [(BSUID, RESPALDO)]
+
+
+def test_outbound_acepta_bsuid(client, pg_url, fakes):
+    _hook(client, _bsuid_envelope("wamid.U3", "Hola"))
+    r = _outbound(client, {"wa_id": BSUID, "mensajes": [{"meta_id": "wamid.out.U3", "texto": "Hola, soy Nexa"}], "consentimiento_visto": True})
+    assert r.status_code == 200 and r.json()["contacto"]["wa_id"] == BSUID
+    assert _outbound(client, {"wa_id": "CO.x y", "mensajes": []}).status_code == 422
+
+
+def test_send_text_usa_recipient_para_bsuid_y_to_para_telefono(monkeypatch):
+    sent = []
+
+    class Resp:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"messages": [{"id": "wamid.ok"}]}
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            sent.append(json)
+            return Resp()
+
+    monkeypatch.setenv("WA_TOKEN", "tok")
+    monkeypatch.setattr(nw.httpx, "AsyncClient", Client)
+    asyncio.run(nw.send_text(BSUID, "hola"))
+    asyncio.run(nw.send_text(WA, "hola"))
+    assert sent[0]["recipient"] == BSUID and "to" not in sent[0]
+    assert sent[1]["to"] == WA and "recipient" not in sent[1]
+
+
 def test_mensaje_sin_from_toma_el_numero_de_contacts(client, pg_url, fakes):
     msg = _text("wamid.C1", "Hola")
     msg.pop("from")

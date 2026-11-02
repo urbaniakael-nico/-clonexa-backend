@@ -86,6 +86,14 @@ test('hora de Colombia y número legible', () => {
   assert.equal(N.phone('13468244098'), '+13468244098');
 });
 
+test('usuario de WhatsApp sin número (BSUID): no inventa un teléfono ni un enlace wa.me', () => {
+  const { N } = load();
+  assert.equal(N.phone('CO.1349120865530274191'), 'Usuario de WhatsApp (sin número)');
+  const link = N.waLink('CO.1349120865530274191');
+  assert.ok(!link.includes('wa.me') && link.includes('Usuario de WhatsApp'));
+  assert.ok(N.waLink('573144798220').includes('https://wa.me/573144798220'));
+});
+
 test('lista: nombre, número con wa.me, negocio, ciudad, etapa con color, último mensaje, hora y nuevas', () => {
   const { N } = load();
   const out = N.listHtml(list(), ID, NOW);

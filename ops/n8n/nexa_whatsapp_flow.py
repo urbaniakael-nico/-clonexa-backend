@@ -299,7 +299,7 @@ if (!ok) {
 const who = [c.nombre, c.tipo_negocio, c.ciudad].filter(Boolean).join(' · ');
 const ev_body = {
   summary: `Demo Clonexa · ${c.nombre || c.wa_id}${c.tipo_negocio ? ` (${c.tipo_negocio})` : ''}`,
-  description: `Demo agendada por Nexa (WhatsApp).\n${who}\nWhatsApp: +${c.wa_id}\nTamaño: ${c.tamano || '—'}\nQué les cuesta: ${c.dolor || '—'}\nConversación: ${c.console_url || ''}`,
+  description: `Demo agendada por Nexa (WhatsApp).\n${who}\nWhatsApp: ${/^\d+$/.test(String(c.wa_id)) ? '+' + c.wa_id : 'usuario sin número'}\nTamaño: ${c.tamano || '—'}\nQué les cuesta: ${c.dolor || '—'}\nConversación: ${c.console_url || ''}`,
   start: { dateTime: isoBog(ms), timeZone: 'America/Bogota' },
   end: { dateTime: isoBog(ms + 1800000), timeZone: 'America/Bogota' },
   attendees: c.correo ? [{ email: c.correo }] : [],
@@ -354,7 +354,7 @@ for (const [i, m0] of (j.respuesta.mensajes || []).slice(0, 3).entries()) {
   } else {
     graph = { type: 'text', text: { body: cut(m.texto, 4096), preview_url: /https?:\/\//.test(m.texto) } };
   }
-  graph = { messaging_product: 'whatsapp', recipient_type: 'individual', to: j.wa_id, ...graph };
+  graph = { messaging_product: 'whatsapp', recipient_type: 'individual', ...(/^\d+$/.test(String(j.wa_id)) ? { to: j.wa_id } : { recipient: j.wa_id }), ...graph };
   const shown = tipo === 'buttons' ? m.opciones.slice(0, 3).map((o) => cut(o, 20)) : tipo === 'list' ? m.opciones.slice(0, 10).map((o) => cut(o, 24)) : [];
   items.push({ json: { i, tipo, texto: m.texto, opciones: shown, graph, src: i === 0 ? j : null } });
 }
@@ -390,7 +390,7 @@ const d = (j.respuesta && j.respuesta.datos_detectados) || {};
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const LABEL = { nuevo: 'Nuevo', calificado: 'Calificado', demo_agendada: 'Demo agendada', pidio_persona: 'Pidió persona', no_interesado: 'No interesado', baja: 'Baja' };
 const num = String(c.wa_id || '');
-const phone = num.length === 12 && num.startsWith('57') ? `+57 ${num.slice(2, 5)} ${num.slice(5, 8)} ${num.slice(8)}` : `+${num}`;
+const phone = num.length === 12 && num.startsWith('57') ? `+57 ${num.slice(2, 5)} ${num.slice(5, 8)} ${num.slice(8)}` : (/^\d+$/.test(num) ? `+${num}` : 'Usuario de WhatsApp (sin número)');
 const etapa = (j.outbound && j.outbound.etapa) || c.etapa;
 const head = { demo: '📅 <b>Demo agendada</b>', persona: '🙋 <b>Pidió una persona</b>', error: '⚠️ <b>Nexa WhatsApp: error</b>' }[j.aviso] || '<b>Nexa WhatsApp</b>';
 const lines = [head, `<b>${esc(c.nombre || d.nombre || 'Sin nombre')}</b> · ${esc(phone)}`,
