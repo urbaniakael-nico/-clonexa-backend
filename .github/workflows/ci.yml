@@ -130,6 +130,9 @@ jobs:
           path=$(ls -d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell | head -1)
           test -x "$path"
           echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
+          # Ubuntu 24 bloquea con AppArmor los namespaces que usa el sandbox de Chromium
+          # ("No usable sandbox!"): se permiten en el runner y el sandbox sigue activo.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: node --test
         run: node --test "tests/**/*.test.cjs"
 
