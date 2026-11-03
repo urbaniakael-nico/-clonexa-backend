@@ -1,0 +1,36 @@
+<template>
+  <style>
+    #root{position:absolute;inset:0}
+    
+  .card{position:absolute;left:36px;top:150px;width:1008px;height:1620px;border-radius:56px;overflow:hidden;
+    background:#000;box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.06)}
+  .zoom{position:absolute;inset:0}
+  .zoom video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}
+  .cx{position:absolute;border-radius:30px;padding:14px;background:rgba(255,255,255,.84);
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1.5px solid rgba(255,255,255,.75);
+    box-shadow:0 26px 60px rgba(25,5,15,.38),0 4px 14px rgba(25,5,15,.18)}
+  .cx-tag{display:flex;align-items:center;gap:12px;margin:2px 6px 12px;font:800 27px/1 Inter,sans-serif;color:#1d1420;letter-spacing:-.01em}
+  .cx-dot{width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#ff3b3b,#ff2e93)}
+  .cx img{display:block;width:100%;border-radius:18px}
+  .phone{position:absolute;border-radius:58px;padding:13px;background:#111;
+    box-shadow:0 30px 70px rgba(25,5,15,.5),0 0 0 2px rgba(255,255,255,.18) inset}
+  .phone video{display:block;width:100%;border-radius:46px}
+  .phone .cx-tag{position:absolute;left:50%;transform:translateX(-50%);top:-74px;white-space:nowrap;margin:0;padding:14px 22px;border-radius:999px;
+    background:rgba(255,255,255,.9);box-shadow:0 12px 30px rgba(25,5,15,.3)}
+    
+  </style>
+  <div id="root" data-composition-id="cocina" data-width="1080" data-height="1920">
+    <div id="cocina-card" class="card">
+      <div id="cocina-v0-z" class="zoom"><video id="cocina-v0" class="clip" src="assets/escenas/cocina.mp4" muted playsinline data-start="0" data-duration="5.145"></video></div>
+    </div>
+    <div id="cocina-cocina" class="cx" style="left:50px;top:470px;width:980px"><div class="cx-tag"><span class="cx-dot"></span>Pantalla de cocina</div><img src="assets/pantallas/cocina.png" alt=""></div>
+    
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#cocina-card",{y:140,scale:.9,opacity:0,rotation:-1.2},{y:0,scale:1,opacity:1,rotation:0,duration:.6,ease:"power3.out"},0);
+    tl.fromTo("#cocina-v0-z",{scale:1},{scale:1.06,duration:5.145,ease:"none"},0);
+    tl.fromTo("#cocina-cocina",{opacity:0,scale:.55,y:50},{opacity:1,scale:1,y:0,duration:.6,ease:"back.out(1.9)"},0.35);
+    window.__timelines["cocina"] = tl;
+  </script>
+</template>

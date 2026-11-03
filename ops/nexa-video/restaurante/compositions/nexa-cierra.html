@@ -1,0 +1,50 @@
+<template>
+  <style>
+    #root{position:absolute;inset:0}
+    
+  .card{position:absolute;left:36px;top:150px;width:1008px;height:1620px;border-radius:56px;overflow:hidden;
+    background:#000;box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.06)}
+  .zoom{position:absolute;inset:0}
+  .zoom video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}
+  .cx{position:absolute;border-radius:30px;padding:14px;background:rgba(255,255,255,.84);
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1.5px solid rgba(255,255,255,.75);
+    box-shadow:0 26px 60px rgba(25,5,15,.38),0 4px 14px rgba(25,5,15,.18)}
+  .cx-tag{display:flex;align-items:center;gap:12px;margin:2px 6px 12px;font:800 27px/1 Inter,sans-serif;color:#1d1420;letter-spacing:-.01em}
+  .cx-dot{width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#ff3b3b,#ff2e93)}
+  .cx img{display:block;width:100%;border-radius:18px}
+  .phone{position:absolute;border-radius:58px;padding:13px;background:#111;
+    box-shadow:0 30px 70px rgba(25,5,15,.5),0 0 0 2px rgba(255,255,255,.18) inset}
+  .phone video{display:block;width:100%;border-radius:46px}
+  .phone .cx-tag{position:absolute;left:50%;transform:translateX(-50%);top:-74px;white-space:nowrap;margin:0;padding:14px 22px;border-radius:999px;
+    background:rgba(255,255,255,.9);box-shadow:0 12px 30px rgba(25,5,15,.3)}
+    
+  .demo{position:absolute;left:0;right:0;top:300px;text-align:center}
+  .demo span{display:inline-block;padding:22px 40px;border-radius:999px;font:900 60px/1 Inter,sans-serif;color:#fff;
+    background:linear-gradient(135deg,#ff3b3b,#ff2e93);box-shadow:0 20px 50px rgba(255,46,147,.45)}
+  .endcard{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 40%,#1a0d18,#0a0710);opacity:0}
+  .endlogo{position:absolute;left:150px;width:780px;top:760px}
+  .endweb{position:absolute;left:0;right:0;top:960px;text-align:center;font:800 58px/1 Inter,sans-serif;color:#f5f0f7;letter-spacing:-.01em}
+  .endline{position:absolute;left:390px;width:300px;top:1060px;height:8px;border-radius:8px;background:linear-gradient(90deg,#ff3b3b,#ff2e93)}
+  </style>
+  <div id="root" data-composition-id="nexa-cierra" data-width="1080" data-height="1920">
+    <div id="nexa-cierra-card" class="card">
+      <div id="nexa-cierra-v0-z" class="zoom"><video id="nexa-cierra-v0" class="clip" src="assets/nexa/cierra.mp4" data-has-audio="true" playsinline data-start="0" data-duration="5.926"></video></div>
+    </div>
+    
+    <div id="nexa-cierra-demo" class="demo"><span id="nexa-cierra-demo-pill">💬 Comenta DEMO</span></div>
+    <div id="nexa-cierra-end" class="endcard"><img id="nexa-cierra-logo" class="endlogo" src="assets/marca/clonexa-logo.svg" alt="Clonexa">
+      <div id="nexa-cierra-web" class="endweb">www.clonexa.com.co</div><div id="nexa-cierra-line" class="endline"></div></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#nexa-cierra-card",{y:140,scale:.9,opacity:0,rotation:-1.2},{y:0,scale:1,opacity:1,rotation:0,duration:.6,ease:"power3.out"},0);
+    tl.fromTo("#nexa-cierra-v0-z",{scale:1},{scale:1.06,duration:5.926,ease:"none"},0);
+    tl.fromTo("#nexa-cierra-demo-pill",{opacity:0,scale:.5},{opacity:1,scale:1,duration:.5,ease:"back.out(2.2)"},0.768);
+    tl.to("#nexa-cierra-demo-pill",{opacity:0,scale:.9,duration:.2},3.276);
+    tl.to("#nexa-cierra-end",{opacity:1,duration:.4,ease:"power2.out"},3.526);
+    tl.fromTo("#nexa-cierra-logo",{opacity:0,y:40,scale:.92},{opacity:1,y:0,scale:1,duration:.6,ease:"back.out(1.6)"},3.676);
+    tl.fromTo("#nexa-cierra-web",{opacity:0,y:24},{opacity:1,y:0,duration:.45,ease:"power3.out"},3.976);
+    tl.fromTo("#nexa-cierra-line",{scaleX:0},{scaleX:1,duration:.5,ease:"power3.out"},4.126);
+    window.__timelines["nexa-cierra"] = tl;
+  </script>
+</template>

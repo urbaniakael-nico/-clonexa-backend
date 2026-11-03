@@ -1,0 +1,8 @@
+node_modules/
+assets/
+work/
+renders/
+*.mp4
+*.mp3
+*.wav
+.hyperframes/

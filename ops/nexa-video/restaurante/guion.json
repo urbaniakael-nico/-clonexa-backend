@@ -1,0 +1,179 @@
+{
+  "titulo": "Nexa + escenas: restaurantes (v1)",
+  "salida": "nexa-restaurante-v1",
+  "marca": {
+    "fondo": "#0a0710",
+    "fondo2": "#1a0d18",
+    "acento": "#ff4d84",
+    "degradado": [
+      "#ff3b3b",
+      "#ff2e93"
+    ],
+    "texto": "#f5f0f7",
+    "tinta": "#1d1420",
+    "fuente": "Inter",
+    "logo": "assets/marca/clonexa-logo.svg",
+    "web": "www.clonexa.com.co"
+  },
+  "musica": {
+    "src": "assets/musica.mp3",
+    "dbBajoVoz": -18,
+    "volumen": 0.057,
+    "nota": "voz -19,3 LUFS, musica -12,4 LUFS: -24,9 dB = 0,057"
+  },
+  "nexa": {
+    "abre": {
+      "texto": "¿Tu restaurante todavía anota los pedidos en papel? Mira esto.",
+      "audio": "assets/nexa/abre.wav",
+      "palabras": "assets/nexa/abre.words.json",
+      "video": "assets/nexa/abre.mp4"
+    },
+    "cierra": {
+      "texto": "Comenta DEMO y te escribo. Sígueme para más tips.",
+      "audio": "assets/nexa/cierra.wav",
+      "palabras": "assets/nexa/cierra.words.json",
+      "video": "assets/nexa/cierra.mp4"
+    }
+  },
+  "narracion": {
+    "frases": [
+      {
+        "bloque": "salon",
+        "texto": "Con Clonexa, tu cliente escanea el QR de la mesa y pide viendo la carta en video.",
+        "audio": "assets/voz/salon.wav",
+        "palabras": "assets/voz/salon.words.json"
+      },
+      {
+        "bloque": "cocina",
+        "texto": "El pedido llega al instante a la cocina, en orden y con su tiempo.",
+        "audio": "assets/voz/cocina.wav",
+        "palabras": "assets/voz/cocina.words.json"
+      },
+      {
+        "bloque": "bodega",
+        "texto": "Y el inventario se descuenta solo con cada plato que vendes.",
+        "audio": "assets/voz/bodega.wav",
+        "palabras": "assets/voz/bodega.words.json"
+      },
+      {
+        "bloque": "caja",
+        "texto": "Al final del día, sabes cuánto vendiste y cierras la caja desde tu celular.",
+        "audio": "assets/voz/caja.wav",
+        "palabras": "assets/voz/caja.words.json"
+      }
+    ]
+  },
+  "escenas": {
+    "salon": {
+      "clips": [
+        {
+          "src": "assets/escenas/salon.mp4"
+        }
+      ],
+      "tarjetas": [
+        {
+          "id": "qr",
+          "tipo": "telefono",
+          "src": "assets/pantallas/carta-video.mp4",
+          "etiqueta": "Carta QR en video",
+          "x": 585,
+          "y": 300,
+          "w": 410,
+          "entra": 0.45
+        }
+      ]
+    },
+    "cocina": {
+      "clips": [
+        {
+          "src": "assets/escenas/cocina.mp4"
+        }
+      ],
+      "tarjetas": [
+        {
+          "id": "cocina",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/cocina.png",
+          "ratio": 0.3125,
+          "etiqueta": "Pantalla de cocina",
+          "x": 50,
+          "y": 470,
+          "w": 980,
+          "entra": 0.35
+        }
+      ]
+    },
+    "bodega": {
+      "clips": [
+        {
+          "src": "assets/escenas/bodega.mp4"
+        }
+      ],
+      "tarjetas": [
+        {
+          "id": "inv1",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/inv-lomo.png",
+          "ratio": 0.1117,
+          "etiqueta": "Inventario",
+          "x": 140,
+          "y": 600,
+          "w": 800,
+          "entra": 0.3
+        },
+        {
+          "id": "inv2",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/inv-pollo.png",
+          "ratio": 0.1117,
+          "x": 140,
+          "y": 795,
+          "w": 800,
+          "entra": 0.55
+        },
+        {
+          "id": "inv3",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/inv-papa.png",
+          "ratio": 0.1117,
+          "x": 140,
+          "y": 930,
+          "w": 800,
+          "entra": 0.8
+        }
+      ]
+    },
+    "caja": {
+      "clips": [
+        {
+          "src": "assets/escenas/caja.mp4"
+        }
+      ],
+      "tarjetas": [
+        {
+          "id": "kpis",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/caja-kpis.png",
+          "ratio": 0.1503,
+          "etiqueta": "Caja de hoy",
+          "x": 60,
+          "y": 330,
+          "w": 960,
+          "entra": 0.3,
+          "hasta": 2.7
+        },
+        {
+          "id": "cierre",
+          "tipo": "pantalla",
+          "src": "assets/pantallas/cierre.png",
+          "ratio": 0.5745,
+          "etiqueta": "Cierre del día",
+          "x": 70,
+          "y": 230,
+          "w": 940,
+          "entra": 2.75
+        }
+      ]
+    }
+  }
+}

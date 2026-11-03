@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Nexa + escenas: restaurantes (v1)</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0a0710; }
+      #root { position: relative; width: 100%; height: 100%; font-family: Inter, sans-serif; }
+      #bg { position: absolute; inset: 0; background: radial-gradient(90% 60% at 50% 35%, #1a0d18, #0a0710); }
+    </style>
+  </head>
+  <body>
+    <!-- Generado por tools/build.mjs desde guion.json -->
+    <div id="root" data-composition-id="main" data-start="0" data-duration="29.845" data-width="1080" data-height="1920">
+      <div id="bg"></div>
+      <div id="nexa-abre" data-composition-id="nexa-abre" data-composition-src="compositions/nexa-abre.html" data-start="0" data-duration="4.34" data-track-index="1" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:1"></div>
+      <div id="salon" data-composition-id="salon" data-composition-src="compositions/salon.html" data-start="3.84" data-duration="6.388" data-track-index="2" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:2"></div>
+      <div id="cocina" data-composition-id="cocina" data-composition-src="compositions/cocina.html" data-start="9.728" data-duration="5.145" data-track-index="3" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:3"></div>
+      <div id="bodega" data-composition-id="bodega" data-composition-src="compositions/bodega.html" data-start="14.373" data-duration="4.809" data-track-index="4" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:4"></div>
+      <div id="caja" data-composition-id="caja" data-composition-src="compositions/caja.html" data-start="18.682" data-duration="5.737" data-track-index="5" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:5"></div>
+      <div id="nexa-cierra" data-composition-id="nexa-cierra" data-composition-src="compositions/nexa-cierra.html" data-start="23.919" data-duration="5.926" data-track-index="6" data-track-kind="graphics" data-width="1080" data-height="1920" style="z-index:10"></div>
+      <div id="captions" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="29.845" data-track-index="7" data-track-kind="captions" data-width="1080" data-height="1920" style="z-index:20"></div>
+      <audio id="voz-salon" class="clip" src="assets/voz/salon.wav" data-start="4.14" data-duration="5.338" data-track-index="30" data-volume="1"></audio>
+      <audio id="voz-cocina" class="clip" src="assets/voz/cocina.wav" data-start="10.028" data-duration="4.095" data-track-index="31" data-volume="1"></audio>
+      <audio id="voz-bodega" class="clip" src="assets/voz/bodega.wav" data-start="14.673" data-duration="3.759" data-track-index="32" data-volume="1"></audio>
+      <audio id="voz-caja" class="clip" src="assets/voz/caja.wav" data-start="18.982" data-duration="4.687" data-track-index="33" data-volume="1"></audio>
+      <audio id="musica" class="clip" src="assets/musica.mp3" data-start="0" data-duration="29.845" data-track-index="40" data-volume="0.057" data-fade-out="1.2"></audio>
+    </div>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
