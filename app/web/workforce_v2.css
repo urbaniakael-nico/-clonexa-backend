@@ -227,3 +227,8 @@
   .wf-place-filters { width: 100%; }
   .wf-selbar > button { flex: 1 1 calc(50% - 8px); }
 }
+
+/* 064A: perímetros y supervisores en Administrar lugares (Board de gerencia). */
+.wf-geo-notice { padding: 8px 10px; border: 1px solid var(--wf-line); border-radius: var(--wf-r); overflow-wrap: anywhere; }
+.wf-geo-sups { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.wf-geo-sups li { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; overflow-wrap: anywhere; }

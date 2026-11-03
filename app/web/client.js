@@ -33978,11 +33978,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxWorkforceV2Css051B";
           link.rel = "stylesheet";
-          link.href = "/client-static/workforce_v2.css?v=059A";
+          link.href = "/client-static/workforce_v2.css?v=064A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/workforce_v2.js?v=059A";
+        script.src = "/client-static/workforce_v2.js?v=064A";
         script.onload = () => resolve();
         script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
         document.head.appendChild(script);
@@ -43230,6 +43230,7 @@ function inventoryCreatePayload() {
   }
 
   async function cxReportsV2Try053C() {
+    if (await cxReportsBoardTry064A()) return true; // 064A: Board de gerencia, solo con su interruptor
     const companyId = companyIdFromUrl();
     if (!companyId || !(await cxReportsV2On053C(companyId))) return false;
     try { await cxReportsV2Load053C(); } catch (_) { return false; }
@@ -43245,6 +43246,62 @@ function inventoryCreatePayload() {
     return true;
   }
   /* CLONEXA_053C_REPORTS_V2_END */
+
+  /* CLONEXA_064A_REPORTS_BOARD_START: Board de gerencia solo con el interruptor reports_board
+     (settings del modulo reports, apagado por defecto). Sin el interruptor, o si su
+     archivo no carga, Reportes sigue como siempre. */
+  async function cxReportsBoardOn064A(companyId) {
+    try {
+      const token = cxReportsToken053C();
+      const res = await fetch(`${API}/companies/${encodeURIComponent(companyId)}/modules`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) return false;
+      const rows = await res.json();
+      const list = Array.isArray(rows) ? rows : (rows && rows.items) || [];
+      const row = list.find((r) => String((r && r.module && r.module.code) || (r && r.module_code) || (r && r.code) || "") === "reports");
+      return !!(row && row.enabled !== false && row.settings && row.settings.reports_board === true);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  let cxReportsBoardLoading064A = null;
+  function cxReportsBoardLoad064A() {
+    if (window.CxReportsBoard) return Promise.resolve();
+    if (!cxReportsBoardLoading064A) {
+      cxReportsBoardLoading064A = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxReportsBoardCss064A")) {
+          const link = document.createElement("link");
+          link.id = "cxReportsBoardCss064A";
+          link.rel = "stylesheet";
+          link.href = "/client-static/reports_board.css?v=064A";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/reports_board.js?v=064A";
+        script.onload = () => resolve();
+        script.onerror = () => { cxReportsBoardLoading064A = null; reject(new Error("reports_board")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxReportsBoardLoading064A;
+  }
+
+  async function cxReportsBoardTry064A() {
+    const companyId = companyIdFromUrl();
+    if (!companyId || !(await cxReportsBoardOn064A(companyId))) return false;
+    try { await cxReportsBoardLoad064A(); } catch (_) { return false; }
+    if (!window.CxReportsBoard || typeof window.CxReportsBoard.mount !== "function") return false;
+    const app = document.getElementById("app");
+    if (!app) return false;
+    app.innerHTML = `<main class="client-shell rb-shell"><div id="cxReportsBoardHost064A"></div></main>`;
+    await window.CxReportsBoard.mount({
+      companyId, apiBase: API, token: cxReportsToken053C,
+      host: () => document.getElementById("cxReportsBoardHost064A"),
+      back: () => { window.location.href = `/client?company_id=${encodeURIComponent(companyId)}`; },
+    });
+    return true;
+  }
+  /* CLONEXA_064A_REPORTS_BOARD_END */
 
   async function renderReports(filters = null, activeTab = "employee_summary") {
     if (!filters && await cxReportsV2Try053C()) return;

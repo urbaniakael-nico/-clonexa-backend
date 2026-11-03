@@ -135,8 +135,10 @@ def _location(ev: Optional[dict], gps: Optional[dict] = None) -> dict:
     key = str(status or "unconfigured").strip().lower()
     key = "inside" if key in ("inside", "dentro", "in") else "outside" if key in ("outside", "fuera", "out") else "unconfigured"
     lat, lng = float(lat), float(lng)
+    # 064A: geo_source = "place" solo si la marca se midio con los perimetros del lugar (Board).
+    source = punch.get("geo_source") or payload.get("geo_source")
     return {"status": key, "label": GPS_LABEL[key], "lat": lat, "lng": lng, "perimeter": perimeter,
-            "map": f"https://www.google.com/maps?q={lat:.6f},{lng:.6f}"}
+            "map": f"https://www.google.com/maps?q={lat:.6f},{lng:.6f}", **({"geo": source} if source else {})}
 
 
 def _note_text(ev: dict) -> str:
@@ -146,6 +148,27 @@ def _note_text(ev: dict) -> str:
         if value and not value.lower().startswith(SYSTEM_NOTES):
             return value
     return ""
+
+
+async def nearest_gps(db: AsyncSession, cid: str, events: list[dict]) -> dict[str, dict]:
+    """Punto GPS mas cercano (+-3 min) de las marcaciones sin coordenadas (flujo viejo del bot)."""
+    need = [ev for ev in events if ev["kind"] in PUNCHES and (ev.get("latitude") is None or ev.get("longitude") is None)
+            and not (_json(ev.get("payload_json")).get("punch_location"))]
+    nearest: dict[str, dict] = {}
+    if need:
+        rows = (await db.execute(text("""
+            SELECT p.ref, g.latitude, g.longitude, g.payload_json, COALESCE(g.occurred_at, g.created_at) AS at, p.at AS punch_at
+            FROM (SELECT unnest(CAST(:refs AS text[])) AS ref, unnest(CAST(:eids AS text[])) AS eid, unnest(CAST(:ats AS timestamptz[])) AS at) p
+            JOIN workforce_attendance_events g
+              ON g.company_id = CAST(:c AS uuid) AND g.employee_id::text = p.eid AND g.event_type = 'gps_location'
+             AND g.latitude IS NOT NULL AND COALESCE(g.occurred_at, g.created_at) BETWEEN p.at - CAST(:w AS interval) AND p.at + CAST(:w AS interval)
+        """), {"c": cid, "refs": [e["id"] for e in need], "eids": [e["employee_id"] for e in need],
+               "ats": [e["occurred_at"] for e in need], "w": GPS_WINDOW})).mappings().all()
+        for r in rows:
+            gap = abs((_dt(r["at"]) - _dt(r["punch_at"])).total_seconds())
+            if r["ref"] not in nearest or gap < nearest[r["ref"]]["gap"]:
+                nearest[r["ref"]] = {**dict(r), "gap": gap}
+    return nearest
 
 
 async def load(db: AsyncSession, company_id: Any, lo: datetime, hi: datetime, employee_id: Any = None) -> dict:
@@ -188,22 +211,7 @@ async def load(db: AsyncSession, company_id: Any, lo: datetime, hi: datetime, em
         ev["kind"] = _kind(ev)
 
     # Punto GPS mas cercano para las marcaciones sin coordenadas (flujo viejo del bot).
-    need = [ev for ev in events if ev["kind"] in PUNCHES and (ev.get("latitude") is None or ev.get("longitude") is None)
-            and not (_json(ev.get("payload_json")).get("punch_location"))]
-    nearest: dict[str, dict] = {}
-    if need:
-        rows = (await db.execute(text("""
-            SELECT p.ref, g.latitude, g.longitude, g.payload_json, COALESCE(g.occurred_at, g.created_at) AS at, p.at AS punch_at
-            FROM (SELECT unnest(CAST(:refs AS text[])) AS ref, unnest(CAST(:eids AS text[])) AS eid, unnest(CAST(:ats AS timestamptz[])) AS at) p
-            JOIN workforce_attendance_events g
-              ON g.company_id = CAST(:c AS uuid) AND g.employee_id::text = p.eid AND g.event_type = 'gps_location'
-             AND g.latitude IS NOT NULL AND COALESCE(g.occurred_at, g.created_at) BETWEEN p.at - CAST(:w AS interval) AND p.at + CAST(:w AS interval)
-        """), {"c": cid, "refs": [e["id"] for e in need], "eids": [e["employee_id"] for e in need],
-               "ats": [e["occurred_at"] for e in need], "w": GPS_WINDOW})).mappings().all()
-        for r in rows:
-            gap = abs((_dt(r["at"]) - _dt(r["punch_at"])).total_seconds())
-            if r["ref"] not in nearest or gap < nearest[r["ref"]]["gap"]:
-                nearest[r["ref"]] = {**dict(r), "gap": gap}
+    nearest = await nearest_gps(db, cid, events)
 
     shifts, open_ = [], {}
     for ev in events:
@@ -245,7 +253,16 @@ async def load(db: AsyncSession, company_id: Any, lo: datetime, hi: datetime, em
         s["place_missing"] = not person.get("place_name")
         s["gps"] = {ev_id: nearest.get(ev_id) for ev_id in [s["check_in"]["id"], s["check_out"]["id"]] +
                     [b[0]["id"] for b in s["break_events"]] + [b[1]["id"] for b in s["break_events"] if b[1]]}
-    return {"people": people, "shifts": shifts, "company_tz": company_tz}
+    # 064A: turnos aun abiertos (el Board muestra el estado en vivo); nomina no los usa.
+    open_shifts = list(open_.values())
+    for s in open_shifts:
+        person = people.get(s["employee_id"]) or {}
+        s["tz"] = person.get("place_tz") or company_tz
+        s["place"] = person.get("place_name")
+        s["place_missing"] = not person.get("place_name")
+        s["gps"] = {ev_id: nearest.get(ev_id) for ev_id in [s["check_in"]["id"]] + ([s["pause_open"]["id"]] if s["pause_open"] else []) +
+                    [b[0]["id"] for b in s["break_events"]] + [b[1]["id"] for b in s["break_events"] if b[1]]}
+    return {"people": people, "shifts": shifts, "company_tz": company_tz, "open_shifts": open_shifts}
 
 
 # ------------------------------------------------------------------ vista de un turno
@@ -333,8 +350,25 @@ def pay(regular: int, overtime: int, rate: Decimal, factor: float, deductions: D
             "gross": float(gross), "deductions": float(deductions), "net": float(max(Decimal("0"), gross - deductions)), "rate_pending": False}
 
 
-async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period_end: date, employee_id: Any = None) -> dict:
-    """El snapshot de nomina de siempre (mismas llaves) con los numeros FLSA y el detalle."""
+def week_totals(good: list[dict]) -> dict[str, list[dict]]:
+    """064A: pagable de cada semana laboral por persona (para la alerta de cerca de overtime)."""
+    weeks: dict[tuple[str, str], dict] = {}
+    for s in good:
+        for p in s["split"]["pieces"]:
+            w = weeks.setdefault((str(s["employee_id"]), p["week_start"].date().isoformat()),
+                                 {"week_start": p["week_start"].date().isoformat(), "payable": 0, "last_end": p["end"]})
+            w["payable"] += p["payable"]
+            w["last_end"] = max(w["last_end"], p["end"])
+    out: dict[str, list[dict]] = {}
+    for (eid, _), w in sorted(weeks.items()):
+        out.setdefault(eid, []).append(w)
+    return out
+
+
+async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period_end: date, employee_id: Any = None, board: bool = False) -> dict:
+    """El snapshot de nomina de siempre (mismas llaves) con los numeros FLSA y el detalle.
+    board=True (064A, Board de gerencia): ademas la linea de tiempo de los turnos por
+    confirmar y el pagable por semana. Las cifras no cambian."""
     from app.api.v1.endpoints import payroll as core
 
     rule = await rules(db, company_id)
@@ -366,6 +400,8 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         # 063A: rol y lugar (operacion) para que Nomina lo ponga en la tabla de su operacion.
         tz_ = person.get("place_tz") or data["company_tz"]
         item.update({"employee_role": person.get("role") or "", "place": person.get("place_name"), "abbr": us_time.abbr(tz_, s["start"])})
+        if board:
+            item["us"] = shift_view(s)
         unverified.append(item)
     period = us_time.in_period(good, period_start, period_end)
 
@@ -434,6 +470,8 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         "us_payroll": {"rules": rule, "missing_rate": missing_rate, "missing_place": missing_place, "company_tz": data["company_tz"],
                        "company_abbr": us_time.abbr(data["company_tz"]), "operations": operations(data["people"])},
     }
+    if board:
+        out["us_payroll"]["week_totals"] = week_totals(good)
     if unverified:
         out["unverified_shifts"] = unverified
     if missing_rate:

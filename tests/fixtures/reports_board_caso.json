@@ -1,0 +1,1590 @@
+{
+ "ok": true,
+ "company": {
+  "id": "f1e8f774-f052-49ca-880a-268805f07db0",
+  "name": "VOLTAGE"
+ },
+ "period": {
+  "start": "2026-11-01",
+  "end": "2026-11-07"
+ },
+ "server_time": "2026-11-05T18:00:00Z",
+ "rules": {
+  "week_start_day": "sunday",
+  "week_start_time": "00:00",
+  "overtime_after_minutes": 2400
+ },
+ "near_ot_minutes": 2160,
+ "shift_limit_hours": 12.0,
+ "figures": {
+  "working": 1,
+  "on_break": 1,
+  "no_shift": 7,
+  "open_over": 1,
+  "connected": 6520,
+  "pause": 54,
+  "payable": 6466,
+  "overtime": 240,
+  "outside": 1,
+  "no_location": 3,
+  "notes": 4,
+  "materials": 1,
+  "held": 1,
+  "to_confirm": 2
+ },
+ "people_total": 11,
+ "operations": [
+  {
+   "key": "id-va",
+   "name": "Virginia",
+   "code": "VA",
+   "tz": "America/New_York",
+   "abbr": "ET",
+   "color": 0,
+   "local_time": "13:00",
+   "supervisors": [
+    "Sofía Mora"
+   ],
+   "perimeters": 1,
+   "perimeter_missing": false,
+   "figures": {
+    "working": 1,
+    "on_break": 1,
+    "no_shift": 3,
+    "open_over": 0,
+    "connected": 640,
+    "pause": 54,
+    "payable": 586,
+    "overtime": 0,
+    "outside": 1,
+    "no_location": 0,
+    "notes": 2,
+    "materials": 1,
+    "held": 0,
+    "to_confirm": 0
+   },
+   "hours_by_day": [
+    {
+     "date": "2026-11-01",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-02",
+     "payable": 526,
+     "pause": 54
+    },
+    {
+     "date": "2026-11-03",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-04",
+     "payable": 60,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-05",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-06",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-07",
+     "payable": 0,
+     "pause": 0
+    }
+   ],
+   "alerts": [
+    {
+     "employee_id": "id-diego",
+     "employee": "Diego Ruiz",
+     "kind": "outside",
+     "mark": "Entrada",
+     "t": "08:00",
+     "d": "2026-11-04",
+     "a": "ET",
+     "at": "2026-11-04T13:00:00Z"
+    }
+   ],
+   "notes": [
+    {
+     "kind": "summary",
+     "label": "Resumen de la jornada",
+     "text": "Revisión del rack 12 con cliente; se dejó pendiente la prueba final de cables y etiquetas porque faltó material.",
+     "t": "09:00",
+     "d": "2026-11-04",
+     "a": "ET",
+     "at": "2026-11-04T14:00:00Z",
+     "employee_id": "id-diego",
+     "employee": "Diego Ruiz"
+    },
+    {
+     "kind": "summary",
+     "label": "Resumen de la jornada",
+     "text": "Etiquetado del rack 9 terminado.\nCables 1-1 y 1-2.",
+     "t": "16:25",
+     "d": "2026-11-02",
+     "a": "ET",
+     "at": "2026-11-02T21:25:00Z",
+     "employee_id": "id-angela",
+     "employee": "Ángela Núñez"
+    }
+   ],
+   "people": [
+    {
+     "id": "id-angela",
+     "name": "Ángela Núñez",
+     "document": "VA-100",
+     "role": "operario",
+     "work_location_id": "id-va",
+     "abbr": "ET",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 1,
+     "connected": 580,
+     "pause": 54,
+     "payable": 526,
+     "regular": 526,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 1,
+     "materials": 1,
+     "last_mark": {
+      "t": "16:25",
+      "d": "2026-11-02",
+      "a": "ET",
+      "at": "2026-11-02T21:25:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-02",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:45",
+          "d": "2026-11-02",
+          "a": "ET",
+          "at": "2026-11-02T11:45:00Z",
+          "s": "inside",
+          "lat": 38.9,
+          "lng": -77.0,
+          "n": "Bodega"
+         },
+         "out": {
+          "k": "out",
+          "t": "16:25",
+          "d": "2026-11-02",
+          "a": "ET",
+          "at": "2026-11-02T21:25:00Z",
+          "s": "inside",
+          "lat": 38.9,
+          "lng": -77.0,
+          "n": "Bodega"
+         },
+         "pauses": [
+          {
+           "start": {
+            "k": "pause",
+            "t": "10:35",
+            "d": "2026-11-02",
+            "a": "ET",
+            "at": "2026-11-02T15:35:00Z",
+            "s": "inside",
+            "lat": 38.9,
+            "lng": -77.0,
+            "n": "Bodega"
+           },
+           "end": {
+            "k": "resume",
+            "t": "11:29",
+            "d": "2026-11-02",
+            "a": "ET",
+            "at": "2026-11-02T16:29:00Z",
+            "s": "inside",
+            "lat": 38.9,
+            "lng": -77.0,
+            "n": "Bodega"
+           },
+           "minutes": 54,
+           "auto": false
+          }
+         ],
+         "notes": [
+          {
+           "kind": "summary",
+           "label": "Resumen de la jornada",
+           "text": "Etiquetado del rack 9 terminado.\nCables 1-1 y 1-2.",
+           "t": "16:25",
+           "d": "2026-11-02",
+           "a": "ET",
+           "at": "2026-11-02T21:25:00Z"
+          }
+         ],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 580,
+         "pause": 54,
+         "payable": 526,
+         "overtime": 0
+        }
+       ],
+       "materials": [
+        {
+         "what": "Cable 6 AWG",
+         "qty": 3.0,
+         "unit": "m",
+         "status": "requested",
+         "t": "11:40",
+         "d": "2026-11-02",
+         "a": "ET",
+         "at": "2026-11-02T16:40:00Z"
+        }
+       ],
+       "connected": 580,
+       "pause": 54,
+       "payable": 526
+      }
+     ],
+     "alerts": []
+    },
+    {
+     "id": "id-bruno",
+     "name": "Bruno Díaz",
+     "document": "VA-200",
+     "role": "operario",
+     "work_location_id": "id-va",
+     "abbr": "ET",
+     "now": {
+      "state": "working",
+      "minutes": 280,
+      "since": {
+       "t": "08:00",
+       "d": "2026-11-05",
+       "a": "ET",
+       "at": "2026-11-05T13:00:00Z"
+      }
+     },
+     "days_worked": 0,
+     "connected": 0,
+     "pause": 0,
+     "payable": 0,
+     "regular": 0,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "10:20",
+      "d": "2026-11-05",
+      "a": "ET",
+      "at": "2026-11-05T15:20:00Z",
+      "k": "resume"
+     },
+     "days": [
+      {
+       "date": "2026-11-05",
+       "shifts": [
+        {
+         "state": "running",
+         "in": {
+          "k": "in",
+          "t": "08:00",
+          "d": "2026-11-05",
+          "a": "ET",
+          "at": "2026-11-05T13:00:00Z",
+          "s": "inside",
+          "lat": 38.9,
+          "lng": -77.0,
+          "n": "Bodega"
+         },
+         "out": null,
+         "pauses": [
+          {
+           "start": {
+            "k": "pause",
+            "t": "10:00",
+            "d": "2026-11-05",
+            "a": "ET",
+            "at": "2026-11-05T15:00:00Z",
+            "s": "inside",
+            "lat": 38.9,
+            "lng": -77.0,
+            "n": "Bodega"
+           },
+           "end": {
+            "k": "resume",
+            "t": "10:20",
+            "d": "2026-11-05",
+            "a": "ET",
+            "at": "2026-11-05T15:20:00Z",
+            "s": "inside",
+            "lat": 38.9,
+            "lng": -77.0,
+            "n": "Bodega"
+           },
+           "minutes": 20,
+           "auto": false
+          }
+         ],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 300,
+         "pause": 20,
+         "payable": 280,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 0,
+       "pause": 0,
+       "payable": 0
+      }
+     ],
+     "alerts": []
+    },
+    {
+     "id": "id-carla",
+     "name": "Carla Peña",
+     "document": "VA-300",
+     "role": "operario",
+     "work_location_id": "id-va",
+     "abbr": "ET",
+     "now": {
+      "state": "on_break",
+      "minutes": 20,
+      "since": {
+       "t": "09:00",
+       "d": "2026-11-05",
+       "a": "ET",
+       "at": "2026-11-05T14:00:00Z"
+      }
+     },
+     "days_worked": 0,
+     "connected": 0,
+     "pause": 0,
+     "payable": 0,
+     "regular": 0,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "12:40",
+      "d": "2026-11-05",
+      "a": "ET",
+      "at": "2026-11-05T17:40:00Z",
+      "k": "pause"
+     },
+     "days": [
+      {
+       "date": "2026-11-05",
+       "shifts": [
+        {
+         "state": "running",
+         "in": {
+          "k": "in",
+          "t": "09:00",
+          "d": "2026-11-05",
+          "a": "ET",
+          "at": "2026-11-05T14:00:00Z",
+          "s": "inside",
+          "lat": 38.9,
+          "lng": -77.0,
+          "n": "Bodega"
+         },
+         "out": null,
+         "pauses": [
+          {
+           "start": {
+            "k": "pause",
+            "t": "12:40",
+            "d": "2026-11-05",
+            "a": "ET",
+            "at": "2026-11-05T17:40:00Z",
+            "s": "inside",
+            "lat": 38.9,
+            "lng": -77.0,
+            "n": "Bodega"
+           },
+           "end": null,
+           "minutes": 20,
+           "auto": true
+          }
+         ],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 240,
+         "pause": 20,
+         "payable": 220,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 0,
+       "pause": 0,
+       "payable": 0
+      }
+     ],
+     "alerts": []
+    },
+    {
+     "id": "id-diego",
+     "name": "Diego Ruiz",
+     "document": "VA-400",
+     "role": "operario",
+     "work_location_id": "id-va",
+     "abbr": "ET",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 1,
+     "connected": 60,
+     "pause": 0,
+     "payable": 60,
+     "regular": 60,
+     "overtime": 0,
+     "held": 0,
+     "outside": 1,
+     "no_location": 0,
+     "notes": 1,
+     "materials": 0,
+     "last_mark": {
+      "t": "09:00",
+      "d": "2026-11-04",
+      "a": "ET",
+      "at": "2026-11-04T14:00:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-04",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "08:00",
+          "d": "2026-11-04",
+          "a": "ET",
+          "at": "2026-11-04T13:00:00Z",
+          "s": "outside",
+          "lat": 38.95,
+          "lng": -77.1
+         },
+         "out": {
+          "k": "out",
+          "t": "09:00",
+          "d": "2026-11-04",
+          "a": "ET",
+          "at": "2026-11-04T14:00:00Z",
+          "s": "inside",
+          "lat": 38.9,
+          "lng": -77.0,
+          "n": "Bodega"
+         },
+         "pauses": [],
+         "notes": [
+          {
+           "kind": "summary",
+           "label": "Resumen de la jornada",
+           "text": "Revisión del rack 12 con cliente; se dejó pendiente la prueba final de cables y etiquetas porque faltó material.",
+           "t": "09:00",
+           "d": "2026-11-04",
+           "a": "ET",
+           "at": "2026-11-04T14:00:00Z"
+          }
+         ],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 60,
+         "pause": 0,
+         "payable": 60,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 60,
+       "pause": 0,
+       "payable": 60
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-diego",
+       "employee": "Diego Ruiz",
+       "kind": "outside",
+       "mark": "Entrada",
+       "t": "08:00",
+       "d": "2026-11-04",
+       "a": "ET",
+       "at": "2026-11-04T13:00:00Z"
+      }
+     ]
+    },
+    {
+     "id": "id-sofia",
+     "name": "Sofía Mora",
+     "document": "VA-500",
+     "role": "supervisor",
+     "work_location_id": "id-va",
+     "abbr": "ET",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 0,
+     "connected": 0,
+     "pause": 0,
+     "payable": 0,
+     "regular": 0,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": null,
+     "days": [],
+     "alerts": []
+    }
+   ]
+  },
+  {
+   "key": "id-al",
+   "name": "Alabama",
+   "code": "AL",
+   "tz": "America/Chicago",
+   "abbr": "CT",
+   "color": 1,
+   "local_time": "12:00",
+   "supervisors": [],
+   "perimeters": 0,
+   "perimeter_missing": true,
+   "figures": {
+    "working": 0,
+    "on_break": 0,
+    "no_shift": 3,
+    "open_over": 1,
+    "connected": 5520,
+    "pause": 0,
+    "payable": 5520,
+    "overtime": 240,
+    "outside": 0,
+    "no_location": 3,
+    "notes": 2,
+    "materials": 0,
+    "held": 1,
+    "to_confirm": 2
+   },
+   "hours_by_day": [
+    {
+     "date": "2026-11-01",
+     "payable": 1230,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-02",
+     "payable": 1230,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-03",
+     "payable": 1230,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-04",
+     "payable": 1830,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-05",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-06",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-07",
+     "payable": 0,
+     "pause": 0
+    }
+   ],
+   "alerts": [
+    {
+     "employee_id": "id-gabriel",
+     "employee": "Gabriel Luna",
+     "kind": "to_confirm",
+     "open": true,
+     "t": "21:00",
+     "d": "2026-11-04",
+     "a": "CT",
+     "at": "2026-11-05T03:00:00Z",
+     "minutes": 900
+    },
+    {
+     "employee_id": "id-felipe",
+     "employee": "Felipe Soto",
+     "kind": "near_overtime",
+     "t": "17:00",
+     "d": "2026-11-04",
+     "a": "CT",
+     "at": "2026-11-04T23:00:00Z",
+     "minutes": 2640,
+     "week_start": "2026-11-01"
+    },
+    {
+     "employee_id": "id-elena",
+     "employee": "Elena Gómez",
+     "kind": "near_overtime",
+     "t": "15:30",
+     "d": "2026-11-04",
+     "a": "CT",
+     "at": "2026-11-04T21:30:00Z",
+     "minutes": 2280,
+     "week_start": "2026-11-01"
+    },
+    {
+     "employee_id": "id-ivan",
+     "employee": "Iván Mena",
+     "kind": "no_location",
+     "mark": "Entrada",
+     "t": "07:00",
+     "d": "2026-11-04",
+     "a": "CT",
+     "at": "2026-11-04T13:00:00Z"
+    },
+    {
+     "employee_id": "id-helena",
+     "employee": "Helena Ríos",
+     "kind": "to_confirm",
+     "t": "06:00",
+     "d": "2026-11-03",
+     "a": "CT",
+     "at": "2026-11-03T12:00:00Z",
+     "minutes": 900
+    },
+    {
+     "employee_id": "id-elena",
+     "employee": "Elena Gómez",
+     "kind": "no_location",
+     "mark": "Salida",
+     "t": "15:30",
+     "d": "2026-11-02",
+     "a": "CT",
+     "at": "2026-11-02T21:30:00Z"
+    },
+    {
+     "employee_id": "id-elena",
+     "employee": "Elena Gómez",
+     "kind": "no_location",
+     "mark": "Entrada",
+     "t": "06:00",
+     "d": "2026-11-02",
+     "a": "CT",
+     "at": "2026-11-02T12:00:00Z"
+    }
+   ],
+   "notes": [
+    {
+     "kind": "manual_close",
+     "label": "Nota del cierre",
+     "text": "Olvidó marcar la salida",
+     "t": "19:15",
+     "d": "2026-11-04",
+     "a": "CT",
+     "at": "2026-11-05T01:15:00Z",
+     "employee_id": "id-ivan",
+     "employee": "Iván Mena"
+    },
+    {
+     "kind": "summary",
+     "label": "Resumen de la jornada",
+     "text": "Turno largo en el rack 4",
+     "t": "21:00",
+     "d": "2026-11-03",
+     "a": "CT",
+     "at": "2026-11-04T03:00:00Z",
+     "employee_id": "id-helena",
+     "employee": "Helena Ríos"
+    }
+   ],
+   "people": [
+    {
+     "id": "id-elena",
+     "name": "Elena Gómez",
+     "document": "AL-100",
+     "role": "operario",
+     "work_location_id": "id-al",
+     "abbr": "CT",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 4,
+     "connected": 2280,
+     "pause": 0,
+     "payable": 2280,
+     "regular": 2280,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 2,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "15:30",
+      "d": "2026-11-04",
+      "a": "CT",
+      "at": "2026-11-04T21:30:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-04",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "15:30",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T21:30:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 570,
+         "pause": 0,
+         "payable": 570,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 570,
+       "pause": 0,
+       "payable": 570
+      },
+      {
+       "date": "2026-11-03",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "15:30",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T21:30:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 570,
+         "pause": 0,
+         "payable": 570,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 570,
+       "pause": 0,
+       "payable": 570
+      },
+      {
+       "date": "2026-11-02",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-02",
+          "a": "CT",
+          "at": "2026-11-02T12:00:00Z",
+          "s": "none"
+         },
+         "out": {
+          "k": "out",
+          "t": "15:30",
+          "d": "2026-11-02",
+          "a": "CT",
+          "at": "2026-11-02T21:30:00Z",
+          "s": "none"
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 570,
+         "pause": 0,
+         "payable": 570,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 570,
+       "pause": 0,
+       "payable": 570
+      },
+      {
+       "date": "2026-11-01",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-01",
+          "a": "CT",
+          "at": "2026-11-01T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "15:30",
+          "d": "2026-11-01",
+          "a": "CT",
+          "at": "2026-11-01T21:30:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 570,
+         "pause": 0,
+         "payable": 570,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 570,
+       "pause": 0,
+       "payable": 570
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-elena",
+       "employee": "Elena Gómez",
+       "kind": "no_location",
+       "mark": "Entrada",
+       "t": "06:00",
+       "d": "2026-11-02",
+       "a": "CT",
+       "at": "2026-11-02T12:00:00Z"
+      },
+      {
+       "employee_id": "id-elena",
+       "employee": "Elena Gómez",
+       "kind": "no_location",
+       "mark": "Salida",
+       "t": "15:30",
+       "d": "2026-11-02",
+       "a": "CT",
+       "at": "2026-11-02T21:30:00Z"
+      },
+      {
+       "employee_id": "id-elena",
+       "employee": "Elena Gómez",
+       "kind": "near_overtime",
+       "t": "15:30",
+       "d": "2026-11-04",
+       "a": "CT",
+       "at": "2026-11-04T21:30:00Z",
+       "minutes": 2280,
+       "week_start": "2026-11-01"
+      }
+     ]
+    },
+    {
+     "id": "id-felipe",
+     "name": "Felipe Soto",
+     "document": "AL-200",
+     "role": "operario",
+     "work_location_id": "id-al",
+     "abbr": "CT",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 4,
+     "connected": 2640,
+     "pause": 0,
+     "payable": 2640,
+     "regular": 2400,
+     "overtime": 240,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "17:00",
+      "d": "2026-11-04",
+      "a": "CT",
+      "at": "2026-11-04T23:00:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-04",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "17:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T23:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 660,
+         "pause": 0,
+         "payable": 660,
+         "overtime": 240
+        }
+       ],
+       "materials": [],
+       "connected": 660,
+       "pause": 0,
+       "payable": 660
+      },
+      {
+       "date": "2026-11-03",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "17:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T23:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 660,
+         "pause": 0,
+         "payable": 660,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 660,
+       "pause": 0,
+       "payable": 660
+      },
+      {
+       "date": "2026-11-02",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-02",
+          "a": "CT",
+          "at": "2026-11-02T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "17:00",
+          "d": "2026-11-02",
+          "a": "CT",
+          "at": "2026-11-02T23:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 660,
+         "pause": 0,
+         "payable": 660,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 660,
+       "pause": 0,
+       "payable": 660
+      },
+      {
+       "date": "2026-11-01",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-01",
+          "a": "CT",
+          "at": "2026-11-01T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "17:00",
+          "d": "2026-11-01",
+          "a": "CT",
+          "at": "2026-11-01T23:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 660,
+         "pause": 0,
+         "payable": 660,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 660,
+       "pause": 0,
+       "payable": 660
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-felipe",
+       "employee": "Felipe Soto",
+       "kind": "near_overtime",
+       "t": "17:00",
+       "d": "2026-11-04",
+       "a": "CT",
+       "at": "2026-11-04T23:00:00Z",
+       "minutes": 2640,
+       "week_start": "2026-11-01"
+      }
+     ]
+    },
+    {
+     "id": "id-gabriel",
+     "name": "Gabriel Luna",
+     "document": "AL-300",
+     "role": "operario",
+     "work_location_id": "id-al",
+     "abbr": "CT",
+     "now": {
+      "state": "to_confirm",
+      "minutes": 900,
+      "over_limit": true,
+      "since": {
+       "t": "21:00",
+       "d": "2026-11-04",
+       "a": "CT",
+       "at": "2026-11-05T03:00:00Z"
+      }
+     },
+     "days_worked": 0,
+     "connected": 0,
+     "pause": 0,
+     "payable": 0,
+     "regular": 0,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "21:00",
+      "d": "2026-11-04",
+      "a": "CT",
+      "at": "2026-11-05T03:00:00Z",
+      "k": "in"
+     },
+     "days": [
+      {
+       "date": "2026-11-04",
+       "shifts": [
+        {
+         "state": "running",
+         "in": {
+          "k": "in",
+          "t": "21:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-05T03:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": null,
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 900,
+         "pause": 0,
+         "payable": 900,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 0,
+       "pause": 0,
+       "payable": 0
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-gabriel",
+       "employee": "Gabriel Luna",
+       "kind": "to_confirm",
+       "open": true,
+       "t": "21:00",
+       "d": "2026-11-04",
+       "a": "CT",
+       "at": "2026-11-05T03:00:00Z",
+       "minutes": 900
+      }
+     ]
+    },
+    {
+     "id": "id-helena",
+     "name": "Helena Ríos",
+     "document": "AL-400",
+     "role": "operario",
+     "work_location_id": "id-al",
+     "abbr": "CT",
+     "now": {
+      "state": "to_confirm"
+     },
+     "days_worked": 0,
+     "connected": 0,
+     "pause": 0,
+     "payable": 0,
+     "regular": 0,
+     "overtime": 0,
+     "held": 1,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 1,
+     "materials": 0,
+     "last_mark": {
+      "t": "21:00",
+      "d": "2026-11-03",
+      "a": "CT",
+      "at": "2026-11-04T03:00:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-03",
+       "shifts": [
+        {
+         "state": "held",
+         "in": {
+          "k": "in",
+          "t": "06:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T12:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "21:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-04T03:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [
+          {
+           "kind": "summary",
+           "label": "Resumen de la jornada",
+           "text": "Turno largo en el rack 4",
+           "t": "21:00",
+           "d": "2026-11-03",
+           "a": "CT",
+           "at": "2026-11-04T03:00:00Z"
+          }
+         ],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 900,
+         "pause": 0,
+         "payable": 900,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 0,
+       "pause": 0,
+       "payable": 0
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-helena",
+       "employee": "Helena Ríos",
+       "kind": "to_confirm",
+       "t": "06:00",
+       "d": "2026-11-03",
+       "a": "CT",
+       "at": "2026-11-03T12:00:00Z",
+       "minutes": 900
+      }
+     ]
+    },
+    {
+     "id": "id-ivan",
+     "name": "Iván Mena",
+     "document": "AL-500",
+     "role": "operario",
+     "work_location_id": "id-al",
+     "abbr": "CT",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 1,
+     "connected": 600,
+     "pause": 0,
+     "payable": 600,
+     "regular": 600,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 1,
+     "notes": 1,
+     "materials": 0,
+     "last_mark": {
+      "t": "17:00",
+      "d": "2026-11-04",
+      "a": "CT",
+      "at": "2026-11-04T23:00:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-04",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "07:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T13:00:00Z",
+          "s": "none"
+         },
+         "out": {
+          "k": "out",
+          "t": "17:00",
+          "d": "2026-11-04",
+          "a": "CT",
+          "at": "2026-11-04T23:00:00Z",
+          "s": null
+         },
+         "pauses": [],
+         "notes": [
+          {
+           "kind": "manual_close",
+           "label": "Nota del cierre",
+           "text": "Olvidó marcar la salida",
+           "t": "19:15",
+           "d": "2026-11-04",
+           "a": "CT",
+           "at": "2026-11-05T01:15:00Z"
+          }
+         ],
+         "manual": {
+          "by": "Sofía Mora",
+          "note": "Olvidó marcar la salida"
+         },
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 600,
+         "pause": 0,
+         "payable": 600,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 600,
+       "pause": 0,
+       "payable": 600
+      }
+     ],
+     "alerts": [
+      {
+       "employee_id": "id-ivan",
+       "employee": "Iván Mena",
+       "kind": "no_location",
+       "mark": "Entrada",
+       "t": "07:00",
+       "d": "2026-11-04",
+       "a": "CT",
+       "at": "2026-11-04T13:00:00Z"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "none",
+   "name": "Sin lugar asignado",
+   "code": null,
+   "tz": "America/Chicago",
+   "abbr": "CT",
+   "color": "x",
+   "local_time": "12:00",
+   "supervisors": [],
+   "perimeters": 0,
+   "perimeter_missing": false,
+   "figures": {
+    "working": 0,
+    "on_break": 0,
+    "no_shift": 1,
+    "open_over": 0,
+    "connected": 360,
+    "pause": 0,
+    "payable": 360,
+    "overtime": 0,
+    "outside": 0,
+    "no_location": 0,
+    "notes": 0,
+    "materials": 0,
+    "held": 0,
+    "to_confirm": 0
+   },
+   "hours_by_day": [
+    {
+     "date": "2026-11-01",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-02",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-03",
+     "payable": 360,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-04",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-05",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-06",
+     "payable": 0,
+     "pause": 0
+    },
+    {
+     "date": "2026-11-07",
+     "payable": 0,
+     "pause": 0
+    }
+   ],
+   "alerts": [],
+   "notes": [],
+   "people": [
+    {
+     "id": "id-jaime",
+     "name": "Jaime Sol",
+     "document": "",
+     "role": "operario",
+     "work_location_id": null,
+     "abbr": "CT",
+     "now": {
+      "state": "no_shift"
+     },
+     "days_worked": 1,
+     "connected": 360,
+     "pause": 0,
+     "payable": 360,
+     "regular": 360,
+     "overtime": 0,
+     "held": 0,
+     "outside": 0,
+     "no_location": 0,
+     "notes": 0,
+     "materials": 0,
+     "last_mark": {
+      "t": "14:00",
+      "d": "2026-11-03",
+      "a": "CT",
+      "at": "2026-11-03T20:00:00Z",
+      "k": "out"
+     },
+     "days": [
+      {
+       "date": "2026-11-03",
+       "shifts": [
+        {
+         "state": "ok",
+         "in": {
+          "k": "in",
+          "t": "08:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T14:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "out": {
+          "k": "out",
+          "t": "14:00",
+          "d": "2026-11-03",
+          "a": "CT",
+          "at": "2026-11-03T20:00:00Z",
+          "s": "unconfigured",
+          "lat": 38.9,
+          "lng": -77.0
+         },
+         "pauses": [],
+         "notes": [],
+         "manual": null,
+         "system_cutoff": false,
+         "confirmed": false,
+         "connected": 360,
+         "pause": 0,
+         "payable": 360,
+         "overtime": 0
+        }
+       ],
+       "materials": [],
+       "connected": 360,
+       "pause": 0,
+       "payable": 360
+      }
+     ],
+     "alerts": []
+    }
+   ]
+  }
+ ],
+ "scope": {
+  "limited": false,
+  "supervisor_no_place": false
+ },
+ "can_manage": true
+}

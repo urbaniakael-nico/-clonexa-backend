@@ -344,10 +344,44 @@
       </div><div class="wf-place-move">
         <button class="client-btn" type="button" data-wf2-place-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Subir ${h(r.name)}">↑ Subir</button>
         <button class="client-btn" type="button" data-wf2-place-down="${i}" ${i === rows.length - 1 ? "disabled" : ""} aria-label="Bajar ${h(r.name)}">↓ Bajar</button>
+        ${model.wl && model.wl.perimeters_on && r.id ? `<button class="client-btn" type="button" data-wf2-geo="${h(r.id)}">Perímetros y supervisores</button>` : ""}
       </div></fieldset>`).join("")}</div>
       <button class="client-btn" type="button" data-wf2-place-add>+ Agregar lugar</button>
       <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar lugares</button>
         <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div></form></div>`;
+  }
+
+  // 064A: perímetros y supervisores de un lugar (interruptor reports_board). Nada se guarda
+  // hasta tocar Guardar, tampoco la sugerencia.
+  function geoModal(md, err) {
+    if (md.loading) return `<div class="wf-modal" data-wf2-modal><div class="wf-modal-card" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle"><h2 id="wf2ModalTitle">Perímetros y supervisores</h2><p>Cargando…</p></div></div>`;
+    const taken = new Set(md.supervisors);
+    const nameOf = (id) => (arr(md.employees).find((e) => e.id === id) || {}).name || id;
+    const s = md.suggest;
+    return `<div class="wf-modal" data-wf2-modal><form class="wf-modal-card wf-places" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle" data-wf2-geoform novalidate>
+      <h2 id="wf2ModalTitle">${h(md.name)}: perímetros y supervisores</h2>
+      <p>Mientras no haya perímetro, las marcas dicen «Sin perímetro». Al guardar, las marcas desde ese momento quedan dentro o fuera.</p>${err}
+      ${md.notice ? `<div class="wf-geo-notice" role="status">${h(md.notice)}</div>` : ""}
+      <div class="wf-places-list">${md.rows.map((r, i) => `<fieldset class="wf-fieldset"><legend>${h(r.name || `Perímetro ${i + 1}`)}</legend><div class="wf-form-grid">
+        <label class="wf-field"><span>Nombre</span><input data-wf2-geo-field="name" data-i="${i}" value="${h(r.name)}" maxlength="80" autocomplete="off"></label>
+        <label class="wf-field"><span>Latitud</span><input data-wf2-geo-field="latitude" data-i="${i}" value="${h(r.latitude)}" inputmode="decimal" autocomplete="off"></label>
+        <label class="wf-field"><span>Longitud</span><input data-wf2-geo-field="longitude" data-i="${i}" value="${h(r.longitude)}" inputmode="decimal" autocomplete="off"></label>
+        <label class="wf-field"><span>Radio (metros)</span><input data-wf2-geo-field="radius_m" data-i="${i}" value="${h(r.radius_m)}" inputmode="numeric" autocomplete="off"></label>
+      </div><div class="wf-place-move"><button class="client-btn" type="button" data-wf2-geo-del="${i}">Quitar perímetro</button></div></fieldset>`).join("") || "<p>Este lugar aún no tiene perímetro.</p>"}</div>
+      <div class="wf-place-move"><button class="client-btn" type="button" data-wf2-geo-add>+ Agregar perímetro</button>
+        <button class="client-btn" type="button" data-wf2-geo-suggest ${model.busy ? "disabled" : ""}>Sugerir centro con las marcaciones</button></div>
+      ${s ? `<div class="wf-geo-notice" role="status" data-wf2-geo-suggestion>${s.suggestion
+    ? `<strong>Sugerencia (sin guardar):</strong> ${h(s.suggestion.latitude)}, ${h(s.suggestion.longitude)}: punto medio de ${h(s.suggestion.marks)} marcaciones de entrada de los últimos ${h(s.days)} días; el 90 % quedó a ${h(s.suggestion.p90_m)} m o menos. <button class="client-btn" type="button" data-wf2-geo-use>Usar esta sugerencia</button>`
+    : `Este lugar no tiene marcaciones de entrada con ubicación en los últimos ${h(s.days)} días.`}</div>` : ""}
+      <fieldset class="wf-fieldset"><legend>Supervisores del lugar</legend>
+        <ul class="wf-geo-sups">${md.supervisors.map((id) => `<li>${h(nameOf(id))} <button class="client-btn" type="button" data-wf2-sup-del="${h(id)}" aria-label="Quitar a ${h(nameOf(id))}">Quitar</button></li>`).join("") || "<li>Sin supervisor.</li>"}</ul>
+        <label class="wf-field"><span>Agregar supervisor</span><select data-wf2-sup-add><option value="">Elegir empleado…</option>${arr(md.employees).filter((e) => !taken.has(e.id)).map((e) => `<option value="${h(e.id)}">${h(e.name)}${e.role ? ` (${h(e.role)})` : ""}</option>`).join("")}</select></label>
+      </fieldset>
+      <label class="wf-field"><span>Alerta de cerca de overtime desde (horas en la semana)</span><input data-wf2-geo-near value="${h(md.near)}" inputmode="decimal" autocomplete="off"></label>
+      <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar</button>
+        <button class="client-btn" type="button" data-wf2-geo-recalc ${model.busy || !md.saved ? "disabled" : ""}>Recalcular marcas viejas</button>
+        <button class="client-btn" type="button" data-wf2-close>Cerrar</button></div>
+      <p>Recalcular vuelve a medir las marcas de este lugar con los perímetros guardados. No cambia ninguna hora.</p></form></div>`;
   }
 
   function selectionBar() {
@@ -364,6 +398,7 @@
     const md = model.modal;
     if (!md) return "";
     const err = md.error ? `<div class="wf-alert" role="alert">${h(md.error)}</div>` : "";
+    if (md.type === "geo") return geoModal(md, err);
     if (md.type === "delete") {
       return `<div class="wf-modal" data-wf2-modal><div class="wf-modal-card" role="dialog" aria-modal="true" aria-labelledby="wf2ModalTitle">
         <h2 id="wf2ModalTitle">Eliminar a ${h(md.name)}</h2>
@@ -512,7 +547,7 @@
     try {
       const data = await ctx.authApi(wlBase());
       model.wl = { locations: arr(data && data.locations), assignments: (data && data.assignments) || {},
-        can_manage: Boolean(data && data.can_manage), can_assign: Boolean(data && data.can_assign) };
+        can_manage: Boolean(data && data.can_manage), can_assign: Boolean(data && data.can_assign), perimeters_on: Boolean(data && data.perimeters_on) };
       const ok = wlFilters(model.wl).some(([k]) => k === model.wlFilter);
       if (!ok) model.wlFilter = "all";
     } catch (_) {
@@ -566,6 +601,53 @@
       draw();
     }
   }
+
+  // 064A: perímetros y supervisores (rutas del Board; las valida el servidor).
+  const geoBase = () => `/reports-board/companies/${encodeURIComponent(ctx.companyId)}`;
+  async function openGeo(id) {
+    model.modal = { type: "geo", placeId: id, loading: true };
+    draw();
+    try {
+      const data = await ctx.authApi(`${geoBase()}/places`);
+      const place = arr(data.places).find((p) => p.id === id);
+      if (!model.modal || model.modal.type !== "geo") return;
+      if (!place) throw new Error("Ese lugar no existe.");
+      model.modal = { type: "geo", placeId: id, name: place.name, defaultRadius: data.default_radius_m, near: data.near_ot_hours, employees: arr(data.employees),
+        rows: arr(place.perimeters).map((p) => ({ name: p.name, latitude: p.latitude, longitude: p.longitude, radius_m: p.radius_m })),
+        supervisors: arr(place.supervisors).map((s) => s.employee_id), saved: arr(place.perimeters).length > 0 };
+    } catch (error) {
+      if (model.modal) model.modal = { type: "places", rows: placesRows(), error: errorText(error) };
+    }
+    draw();
+  }
+  async function geoRun(job) {
+    const md = model.modal;
+    md.error = ""; md.notice = ""; model.busy = true;
+    draw();
+    try {
+      await job(md);
+    } catch (error) {
+      if (model.modal === md) md.error = errorText(error);
+    } finally {
+      model.busy = false;
+      draw();
+    }
+  }
+  const saveGeo = () => geoRun(async (md) => {
+    const out = await ctx.authApi(`${geoBase()}/places/${encodeURIComponent(md.placeId)}`, { method: "PUT", body: JSON.stringify({ perimeters: md.rows, supervisors: md.supervisors }) });
+    await ctx.authApi(`${geoBase()}/settings`, { method: "PUT", body: JSON.stringify({ near_ot_hours: md.near }) });
+    md.rows = arr(out.perimeters).map((p) => ({ name: p.name, latitude: p.latitude, longitude: p.longitude, radius_m: p.radius_m }));
+    md.supervisors = arr(out.supervisors).map((s) => s.employee_id);
+    md.saved = md.rows.length > 0;
+    md.notice = md.saved ? "Guardado. Las marcas desde este momento quedan dentro o fuera del perímetro." : "Guardado. Este lugar sigue sin perímetro.";
+  });
+  const suggestGeo = () => geoRun(async (md) => {
+    md.suggest = await ctx.authApi(`${geoBase()}/places/${encodeURIComponent(md.placeId)}/suggest`, { method: "POST" });
+  });
+  const recalcGeo = () => geoRun(async (md) => {
+    const out = await ctx.authApi(`${geoBase()}/places/${encodeURIComponent(md.placeId)}/recalculate`, { method: "POST" });
+    md.notice = `Marcas recalculadas: ${out.inside} en perímetro, ${out.outside} fuera, ${out.no_location} sin ubicación. Las horas no cambian.`;
+  });
 
   function placesRows() {
     return arr(model.wl && model.wl.locations).map((l) => ({ id: l.id, name: l.name, code: l.code || "", timezone: l.timezone, is_active: l.is_active }));
@@ -694,6 +776,25 @@
       return true;
     }
     if (t.closest("[data-wf2-places]")) { model.notice = ""; model.modal = { type: "places", rows: placesRows() }; draw(); return true; }
+    const geo = t.closest("[data-wf2-geo]");
+    if (geo) { openGeo(geo.getAttribute("data-wf2-geo")); return true; }
+    if (model.modal && model.modal.type === "geo") {
+      const md = model.modal;
+      if (t.closest("[data-wf2-geo-add]")) { md.rows.push({ name: "", latitude: "", longitude: "", radius_m: md.defaultRadius }); draw(); return true; }
+      const del = t.closest("[data-wf2-geo-del]");
+      if (del) { md.rows.splice(Number(del.getAttribute("data-wf2-geo-del")), 1); draw(); return true; }
+      if (t.closest("[data-wf2-geo-suggest]")) { suggestGeo(); return true; }
+      if (t.closest("[data-wf2-geo-use]") && md.suggest && md.suggest.suggestion) {
+        // Solo llena el formulario: se guarda si el dueño toca Guardar.
+        md.rows.push({ name: `Perímetro ${md.rows.length + 1}`, latitude: md.suggest.suggestion.latitude, longitude: md.suggest.suggestion.longitude, radius_m: md.defaultRadius });
+        md.suggest = null;
+        draw();
+        return true;
+      }
+      if (t.closest("[data-wf2-geo-recalc]")) { recalcGeo(); return true; }
+      const sup = t.closest("[data-wf2-sup-del]");
+      if (sup) { md.supervisors = md.supervisors.filter((id) => id !== sup.getAttribute("data-wf2-sup-del")); draw(); return true; }
+    }
     if (model.modal && model.modal.type === "places") {
       const rows = model.modal.rows;
       const up = t.closest("[data-wf2-place-up]");
@@ -727,6 +828,7 @@
     }
     if (t.matches("[data-wf2-assign-target]") && model.modal && model.modal.type === "assign") { model.modal.target = t.value; draw(); return; }
     if (t.matches("[data-wf2-place-field]") && model.modal && model.modal.type === "places") placeField(t, true);
+    if (t.matches("[data-wf2-sup-add]") && t.value && model.modal && model.modal.type === "geo") { model.modal.supervisors.push(t.value); draw(); }
   }
 
   function placeField(t, redraw) {
@@ -740,6 +842,10 @@
   function onInput(event) {
     const t = event.target;
     if (t && t.matches && inside(t) && t.matches("[data-wf2-place-field]") && model.modal && model.modal.type === "places") { placeField(t, false); return; }
+    if (t && t.matches && inside(t) && model.modal && model.modal.type === "geo") {
+      if (t.matches("[data-wf2-geo-field]")) { model.modal.rows[Number(t.getAttribute("data-i"))][t.getAttribute("data-wf2-geo-field")] = t.value; return; }
+      if (t.matches("[data-wf2-geo-near]")) { model.modal.near = t.value; return; }
+    }
     if (!t || !t.matches || !inside(t) || !t.matches("[data-wf2-search]")) return;
     model.query = t.value;
     draw();
@@ -750,6 +856,7 @@
     if (form && form.matches && inside(form) && form.matches("[data-wf2-pinform]")) { event.preventDefault(); savePin(form); return; }
     if (form && form.matches && inside(form) && form.matches("[data-wf2-assignform]")) { event.preventDefault(); saveAssign(form); return; }
     if (form && form.matches && inside(form) && form.matches("[data-wf2-placesform]")) { event.preventDefault(); savePlaces(); return; }
+    if (form && form.matches && inside(form) && form.matches("[data-wf2-geoform]")) { event.preventDefault(); saveGeo(); return; }
     if (!form || !form.matches || !inside(form) || !form.matches("[data-wf2-form]")) return;
     event.preventDefault();
     save(form);

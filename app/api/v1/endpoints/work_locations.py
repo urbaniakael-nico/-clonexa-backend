@@ -58,7 +58,14 @@ async def get_locations(company_id: UUID, who: dict = Depends(actor), db: AsyncS
         "assignments": await svc.assignments(db, company_id),
         "can_manage": who["role"] in svc.MANAGE_ROLES,
         "can_assign": who["role"] in svc.ASSIGN_ROLES,
+        "perimeters_on": await _perimeters_on(db, company_id),  # 064A: Board de gerencia
     }
+
+
+async def _perimeters_on(db: AsyncSession, company_id: UUID) -> bool:
+    from app.services import work_location_geo
+
+    return await work_location_geo.is_on(db, company_id)
 
 
 @router.put("/companies/{company_id}/locations")

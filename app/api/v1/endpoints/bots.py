@@ -2033,6 +2033,7 @@ def _punch_location_060(message: dict[str, Any], gps_event: Any, *, via_live: bo
         "gps_status_label": payload.get("gps_status_label") or "Sin perímetro",
         "matched_perimeter_name": payload.get("matched_perimeter_name"),
         "via_live_location": via_live,
+        **({"geo_source": payload["geo_source"]} if payload.get("geo_source") else {}),  # 064A
     }
 
 
@@ -2374,7 +2375,17 @@ async def _validate_gps_location_for_company(
     company_id: UUID,
     latitude: float,
     longitude: float,
+    employee_id: Any = None,
 ) -> dict[str, Any]:
+    # 064A: con reports_board y perimetros en el lugar de la persona, se mide con esos.
+    # Apagado o sin perimetro en el lugar: exactamente lo de siempre.
+    if employee_id is not None:
+        from app.services import work_location_geo
+
+        stamped = await work_location_geo.stamp_or_none(db, company_id, employee_id, latitude, longitude)
+        if stamped:
+            return stamped
+
     await _ensure_gps_perimeter_storage(db)
 
     result = await db.execute(
@@ -4359,6 +4370,7 @@ async def _create_gps_location_event(
         company_id=employee.company_id,
         latitude=latitude,
         longitude=longitude,
+        employee_id=employee.id,
     )
     event = WorkforceAttendanceEvent(
         company_id=employee.company_id,
