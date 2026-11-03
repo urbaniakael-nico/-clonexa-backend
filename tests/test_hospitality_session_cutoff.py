@@ -408,7 +408,7 @@ def test_hospitality_cutoff_unadjusted_hours_are_not_paid_and_adjusted_are_paid_
         yield fake
 
     monkeypatch.setattr(payroll, "utcnow", lambda: datetime(2026, 9, 25, 12, tzinfo=timezone.utc))
-    monkeypatch.setattr(payroll, "active_admin_v2_session", AsyncMock(return_value=False))
+    monkeypatch.setattr(payroll, "active_admin_v2_session", AsyncMock(return_value=True))  # 062A: nomina exige sesion (Admin V2)
     monkeypatch.setattr(app_main, "_clonexa_access_policy_for_company", AsyncMock(return_value=None))
     monkeypatch.setattr(app_main, "_clonexa_company_is_archived", AsyncMock(return_value=False))
     monkeypatch.setattr(app_main, "_clonexa_auth_audit_enabled", lambda: False)

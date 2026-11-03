@@ -139,3 +139,48 @@ def test_every_payroll_route_requires_a_session():
         for r in router.routes:
             calls = {d.call for d in r.dependant.dependencies}
             assert calls & guards, f"{r.path} sin sesión"
+
+
+@pytest.mark.parametrize("method,path,body", ROUTES)
+def test_operator_only_where_the_company_allows_it_and_always_with_session(client, monkeypatch, method, path, body):
+    """payroll_operator_access (hoy solo Velvet): el operario de ESA empresa entra; sin
+    sesion sigue en 401 y otra empresa en 403. Donde no esta, el operario queda en 403."""
+    allowed = {str(COMPANY)}
+
+    async def access(db, company_id):
+        return str(company_id) in allowed
+
+    monkeypatch.setattr(payroll, "_payroll_operator_access_062A", access)
+    assert call(client, method, path, body).status_code == 401, "sin sesión: 401 también en la empresa con acceso"
+    assert call(client, method, path, body, token="other_owner").status_code == 403, "otra empresa: 403"
+    assert call(client, method, path, body, token="mesero").status_code == 403, "solo operator, no otros roles"
+    if method == "post" and path.endswith("/calculate"):
+        assert call(client, method, path, body, token="operator").status_code == 200, "operario con acceso de su empresa"
+    else:
+        assert call(client, method, path, body, token="operator").status_code != 403, "pasa la sesión (lo demás es de la ruta)"
+    allowed.clear()
+    assert call(client, method, path, body, token="operator").status_code == 403, "sin el permiso de la empresa: 403"
+
+
+def test_operator_access_reads_the_payroll_module_settings():
+    import asyncio
+
+    class Res:
+        def __init__(self, row):
+            self.row = row
+
+        def first(self):
+            return self.row
+
+    class Db:
+        def __init__(self, settings):
+            self.settings = settings
+
+        async def execute(self, sql, params):
+            assert "lower(m.code) = 'payroll'" in str(sql) and params["c"] == str(COMPANY)
+            return Res((self.settings,) if self.settings is not None else None)
+
+    run = lambda settings: asyncio.run(payroll._payroll_operator_access_062A(Db(settings), COMPANY))  # noqa: E731
+    assert run({"payroll_operator_access": True}) is True
+    assert run('{"payroll_operator_access": true}') is True
+    assert run({"payroll_operator_access": "true"}) is False and run({}) is False and run(None) is False

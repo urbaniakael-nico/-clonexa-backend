@@ -371,7 +371,7 @@ def calculate(company, token=None):
 
 
 def test_hospitality_payroll_co_switch_off_calculates_exactly_as_today(db):
-    response = calculate(PLAIN)  # sin token: hoy este endpoint no lo exige para esta empresa
+    response = calculate(PLAIN, token="admin-plain")  # 062A: con la sesion del dueno de la empresa
     assert response.status_code == 200, response.text
     data = response.json()
     assert "legal_mode" not in data
@@ -384,7 +384,7 @@ def test_hospitality_payroll_co_switch_off_calculates_exactly_as_today(db):
 
 
 def test_hospitality_payroll_co_switch_turned_off_is_the_simple_calculation_without_notices(db):
-    plain = calculate(PLAIN).json()
+    plain = calculate(PLAIN, token="admin-plain").json()
     manual = calculate(MANUAL, token="admin-manual").json()
     assert manual["rows"] == [{**plain["rows"][0], "employee_id": manual["rows"][0]["employee_id"],
                                "shifts": manual["rows"][0]["shifts"]}]
@@ -424,7 +424,7 @@ def test_hospitality_payroll_co_employee_without_salary_is_listed_and_not_paid(d
 
 def test_hospitality_payroll_co_auto_closed_shift_is_set_apart_in_both_modes(db):
     db.auto_closed = {PLAIN, CO}
-    plain = calculate(PLAIN).json()
+    plain = calculate(PLAIN, token="admin-plain").json()
     assert plain["rows"][0]["regular_minutes"] == 480, "las 18 h del cierre automatico no se pagan"
     assert plain["rows"][0]["gross_amount"] == 80000.0
     [item] = plain["unverified_shifts"]
@@ -437,13 +437,13 @@ def test_hospitality_payroll_co_auto_closed_shift_is_set_apart_in_both_modes(db)
     assert co["totals"]["unverified_minutes"] == 18 * 60
     # Sin cierres automaticos la respuesta no cambia (sin la clave nueva).
     db.auto_closed = set()
-    assert "unverified_shifts" not in calculate(PLAIN).json()
+    assert "unverified_shifts" not in calculate(PLAIN, token="admin-plain").json()
 
 
 def test_hospitality_payroll_simple_mode_lists_employees_without_hourly_rate(db):
-    assert "missing_rate_employees" not in calculate(PLAIN).json(), "con valor hora la respuesta no cambia"
+    assert "missing_rate_employees" not in calculate(PLAIN, token="admin-plain").json(), "con valor hora la respuesta no cambia"
     db.zero_rate = {PLAIN}
-    data = calculate(PLAIN).json()
+    data = calculate(PLAIN, token="admin-plain").json()
     assert data["rows"][0]["gross_amount"] == 0.0
     assert data["rows"][0]["rate_missing"] == ["valor hora"]
     assert data["missing_rate_employees"] == [{

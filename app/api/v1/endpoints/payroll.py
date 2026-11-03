@@ -39,8 +39,29 @@ _NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
 # respondian sin sesion. Ahora, sin meseros: Admin V2 o un usuario de ESA empresa con
 # rol de dueno / administrador / direccion (401 sin sesion, 403 otra empresa o sin
 # rol). Con meseros: exactamente la regla de siempre (_NOT_ADMINISTRADOR).
+# Excepcion por empresa: payroll_operator_access = true en los settings del modulo
+# payroll deja entrar tambien al rol "operator" de ESA empresa (hoy solo Velvet, que
+# lo usa). Siempre con sesion valida y de su propia empresa.
 PAYROLL_OWNER_ROLES_062A = {"company_admin", "admin_empresa", "owner", "propietario", "dueno", "dueño",
                             "gerente", "gerencia", "manager", "director"}
+PAYROLL_OPERATOR_KEY_062A = "payroll_operator_access"
+
+
+async def _payroll_operator_access_062A(db: AsyncSession, company_id: UUID) -> bool:
+    try:
+        row = (await db.execute(text("""
+            SELECT cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = CAST(:c AS uuid) AND lower(m.code) = 'payroll' AND cm.enabled IS TRUE LIMIT 1
+        """), {"c": str(company_id)})).first()
+    except Exception:
+        return False
+    settings = row[0] if row else None
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings or "{}")
+        except ValueError:
+            settings = {}
+    return isinstance(settings, dict) and settings.get(PAYROLL_OPERATOR_KEY_062A) is True
 
 
 async def _waiter_ordering_on_062A(db: AsyncSession, company_id: UUID) -> bool:
@@ -60,7 +81,13 @@ async def _require_payroll_owner_062A(
         return  # meseros: la regla de siempre la aplica _NOT_ADMINISTRADOR
     if await active_admin_v2_session(request, db):
         return
-    await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=PAYROLL_OWNER_ROLES_062A)
+    user = await require_company_user_for_tenant(db, authorization, company_id)  # 401 sin sesion, 403 otra empresa
+    role = str(getattr(user, "role", "") or "").strip().lower()
+    if role in PAYROLL_OWNER_ROLES_062A:
+        return
+    if role == "operator" and await _payroll_operator_access_062A(db, company_id):
+        return
+    raise HTTPException(status_code=403, detail="role_not_allowed")
 # Nomina v2: cierres "como si" estuvieran confirmados, solo para la vista previa.
 PREVIEW_CLOSURES_052A: contextvars.ContextVar[dict | None] = contextvars.ContextVar("payroll_preview_closures_052a", default=None)
 
