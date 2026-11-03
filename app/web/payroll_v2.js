@@ -116,7 +116,7 @@
     arr(snapshot && snapshot.unverified_shifts).forEach((u) => {
       const id = String(u.employee_id || `sin-id:${u.employee_name || ""}`);
       if (!byId.has(id)) {
-        byId.set(id, { id, name: u.employee_name || "Colaborador", role: "", document: docs[id] || "", regular: 0, extra: 0, gross: 0,
+        byId.set(id, { id, name: u.employee_name || "Colaborador", role: u.employee_role || "", document: docs[id] || "", regular: 0, extra: 0, gross: 0,
           discount: 0, net: 0, shifts: [], closed: 0, pending: [] });
       }
       byId.get(id).pending.push(u);
@@ -236,6 +236,13 @@
     set("--pv-accent-bg", css(head.bg));
     set("--pv-accent-fg", css(head.fg));
     set("--pv-warn-ink", css(inkOn(surface.bg, warning)));
+    // 063A: acento de cada operación: texto sobre la superficie y encabezado de tabla, ambos AA.
+    OP_ACCENTS.forEach((c, i) => {
+      const headI = pair(c, [{ r: 255, g: 255, b: 255 }, { r: 10, g: 12, b: 20 }]);
+      set(`--pvu-a${i}-ink`, css(inkOn(surface.bg, c)));
+      set(`--pvu-a${i}-bg`, css(headI.bg));
+      set(`--pvu-a${i}-fg`, css(headI.fg));
+    });
   }
 
   // ------------------------------------------------------------ dibujo
@@ -487,6 +494,314 @@
     </section>`;
   }
 
+  // ------------------------------------------------------------ 063A: Nómina EE. UU. por operación
+  // Solo con us_payroll (hoy VOLTAGE). Nómina = solo horas y valores, una tabla por operación
+  // (lugar de trabajo: Virginia ET, Alabama CT...), búsqueda rápida y detalle día por día.
+  // Ubicación, mapa, notas y bitácora del turno se quedan en Reportes. Mismas cifras del
+  // servidor (app/services/us_time.py): aquí no se calcula nada del pago.
+  const US_PREFS = "cx_pv_us_063a";
+  const US_SORTS = [["payable", "Horas pagables"], ["name", "Nombre"], ["overtime", "Overtime"], ["status", "Estado"]];
+  const US_MODES = [["week", "Semana"], ["fortnight", "Quincena"], ["custom", "Personalizado"]];
+  const WEEK_IDX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  const WD = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  // Acentos de cada operación (verde agua, ámbar, azul); payroll_v2.js los ajusta para AA.
+  const OP_ACCENTS = [{ r: 20, g: 184, b: 166 }, { r: 245, g: 158, b: 11 }, { r: 96, g: 165, b: 250 }];
+  Object.assign(model, { usMode: "week", opFilter: "all", usSort: "payable" });
+
+  function usPrefsLoad(companyId) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(`${US_PREFS}:${companyId}`) || "{}") || {};
+      if (US_MODES.some(([k]) => k === raw.mode)) model.usMode = raw.mode;
+      if (US_SORTS.some(([k]) => k === raw.sort)) model.usSort = raw.sort;
+      if (typeof raw.filter === "string" && raw.filter) model.opFilter = raw.filter;
+    } catch (_) { /* sin localStorage: valores por defecto */ }
+  }
+  function usPrefsSave() {
+    try { localStorage.setItem(`${US_PREFS}:${ctx.companyId}`, JSON.stringify({ mode: model.usMode, sort: model.usSort, filter: model.opFilter })); } catch (_) { /* sin localStorage */ }
+  }
+
+  // Fechas como texto AAAA-MM-DD (sin horas, sin zonas).
+  function addDays(iso, n) {
+    const [y, m, d] = String(iso).split("-").map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d + n, 12));
+    return t.toISOString().slice(0, 10);
+  }
+  const weekdayOf = (iso) => { const [y, m, d] = String(iso).split("-").map(Number); return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay(); };
+  function todayIn(tz) {
+    try { return new Intl.DateTimeFormat("sv-SE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); } catch (_) { return new Date().toISOString().slice(0, 10); }
+  }
+  function weekStartOf(iso, startDay) {
+    const want = WEEK_IDX[startDay] !== undefined ? WEEK_IDX[startDay] : 0;
+    return addDays(iso, -((weekdayOf(iso) - want + 7) % 7));
+  }
+  // Semana = la semana laboral (dom-sáb); quincena = esa semana y la anterior.
+  function usPeriodFor(mode, refIso, startDay) {
+    const ws = weekStartOf(refIso, startDay);
+    if (mode === "fortnight") return { from: addDays(ws, -7), to: addDays(ws, 6) };
+    return { from: ws, to: addDays(ws, 6) };
+  }
+  const dm = (iso) => { const p = String(iso || "").split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : "—"; };
+  const wdLabel = (iso) => `${WD[weekdayOf(iso)]} ${dm(iso)}`;
+  function clockIn(iso, tz) {
+    const d = new Date(iso || "");
+    if (Number.isNaN(d.getTime())) return { date: "", time: "—" };
+    try {
+      const f = new Intl.DateTimeFormat("sv-SE", { timeZone: tz || tzOf(), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+      const [date, time] = f.split(" ");
+      return { date, time };
+    } catch (_) { return { date: "", time: "—" }; }
+  }
+
+  const usRules = () => ((model.snapshot && model.snapshot.us_payroll && model.snapshot.us_payroll.rules) || (ctx && ctx.usRules) || {});
+
+  // Personas agrupadas por operación; los totales son de TODA la operación (la búsqueda no los cambia).
+  function usOperations(snapshot, cards) {
+    const us = (snapshot && snapshot.us_payroll) || {};
+    const order = arr(us.operations).map((o) => ({ name: o.name, abbr: o.abbr || "", tz: o.tz || "" }));
+    const known = new Map(order.map((o) => [o.name, o]));
+    const placeOf = (c) => (c.us ? c.us.place : (c.pending[0] && c.pending[0].place)) || "";
+    cards.forEach((c) => {
+      const p = placeOf(c);
+      if (p && !known.has(p)) { const o = { name: p, abbr: (c.us && c.us.abbr) || (c.pending[0] && c.pending[0].abbr) || "", tz: (c.us && c.us.tz) || "" }; order.push(o); known.set(p, o); }
+    });
+    const ops = order.map((o, i) => ({ ...o, key: o.name, accent: i % OP_ACCENTS.length, label: o.abbr ? `${o.name} (${o.abbr})` : o.name, people: [] }));
+    const none = { name: "Sin lugar asignado", key: "__none__", abbr: us.company_abbr || "", tz: us.company_tz || "", accent: -1, label: "Sin lugar asignado", people: [] };
+    const byKey = new Map(ops.map((o) => [o.key, o]));
+    cards.forEach((c) => { (byKey.get(placeOf(c)) || none).people.push(c); });
+    const out = ops.filter((o) => o.people.length);
+    if (none.people.length) out.push(none);
+    out.forEach((o) => {
+      const t = { payable: 0, regular: 0, overtime: 0, pause: 0, connected: 0, gross: 0, net: 0, ratePending: false, missing: 0, pendingCount: 0, pendingMinutes: 0 };
+      o.people.forEach((c) => {
+        const u = c.us || {};
+        t.payable += num(u.payable_minutes); t.regular += num(u.regular_minutes); t.overtime += num(u.overtime_minutes);
+        t.pause += num(u.pause_minutes); t.connected += num(u.connected_minutes);
+        t.gross += num(u.gross); t.net += num(u.net);
+        if (c.us && c.ratePending) { t.ratePending = true; t.missing += 1; }
+        t.pendingCount += c.pending.length; t.pendingMinutes += c.pending.reduce((s, x) => s + num(x.minutes), 0);
+      });
+      o.totals = t;
+    });
+    return out;
+  }
+
+  function usVisible(people, query, filter, sort) {
+    const q = fold(query).trim();
+    const list = people.filter((c) => (filter !== "pending" || c.pending.length) && (!q || fold(`${c.name} ${c.document}`).includes(q)));
+    const pay = (c) => num(c.us && c.us.payable_minutes);
+    const ot = (c) => num(c.us && c.us.overtime_minutes);
+    const byName = (a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" });
+    const by = {
+      payable: (a, b) => pay(b) - pay(a) || byName(a, b),
+      name: byName,
+      overtime: (a, b) => ot(b) - ot(a) || pay(b) - pay(a) || byName(a, b),
+      status: (a, b) => b.pending.length - a.pending.length || byName(a, b),
+    };
+    return list.sort(by[sort] || by.payable);
+  }
+
+  const usMoney = (value, pending) => (pending ? PENDING : money(value));
+  function usBruto(t) {
+    if (t.ratePending && !t.gross) return "Tarifa pendiente";
+    return `${money(t.gross)}${t.missing ? ` · ${t.missing} sin tarifa` : ""}`;
+  }
+  const statusChip = (n) => (n ? `<span class="pvu-chip is-warn">${h(n)} ${n === 1 ? "salida" : "salidas"} por confirmar</span>` : `<span class="pvu-chip is-ok">OK</span>`);
+  const opClass = (o) => (o.accent >= 0 ? `pvu-op-${o.accent}` : "pvu-op-x");
+
+  function usHeader() {
+    const p = model.period || {};
+    const custom = model.usMode === "custom";
+    const title = model.usMode === "fortnight" ? "Nómina quincenal" : custom ? "Nómina" : "Nómina semanal";
+    const range = `${wdLabel(p.from)} – ${wdLabel(p.to)}`;
+    const step = model.usMode === "fortnight" ? "2 semanas" : "semana";
+    return `<header class="client-hero pv-bar pvu-bar">
+      <div class="pv-title"><div class="client-eyebrow">Nómina</div><h1 class="client-title">${h(title)}</h1>
+        <p class="pvu-week">${custom ? "Periodo" : "Semana laboral"} <b>${h(range)}</b></p>
+        <p class="pvu-rule">Overtime por encima de 40 h · Pausas sin pago</p></div>
+      <div class="pvu-controls">
+        <div class="pvu-seg" role="group" aria-label="Periodo">${US_MODES.map(([k, l]) => `<button type="button" class="pv-filter ${model.usMode === k ? "is-active" : ""}" aria-pressed="${model.usMode === k}" data-pvu-mode="${k}">${l}</button>`).join("")}</div>
+        ${custom ? `<label class="pv-date"><span>Desde</span><input type="date" data-pv-from value="${h(p.from || "")}"></label>
+          <label class="pv-date"><span>Hasta</span><input type="date" data-pv-to value="${h(p.to || "")}"></label>
+          <button class="pv-btn-primary" type="button" data-pv-calc>Calcular</button>`
+          : `<div class="pvu-nav"><button class="client-btn pvu-arrow" type="button" data-pvu-step="-1" aria-label="${h(step)} anterior">‹</button>
+          <button class="client-btn pvu-arrow" type="button" data-pvu-step="1" aria-label="${h(step)} siguiente">›</button></div>`}
+        <button class="client-btn" type="button" data-pv-us-export="csv">CSV</button>
+        <button class="pv-btn-primary" type="button" data-pv-us-export="pdf">Descargar PDF</button>
+        <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+      </div>
+    </header>`;
+  }
+
+  function usAlert(cards) {
+    const n = cards.reduce((s, c) => s + c.pending.length, 0);
+    if (!n) return "";
+    const mins = cards.reduce((s, c) => s + c.pending.reduce((a, x) => a + num(x.minutes), 0), 0);
+    return `<div class="pv-alert pvu-alert" role="status"><span><strong>⚠ ${h(n)} ${n === 1 ? "turno" : "turnos"} por confirmar</strong> · ${h(hhmm(mins))} no entran a la nómina hasta registrar la salida real</span>
+      <button class="client-btn" type="button" data-pvu-review>Revisar</button></div>`;
+  }
+
+  function usFilters(ops, cards, shown) {
+    const pendingN = cards.reduce((s, c) => s + c.pending.length, 0);
+    const chips = [["all", "Ambas operaciones"], ...ops.map((o) => [o.key, o.label]), ["pending", `Por confirmar (${pendingN})`]];
+    if (ops.length > 2) chips[0][1] = "Todas las operaciones";
+    return `<div class="pvu-tools" data-pvu-tools>
+      <div class="pvu-search"><input class="pv-search" type="search" data-pv-search value="${h(model.query)}" placeholder="Buscar por nombre o documento" aria-label="Buscar por nombre o documento">
+        ${model.query ? `<button type="button" class="pvu-clear" data-pvu-clear aria-label="Limpiar búsqueda">✕</button>` : ""}</div>
+      <span class="pvu-count" aria-live="polite">${h(shown)} de ${h(cards.length)} personas</span>
+      <div class="pv-filters pvu-chips" role="group" aria-label="Operación">${chips.map(([k, l]) => `<button type="button" class="pv-filter ${model.opFilter === k ? "is-active" : ""}" aria-pressed="${model.opFilter === k}" data-pvu-filter="${h(k)}">${h(l)}</button>`).join("")}</div>
+      <label class="pv-sort"><span>Ordenar por</span><select data-pvu-sort>${US_SORTS.map(([k, l]) => `<option value="${k}" ${model.usSort === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    </div>`;
+  }
+
+  function usSummary(o) {
+    const t = o.totals;
+    const now = o.tz ? clockIn(new Date().toISOString(), o.tz).time : "";
+    const stat = (label, value, cls = "") => `<div class="pvu-stat ${cls}"><span>${h(label)}</span><strong>${h(value)}</strong></div>`;
+    return `<section class="pvu-sum ${opClass(o)}" aria-label="Resumen ${h(o.name)}">
+      <div class="pvu-sum-head"><h2>${h(o.name)}</h2><span>${o.abbr ? `${h(now ? `${now} ` : "")}${h(o.abbr)} · ` : ""}${h(o.people.length)} ${o.people.length === 1 ? "persona" : "personas"}</span></div>
+      <div class="pvu-stats">${stat("Horas pagables", hhmm(t.payable), "is-main")}${stat("Regulares", hhmm(t.regular))}${stat("Overtime", hhmm(t.overtime), t.overtime > 0 ? "is-ot" : "")}
+        ${stat("Pausas", hhmm(t.pause))}${stat("Bruto", usBruto(t))}${stat("Por confirmar", t.pendingCount ? `${t.pendingCount} · ${hhmm(t.pendingMinutes)}` : "0", t.pendingCount ? "is-warn" : "")}</div>
+    </section>`;
+  }
+
+  const US_COLS = ["Empleado", "Rol", "Días", "En turno", "Pausas", "Pagables", "Regulares", "Overtime", "Tarifa", "Bruto", "Neto", "Estado"];
+
+  function usRow(c, pendingIndex) {
+    const u = c.us || {};
+    const open = model.open === c.id;
+    const pend = !c.us || c.ratePending;
+    const ot = num(u.overtime_minutes);
+    const cell = (i, value, cls = "") => `<td data-label="${h(US_COLS[i])}" class="${cls}">${value}</td>`;
+    return `<tr class="pvu-row ${open ? "is-open" : ""} ${c.pending.length ? "is-pending" : ""}">
+      <th scope="row" data-label="Empleado"><button type="button" class="pvu-open" data-pvu-open="${h(c.id)}" aria-expanded="${open}" aria-controls="pvu-d-${h(c.id)}">
+        <span class="pvu-caret" aria-hidden="true">${open ? "▾" : "▸"}</span><span class="pvu-who"><span class="pv-name">${h(c.name)}</span>${c.document ? `<span class="pvu-doc">${h(c.document)}</span>` : ""}</span></button></th>
+      ${cell(1, h(c.role || "—"), "pvu-role")}${cell(2, h(num(u.days_worked)), "pvu-n")}${cell(3, h(hhmm(u.connected_minutes)), "pvu-n")}${cell(4, h(hhmm(u.pause_minutes)), "pvu-n")}
+      ${cell(5, `<b>${h(hhmm(u.payable_minutes))}</b>`, "pvu-n pvu-pay")}${cell(6, h(hhmm(u.regular_minutes)), "pvu-n")}
+      ${cell(7, ot > 0 ? `<b class="pvu-ot">${h(hhmm(ot))}</b>` : h(hhmm(0)), "pvu-n")}
+      ${cell(8, pend ? `<span class="pvu-pend">Pendiente</span>` : h(`${money(u.rate)}/h`), "pvu-n")}
+      ${cell(9, pend ? `<span class="pvu-pend">Pendiente</span>` : h(money(u.gross)), "pvu-n")}
+      ${cell(10, pend ? `<span class="pvu-pend">Pendiente</span>` : `<b>${h(money(u.net))}</b>`, "pvu-n")}
+      ${cell(11, `${statusChip(c.pending.length)}${c.pending.length ? ` <button type="button" class="pvu-confirm" data-pv-confirm="${h(pendingIndex(c.pending[0]))}">Confirmar salida</button>` : ""}`, "pvu-state")}
+    </tr>
+    ${open ? `<tr class="pvu-detail-row" id="pvu-d-${h(c.id)}"><td colspan="12">${usDetail(c, pendingIndex)}</td></tr>` : ""}`;
+  }
+
+  // Día por día del periodo (semana laboral dom-sáb; en quincena, dos semanas): entrada,
+  // salida, en turno, pausas y pagables. Horas en la zona de SU lugar. Nada más.
+  function usDays(c) {
+    const u = c.us || {};
+    const tz = u.tz || "";
+    const map = new Map();
+    const get = (d) => { if (!map.has(d)) map.set(d, { in: null, out: null, outDate: "", payable: 0, pause: 0 }); return map.get(d); };
+    arr(u.weeks).forEach((w) => arr(w.days).forEach((d) => { const x = get(d.date); x.payable += num(d.payable); x.pause += num(d.pause); }));
+    arr(c.shifts).forEach((s) => {
+      const a = clockIn(s.start, tz);
+      if (!a.date) return;
+      const x = get(a.date);
+      if (!x.in || Date.parse(s.start) < x.inAt) { x.in = a.time; x.inAt = Date.parse(s.start); }
+      const b = clockIn(s.end, tz);
+      if (b.date && (!x.out || Date.parse(s.end) > x.outAt)) { x.out = b.time; x.outAt = Date.parse(s.end); x.outDate = b.date !== a.date ? b.date : ""; }
+    });
+    return map;
+  }
+
+  function usDetail(c, pendingIndex) {
+    const p = model.period || {};
+    const u = c.us || {};
+    const days = usDays(c);
+    const abbr = u.abbr || (c.pending[0] && c.pending[0].abbr) || "";
+    const weeks = [];
+    for (let ws = weekStartOf(p.from, usRules().week_start_day); ws <= p.to; ws = addDays(ws, 7)) weeks.push(ws);
+    const grid = weeks.map((ws) => {
+      const list = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(ws, i));
+      let pay = 0; let pause = 0;
+      const rows = list.map((d) => {
+        const x = days.get(d);
+        const out = d < p.from || d > p.to;
+        if (x && !out) { pay += x.payable; pause += x.pause; }
+        return `<tr class="${out ? "is-out" : ""} ${x ? "" : "is-empty"}"><th scope="row">${h(wdLabel(d))}</th>
+          <td data-label="Entrada">${h(x && x.in ? x.in : "—")}</td><td data-label="Salida">${h(x && x.out ? `${x.out}${x.outDate ? ` (${dm(x.outDate)})` : ""}` : "—")}</td>
+          <td data-label="En turno" class="pvu-n">${x ? h(hhmm(x.payable + x.pause)) : "—"}</td><td data-label="Pausas" class="pvu-n">${x ? h(hhmm(x.pause)) : "—"}</td>
+          <td data-label="Pagables" class="pvu-n">${x ? `<b>${h(hhmm(x.payable))}</b>` : "—"}</td></tr>`;
+      }).join("");
+      return `<table class="pvu-days"><caption>Semana ${h(wdLabel(ws))} – ${h(wdLabel(addDays(ws, 6)))}${abbr ? ` · hora ${h(abbr)}` : ""}</caption>
+        <thead><tr><th scope="col">Día</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col" class="pvu-n">En turno</th><th scope="col" class="pvu-n">Pausas</th><th scope="col" class="pvu-n">Pagables</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><th scope="row">Total</th><td></td><td></td><td class="pvu-n">${h(hhmm(pay + pause))}</td><td class="pvu-n">${h(hhmm(pause))}</td><td class="pvu-n"><b>${h(hhmm(pay))}</b></td></tr></tfoot></table>`;
+    }).join("");
+    const held = c.pending.map((x) => `<li><span>${h(wdLabel(clockIn(x.start, u.tz).date))} · entrada ${h(clockIn(x.start, u.tz).time)}${abbr ? ` ${h(abbr)}` : ""} · ${h(hhmm(x.minutes))} sin liquidar</span>
+      <button type="button" class="pvu-confirm" data-pv-confirm="${h(pendingIndex(x))}">Confirmar salida</button></li>`).join("");
+    return `<div class="pvu-detail" aria-label="Detalle de ${h(c.name)}">
+      <div class="pvu-days-wrap">${grid}</div>
+      ${held ? `<ul class="pvu-held">${held}</ul>` : ""}
+      <button type="button" class="pvu-link" data-reports-open>Ver ubicación y notas en Reportes</button>
+    </div>`;
+  }
+
+  function usTable(o, list, pendingIndex) {
+    const t = o.totals;
+    const allP = t.ratePending && !t.gross;
+    return `<section class="pvu-table-wrap ${opClass(o)}" aria-label="Tabla ${h(o.name)}">
+      <table class="pvu-table"><caption>${h(o.label)}</caption>
+        <thead><tr>${US_COLS.map((k, i) => `<th scope="col" class="${i >= 2 && i <= 10 ? "pvu-n" : ""}">${h(k)}</th>`).join("")}</tr></thead>
+        <tbody>${list.map((c) => usRow(c, pendingIndex)).join("")}</tbody>
+        <tfoot><tr class="pvu-total"><th scope="row" data-label="Total">Total ${h(o.name)}</th><td data-label="Rol"></td><td data-label="Días"></td>
+          <td data-label="En turno" class="pvu-n">${h(hhmm(t.connected))}</td><td data-label="Pausas" class="pvu-n">${h(hhmm(t.pause))}</td>
+          <td data-label="Pagables" class="pvu-n"><b>${h(hhmm(t.payable))}</b></td><td data-label="Regulares" class="pvu-n">${h(hhmm(t.regular))}</td>
+          <td data-label="Overtime" class="pvu-n">${t.overtime > 0 ? `<b class="pvu-ot">${h(hhmm(t.overtime))}</b>` : h(hhmm(0))}</td><td data-label="Tarifa"></td>
+          <td data-label="Bruto" class="pvu-n">${allP ? `<span class="pvu-pend">Pendiente</span>` : h(money(t.gross))}</td>
+          <td data-label="Neto" class="pvu-n">${allP ? `<span class="pvu-pend">Pendiente</span>` : `<b>${h(money(t.net))}</b>`}</td>
+          <td data-label="Estado">${statusChip(t.pendingCount)}</td></tr></tfoot>
+      </table></section>`;
+  }
+
+  function viewUs() {
+    const cards = buildCards(model.snapshot, model.activity);
+    const ops = usOperations(model.snapshot, cards);
+    const pendingIndex = (u) => arr(model.snapshot && model.snapshot.unverified_shifts).indexOf(u);
+    const f = model.opFilter;
+    const shownOps = ops.filter((o) => f === "all" || f === "pending" || f === o.key);
+    if (!shownOps.length && ops.length) model.opFilter = "all";
+    const useOps = shownOps.length ? shownOps : ops;
+    const lists = useOps.map((o) => ({ o, list: usVisible(o.people, model.query, f === "pending" ? "pending" : "all", model.usSort) }));
+    const shown = lists.reduce((s, x) => s + x.list.length, 0);
+    const tables = lists.filter((x) => x.list.length).map((x) => usTable(x.o, x.list, pendingIndex)).join("");
+    const empty = model.query.trim() ? `Nadie coincide con '${model.query.trim()}'` : f === "pending" ? "No hay turnos por confirmar." : "No hay horas de nómina en el periodo.";
+    const total = totalsOf(model.snapshot);
+    const raw = (model.snapshot && model.snapshot.totals) || {};
+    const pendingN = cards.reduce((s, c) => s + c.pending.length, 0);
+    return `<div class="pv-root pvu-root">
+      ${usHeader()}
+      ${model.notice ? `<div class="pv-notice" role="status">${h(model.notice)}</div>` : ""}
+      ${model.error ? `<div class="pv-alert" role="alert">${h(model.error)}</div>` : ""}
+      ${usAlert(cards)}
+      <section class="client-panel pv-panel pvu-panel">
+        ${usFilters(ops, cards, shown)}
+        ${model.loading ? `<p class="pv-sub">Calculando el periodo…</p>` : `
+          <div class="pvu-sums">${useOps.map(usSummary).join("")}</div>
+          ${tables || `<div class="pv-empty">${h(empty)}</div>`}`}
+      </section>
+      <footer class="pvu-foot"><span>Solo horas y valores. Ubicación, notas y bitácora están en Reportes.</span>
+        <strong>Total ${h((ctx && ctx.companyName) || "empresa")}: ${h(hhmm(raw.payable_minutes))} pagables · ${h(hhmm(total.extra))} overtime · ${h(pendingN)} por confirmar</strong></footer>
+      ${modalView()}
+    </div>`;
+  }
+
+  async function usStep(dir) {
+    const p = model.period || {};
+    const days = model.usMode === "fortnight" ? 14 : 7;
+    const next = usPeriodFor(model.usMode, addDays(p.to, dir * days), usRules().week_start_day);
+    await load(next);
+  }
+
+  async function usSetMode(mode) {
+    model.usMode = mode;
+    usPrefsSave();
+    if (mode === "custom") { draw(); return; }
+    const p = model.period || {};
+    await load(usPeriodFor(mode, p.to || todayIn(tzOf()), usRules().week_start_day));
+  }
+
   // La tarjeta abierta se despliega debajo de SU fila, a todo el ancho.
   function grid(list) {
     const cols = Math.max(1, model.cols);
@@ -502,6 +817,9 @@
     });
     return `<div class="pv-grid" data-pv-grid>${out.join("")}</div>`;
   }
+
+  // 063A: con us_payroll la nota es obligatoria (el servidor también lo exige).
+  const confirmReady = (md) => !!(md && md.realEnd && (!usOn() || String(md.note || "").trim()));
 
   function modalView() {
     const md = model.modal;
@@ -519,20 +837,21 @@
           <div><dt>La cerró el sistema</dt><dd>${h(day(u.end))} ${h(clock(u.end))}</dd></div>
           ${u.declared_end_at ? `<div><dt>Hora que propuso el empleado</dt><dd>${h(day(u.declared_end_at))} ${h(clock(u.declared_end_at))}</dd></div>` : ""}</dl>
         <label class="pv-field"><span>Hora real de salida</span><input type="datetime-local" data-pv-real-end value="${h(md.realEnd || "")}" min="${h(minLocal)}" max="${h(maxLocal)}"></label>
-        <label class="pv-field"><span>Nota (opcional)</span><textarea data-pv-note rows="2" maxlength="300" placeholder="Por qué esta hora">${h(md.note || "")}</textarea></label>
+        <label class="pv-field"><span>${usOn() ? "Nota (obligatoria)" : "Nota (opcional)"}</span><textarea data-pv-note rows="2" maxlength="300" placeholder="Por qué esta hora" ${usOn() ? "required aria-required=\"true\"" : ""}>${h(md.note || "")}</textarea></label>
         <div class="pv-preview" aria-live="polite">${p ? `<table class="pv-preview-table"><thead><tr><th scope="col"></th><th scope="col">Hoy</th><th scope="col">Al confirmar</th></tr></thead><tbody>
-          ${row("Horas ordinarias", hours(p.before.regular_minutes), hours(p.after.regular_minutes))}
-          ${row("Horas extra", hours(p.before.extra_minutes), hours(p.after.extra_minutes))}
-          ${row("Total a pagar", money(p.before.net_amount), money(p.after.net_amount))}</tbody></table>`
+          ${row(usOn() ? "Regulares" : "Horas ordinarias", hours(p.before.regular_minutes), hours(p.after.regular_minutes))}
+          ${row(usOn() ? "Overtime" : "Horas extra", hours(p.before.extra_minutes), hours(p.after.extra_minutes))}
+          ${row(usOn() ? "Neto" : "Total a pagar", usOn() && md.ratePending ? PENDING : money(p.before.net_amount), usOn() && md.ratePending ? PENDING : money(p.after.net_amount))}</tbody></table>`
           : `<span class="pv-sub">${md.realEnd ? "Calculando cómo quedaría…" : "Elige la hora real para ver cómo quedaría."}</span>`}</div>
         ${md.error ? `<div class="pv-alert" role="alert">${h(md.error)}</div>` : ""}
-        <p class="pv-sub">Se registra una sola vez y no se puede volver a modificar.</p>
-        <div class="pv-modal-actions"><button class="pv-btn-primary" type="button" data-pv-confirm-go ${md.busy || !md.realEnd ? "disabled" : ""}>Confirmar salida</button>
+        <p class="pv-sub">Se registra una sola vez y no se puede volver a modificar.${usOn() ? " Queda en la auditoría: quién confirmó, cuándo y la nota." : ""}</p>
+        <div class="pv-modal-actions"><button class="pv-btn-primary" type="button" data-pv-confirm-go ${md.busy || !confirmReady(md) ? "disabled" : ""}>Confirmar salida</button>
           <button class="client-btn" type="button" data-pv-close>Cancelar</button></div>
       </div></div>`;
   }
 
   function view() {
+    if (usOn()) return viewUs(); // 063A: Nómina EE. UU. por operación
     const cards = buildCards(model.snapshot, model.activity);
     const list = visibleCards(cards, model.filter, model.query, model.sort);
     return `<div class="pv-root">
@@ -632,7 +951,10 @@
 
   async function confirmGo() {
     const md = model.modal;
-    if (!md || md.busy || !md.realEnd) return;
+    if (!md || md.busy || !confirmReady(md)) {
+      if (md && md.realEnd && usOn() && !String(md.note || "").trim()) { md.error = "Escribe una nota: por qué esta es la hora real de salida."; draw(); }
+      return;
+    }
     const u = md.item;
     md.busy = true;
     draw();
@@ -666,11 +988,29 @@
       const item = arr(model.snapshot && model.snapshot.unverified_shifts)[Number(pend.getAttribute("data-pv-confirm"))];
       if (item) {
         const proposed = item.declared_end_at ? (parts(item.declared_end_at) || {}).local : "";
-        model.modal = { item, realEnd: proposed || "", note: "", preview: null, error: "", busy: false };
+        const owner = arr(model.snapshot && model.snapshot.rows).find((r) => String(r.employee_id) === String(item.employee_id));
+        model.modal = { item, realEnd: proposed || "", note: "", preview: null, error: "", busy: false, ratePending: !owner || !!owner.rate_pending };
         draw();
         if (proposed) preview();
       }
       return;
+    }
+    if (usOn()) {
+      const op = t.closest("[data-pvu-open]");
+      if (op) { const id = op.getAttribute("data-pvu-open"); model.open = model.open === id ? "" : id; draw(); return; }
+      const fl = t.closest("[data-pvu-filter]");
+      if (fl) { model.opFilter = fl.getAttribute("data-pvu-filter"); usPrefsSave(); draw(); return; }
+      if (t.closest("[data-pvu-review]")) {
+        model.opFilter = "pending"; usPrefsSave(); draw();
+        const tools = ctx.host().querySelector("[data-pvu-tools]");
+        if (tools && tools.scrollIntoView) tools.scrollIntoView({ block: "start", behavior: "smooth" });
+        return;
+      }
+      if (t.closest("[data-pvu-clear]")) { model.query = ""; draw(); const s = ctx.host().querySelector("[data-pv-search]"); if (s) s.focus(); return; }
+      const md = t.closest("[data-pvu-mode]");
+      if (md) { usSetMode(md.getAttribute("data-pvu-mode")); return; }
+      const st = t.closest("[data-pvu-step]");
+      if (st) { model.notice = ""; usStep(Number(st.getAttribute("data-pvu-step")) || 1); return; }
     }
     const srow = t.closest("[data-pv-srow]");
     if (srow && !(t.closest("a"))) { const k = srow.getAttribute("data-pv-srow"); model.openShift = model.openShift === k ? "" : k; draw(); return; }
@@ -693,14 +1033,19 @@
     const t = event.target;
     if (!t || !t.matches || !inside(t)) return;
     if (t.matches("[data-pv-search]")) { model.query = t.value; draw(); return; }
-    if (t.matches("[data-pv-note]") && model.modal) { model.modal.note = t.value; return; }
+    if (t.matches("[data-pv-note]") && model.modal) {
+      model.modal.note = t.value;
+      const go = ctx.host().querySelector("[data-pv-confirm-go]");
+      if (go) go.disabled = !confirmReady(model.modal);
+      return;
+    }
     if (t.matches("[data-pv-real-end]") && model.modal) {
       model.modal.realEnd = t.value;
       model.modal.preview = null;
       clearTimeout(previewTimer);
       previewTimer = setTimeout(preview, 350);
       const go = ctx.host().querySelector("[data-pv-confirm-go]");
-      if (go) go.disabled = !t.value;
+      if (go) go.disabled = !confirmReady(model.modal);
     }
   }
 
@@ -708,10 +1053,14 @@
     const t = event.target;
     if (!t || !t.matches || !inside(t)) return;
     if (t.matches("[data-pv-sort]")) { model.sort = t.value; draw(); }
+    if (t.matches("[data-pvu-sort]")) { model.usSort = t.value; usPrefsSave(); draw(); }
   }
 
   function onKey(event) {
-    if (event.key === "Escape" && model.modal && ctx && ctx.host()) { model.modal = null; draw(); }
+    if (event.key === "Escape" && model.modal && ctx && ctx.host()) { model.modal = null; draw(); return; }
+    // 063A: Esc en la búsqueda la limpia.
+    const t = event.target;
+    if (event.key === "Escape" && t && t.matches && t.matches("[data-pv-search]") && inside(t) && model.query) { model.query = ""; draw(); }
   }
 
   function onResize() {
@@ -725,6 +1074,12 @@
     Object.assign(model, { snapshot: null, activity: null, open: "", modal: null, notice: "", error: "", query: "", filter: "all", sort: "total" });
     model.cfg = ctx.cfg || null;
     model.period = ctx.period;
+    // 063A: con us_payroll el periodo es la semana laboral (o la quincena) que eligió la última vez.
+    if (ctx.usPayroll) {
+      Object.assign(model, { usMode: "week", opFilter: "all", usSort: "payable" });
+      usPrefsLoad(ctx.companyId);
+      if (model.usMode !== "custom") ctx.period = model.period = usPeriodFor(model.usMode, todayIn(tzOf()), (ctx.usRules || {}).week_start_day);
+    }
     // Con la normativa colombiana el detalle es otro: se queda la pantalla de siempre.
     let first;
     try {
@@ -752,5 +1107,6 @@
     return true;
   }
 
-  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort, usOn, cash };
+  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort, usOn, cash,
+    usOperations, usVisible, usPeriodFor, weekStartOf, usDays, confirmReady };
 })();

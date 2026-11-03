@@ -161,3 +161,41 @@ def test_confirm_with_note_writes_once_with_real_migrations(pg_url):
             await engine.dispose()
 
     asyncio.run(run())
+
+
+def test_us_payroll_confirm_requires_note_and_keeps_audit_063a(pg_url):
+    """063A: con us_payroll (hoy solo VOLTAGE) la nota es obligatoria; sin el interruptor, opcional como siempre."""
+    async def run():
+        engine = create_async_engine(pg_url)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with maker() as db:
+                us_cid, other = uuid.uuid4(), uuid.uuid4()
+                await db.execute(text("INSERT INTO modules (code) VALUES ('payroll') ON CONFLICT (code) DO NOTHING"))
+                closures = {}
+                for cid, on in ((us_cid, True), (other, False)):
+                    await db.execute(text("INSERT INTO companies (id, name, timezone) VALUES (CAST(:c AS uuid), 'x', 'America/Chicago')"), {"c": str(cid)})
+                    await db.execute(text("INSERT INTO company_modules (company_id, module_id, settings) SELECT CAST(:c AS uuid), id, CAST(:s AS jsonb) FROM modules WHERE code = 'payroll'"),
+                                     {"c": str(cid), "s": json.dumps({"us_payroll": on})})
+                    closures[cid] = (await db.execute(text("""INSERT INTO workforce_session_closures (company_id, employee_name, source, session_ref, reason, started_at, system_end_at)
+                        VALUES (CAST(:c AS uuid), 'Ana', 'attendance', :r, 'corte_diario', :s, :e) RETURNING id::text"""),
+                        {"c": str(cid), "r": f"ref-{cid}", "s": utc("2026-11-02T12:00:00"), "e": utc("2026-11-03T05:00:00")})).scalar()
+                await db.commit()
+                actor = {"name": "Dueño VOLTAGE", "id": "u1"}
+                for empty in ("", "   "):
+                    with pytest.raises(Exception) as err:
+                        await workforce_sessions.confirm_real_end(us_cid, {"closure_id": closures[us_cid], "real_end_at": "2026-11-02T16:30", "note": empty}, db, actor)
+                    assert getattr(err.value, "status_code", None) == 400 and "nota" in str(err.value.detail)
+                still = (await db.execute(text("SELECT status FROM workforce_session_closures WHERE id = CAST(:i AS uuid)"), {"i": closures[us_cid]})).scalar()
+                assert still != "confirmed", "sin nota no se confirma"
+                res = await workforce_sessions.confirm_real_end(us_cid, {"closure_id": closures[us_cid], "real_end_at": "2026-11-02T16:30", "note": "Olvidó marcar la salida"}, db, actor)
+                assert res["status"] == "confirmed"
+                row = (await db.execute(text("SELECT real_end_note, confirmed_by_name, confirmed_at FROM workforce_session_closures WHERE id = CAST(:i AS uuid)"),
+                                        {"i": closures[us_cid]})).mappings().first()
+                assert row["real_end_note"] == "Olvidó marcar la salida" and row["confirmed_by_name"] == "Dueño VOLTAGE" and row["confirmed_at"], "auditoría: quién, cuándo y nota"
+                res = await workforce_sessions.confirm_real_end(other, {"closure_id": closures[other], "real_end_at": "2026-11-02T16:30"}, db, actor)
+                assert res["status"] == "confirmed", "otra empresa: la nota sigue opcional"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())

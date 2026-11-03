@@ -457,6 +457,13 @@
      ]
     }
    ],
+   "operations": [
+    {
+     "abbr": "ET",
+     "name": "Virginia",
+     "tz": "America/New_York"
+    }
+   ],
    "rules": {
     "overtime_after_minutes": 2400,
     "overtime_factor": 1.5,

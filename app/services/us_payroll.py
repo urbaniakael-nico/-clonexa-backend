@@ -308,6 +308,18 @@ def _bounds(start_day: date, end_day: date) -> tuple[datetime, datetime]:
     return lo, hi
 
 
+def operations(people: dict) -> list[dict]:
+    """063A: una operacion por lugar de trabajo (Virginia, Alabama...), de este a oeste."""
+    seen: dict[str, dict] = {}
+    ref = datetime(2026, 1, 15, tzinfo=timezone.utc)  # fecha fija: el orden no cambia con el horario de verano
+    for p in people.values():
+        name, tz = p.get("place_name"), p.get("place_tz")
+        if name and name not in seen:
+            offset = ref.astimezone(us_time.zone(tz)).utcoffset() or timedelta(0)
+            seen[name] = {"name": name, "tz": tz, "abbr": us_time.abbr(tz) if tz else "", "_o": offset.total_seconds()}
+    return [{k: v for k, v in o.items() if k != "_o"} for o in sorted(seen.values(), key=lambda o: (-o["_o"], o["name"].lower()))]
+
+
 def pay(regular: int, overtime: int, rate: Decimal, factor: float, deductions: Decimal) -> dict:
     """Dinero de una persona. Sin tarifa: todo None ("Pendiente"), nunca $0.00."""
     if rate <= 0:
@@ -347,10 +359,14 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
     good = us_time.compute([s for s in payable_shifts if s["_verdict"] != "hold"], rule)
     for s in us_time.in_period(held, period_start, period_end):
         person = data["people"].get(s["employee_id"]) or {}
-        unverified.append(core._cx_unverified_item_049D(
+        item = core._cx_unverified_item_049D(
             source="attendance", ref=s["check_in"]["id"], employee={"id": s["employee_id"], "full_name": person.get("full_name")},
             fallback_name=person.get("full_name"), panel_type="asistencia", start=s["start"], end=s["end"],
-            minutes=s["payable"], reason=None, closure=s["_closure"]))
+            minutes=s["payable"], reason=None, closure=s["_closure"])
+        # 063A: rol y lugar (operacion) para que Nomina lo ponga en la tabla de su operacion.
+        tz_ = person.get("place_tz") or data["company_tz"]
+        item.update({"employee_role": person.get("role") or "", "place": person.get("place_name"), "abbr": us_time.abbr(tz_, s["start"])})
+        unverified.append(item)
     period = us_time.in_period(good, period_start, period_end)
 
     by_emp: dict[str, list[dict]] = {}
@@ -416,7 +432,7 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         "rows": rows, "totals": totals,
         "payroll_rule": {"enabled": True, "limit_scope": "week", "ordinary_minutes_limit": rule["overtime_after_minutes"], "applied_by": "US_PAYROLL_FLSA"},
         "us_payroll": {"rules": rule, "missing_rate": missing_rate, "missing_place": missing_place, "company_tz": data["company_tz"],
-                       "company_abbr": us_time.abbr(data["company_tz"])},
+                       "company_abbr": us_time.abbr(data["company_tz"]), "operations": operations(data["people"])},
     }
     if unverified:
         out["unverified_shifts"] = unverified

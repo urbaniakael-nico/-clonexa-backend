@@ -102,17 +102,15 @@ test('Reportes v2 sin us_payroll: la pantalla de siempre (otra empresa)', () => 
   assert.doesNotMatch(html, /Horas pagables|Semana laboral por persona|Pendiente/);
 });
 
-test('Nómina v2: franja, aviso sin tarifa, tarjeta, desglose, semana, línea de tiempo, PDF y CSV', () => {
+test('Nómina v2 con us_payroll (063A): solo horas y valores por operación; sin línea de tiempo, ubicación ni notas', () => {
   const P = payroll();
   Object.assign(P.model, { snapshot: clone(FIX.snapshot), activity: null, period: { from: '2026-11-01', to: '2026-11-07' }, cfg: null, open: 'emp-caso', cols: 4 });
   const html = P.view();
-  assert.match(html, /Horas pagables<\/span><strong>8 h 45 min[\s\S]*Regulares<\/span><strong>8 h 45 min[\s\S]*Overtime<\/span><strong>0 h 00 min[\s\S]*Pausas \(sin pago\)<\/span><strong>0 h 55 min[\s\S]*Total a pagar<\/span><strong>Pendiente/);
-  assert.match(html, /1 empleados sin tarifa<\/b>: Colaboradora Caso 2 Nov/);
-  assert.doesNotMatch(html, /Esas horas quedaron en \$0/, 'ya no dice que quedaron en $0');
-  assert.match(html, /pv-time">8 h 45 min<\/span><span class="pv-net">Pendiente/);
-  assert.match(html, /Bruto overtime \(1\.5x\)[\s\S]*Semana[\s\S]*06:45 ET[\s\S]*16:25 ET/);
-  assert.match(html, /data-pv-us-export="pdf">PDF<\/button><button class="client-btn" type="button" data-pv-us-export="csv">CSV/);
-  assert.match(html, /Semana laboral: domingo 00:00/);
+  assert.match(html, /Resumen Virginia[\s\S]*Horas pagables<\/span><strong>8 h 45[\s\S]*Regulares<\/span><strong>8 h 45[\s\S]*Overtime<\/span><strong>0 h 00[\s\S]*Pausas<\/span><strong>0 h 55[\s\S]*Bruto<\/span><strong>Tarifa pendiente/);
+  assert.match(html, /Tabla Virginia[\s\S]*Colaboradora Caso 2 Nov[\s\S]*<b>8 h 45<\/b>[\s\S]*Pendiente/);
+  assert.match(html, /Lun 02\/11<\/th>\s*<td data-label="Entrada">06:45<\/td><td data-label="Salida">16:25/);
+  assert.match(html, /data-pv-us-export="csv">CSV<\/button>[\s\S]*data-pv-us-export="pdf">Descargar PDF/);
+  assert.doesNotMatch(html, /Sin perímetro|Ver en el mapa|Resumen de la jornada|Etiquetado rack|usp-shift|\$0\.00/);
 });
 
 test('Nómina v2 sin us_payroll: la pantalla de siempre, sin PDF/CSV nuevos', () => {
@@ -126,11 +124,11 @@ test('Nómina v2 sin us_payroll: la pantalla de siempre, sin PDF/CSV nuevos', ()
 });
 
 test('client.js pide las versiones nuevas y pasa la sesión para la descarga; CSS solo del tema', () => {
-  assert.match(CLIENT, /payroll_v2\.js\?v=061A/);
-  assert.match(CLIENT, /payroll_v2\.css\?v=061A/);
+  assert.match(CLIENT, /payroll_v2\.js\?v=063A/);
+  assert.match(CLIENT, /payroll_v2\.css\?v=063A/);
   assert.match(CLIENT, /apiBase: API, token: \(\) => \(typeof cxReportsToken053C === "function" \? cxReportsToken053C\(\) : ""\)/);
   assert.match(REPORTS, /\/client-static\/us_payroll\.js\?v=061A/);
   assert.match(PAYROLL, /\/client-static\/us_payroll\.js\?v=061A/);
-  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_061A"/);
+  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_061A_063A"/);
   assert.ok(!/#[0-9a-f]{3,8}\b/i.test(CSS) && !/rgb\(|hsl\(/i.test(CSS), 'sin colores propios');
 });

@@ -322,6 +322,13 @@ async def confirm_real_end(
     _check_range(row, end)
     # Nomina v2: nota opcional, en el MISMO update que confirma (una sola vez).
     note = " ".join(str(data.get("note") or "").split())[:300]
+    # 063A: con reglas de EE. UU. (us_payroll, hoy solo VOLTAGE) la nota es obligatoria:
+    # queda en la auditoria del cierre junto a quien confirmo y cuando.
+    if not note:
+        from app.services import us_payroll
+
+        if await us_payroll.is_on(db, company_id):
+            raise HTTPException(status_code=400, detail="Escribe una nota: por qué esta es la hora real de salida.")
     params = {"end_at": end, "name": actor["name"][:180], "user_id": actor["id"], "id": str(row["id"]),
               "company_id": str(company_id)}
     note_sql = ""

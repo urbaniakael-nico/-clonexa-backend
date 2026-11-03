@@ -8896,11 +8896,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxPayrollV2Css052B";
           link.rel = "stylesheet";
-          link.href = "/client-static/payroll_v2.css?v=061A";
+          link.href = "/client-static/payroll_v2.css?v=063A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=061A";
+        script.src = "/client-static/payroll_v2.js?v=063A";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);
@@ -8934,8 +8934,15 @@ function inventoryCreatePayload() {
       companyId: state.companyId, api, period: start, cfg, renderShell,
       loadCfg: (ref) => cxPayLoadCfg049L(ref), shiftDate: cxPayShiftDate049L,
       apiBase: API, token: () => (typeof cxReportsToken053C === "function" ? cxReportsToken053C() : ""), // 061A: PDF y CSV de us_payroll (descarga con sesion)
+      ...cxPayrollUsCtx063A(), // 063A: Nomina EE. UU. por operacion (us_payroll): semana laboral desde el primer calculo
       host: () => document.getElementById("cxPayrollV2Host052B"),
     });
+  }
+  // 063A: datos para la Nomina EE. UU. (interruptor us_payroll en settings del modulo payroll).
+  function cxPayrollUsCtx063A() {
+    const item = activeClientModules().find((m) => m.code === "payroll");
+    const settings = (item && item.raw && item.raw.settings && typeof item.raw.settings === "object") ? item.raw.settings : {};
+    return { usPayroll: settings.us_payroll === true, usRules: settings.us_payroll_rules || {}, companyName: (state.company && state.company.name) || "" };
   }
   /* CLONEXA_052B_PAYROLL_V2_END */
 

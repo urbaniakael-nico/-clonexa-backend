@@ -66,6 +66,17 @@ async def _snapshot(db: AsyncSession, company_id: UUID, start: date, end: date, 
     return snap
 
 
+async def _documents(db: AsyncSession, company_id: UUID) -> dict:
+    """063A: documento de cada persona para el CSV (solo de ESTA empresa)."""
+    try:
+        rows = (await db.execute(text("SELECT id::text AS id, COALESCE(document_id, '') AS doc FROM employees WHERE company_id = CAST(:c AS uuid)"),
+                                 {"c": str(company_id)})).mappings().all()
+    except Exception:
+        await db.rollback()
+        return {}
+    return {r["id"]: r["doc"] for r in rows if r["doc"]}
+
+
 async def _company_name(db: AsyncSession, company_id: UUID) -> str:
     return str((await db.execute(text("SELECT name FROM companies WHERE id = CAST(:c AS uuid)"), {"c": str(company_id)})).scalar() or "")
 
@@ -86,5 +97,5 @@ async def export_csv(company_id: UUID, period_start: str = Query(...), period_en
                      who: str = Depends(reader), db: AsyncSession = Depends(get_db)) -> Response:
     start, end = _period(period_start, period_end)
     snap = await _snapshot(db, company_id, start, end, employee_id)
-    return Response(us_payroll_export.build_csv(snap), media_type="text/csv; charset=utf-8",
+    return Response(us_payroll_export.build_csv(snap, await _documents(db, company_id)), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="nomina_{start}_{end}.csv"', "Cache-Control": "no-store"})

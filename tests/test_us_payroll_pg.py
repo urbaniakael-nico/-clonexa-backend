@@ -167,13 +167,18 @@ async def test_caso_same_numbers_in_payroll_reports_pdf_csv_and_bot(maker):
         assert (ins["us"]["payable_minutes"], ins["us"]["overtime_minutes"]) == (525, 0) and ins["figures"]["extra_minutes"] == 0
         assert [d for d in ins["hours_by_day"] if d["payable"]] == [{"date": "2026-11-02", "regular": 525, "extra": 0, "payable": 525, "pause": 55}]
 
-        csv_text = us_payroll_export.build_csv(snap)
-        line = next(x for x in csv_text.splitlines() if x.startswith("turno,"))
-        assert "06:45 ET" in line and "16:25 ET" in line and "10:34 ET–11:29 ET (55 min)" in line and ",580,55,525,525,0," in line
-        assert "Resumen de la jornada: Etiquetado rack A" in line
-        total = next(x for x in csv_text.splitlines() if x.startswith("total,"))
-        assert "Tarifa pendiente" in total and "Pendiente" in total and "$0.00" not in csv_text
-        assert us_payroll_export.build_pdf(snap, "VOLTAGE")[:5] == b"%PDF-"
+        # 063A: CSV = una fila por persona y dia (solo horas y valores; ubicacion y notas en Reportes).
+        csv_text = us_payroll_export.build_csv(snap, {yes: "DOC-123"})
+        lines = csv_text.lstrip("﻿").splitlines()
+        assert lines[0] == ",".join(us_payroll_export.CSV_HEAD)
+        assert lines[0] == "operacion,empleado,documento,fecha,entrada,salida,en_turno,pausas,pagables,regulares,overtime,tarifa,bruto,neto,estado"
+        assert lines[1] == "Virginia (ET),Colaboradora Caso 2 Nov,DOC-123,2026-11-02,06:45 ET,16:25 ET,9:40,0:55,8:45,8:45,0:00,Tarifa pendiente,Pendiente,Pendiente,OK"
+        assert lines[2].startswith("Virginia (ET),Colaboradora Caso 2 Nov,DOC-123,Total,,,9:40,0:55,8:45,8:45,0:00,Tarifa pendiente,Pendiente,Pendiente,OK")
+        assert "$0.00" not in csv_text and "maps" not in csv_text and "Etiquetado" not in csv_text and "Sin perímetro" not in csv_text
+        pdf = us_payroll_export.build_pdf(snap, "VOLTAGE")
+        assert pdf[:5] == b"%PDF-"
+        [op] = us_payroll_export.operations(snap)
+        assert (op["name"], op["abbr"], op["totals"]["payable"], op["totals"]["pause"], op["rate_pending"]) == ("Virginia", "ET", 525, 55, True)
         assert reports_v2.build_pdf(payload, ins, reports_v2.ZoneInfo("America/Chicago"))[:5] == b"%PDF-"
 
         msg = await us_payroll.bot_summary(db, cid, yes, T("2026-11-02T21:25:20+00:00"), "es", money_label=lambda v: f"${v}", name="Caso")
@@ -206,6 +211,17 @@ async def test_alabama_local_time_no_place_uses_company_zone_and_overtime_with_r
         n = rows["Sin Lugar"]
         assert n["us"]["place_missing"] and n["shifts"][0]["us"]["check_in"]["local"] == "08:00", "zona de la empresa (Chicago)"
         assert [m["employee_name"] for m in snap["us_payroll"]["missing_place"]] == ["Sin Lugar"]
+        # 063A: operaciones por lugar; "Sin lugar asignado" al final; totales = suma de las filas.
+        ops = us_payroll_export.operations(snap)
+        assert [o["name"] for o in ops] == ["Alabama", "Sin lugar asignado"]
+        assert ops[0]["totals"]["payable"] == 2700 and ops[0]["totals"]["overtime"] == 300 and ops[0]["totals"]["gross"] == 950.0
+        csv_lines = us_payroll_export.build_csv(snap).splitlines()
+        carl_days = [x for x in csv_lines if x.startswith("Alabama (CT),Carl,,2026-11-")]
+        assert len(carl_days) == 5 and carl_days[0].startswith("Alabama (CT),Carl,,2026-11-02,07:00 CT,16:00 CT,9:00,0:00,9:00,9:00,0:00,$20.00,$180.00")
+        assert carl_days[-1].startswith("Alabama (CT),Carl,,2026-11-06,07:00 CT,16:00 CT,9:00,0:00,9:00,4:00,5:00,$20.00,$230.00"), "viernes: 4 h regular + 5 h overtime"
+        assert any(x.startswith("Alabama (CT),Carl,,Total,,,45:00,0:00,45:00,40:00,5:00,$20.00,$950.00,$950.00,OK") for x in csv_lines)
+        assert any(x.startswith("Sin lugar asignado (CT),Sin Lugar,,2026-11-03") for x in csv_lines)
+        assert us_payroll_export.build_pdf(snap, "VOLTAGE")[:5] == b"%PDF-"
         msg = await us_payroll.bot_summary(db, cid, carl, datetime(2026, 11, 6, 22, 0, tzinfo=UTC), "es", money_label=lambda v: f"${v:.2f}", name="Carl")
         assert "Semana: 45 h 00 min de 40 h" in msg and "Overtime de la semana: 5 h 00 min" in msg and "Proyección de la semana: $950.00" in msg
 
@@ -267,3 +283,28 @@ async def test_screen_fixture_is_exactly_what_the_server_calculates(maker):
         fresh = await mod.build(db)
     saved = json.loads((Path(__file__).parent / "fixtures" / "us_payroll_caso.json").read_text(encoding="utf-8"))
     assert fresh == saved
+
+
+@pytest.mark.asyncio
+async def test_operations_east_to_west_and_held_shift_keeps_role_and_place_063a(maker):
+    """063A: Nomina por operacion. El turno por confirmar trae rol y lugar (antes salia "Sin rol"
+    y caia fuera de su operacion); Virginia (ET) va antes que Alabama (CT)."""
+    async with maker() as db:
+        cid = await _company(db, us=True)
+        al = await _place(db, cid, "Alabama", "America/Chicago")
+        va = await _place(db, cid, "Virginia", "America/New_York")
+        ana = await _person(db, cid, "Ana Virginia", va)
+        bob = await _person(db, cid, "Bob Alabama", al)
+        await _ev(db, cid, ana, "check_in", datetime(2026, 11, 3, 11, 0, tzinfo=UTC))
+        await _ev(db, cid, ana, "check_out", datetime(2026, 11, 4, 3, 0, tzinfo=UTC))  # 16 h: por confirmar
+        await _ev(db, cid, bob, "check_in", datetime(2026, 11, 3, 13, 0, tzinfo=UTC))
+        await _ev(db, cid, bob, "check_out", datetime(2026, 11, 3, 21, 0, tzinfo=UTC))
+        snap = await core.calculate_period_snapshot(db, uuid.UUID(cid), date(2026, 11, 1), date(2026, 11, 7))
+        assert [o["name"] for o in snap["us_payroll"]["operations"]] == ["Virginia", "Alabama"]
+        [held] = snap["unverified_shifts"]
+        assert (held["employee_name"], held["employee_role"], held["place"], held["abbr"]) == ("Ana Virginia", "operario", "Virginia", "ET")
+        ops = us_payroll_export.operations(snap)
+        assert [(o["name"], len(o["people"]), o["totals"]["pending_count"]) for o in ops] == [("Virginia", 0, 1), ("Alabama", 1, 0)]
+        csv_lines = us_payroll_export.build_csv(snap).splitlines()
+        assert any(x.startswith("Virginia (ET),Ana Virginia,,2026-11-03") and "Salida por confirmar" in x for x in csv_lines)
+        assert us_payroll_export.build_pdf(snap, "VOLTAGE")[:5] == b"%PDF-"
