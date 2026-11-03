@@ -10,7 +10,7 @@
   const items = [
     { id: ID, wa_id: "573001112233", nombre: "Ana María Gómez Restrepo de la Torre", tipo_negocio: "Restaurante de comida a la mesa", ciudad: "Bogotá D.C.", etapa: "demo_agendada", nexa_pausada: true, ultimo: long, ultimo_at: iso(3), nueva: true },
     { id: "b2", wa_id: "573005556677", nombre: null, tipo_negocio: "Bar", ciudad: "Medellín", etapa: "calificado", nexa_pausada: false, ultimo: "¿Tienen juegos en vivo?", ultimo_at: iso(80), nueva: false },
-    { id: "c3", wa_id: "13468244098", nombre: "Joe", tipo_negocio: "Call center", ciudad: "Houston", etapa: "pidio_persona", nexa_pausada: false, ultimo: "Can I talk to a person?", ultimo_at: iso(2000), nueva: false },
+    { id: "c3", wa_id: "15551234567", nombre: "Joe", tipo_negocio: "Call center", ciudad: "Houston", etapa: "pidio_persona", nexa_pausada: false, ultimo: "Can I talk to a person?", ultimo_at: iso(2000), nueva: false },
     { id: "d4", wa_id: "573104445566", nombre: "Taller Hilos", tipo_negocio: null, ciudad: null, etapa: "nuevo", nexa_pausada: false, ultimo: "[audio]", ultimo_at: iso(5000), nueva: true },
     { id: "e5", wa_id: "573117778899", nombre: "Pedro", tipo_negocio: "Tienda o cadena", ciudad: "Cali", etapa: "baja", nexa_pausada: false, ultimo: "baja", ultimo_at: iso(9000), nueva: false },
   ];

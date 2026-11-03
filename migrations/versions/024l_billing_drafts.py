@@ -49,7 +49,7 @@ def upgrade() -> None:
         """
         INSERT INTO billing_provider (id, name, trade_name, doc_id, email, phones, city)
         VALUES (1, 'Oscar Nicolas Gomez', 'CLONEXA', '1.026.550.749-2', 'clonexasaas@gmail.com',
-                'Colombia +57 302 847 3926 · EE. UU. +1 346 824 4098', '')
+                'Colombia +57 302 847 3926', '')
         ON CONFLICT (id) DO NOTHING
         """
     )

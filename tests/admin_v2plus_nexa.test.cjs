@@ -46,7 +46,7 @@ function list() {
         ultimo: '¿Tienen juegos en vivo?', ultimo_at: '2026-10-28T19:40:00Z', nueva: true },
       { id: 'b2', wa_id: '573005556677', nombre: null, tipo_negocio: null, ciudad: null, etapa: 'demo_agendada', nexa_pausada: true,
         ultimo: 'Listo, nos vemos', ultimo_at: '2026-10-27T15:00:00Z', nueva: false },
-      { id: 'c3', wa_id: '13468244098', nombre: 'Joe', etapa: 'inventada', ultimo: 'hi', ultimo_at: '2026-09-01T15:00:00Z', nueva: false },
+      { id: 'c3', wa_id: '15551234567', nombre: 'Joe', etapa: 'inventada', ultimo: 'hi', ultimo_at: '2026-09-01T15:00:00Z', nueva: false },
     ],
   };
 }
@@ -83,7 +83,7 @@ test('hora de Colombia y número legible', () => {
   assert.equal(N.when('2025-12-31T17:05:00Z', NOW), 'mié 31 dic 2025 · 12:05 p. m.');
   assert.equal(N.when('', NOW), '');
   assert.equal(N.phone('573144798220'), '+57 314 479 8220');
-  assert.equal(N.phone('13468244098'), '+13468244098');
+  assert.equal(N.phone('15551234567'), '+15551234567');
 });
 
 test('usuario de WhatsApp sin número (BSUID): no inventa un teléfono ni un enlace wa.me', () => {
