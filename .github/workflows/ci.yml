@@ -6,10 +6,21 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Una corrida nueva de la misma rama cancela la vieja.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql+asyncpg://clonexa:clonexa@localhost:5432/clonexa
+  JWT_SECRET_KEY: ci-test-secret
+  PYTHONUNBUFFERED: "1"
+
 jobs:
   backend-checks:
     name: Backend and static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -27,18 +38,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Python syntax check
-        run: python -m compileall app tests
-
-      - name: Run health and Hospitality sales tests
-        env:
-          DATABASE_URL: postgresql+asyncpg://clonexa:clonexa@localhost:5432/clonexa
-          JWT_SECRET_KEY: ci-test-secret
-        run: python -m pytest tests/test_health.py tests/test_hospitality_live_sales.py tests/test_hospitality_event_search.py tests/test_hospitality_period_reports.py
+        run: python -m compileall -q app tests
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install Node dependencies
@@ -51,4 +56,94 @@ jobs:
         run: |
           node --check app/web/client.js
           node --check app/web/mini_panel.js
-          node --test tests/hospitality_live_sales_client.test.cjs
+
+  # Compuerta de push 1: python -m pytest tests -k hospitality (Postgres embebido con pgserver, sin Docker).
+  python-hospitality:
+    name: pytest -k hospitality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest -k hospitality
+        run: python -m pytest tests -k hospitality -q -p no:cacheprovider
+
+  # El resto de Python (todo lo que no es hospitality), en 4 grupos parejos (scripts/ci_shard.py).
+  python-resto:
+    name: pytest resto ${{ matrix.group }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest grupo ${{ matrix.group }}
+        run: |
+          files=$(python scripts/ci_shard.py ${{ matrix.group }} 4)
+          echo "Archivos: $(echo $files | wc -w)"
+          set +e
+          python -m pytest $files -k "not hospitality" -q -p no:cacheprovider
+          code=$?
+          # 5 = ninguna prueba seleccionada en el grupo: no es un fallo.
+          if [ "$code" = "5" ]; then exit 0; fi
+          exit $code
+
+  # Compuerta de push 2: node --test tests/ (las pruebas de diseño usan Chromium headless).
+  node:
+    name: node --test (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Install Chromium headless
+        run: |
+          npx -y playwright install --with-deps chromium-headless-shell
+          path=$(ls -d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell | head -1)
+          test -x "$path"
+          echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
+      - name: node --test
+        run: node --test "tests/**/*.test.cjs"
+
+  todas-las-pruebas:
+    name: todas-las-pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend-checks, python-hospitality, python-resto, node]
+    if: always()
+    steps:
+      - name: Todas deben pasar
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "Alguna prueba no pasó."
+            exit 1
+          fi
