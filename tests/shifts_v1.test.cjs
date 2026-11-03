@@ -118,7 +118,7 @@ test('textos por t(): todos tienen inglés y francés en el diccionario único',
 test('client.js: Turnos solo se abre desde su tarjeta y carga su archivo aparte', () => {
   assert.match(CLIENT, /if \(code === "shifts" && await cxShiftsOpen055A\(\)\) \{\n\s+return;\n\s+\}\n\n\s+if \(code === "workforce"\)/);
   assert.match(CLIENT, /\/client-static\/shifts_v1\.js\?v=055A/);
-  assert.match(CLIENT, /\/client-static\/shifts_v1\.css\?v=055A/);
+  assert.match(CLIENT, /\/client-static\/shifts_v1\.css\?v=063A/);
   assert.match(CLIENT, /token: authToken/);
   assert.match(SRC, /\/turnos\/companies\/\$\{encodeURIComponent\(ctx\.companyId\)\}/);
   assert.match(SRC, /Authorization: `Bearer \$\{t\}`/, 'siempre con la sesión');

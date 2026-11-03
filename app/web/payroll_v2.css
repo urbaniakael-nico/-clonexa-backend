@@ -333,5 +333,8 @@
   .pvu-table tr.pvu-detail-row, .pvu-table tr.pvu-detail-row > td { display: block; }
   .pvu-days-wrap { grid-template-columns: 1fr; }
   .pvu-table tr.pvu-detail-row > td { padding: 8px 6px 12px !important; }
-  .pvu-days th, .pvu-days td { padding: 5px 2px; font-size: 12px; }
+  /* Columnas fijas que parten el texto: cabe en 390 px con cualquier fuente. */
+  .pvu-days { table-layout: fixed; }
+  .pvu-days th, .pvu-days td { padding: 5px 2px; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+  .pvu-days thead th:first-child, .pvu-days tbody th { width: 21%; }
 }
