@@ -120,10 +120,12 @@
     const wide = [];
     document.querySelectorAll("body *").forEach((el) => {
       const r = el.getBoundingClientRect();
-      if (r.width && r.right > window.innerWidth + 1 && ![...el.children].some((c) => c.getBoundingClientRect().right > window.innerWidth + 1)) {
-        wide.push({ tag: el.tagName, cls: String(el.className || "").slice(0, 40), text: (el.textContent || "").trim().slice(0, 40), right: Math.round(r.right), w: Math.round(r.width) });
+      const reach = Math.max(r.right, r.left + el.scrollWidth);
+      if (r.width && reach > document.documentElement.clientWidth + 1 && ![...el.children].some((c) => { const q = c.getBoundingClientRect(); return Math.max(q.right, q.left + c.scrollWidth) > document.documentElement.clientWidth + 1; })) {
+        wide.push({ tag: el.tagName, cls: String(el.className || "").slice(0, 40), text: (el.textContent || "").trim().slice(0, 40), right: Math.round(r.right), reach: Math.round(reach), w: Math.round(r.width), sw: el.scrollWidth });
       }
     });
+    wide.unshift({ doc: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, inner: window.innerWidth });
     const text = root.textContent || "";
     const out = document.createElement("pre");
     out.id = "layout";
