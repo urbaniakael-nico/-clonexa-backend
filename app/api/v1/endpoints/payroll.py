@@ -31,6 +31,36 @@ router = APIRouter()
 # in company_users.py). For every other company this dependency is a no-op
 # -- the endpoint stays exactly as open as it is today.
 _NOT_ADMINISTRADOR = require_company_user_not_role({"administrador"})
+
+
+# CLONEXA_062A_PAYROLL_AUTH: calcular, listar, ver y cerrar periodos exigian sesion
+# SOLO en empresas con el modulo de meseros (require_company_user_not_role sale sin
+# validar si waiter_ordering no esta encendido): en las demas (VOLTAGE incluida)
+# respondian sin sesion. Ahora, sin meseros: Admin V2 o un usuario de ESA empresa con
+# rol de dueno / administrador / direccion (401 sin sesion, 403 otra empresa o sin
+# rol). Con meseros: exactamente la regla de siempre (_NOT_ADMINISTRADOR).
+PAYROLL_OWNER_ROLES_062A = {"company_admin", "admin_empresa", "owner", "propietario", "dueno", "dueño",
+                            "gerente", "gerencia", "manager", "director"}
+
+
+async def _waiter_ordering_on_062A(db: AsyncSession, company_id: UUID) -> bool:
+    from app.api.deps import require_enabled_module
+
+    try:
+        await require_enabled_module(db, company_id, "waiter_ordering")
+    except HTTPException:
+        return False
+    return True
+
+
+async def _require_payroll_owner_062A(
+    company_id: UUID, request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+) -> None:
+    if await _waiter_ordering_on_062A(db, company_id):
+        return  # meseros: la regla de siempre la aplica _NOT_ADMINISTRADOR
+    if await active_admin_v2_session(request, db):
+        return
+    await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=PAYROLL_OWNER_ROLES_062A)
 # Nomina v2: cierres "como si" estuvieran confirmados, solo para la vista previa.
 PREVIEW_CLOSURES_052A: contextvars.ContextVar[dict | None] = contextvars.ContextVar("payroll_preview_closures_052a", default=None)
 
@@ -1603,6 +1633,7 @@ async def calculate_payroll_period(
     company_id: UUID,
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
+    _owner_062a: None = Depends(_require_payroll_owner_062A),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
     _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
@@ -1623,6 +1654,7 @@ async def calculate_payroll_period(
 async def list_payroll_periods(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _owner_062a: None = Depends(_require_payroll_owner_062A),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
     _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> list[dict]:
@@ -1658,6 +1690,7 @@ async def get_payroll_period(
     company_id: UUID,
     period_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _owner_062a: None = Depends(_require_payroll_owner_062A),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
     _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
@@ -1740,6 +1773,7 @@ async def close_payroll_period(
     company_id: UUID,
     payload: dict | None = None,
     db: AsyncSession = Depends(get_db),
+    _owner_062a: None = Depends(_require_payroll_owner_062A),
     _not_admin: None = Depends(_NOT_ADMINISTRADOR),
     _co_gate: None = Depends(_cx_co_gate_049A),
 ) -> dict:
