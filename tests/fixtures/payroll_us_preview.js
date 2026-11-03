@@ -116,10 +116,18 @@
       const r = ratio(el);
       if (r < 4.5) low.push({ sel, text: (el.textContent || "").trim().slice(0, 30), ratio: r });
     }));
+    // Si la pagina se sale de ancho: los elementos mas profundos que pasan el borde (diagnostico).
+    const wide = [];
+    document.querySelectorAll("body *").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.right > window.innerWidth + 1 && ![...el.children].some((c) => c.getBoundingClientRect().right > window.innerWidth + 1)) {
+        wide.push({ tag: el.tagName, cls: String(el.className || "").slice(0, 40), text: (el.textContent || "").trim().slice(0, 40), right: Math.round(r.right), w: Math.round(r.width) });
+      }
+    });
     const text = root.textContent || "";
     const out = document.createElement("pre");
     out.id = "layout";
-    out.textContent = JSON.stringify({ width: window.innerWidth, mounted: true, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low,
+    out.textContent = JSON.stringify({ width: window.innerWidth, mounted: true, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, wide: wide.slice(0, 8), bad, low_contrast: low,
       tables: root.querySelectorAll(".pvu-table").length, rows: root.querySelectorAll(".pvu-row").length, days: root.querySelectorAll(".pvu-days").length,
       banned: /Sin perímetro|Ver en el mapa|Resumen de la jornada|Etiquetado rack|Ubicación:/.test(text.replace("Ver ubicación y notas en Reportes", "")) || !!root.querySelector("a[href*='maps']"),
       count: (root.querySelector(".pvu-count") || {}).textContent || "", modal: !!root.querySelector(".pv-modal"), calls: window.__pvCalls });

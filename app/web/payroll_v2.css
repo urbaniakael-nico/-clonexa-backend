@@ -294,7 +294,7 @@
 .pvu-total > * { font-weight: 700; border-top: 2px solid var(--pvu-bg) !important; }
 
 .pvu-detail-row > td { padding: 10px 12px 14px !important; }
-.pvu-detail { display: grid; gap: 10px; }
+.pvu-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .pvu-days-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
 .pvu-days { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pvu-days caption { text-align: left; font-weight: 700; padding: 0 0 6px; }
@@ -331,7 +331,9 @@
   .pvu-row.is-pending > th, .pvu-row.is-open > th { box-shadow: none; }
   .pvu-row.is-pending { box-shadow: inset 4px 0 0 var(--pv-warn-ink, var(--cx-warning)); }
   .pvu-table tr.pvu-detail-row, .pvu-table tr.pvu-detail-row > td { display: block; }
-  .pvu-days-wrap { grid-template-columns: 1fr; }
+  .pvu-days-wrap { grid-template-columns: minmax(0, 1fr); }
+  .pvu-detail, .pvu-days-wrap > *, .pvu-held li > span { min-width: 0; }
+  .pvu-days caption { white-space: normal; overflow-wrap: anywhere; }
   .pvu-table tr.pvu-detail-row > td { padding: 8px 6px 12px !important; }
   /* Columnas fijas que parten el texto: cabe en 390 px con cualquier fuente. */
   .pvu-days { table-layout: fixed; }

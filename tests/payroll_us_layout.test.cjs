@@ -68,7 +68,7 @@ test('063A Nómina por operación (VOLTAGE): sin textos cortados, AA y sin ubica
       for (const k of Object.keys(STATES)) {
         const r = results[`${w}-${k}`];
         assert.ok(r && r.mounted, `${w}px ${k}: la pantalla nueva no se dibujó`);
-        assert.equal(r.page_overflow, false, `${w}px ${k}: la página se sale de ancho`);
+        assert.equal(r.page_overflow, false, `${w}px ${k}: la página se sale de ancho: ${JSON.stringify(r.wide)}`);
         assert.deepEqual(r.bad, [], `${w}px ${k}: textos que desbordan: ${JSON.stringify(r.bad)}`);
         assert.deepEqual(r.low_contrast, [], `${w}px ${k}: contraste bajo AA: ${JSON.stringify(r.low_contrast)}`);
         assert.equal(r.banned, false, `${w}px ${k}: no debe mostrar ubicación, mapa ni notas`);
