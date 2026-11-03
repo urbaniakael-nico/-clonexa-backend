@@ -141,7 +141,7 @@
           const link = document.createElement("link");
           link.id = "cxShiftsCss055A";
           link.rel = "stylesheet";
-          link.href = "/client-static/shifts_v1.css?v=055A";
+          link.href = "/client-static/shifts_v1.css?v=063A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");

@@ -143,8 +143,9 @@ button.sh-cell:hover { border-color: var(--cx-primary); }
 @media (max-width: 720px) {
   .sh-root { padding: 10px; --sh-gap: 12px; }
   .sh-root .client-panel { padding: 14px 10px; }
-  .sh-tabs { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, 1.35fr); width: 100%; justify-self: stretch; }
-  .sh-tabs button { min-width: 0; padding: 0 4px; font-size: 13px; white-space: normal; line-height: 1.15; }
+  .sh-tabs { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.05fr) minmax(0, 1.45fr); width: 100%; justify-self: stretch; }
+  /* 063A: con fuentes mas anchas (Linux, algunos Android) "Configuración" no se corta. */
+  .sh-tabs button { min-width: 0; padding: 0 2px; font-size: 13px; white-space: normal; line-height: 1.15; }
   .sh-bar { display: grid; }
   .sh-week { justify-content: space-between; }
   .sh-week-label { font-size: 14px; white-space: normal; flex: 1 1 0; text-align: center; min-width: 0; }

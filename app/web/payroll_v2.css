@@ -266,8 +266,8 @@
 .pvu-table-wrap { margin-bottom: 16px; border-radius: var(--pv-r); border: 1px solid var(--pv-line); overflow-x: auto; background: var(--pv-surface, var(--cx-bg)); }
 .pvu-table { width: 100%; border-collapse: collapse; font-size: 13px; color: var(--pv-on-surface, var(--cx-text)); }
 .pvu-table caption { caption-side: top; text-align: left; padding: 10px 12px; font-weight: 700; font-size: 16px; color: var(--pvu-ink); }
-.pvu-table thead th { background: var(--pvu-bg); color: var(--pvu-fg); font-size: 12px; font-weight: 700; text-align: left; padding: 8px; white-space: nowrap; }
-.pvu-table td, .pvu-table tbody th, .pvu-table tfoot th { padding: 7px 8px; border-top: 1px solid var(--pv-line); text-align: left; vertical-align: middle; font-weight: 400; }
+.pvu-table thead th { background: var(--pvu-bg); color: var(--pvu-fg); font-size: 12px; font-weight: 700; text-align: left; padding: 8px 6px; white-space: normal; line-height: 1.2; vertical-align: bottom; }
+.pvu-table td, .pvu-table tbody th, .pvu-table tfoot th { padding: 7px 6px; border-top: 1px solid var(--pv-line); text-align: left; vertical-align: middle; font-weight: 400; }
 .pvu-table .pvu-n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pvu-table thead th.pvu-n { text-align: right; }
 .pvu-row.is-pending > th { box-shadow: inset 4px 0 0 var(--pv-warn-ink, var(--cx-warning)); }
@@ -280,7 +280,10 @@
 .pvu-pay b { font-size: 14px; }
 .pvu-ot { color: var(--pv-warn-ink, var(--cx-warning)); }
 .pvu-pend { color: var(--pvu-muted); font-style: italic; }
-.pvu-state { white-space: nowrap; }
+/* Estado: el chip y el botón bajan de línea si no caben (fuentes más anchas). */
+.pvu-state { white-space: normal; min-width: 150px; }
+.pvu-state .pvu-chip { white-space: nowrap; }
+.pvu-state .pvu-confirm { margin: 4px 0 0; white-space: nowrap; }
 .pvu-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid var(--pv-line); }
 .pvu-chip.is-ok { color: var(--pv-on-surface, var(--cx-text)); }
 .pvu-chip.is-warn { color: var(--pv-warn-ink, var(--cx-warning)); border-color: var(--pv-warn-ink, var(--cx-warning)); }
