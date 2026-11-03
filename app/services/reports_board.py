@@ -127,7 +127,7 @@ def figures_of(people: list[dict]) -> dict:
 
 def alerts_of(person: dict, weeks: list[dict], near_ot: int, start: date, end: date, tz_name: str) -> list[dict]:
     """Alertas de UNA persona, cada una con hora: fuera de perimetro, sin ubicacion, turno por
-    confirmar (mas de 12 h o sin salida) y cerca de overtime."""
+    confirmar (mas horas que el limite de la empresa o sin salida) y cerca de overtime."""
     base = {"employee_id": person["id"], "employee": person["name"]}
     out: list[dict] = []
     for day in person["days"]:
@@ -174,7 +174,7 @@ def order_operations(locations: list[dict]) -> list[dict]:
 
 # ------------------------------------------------------------------ estado en vivo
 async def _policy_hours(db: AsyncSession, company_id: Any) -> float:
-    """Limite de turno de la empresa (12 h por defecto), la misma regla de "por confirmar"."""
+    """Limite de turno de la empresa (alert_after_hours), la misma regla de "por confirmar"."""
     from app.api.v1.endpoints import payroll as core
 
     ctx = await core._cx_verification_context_049D(db, company_id)

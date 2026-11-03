@@ -67,6 +67,13 @@ test('vista: solo turnos de más de 12 h, con su botón; escapa nombres; N = 0 n
   const seven = { ...DATA.shifts[1], employee_id: 'e7', employee_name: 'Eva', hours_open: 7 };
   assert.equal(O.view({ ...DATA, shifts: [seven] }), '', 'turno de 7 h: no aparece');
   assert.match(O.view({ ...DATA, alert_hours: 6, shifts: [seven] }), /Turnos de más de 6 h \(1\)/, 'límite de la empresa');
+  const thirteen = { ...seven, hours_open: 13 };
+  const sixteen = { ...seven, hours_open: 16 };
+  assert.equal(O.view({ ...DATA, alert_hours: 15, shifts: [thirteen] }), '', 'con 15 h, el turno de 13 h no aparece');
+  const fifteen = O.view({ ...DATA, alert_hours: 15, shifts: [sixteen] });
+  assert.match(fifteen, /Turnos de más de 15 h \(1\)/);
+  assert.ok(!fifteen.includes('12 h'), 'el título dice el valor de la empresa');
+  assert.equal(O.view({ ...DATA, alert_hours: undefined, shifts: [sixteen] }), '', 'sin valor del servidor no inventa un límite');
 });
 
 test('turno de 7 h no se puede cerrar desde la pantalla (no hay botón ni envío)', async () => {

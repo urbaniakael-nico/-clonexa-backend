@@ -3,8 +3,8 @@
 Rutas en /open-shifts/companies/{company_id}/...; todas exigen sesion valida desde el
 primer dia: Admin V2 o un usuario de ESA empresa con un rol permitido (validado aqui,
 no en la pantalla). Sin el interruptor: 404, y CRM Campo y Personal siguen igual.
-- GET  ""                              SOLO turnos que pasan el limite (12 h por defecto,
-                                        alert_after_hours de la empresa) + permiso de cerrar
+- GET  ""                              SOLO turnos que pasan el limite (alert_after_hours
+                                        de la empresa) + permiso de cerrar
 - POST "/employees/{employee_id}/close" cerrar con hora real de salida y nota obligatoria;
                                         un turno que no pasa el limite: 400, no se cierra
 - GET  "/closes"                        auditoria de cierres manuales

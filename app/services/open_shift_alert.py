@@ -4,7 +4,8 @@ Interruptor por empresa ``open_shift_alert`` (settings del modulo workforce), ap
 por defecto. Hoy solo VOLTAGE. El turno vive en el servidor: si el celular se apaga
 sigue abierto y no se pierde nada.
 - Tarea periodica (cada 5 min, dentro del ciclo del bot): un turno abierto hace mas de
-  N horas (workforce_session_policy.alert_after_hours de la empresa, 12 por defecto)
+  N horas (workforce_session_policy.alert_after_hours de la empresa; sin valor, el
+  de session_cutoff.DEFAULT_ALERT_HOURS)
   recibe UN aviso al colaborador por el bot y UN aviso a los supervisores de su lugar
   de trabajo (al director si no hay supervisor): nombre, lugar, hora de inicio y horas
   abiertas. Un aviso por turno (tabla open_shift_alerts). Nunca cierra el turno.
@@ -24,12 +25,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.session_cutoff import DEFAULT_ALERT_HOURS
+
 log = logging.getLogger("clonexa.open_shift_alert")
 
 KEY = "open_shift_alert"
 MODULE = "workforce"
 LOOP_SECONDS = 300
-DEFAULT_HOURS = 12.0
+DEFAULT_HOURS = DEFAULT_ALERT_HOURS
 NOTE_MIN = 5
 NOTE_MAX = 500
 SUPERVISOR_ROLES = {"supervisor"}
@@ -293,7 +296,7 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
                       min_hours: float = 0.0) -> dict[str, Any]:
     """Cierra un turno abierto con la hora real de salida y la nota. Nunca abre ni cambia
     otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto.
-    Con `min_hours` (el limite del aviso, 12 por defecto) un turno mas nuevo no se cierra:
+    Con `min_hours` (el limite del aviso de la empresa) un turno mas nuevo no se cierra:
     TooEarly. El portal siempre lo pasa."""
     now_utc = now_utc or datetime.now(timezone.utc)
     body = body if isinstance(body, dict) else {}

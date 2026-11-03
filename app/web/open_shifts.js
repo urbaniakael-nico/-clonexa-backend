@@ -2,7 +2,7 @@
 // workforce). client.js solo lo monta con el interruptor encendido, arriba de CRM
 // Campo y de Personal; sin el interruptor, o si este archivo no carga, esas
 // pantallas siguen igual. Solo muestra los turnos que pasan el limite de la empresa
-// (12 h por defecto); sin ninguno no dibuja nada. Los turnos normales se ven solo en la
+// (alert_hours, lo manda el servidor); sin ninguno no dibuja nada. Los turnos normales se ven solo en la
 // vista por lugar, sin boton de cerrar (060D).
 // Datos: GET /open-shifts/companies/{id}; cerrar: POST .../employees/{id}/close con
 // la hora real de salida (en la hora del LUGAR de la persona) y una nota obligatoria.
@@ -73,8 +73,8 @@
   }
 
   // ------------------------------------------------------------ vista
-  const limitOf = (data) => (Number(data && data.alert_hours) > 0 ? Number(data.alert_hours) : 12);
-  const longShifts = (data) => arr(data && data.shifts).filter((s) => Number(s.hours_open || 0) >= limitOf(data));
+  const limitOf = (data) => Number(data && data.alert_hours) || 0;
+  const longShifts = (data) => (limitOf(data) > 0 ? arr(data && data.shifts).filter((s) => Number(s.hours_open || 0) >= limitOf(data)) : []);
 
   function rowView(s, data) {
     const place = s.work_location_name || "Sin lugar asignado";
