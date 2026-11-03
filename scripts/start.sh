@@ -21,8 +21,7 @@ if [ -z "${SECRET_KEY:-}" ] && [ -z "${JWT_SECRET_KEY:-}" ] && [ -z "${CLONEXA_J
   exit 1
 fi
 
-echo "Running Alembic migrations..."
-alembic upgrade head
-
+# Las migraciones corren antes, como pre-deploy command (railway.json): si fallan, el deploy
+# no sigue y el contenedor actual se queda activo. Aqui no se migra.
 echo "Starting uvicorn on ${HOST}:${PORT}"
 exec uvicorn app.main:app --host "${HOST}" --port "${PORT}"

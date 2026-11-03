@@ -46,10 +46,18 @@ Dockerfile uses:
 
 CMD ["/app/scripts/start.sh"]
 
-start.sh runs:
+railway.json runs the migrations as pre-deploy command, in a separate container, before the
+new deployment starts. If they fail, the deployment stops there and the current one stays live:
 
 alembic upgrade head
+
+start.sh only starts the app:
+
 uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+The service has a volume at /data, so Railway never runs two deployments at once: the old
+container stops before the new one starts, even with the healthcheck. An app that fails at
+boot (not a migration) still causes downtime until a rollback.
 
 ## Important
 
