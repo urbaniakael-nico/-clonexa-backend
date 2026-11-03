@@ -72,6 +72,8 @@ def notes_text(t: dict) -> str:
 
 
 def closed_by(t: dict) -> str:
+    if t.get("adjusted"):
+        return "Ajustado"
     m = t.get("manual_close")
     if m:
         return f"Cerrado por {m.get('by') or 'supervisor'}"

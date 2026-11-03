@@ -59,7 +59,7 @@ def _mark(view: Optional[dict], kind: str, has_perimeter: bool, exempt: bool = F
         return None
     loc = view.get("location") or {}
     status = loc.get("status") or "none"
-    if status != "none" and (not has_perimeter or not loc.get("geo")):
+    if status not in ("none", "adjusted") and (not has_perimeter or not loc.get("geo")):
         status = "unconfigured"
     out = {"k": kind, "t": view["local"], "d": view["date"], "a": view["abbr"], "at": view["at"], "s": None if exempt else status}
     if loc.get("lat") is not None and loc.get("lng") is not None:
@@ -88,7 +88,7 @@ def shift_out(view: dict, has_perimeter: bool, state: str = "ok") -> dict:
         notes.append({"kind": n.get("kind"), "label": n.get("label") or "", "text": str(n.get("text")).strip(), "t": n.get("local") or "", "d": day,
                       "a": view["abbr"], "at": n.get("at")})
     return {
-        "state": state, "in": _mark(view.get("check_in"), "in", has_perimeter),
+        **({"adjusted": True} if view.get("adjusted") else {}), "state": state, "in": _mark(view.get("check_in"), "in", has_perimeter),
         "out": None if state == "running" else _mark(view.get("check_out"), "out", has_perimeter, exempt=exempt_out),
         "pauses": pauses, "notes": notes,
         "manual": {"by": manual.get("by") or "", "note": manual.get("note") or ""} if manual else None,

@@ -33,9 +33,18 @@ RULES_KEY = "us_payroll_rules"
 MODULE = "payroll"
 MONEY = Decimal("0.01")
 PUNCHES = ("check_in", "break_start", "break_end", "check_out")
-SYSTEM_NOTES = ("clx:", "ubicación gps validada", "ubicacion gps validada", "turno cerrado por supervisor", "ubicación compartida", "ubicacion compartida")
-GPS_LABEL = {"inside": "En perímetro", "outside": "Fuera de perímetro", "unconfigured": "Sin perímetro", "none": "Sin ubicación"}
+SYSTEM_NOTES = ("clx:", "ubicación gps validada", "ubicacion gps validada", "turno cerrado por supervisor", "ubicación compartida", "ubicacion compartida", "ajuste masivo")
+GPS_LABEL = {"inside": "En perímetro", "outside": "Fuera de perímetro", "unconfigured": "Sin perímetro", "none": "Sin ubicación", "adjusted": "Ajuste manual"}
 GPS_WINDOW = timedelta(minutes=3)
+# Ajuste masivo de marcaciones: la original queda guardada con este estado y ya no cuenta; un
+# ajuste deshecho tampoco. Su event_type tambien cambia, asi que quien filtra por tipo no las ve.
+EVENT_REPLACED = "reemplazada_por_ajuste"
+EVENT_UNDONE = "ajuste_deshecho"
+EVENTS_NOT_COUNTED = (EVENT_REPLACED, EVENT_UNDONE)
+
+
+def _adjusted(ev: Optional[dict]) -> bool:
+    return bool(ev) and _json(ev.get("payload_json")).get("adjusted") is True
 
 
 def _json(value: Any) -> dict:
@@ -119,6 +128,8 @@ def _location(ev: Optional[dict], gps: Optional[dict] = None) -> dict:
     """Ubicacion de una marcacion: la suya, o el punto GPS mas cercano (+-3 min)."""
     if not ev:
         return {"status": "none", "label": GPS_LABEL["none"], "lat": None, "lng": None, "map": None, "perimeter": None}
+    if _adjusted(ev):  # la marca del ajuste no tiene GPS: la ubicacion original queda en la auditoria
+        return {"status": "adjusted", "label": GPS_LABEL["adjusted"], "lat": None, "lng": None, "map": None, "perimeter": None}
     payload = _json(ev.get("payload_json"))
     punch = payload.get("punch_location") if isinstance(payload.get("punch_location"), dict) else {}
     lat = ev.get("latitude") if ev.get("latitude") is not None else punch.get("latitude")
@@ -153,7 +164,7 @@ def _note_text(ev: dict) -> str:
 async def nearest_gps(db: AsyncSession, cid: str, events: list[dict]) -> dict[str, dict]:
     """Punto GPS mas cercano (+-3 min) de las marcaciones sin coordenadas (flujo viejo del bot)."""
     need = [ev for ev in events if ev["kind"] in PUNCHES and (ev.get("latitude") is None or ev.get("longitude") is None)
-            and not (_json(ev.get("payload_json")).get("punch_location"))]
+            and not (_json(ev.get("payload_json")).get("punch_location")) and not _adjusted(ev)]
     nearest: dict[str, dict] = {}
     if need:
         rows = (await db.execute(text("""
@@ -203,6 +214,7 @@ async def load(db: AsyncSession, company_id: Any, lo: datetime, hi: datetime, em
         FROM workforce_attendance_events ev
         WHERE ev.company_id = CAST(:c AS uuid) {ev_filter}
           AND ev.employee_id IS NOT NULL AND ev.event_type <> 'gps_location'
+          AND COALESCE(ev.status_after, '') NOT IN ('{EVENT_REPLACED}', '{EVENT_UNDONE}')
           AND COALESCE(ev.occurred_at, ev.created_at) >= :lo AND COALESCE(ev.occurred_at, ev.created_at) <= :hi
         ORDER BY COALESCE(ev.occurred_at, ev.created_at) ASC, ev.id
     """), {**params, "lo": lo, "hi": hi})).mappings().all()]
@@ -302,7 +314,11 @@ def shift_view(s: dict) -> dict:
     if confirmed:
         notes.append({"kind": "confirmed", "at": _dt(confirmed.get("confirmed_at")) or s["end"], "text": confirmed.get("note") or "",
                       "label": "Salida confirmada en Nómina"})
+    adjusted = _adjusted(s.get("check_in")) or _adjusted(out_ev)
+    if adjusted:
+        notes.append({"kind": "adjusted", "at": s["end"], "text": _json((out_ev or s.get("check_in") or {}).get("payload_json")).get("note") or "", "label": "Ajustado"})
     return {
+        **({"adjusted": True} if adjusted else {}),
         "employee_id": s["employee_id"], "tz": tz, "abbr": us_time.abbr(tz, s["start"]), "place": s.get("place"), "place_missing": s.get("place_missing"),
         "check_in": _punch_view(s.get("check_in"), s["gps"].get((s.get("check_in") or {}).get("id")), tz, s["split"]["start"]),
         "check_out": _punch_view(out_ev or None, s["gps"].get(out_ev.get("id")) if out_ev else None, tz, s["split"]["end"]),

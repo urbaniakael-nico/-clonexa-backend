@@ -152,7 +152,7 @@ test('CSS sin colores fijos; client.js solo entra con el interruptor y Reportes 
   assert.doesNotMatch(CSS.replace(/\/\*[\s\S]*?\*\//g, ''), /#[0-9a-fA-F]{3,8}\b|rgb\(/);
   assert.match(CLIENT, /settings\.reports_board === true/);
   assert.match(CLIENT, /async function cxReportsV2Try053C\(\) \{\n    if \(await cxReportsBoardTry064A\(\)\) return true;/);
-  assert.match(CLIENT, /reports_board\.js\?v=064A/);
+  assert.match(CLIENT, /reports_board\.js\?v=066A/);
 });
 
 // ---------------------------------------------------------------- Administrar lugares
@@ -226,4 +226,9 @@ test('Administrar lugares sin reports_board: sin perímetros', async () => {
   listeners.click({ target: target({ 'data-wf2-places': '' }) });
   assert.doesNotMatch(host.innerHTML, /data-wf2-geo=|Perímetros y supervisores/);
   assert.ok(calls.every((c) => !c.path.includes('reports-board')));
+});
+
+test('066A: turno del ajuste masivo: chip Ajustado y "Ajuste manual" en vez del perímetro', () => {
+  assert.match(SRC, /adjusted: "Ajuste manual"/);
+  assert.match(SRC, /s\.adjusted \? `<span class="rb-flag is-adjusted">\$\{h\(T\("Ajustado"\)\)\}<\/span>` : ""/);
 });

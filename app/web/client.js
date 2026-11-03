@@ -43273,11 +43273,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReportsBoardCss064A";
           link.rel = "stylesheet";
-          link.href = "/client-static/reports_board.css?v=064A";
+          link.href = "/client-static/reports_board.css?v=066A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/reports_board.js?v=064A";
+        script.src = "/client-static/reports_board.js?v=066A";
         script.onload = () => resolve();
         script.onerror = () => { cxReportsBoardLoading064A = null; reject(new Error("reports_board")); };
         document.head.appendChild(script);

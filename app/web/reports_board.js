@@ -23,7 +23,7 @@
   const SORTS = [["az", "A-Z"], ["hours", "Horas en turno"], ["last", "Última marca"]];
   const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
-  const GEO = { inside: "En perímetro", outside: "Fuera de perímetro", unconfigured: "Sin perímetro", none: "Sin ubicación" };
+  const GEO = { inside: "En perímetro", outside: "Fuera de perímetro", unconfigured: "Sin perímetro", none: "Sin ubicación", adjusted: "Ajuste manual" };
 
   const model = {
     preset: "week", anchor: "", from: "", to: "", weekStart: "sunday", data: null, loading: false, error: "", denied: false, busy: "",
@@ -418,6 +418,7 @@
     return `<div class="rb-shift ${s.state === "ok" ? "" : `is-${h(s.state)}`}">
       ${s.state === "held" ? `<span class="rb-flag is-confirm">${h(T("Por confirmar: no suma horas todavía"))}</span>` : ""}
       ${s.state === "running" ? `<span class="rb-flag is-running">${h(T("Turno en curso: no suma horas todavía"))}</span>` : ""}
+      ${s.adjusted ? `<span class="rb-flag is-adjusted">${h(T("Ajustado"))}</span>` : ""}
       <ul class="rb-marks">
         <li>${markLine(s.in, d.date)}</li>
         ${arr(s.pauses).map((p) => `<li class="is-pause">${markLine(p.start, d.date)}${p.end ? ` <span class="rb-to" aria-hidden="true">→</span> ${markLine(p.end, d.date)}` : ""} <span class="rb-dur">${h(p.minutes)} min${p.auto && s.state === "running" ? ` · ${h(T("en pausa ahora"))}` : ""}</span></li>`).join("")}
