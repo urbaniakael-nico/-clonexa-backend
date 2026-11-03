@@ -223,6 +223,9 @@
 .pvu-root .pvu-op-1 { --pvu-ink: var(--pvu-a1-ink); --pvu-bg: var(--pvu-a1-bg); --pvu-fg: var(--pvu-a1-fg); }
 .pvu-root .pvu-op-2 { --pvu-ink: var(--pvu-a2-ink); --pvu-bg: var(--pvu-a2-bg); --pvu-fg: var(--pvu-a2-fg); }
 .pvu-root .pvu-op-x { --pvu-ink: var(--pv-on-surface, var(--cx-text)); --pvu-bg: var(--pv-accent-bg, var(--cx-primary)); --pvu-fg: var(--pv-accent-fg, var(--cx-text)); }
+/* La columna principal nunca crece por su contenido: nada empuja la pagina mas alla de la pantalla. */
+.pvu-root { grid-template-columns: minmax(0, 1fr); }
+.pvu-root > *, .pvu-panel, .pvu-table-wrap, .pvu-table, .pvu-table tbody, .pvu-table tr, .pvu-detail-row > td { min-width: 0; }
 .pvu-root { --pvu-muted: color-mix(in srgb, var(--pv-on-surface, var(--cx-text)) 80%, var(--pv-surface, var(--cx-bg))); }
 
 .pvu-root .pvu-bar { align-items: flex-start; }
