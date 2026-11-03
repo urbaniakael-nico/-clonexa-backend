@@ -317,6 +317,8 @@
 /* Celular: cada fila de la tabla es una tarjeta compacta. */
 @media (max-width: 700px) {
   .pvu-controls { justify-content: flex-start; }
+  .pvu-seg { display: flex; width: 100%; }
+  .pvu-seg .pv-filter { flex: 1 1 0; min-width: 0; padding: 0 6px; }
   .pvu-sums { grid-template-columns: 1fr; }
   .pvu-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pvu-table-wrap { overflow: visible; }
