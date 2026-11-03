@@ -1,0 +1,42 @@
+/* Nómina y tiempos EE. UU. (interruptor us_payroll). Sin colores propios: todo sale del
+   tema de la empresa (--cx-text, --cx-bg, --cx-primary, --cx-secondary). */
+.usp-shift {
+  --usp-line: color-mix(in srgb, var(--cx-text) 18%, transparent);
+  --usp-soft: color-mix(in srgb, var(--cx-text) 80%, transparent);
+  --usp-plate: color-mix(in srgb, var(--cx-bg) 92%, var(--cx-text) 8%);
+  display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--usp-line); border-radius: 12px; background: var(--usp-plate);
+  color: var(--cx-text); min-width: 0;
+}
+.usp-head { font-size: 14px; overflow-wrap: anywhere; }
+.usp-warn { display: inline-block; margin-left: 6px; font-weight: 700; }
+.usp-line { list-style: none; margin: 0; padding: 0 0 0 14px; display: grid; gap: 6px; border-left: 3px solid var(--usp-line); }
+.usp-step { position: relative; font-size: 14px; overflow-wrap: anywhere; }
+.usp-step::before { content: ""; position: absolute; left: -21px; top: 6px; width: 11px; height: 11px; border-radius: 50%; background: var(--cx-primary); }
+.usp-step.is-pause::before { background: var(--cx-secondary, var(--cx-primary)); opacity: .7; }
+.usp-time { font-variant-numeric: tabular-nums; font-weight: 700; }
+.usp-dur { margin-left: 4px; color: var(--usp-soft); }
+.usp-loc { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--usp-line); font-size: 12px; }
+.usp-loc.is-out { font-weight: 700; border-width: 2px; }
+.usp-map { font-size: 12px; color: inherit; text-decoration: underline; }
+.usp-manual { margin-top: 2px; font-size: 13px; font-weight: 700; }
+.usp-totals, .usp-break { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 12px; margin: 0; }
+.usp-totals div, .usp-break div { min-width: 0; }
+.usp-totals dt, .usp-break dt { font-size: 12px; color: var(--usp-soft, inherit); }
+.usp-totals dd, .usp-break dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.usp-totals .is-main dd, .usp-break .is-main dd { font-size: 16px; }
+.usp-notes ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.usp-notes p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.usp-week { width: 100%; border-collapse: collapse; font-size: 13px; color: var(--cx-text); }
+.usp-week th, .usp-week td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--cx-text) 18%, transparent); text-align: left; vertical-align: top; }
+.usp-day { display: inline-block; margin: 0 8px 2px 0; white-space: nowrap; }
+.usp-ot { text-decoration: underline; }
+.usp-alert { padding: 10px 12px; border-radius: 10px; border: 2px solid color-mix(in srgb, var(--cx-text) 40%, transparent);
+  background: color-mix(in srgb, var(--cx-bg) 90%, var(--cx-text) 10%); color: var(--cx-text); overflow-wrap: anywhere; }
+.usp-rules { font-size: 12px; color: color-mix(in srgb, var(--cx-text) 80%, transparent); margin: 0; }
+.usp-shifts { display: grid; gap: 10px; }
+.usp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 520px) {
+  .usp-week thead { display: none; }
+  .usp-week tr { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--cx-text) 18%, transparent); }
+  .usp-week th, .usp-week td { border: 0; padding: 2px 0; }
+}

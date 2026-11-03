@@ -27,6 +27,32 @@
   let ctx = null;
   let bound = false;
 
+  // ------------------------------------------------------------ 061A: reglas EE. UU. (us_payroll)
+  // Solo cuando el servidor manda insights_v2.us (interruptor us_payroll): horas pagables,
+  // pausas sin pago, semana laboral y la linea de tiempo de cada turno (us_payroll.js).
+  let usLoading = false;
+  function usLib() {
+    if (typeof window !== "undefined" && window.CxUsPayroll) return window.CxUsPayroll;
+    if (!usLoading && typeof document !== "undefined" && document.createElement && document.head) {
+      usLoading = true;
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/client-static/us_payroll.css?v=061A";
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.src = "/client-static/us_payroll.js?v=061A";
+      script.onload = () => draw();
+      script.onerror = () => { usLoading = false; };
+      document.head.appendChild(script);
+    }
+    return null;
+  }
+  const PENDING = "Pendiente";
+  function netText(f, us) {
+    if (us && us.rate_pending && !num(f.net)) return T(PENDING);
+    return money(f.net) + (us && us.rate_pending ? ` · ${T("{n} sin tarifa", { n: arr(us.missing_rate).length })}` : "");
+  }
+
   // ------------------------------------------------------------ formatos
   function hm(minutes) {
     const m = Math.max(0, Math.round(num(minutes)));
@@ -145,16 +171,33 @@
         <button type="button" class="client-btn rr-btn is-primary" data-rr-pdf="download" ${model.busy ? "disabled" : ""}>${h(T("Descargar PDF"))}</button></div></section>`;
   }
 
-  function figures(f) {
+  function figures(f, us) {
     const tiles = [
       ["En turno ahora", `${num(f.in_shift)}`, T("de {n} activos", { n: num(f.active) })],
-      ["Horas trabajadas", hm(num(f.regular_minutes) + num(f.extra_minutes)), T("{ord} ordinarias + {ext} extra", { ord: hm(f.regular_minutes), ext: hm(f.extra_minutes) })],
-      ["Nómina del periodo", money(f.net), T("neto")],
+      us ? ["Horas pagables", hm(us.payable_minutes), T("{reg} regulares + {ot} overtime", { reg: hm(us.regular_minutes), ot: hm(us.overtime_minutes) })]
+        : ["Horas trabajadas", hm(num(f.regular_minutes) + num(f.extra_minutes)), T("{ord} ordinarias + {ext} extra", { ord: hm(f.regular_minutes), ext: hm(f.extra_minutes) })],
+      ["Nómina del periodo", us ? netText(f, us) : money(f.net), us ? T("neto · pausas sin pago {p}", { p: hm(us.pause_minutes) }) : T("neto")],
       ["Fuera de perímetro", `${num(f.gps_outside)}`, T("marcaciones")],
       ["Material pendiente", `${num(f.materials_pending)}`, T("órdenes sin entregar o sin devolver")],
       ["Stock bajo", `${num(f.low_stock)}`, T("{n} en cero", { n: num(f.zero_stock) })],
     ];
     return `<div class="rr-figs">${tiles.map(([l, v, s]) => `<div class="rr-fig"><small>${h(T(l))}</small><b>${h(v)}</b><span>${h(s)}</span></div>`).join("")}</div>`;
+  }
+
+  // 061A: barra = tiempo pagable; las pausas (sin pago) en otro color.
+  function hoursChartUs(days) {
+    const list = arr(days);
+    const max = Math.max(1, ...list.map((d) => num(d.payable) + num(d.pause)));
+    if (!list.some((d) => num(d.payable))) return `<p class="client-muted rr-muted">${h(T("Sin horas en el periodo."))}</p>`;
+    return `<div class="rr-legend"><i class="is-reg"></i>${h(T("Pagable"))}<i class="is-ext"></i>${h(T("Pausas (sin pago)"))}</div><ul class="rr-hours">${list.map((d) => `<li><span class="rr-hday">${h(when(d.date, false))}</span><span class="rr-hbar" role="img" aria-label="${h(`${T("Pagable")} ${hm(d.payable)} · ${T("Pausas")} ${hm(d.pause)}`)}"><i class="is-reg" style="--w:${(num(d.payable) / max) * 100}%"></i><i class="is-ext" style="--w:${(num(d.pause) / max) * 100}%"></i></span><b>${h(num(d.payable) ? hm(d.payable) : "—")}</b></li>`).join("")}</ul>`;
+  }
+
+  function weeksUs(list) {
+    const U = usLib();
+    const rows = arr(list).filter((p) => arr(p.weeks).length);
+    if (!rows.length) return `<p class="client-muted rr-muted">${h(T("Sin horas en el periodo."))}</p>`;
+    if (!U) return `<p class="client-muted rr-muted">${h(T("Cargando…"))}</p>`;
+    return rows.map((p) => `<div class="rr-week"><b>${h(p.name)}</b> <small>${h(p.place || T("Sin lugar asignado"))}</small>${U.weekTable(p.weeks)}</div>`).join("");
   }
 
   function hoursChart(days) {
@@ -189,6 +232,15 @@
       ${arr(list).map((i) => `<div class="rr-row" role="row"><span>${h(i.material)}</span><span>${h(i.stock)}</span><span>${h(i.min)}</span><span><i class="rr-tag ${i.label === "zero" ? "is-zero" : "is-low"}">${h(T(i.label === "zero" ? "Cero" : "Bajo"))}</i></span></div>`).join("")}</div>`;
   }
 
+  function peopleUs(list) {
+    if (!arr(list).length) return `<p class="client-muted rr-muted">${h(T("Sin colaboradores."))}</p>`;
+    return `<div class="rr-people">${arr(list).map((p) => `<button type="button" class="rr-person-card" data-rr-person-open="${h(p.employee_id)}" aria-haspopup="dialog">
+      <span class="rr-pc-head"><b>${h(p.name)}</b><i class="rr-tag is-${h(p.state)}">${h(T(STATE[p.state] || p.state))}</i></span><small>${h(p.place || T("Sin lugar asignado"))} · ${h(p.role || "")}</small>
+      <span class="rr-pc-nums"><span>${h(T("Horas pagables"))} <b>${h(hm(p.payable))}</b></span><span>${h(T("Overtime"))} <b>${h(hm(p.extra))}</b></span>
+        <span>${h(T("Pausas (sin pago)"))} <b>${h(hm(p.pause))}</b></span><span>${h(T("Fuera de perímetro"))} <b>${h(p.gps_outside)}</b></span>
+        <span>${h(T("Neto"))} <b>${h(p.rate_pending ? T(PENDING) : money(p.net))}</b></span></span></button>`).join("")}</div>`;
+  }
+
   function people(list) {
     if (!arr(list).length) return `<p class="client-muted rr-muted">${h(T("Sin colaboradores."))}</p>`;
     return `<div class="rr-people">${arr(list).map((p) => `<button type="button" class="rr-person-card" data-rr-person-open="${h(p.employee_id)}" aria-haspopup="dialog">
@@ -212,7 +264,13 @@
       const p = arr(ins.people).find((x) => x.employee_id === model.modal.id);
       if (!p) return "";
       title = p.name;
-      body = p.shifts.length ? `<div class="rr-table rr-shifts" role="table"><div class="rr-row is-head" role="row"><span>${h(T("Entrada"))}</span><span>${h(T("Salida"))}</span><span>${h(T("Ordinarias"))}</span><span>${h(T("Extra"))}</span><span>${h(T("Bruto"))}</span></div>
+      const U = ins.us ? usLib() : null;
+      if (ins.us) {
+        // 061A: linea de tiempo de cada turno con las mismas cifras de la tarjeta y la Nomina.
+        body = !p.shifts.length ? `<p class="client-muted rr-muted">${h(T("Sin turnos en el periodo."))}</p>`
+          : !U ? `<p class="client-muted rr-muted">${h(T("Cargando…"))}</p>`
+          : `${U.weekTable(p.weeks)}<div class="usp-shifts">${p.shifts.map((s) => U.timeline(s.timeline)).join("")}</div>`;
+      } else body = p.shifts.length ? `<div class="rr-table rr-shifts" role="table"><div class="rr-row is-head" role="row"><span>${h(T("Entrada"))}</span><span>${h(T("Salida"))}</span><span>${h(T("Ordinarias"))}</span><span>${h(T("Extra"))}</span><span>${h(T("Bruto"))}</span></div>
         ${p.shifts.map((s) => `<div class="rr-row" role="row"><span>${h(when(s.start))}</span><span>${h(when(s.end))}</span><span>${h(hm(s.regular))}</span><span>${h(hm(s.extra))}</span><span>${h(money(s.gross))}</span></div>`).join("")}</div>`
         : `<p class="client-muted rr-muted">${h(T("Sin turnos en el periodo."))}</p>`;
     }
@@ -224,16 +282,18 @@
     if (model.denied) return `<div class="rr-root" data-rr-root>${head()}<section class="client-panel rr-denied"><p>${h(T("Reportes es solo del dueño y del director"))}</p></section></div>`;
     const ins = (model.data && model.data.insights_v2) || null;
     const body = !ins ? `<section class="client-panel"><p class="client-muted rr-muted">${h(model.loading ? T("Cargando…") : T("Sin datos."))}</p></section>` : `
-      ${figures(ins.figures || {})}
+      ${figures(ins.figures || {}, ins.us)}
+      ${ins.us && arr(ins.us.missing_rate).length ? `<div class="rr-notice" role="status"><b>${h(T("{n} empleados sin tarifa", { n: arr(ins.us.missing_rate).length }))}</b>: ${h(arr(ins.us.missing_rate).join(", "))}</div>` : ""}
       <div class="rr-grid">
-        <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Horas por día"))}</h2>${hoursChart(ins.hours_by_day)}</section>
+        <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Horas por día"))}</h2>${ins.us ? hoursChartUs(ins.hours_by_day) : hoursChart(ins.hours_by_day)}</section>
         <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Alertas"))}<b>${arr(ins.alerts).length}</b></h2>${alerts(ins.alerts)}</section>
       </div>
       <div class="rr-grid">
         <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Materiales"))}</h2>${materials(ins.materials)}</section>
         <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Inventario bajo mínimo"))}</h2>${inventory(ins.inventory_low)}</section>
       </div>
-      <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Personal"))}</h2>${people(ins.people)}</section>`;
+      ${ins.us ? `<section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Semana laboral por persona"))}</h2>${weeksUs(ins.people)}</section>` : ""}
+      <section class="client-panel"><h2 class="client-eyebrow rr-h">${h(T("Personal"))}</h2>${ins.us ? peopleUs(ins.people) : people(ins.people)}</section>`;
     return `<div class="rr-root" data-rr-root>${head()}${bar()}
       ${model.error ? `<div class="rr-notice" role="alert">${h(model.error)}</div>` : ""}${model.loading && ins ? `<p class="client-muted rr-muted" role="status">${h(T("Cargando…"))}</p>` : ""}
       ${body}${ins ? modalView(ins) : ""}</div>`;
@@ -278,5 +338,5 @@
     await load();
   }
 
-  window.CxReportsV2 = { mount, model, view, range, hm, money, alertText, query };
+  window.CxReportsV2 = { mount, model, view, range, hm, money, alertText, query, netText };
 })();

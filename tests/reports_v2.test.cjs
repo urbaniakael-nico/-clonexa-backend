@@ -73,7 +73,7 @@ test('PDF: ver e imprimir inline, descargar attachment, con la sesión y los fil
 test('client.js: solo el enganche; con el interruptor apagado se pinta la pantalla de siempre', () => {
   assert.match(CLIENT, /async function renderReports\(filters = null, activeTab = "employee_summary"\) \{\n    if \(!filters && await cxReportsV2Try053C\(\)\) return;\n    reportStyles\(\);/);
   assert.match(CLIENT, /row\.settings\.reports_v2 === true/);
-  assert.match(CLIENT, /reports_v2\.js\?v=053C/); assert.match(CLIENT, /reports_v2\.css\?v=053C/);
+  assert.match(CLIENT, /reports_v2\.js\?v=061A/); assert.match(CLIENT, /reports_v2\.css\?v=061A/);
   // La pantalla de siempre solo cambió el logo en texto por el logo nuevo de Clonexa (2026-10).
   assert.match(CLIENT, /<div class="client-logo"><img src="\/assets\/brand\/clonexa-logo-horizontal\.svg\?v=cx26a" alt="CLONEXA"/, 'la pantalla de siempre no cambia (salvo el logo nuevo)');
   const css = readFileSync('app/web/reports_v2.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');

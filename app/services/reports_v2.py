@@ -119,8 +119,10 @@ def _monday(day: date) -> date:
 
 
 # ----------------------------------------------------------------- agrupacion
-def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime, codes: Optional[dict] = None) -> dict:
-    """Todo lo de la pantalla y el PDF de Reportes v2, desde el payload de siempre. Funcion pura."""
+def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime, codes: Optional[dict] = None, us: bool = False) -> dict:
+    """Todo lo de la pantalla y el PDF de Reportes v2, desde el payload de siempre. Funcion pura.
+    us=True (interruptor us_payroll): las horas salen del calculo FLSA que ya trae la
+    nomina (pagable, pausas sin pago, regular hasta 40 h y overtime por semana laboral)."""
     codes = codes or {}
     summary = payload.get("summary") or {}
     details = payload.get("details") or {}
@@ -153,7 +155,17 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
     end_day = _local_day(period.get("end") or (payload.get("filters") or {}).get("end"), tz)
     per_day: dict[date, dict] = {}
     weeks: dict[tuple, int] = {}
-    for row in payroll_rows:
+    for row in payroll_rows if us else []:
+        eid = str(row.get("employee_id"))
+        for sh in row.get("shifts") or []:
+            for dd in ((sh.get("us") or {}).get("days") or []):
+                day = date.fromisoformat(dd["date"])
+                d = per_day.setdefault(day, {"regular": 0, "extra": 0, "payable": 0, "pause": 0})
+                d["regular"] += _int(dd.get("regular"))
+                d["extra"] += _int(dd.get("overtime"))
+                d["payable"] += _int(dd.get("payable"))
+                d["pause"] += _int(dd.get("pause"))
+    for row in payroll_rows if not us else []:
         eid = str(row.get("employee_id"))
         for sh in row.get("shifts") or []:
             day = _local_day(sh.get("start"), tz)
@@ -168,7 +180,7 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
     if start_day and end_day and (end_day - start_day).days <= 62:
         cursor = start_day
         while cursor <= end_day:
-            d = per_day.get(cursor, {"regular": 0, "extra": 0})
+            d = per_day.get(cursor, {"regular": 0, "extra": 0, **({"payable": 0, "pause": 0} if us else {})})
             days.append({"date": cursor.isoformat(), **d})
             cursor += timedelta(days=1)
     else:
@@ -182,6 +194,9 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
         if st in ("outside", "fuera", "out"):
             alerts.append({"kind": "gps_outside", "level": "warning", "employee": g.get("employee_name") or name_of.get(str(g.get("employee_id")), ""),
                            "at": g.get("occurred_at") or g.get("created_at"), "detail": g.get("event_label") or ""})
+    if us:  # semanas laborales del calculo FLSA (no lunes a domingo)
+        weeks = {(str(r.get("employee_id")), date.fromisoformat(w["week_start"])): _int(w.get("payable"))
+                 for r in payroll_rows for w in ((r.get("us") or {}).get("weeks") or [])}
     for (eid, monday), minutes in sorted(weeks.items(), key=lambda kv: (kv[0][1], name_of.get(kv[0][0], ""))):
         if minutes > weekly_limit:
             alerts.append({"kind": "weekly_hours", "level": "warning", "employee": name_of.get(eid) or (by_emp_payroll.get(eid) or {}).get("employee_name") or "",
@@ -235,8 +250,16 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
         code = codes.get(eid, "")
         shifts = [{"start": sh.get("start"), "end": sh.get("end"), "regular": _int(sh.get("regular_minutes")), "extra": _int(sh.get("extra_minutes")),
                    "pause": _int(sh.get("pause_minutes")), "gross": _num(sh.get("gross_amount"))} for sh in pr.get("shifts") or []]
+        if us:
+            u = pr.get("us") or {}
+            shifts = [{"start": sh.get("start"), "end": sh.get("end"), "regular": _int(sh.get("regular_minutes")), "extra": _int(sh.get("extra_minutes")),
+                       "pause": _int(sh.get("pause_minutes")), "payable": _int(sh.get("worked_minutes")), "gross": None if sh.get("rate_pending") else _num(sh.get("gross_amount")),
+                       "timeline": sh.get("us")} for sh in pr.get("shifts") or []]
         people.append({
             "employee_id": eid, "name": e.get("full_name") or "", "role": e.get("role") or "", "role_code": code,
+            **({"payable": _int((pr.get("us") or {}).get("payable_minutes")), "pause": _int((pr.get("us") or {}).get("pause_minutes")),
+                "rate_pending": bool(pr.get("rate_pending")) if pr else False, "place": (pr.get("us") or {}).get("place") or e.get("work_location_name"),
+                "weeks": (pr.get("us") or {}).get("weeks") or [], "days_worked": _int((pr.get("us") or {}).get("days_worked"))} if us else {}),
             "state": shift_state.get(eid, "off"), "regular": _int(pr.get("regular_minutes")), "extra": _int(pr.get("extra_minutes")),
             "gps_outside": _int(sm.get("gps_fuera")), "orders_requested": _int(sm.get("materiales")) if code == "supervisor" else None,
             "deliveries": _int(sm.get("material_entregado")) if code in ("inventario", "logistica") else None,
@@ -247,7 +270,18 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
     inv = summary.get("inventory") or {}
     pay = summary.get("payroll") or {}
     emp = summary.get("employees") or {}
+    us_block = None
+    if us:
+        rows_ = [r for r in payroll_rows if r.get("us")]
+        pending = [r.get("employee_name") or "" for r in rows_ if r.get("rate_pending")]
+        pay = {"regular_minutes": sum(_int(r.get("regular_minutes")) for r in rows_), "extra_minutes": sum(_int(r.get("extra_minutes")) for r in rows_),
+               "net_amount": sum(_num(r.get("net_amount")) for r in rows_)}
+        us_block = {"payable_minutes": sum(_int(r["us"].get("payable_minutes")) for r in rows_),
+                    "pause_minutes": sum(_int(r["us"].get("pause_minutes")) for r in rows_),
+                    "regular_minutes": pay["regular_minutes"], "overtime_minutes": pay["extra_minutes"],
+                    "rate_pending": bool(pending), "missing_rate": pending}
     return {
+        **({"us": us_block} if us_block else {}),
         "figures": {
             "in_shift": in_shift, "active": _int(emp.get("active")) or len(employees),
             "regular_minutes": _int(pay.get("regular_minutes")), "extra_minutes": _int(pay.get("extra_minutes")),
@@ -260,10 +294,11 @@ def build_insights(payload: dict, tz: ZoneInfo, weekly_limit: int, now: datetime
 
 
 async def insights_for(db: AsyncSession, company_id: Any, payload: dict, now: Optional[datetime] = None) -> dict:
-    from app.services import company_locale
+    from app.services import company_locale, us_payroll
 
-    return build_insights(payload, company_locale.current_zone(), await weekly_limit_minutes(db, company_id),
-                          now or datetime.now(timezone.utc), await role_codes(db, company_id))
+    us = await us_payroll.is_on(db, company_id)
+    limit = (await us_payroll.rules(db, company_id))["overtime_after_minutes"] if us else await weekly_limit_minutes(db, company_id)
+    return build_insights(payload, company_locale.current_zone(), limit, now or datetime.now(timezone.utc), await role_codes(db, company_id), us=us)
 
 
 # ----------------------------------------------------------------- PDF (carta, para imprimir)
@@ -461,10 +496,11 @@ def build_pdf(payload: dict, ins: dict, tz: ZoneInfo, logo_reader=None) -> bytes
     y -= 58
 
     section("Cifras del periodo")
+    us = ins.get("us")
     tiles = [
         ("En turno ahora", f"{fig['in_shift']} / {fig['active']}"),
-        ("Horas trabajadas", hm(fig["regular_minutes"] + fig["extra_minutes"])),
-        ("Nómina del periodo (neto)", money(fig["net"])),
+        ("Horas pagables" if us else "Horas trabajadas", hm(us["payable_minutes"]) if us else hm(fig["regular_minutes"] + fig["extra_minutes"])),
+        ("Nómina del periodo (neto)", ("Pendiente" if us and us["rate_pending"] else money(fig["net"]))),
         ("Fuera de perímetro", str(fig["gps_outside"])),
         ("Material pendiente", str(fig["materials_pending"])),
         ("Stock bajo", f"{fig['low_stock']} · {fig['zero_stock']} {tr('en cero')}"),
@@ -483,9 +519,16 @@ def build_pdf(payload: dict, ins: dict, tz: ZoneInfo, logo_reader=None) -> bytes
         c.drawString(x0 + 8, y0 - 24, fit(value, 13, tile_w - 16, "Helvetica-Bold"))
     y -= 98
 
+    if us:
+        note(fit(f"Regulares {hm(us['regular_minutes'])} · Overtime {hm(us['overtime_minutes'])} · Pausas sin pago {hm(us['pause_minutes'])}"
+                 + (f" · {len(us['missing_rate'])} sin tarifa" if us["missing_rate"] else ""), 9, width - 2 * margin))
     section("Horas por día")
     worked = [d for d in ins["hours_by_day"] if d["regular"] or d["extra"]]
-    if worked:
+    if us and worked:
+        table(["Fecha", "Pagables", "Pausas (sin pago)", "Regulares", "Overtime"],
+              [[fmt_day(d["date"], tz), hm(d.get("payable")), hm(d.get("pause")), hm(d["regular"]), hm(d["extra"])] for d in worked],
+              [0.32, 0.17, 0.17, 0.17, 0.17], ["l", "r", "r", "r", "r"])
+    elif worked:
         table(["Fecha", "Ordinarias", "Extra", "Total"],
               [[fmt_day(d["date"], tz), hm(d["regular"]), hm(d["extra"]), hm(d["regular"] + d["extra"])] for d in worked],
               [0.4, 0.2, 0.2, 0.2], ["l", "r", "r", "r"])
@@ -526,6 +569,54 @@ def build_pdf(payload: dict, ins: dict, tz: ZoneInfo, logo_reader=None) -> bytes
     else:
         note("Sin materiales bajo el mínimo.")
 
+    if us:
+        # 061A (us_payroll): personal con horas pagables, la semana laboral de cada persona y el
+        # detalle de cada turno (entrada, pausas, salida, notas). Mismas cifras que la pantalla.
+        from app.services import us_payroll_export as ex
+
+        people = ins["people"]
+        section("Personal")
+        table(["Colaborador", "Lugar", "Estado", "Pagables", "Pausas", "Overtime", "Neto"],
+              [[p["name"], p.get("place") or "Sin lugar asignado", STATUS_LABEL.get(p["state"], p["state"]), hm(p.get("payable")), hm(p.get("pause")),
+                hm(p["extra"]), "Pendiente" if p.get("rate_pending") else money(p["net"])] for p in people],
+              [0.24, 0.12, 0.13, 0.12, 0.12, 0.12, 0.15], ["l", "l", "l", "r", "r", "r", "r"])
+        section("Semana laboral por persona")
+        week_rows = [[p["name"], f"{w['week_start']} a {w['week_end']}",
+                      " · ".join(f"{ex.day_label(d['date'])} {ex.hm(d['payable'])}" for d in w["days"]), hm(w["payable"]), hm(w["regular"]), hm(w["overtime"])]
+                     for p in people for w in p.get("weeks") or []]
+        if week_rows:
+            table(["Colaborador", "Semana", "Días", "Total", "Regulares", "Overtime"], week_rows, [0.2, 0.15, 0.35, 0.1, 0.1, 0.1], ["l", "l", "l", "r", "r", "r"])
+        else:
+            note("Sin horas en el periodo.")
+        section("Detalle de cada turno")
+        any_shift = False
+        for p in people:
+            for sh in p.get("shifts") or []:
+                t = sh.get("timeline") or {}
+                if not t:
+                    continue
+                any_shift = True
+                lines = [f"{p['name']} · {ex.day_label((t.get('check_in') or {}).get('date') or str(sh['start'])[:10])} · {t.get('place') or 'Sin lugar asignado'}",
+                         f"Entrada {ex.punch(t.get('check_in'))} ({ex.where(t.get('check_in'))}) · Salida {ex.punch(t.get('check_out'))} ({ex.where(t.get('check_out'))}) · {ex.closed_by(t)}",
+                         f"Pausas: {ex.pauses_text(t)}",
+                         f"En turno {hm(t.get('connected_minutes'))} · Pausas {hm(t.get('pause_minutes'))} · Pagable {hm(t.get('payable_minutes'))}"
+                         + (f" · Overtime {hm(t.get('overtime_minutes'))}" if t.get("overtime_minutes") else "")]
+                if t.get("manual_close"):
+                    lines.append(f"Cerró {t['manual_close'].get('by') or 'supervisor'}: {t['manual_close'].get('note') or ''}")
+                if ex.notes_text(t):
+                    lines.append(f"Notas: {ex.notes_text(t)}")
+                ensure(12 * len(lines) + 6)
+                for i, text_value in enumerate(lines):
+                    c.setFont("Helvetica-Bold" if i == 0 else "Helvetica", 9 if i == 0 else 8)
+                    c.setFillColorRGB(*(ink if i == 0 else soft))
+                    c.drawString(margin + (0 if i == 0 else 10), y, fit(text_value, 8, width - 2 * margin - 10))
+                    y -= 12
+                y -= 4
+        if not any_shift:
+            note("Sin turnos en el periodo.")
+        c.showPage()
+        c.save()
+        return buf.getvalue()
     section("Personal")
     table(["Colaborador", "Rol", "Estado", "Horas", "Extra", "Fuera de perímetro", "Neto"],
           [[p["name"], p["role"], STATUS_LABEL.get(p["state"], p["state"]), hm(p["regular"] + p["extra"]), hm(p["extra"]), str(p["gps_outside"]), money(p["net"])]

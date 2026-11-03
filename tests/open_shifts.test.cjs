@@ -141,7 +141,7 @@ test('client.js: solo con el interruptor, arriba de CRM Campo por lugar y de Per
   assert.match(CLIENT, /authApi: api,\n    \}\);\n    cxOpenShiftsAttach060C\("cxWorkforceV2Host051B"\);/);
   assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=060D/);
   assert.match(CLIENT, /\/client-static\/open_shifts\.css\?v=060D/);
-  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C_060D"/, 'el navegador pide el client.js nuevo');
+  assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C_060D[^"]*"/, 'el navegador pide el client.js nuevo');
 });
 
 test('CSS sin colores propios (solo el tema)', () => {

@@ -506,8 +506,16 @@ def _company_lang_052D() -> str:
     return company_locale.current_language()
 
 
+def _pay_money_061a(value: Any, pending: bool, lang: str) -> str:
+    """061A (us_payroll): sin tarifa el dinero dice "Pendiente", nunca $0.00."""
+    if pending:
+        return "Pending" if lang == "en" else "Pendiente"
+    return _money_label(value)
+
+
 def _format_payroll_row(row: dict[str, Any], period_start: date, period_end: date) -> str:
     lang = _company_lang_052D()
+    pending_061a = row.get("rate_pending") is True
     regular_minutes = int(row.get("regular_minutes") or row.get("regularMinutes") or 0)
     extra_minutes = int(row.get("extra_minutes") or row.get("extraMinutes") or 0)
     period_label = _txt(lang, "pay_time_today") if period_start == period_end == _today_business() else _txt(lang, "pay_time_period")
@@ -518,9 +526,9 @@ def _format_payroll_row(row: dict[str, Any], period_start: date, period_end: dat
         f"{period_label}: {_minutes_label(regular_minutes + extra_minutes)}",
         _txt(lang, "pay_regular", v=_minutes_label(regular_minutes)),
         _txt(lang, "pay_extra", v=_minutes_label(extra_minutes)),
-        _txt(lang, "pay_gross", v=_money_label(row.get('gross_amount') or row.get('gross'))),
+        _txt(lang, "pay_gross", v=_pay_money_061a(row.get('gross_amount') or row.get('gross'), pending_061a, lang)),
         _txt(lang, "pay_discount", v=_money_label(row.get('discount_amount') or row.get('discount'))),
-        _txt(lang, "pay_net", v=_money_label(row.get('net_amount') or row.get('net'))),
+        _txt(lang, "pay_net", v=_pay_money_061a(row.get('net_amount') or row.get('net'), pending_061a, lang)),
     ])
 
 
@@ -548,9 +556,9 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
         _txt(lang, "pay_shifts", n=int(totals.get('closed_shifts') or totals.get('shifts') or 0)),
         _txt(lang, "pay_regular", v=_minutes_label(totals.get('regular_minutes') or totals.get('regularMinutes'))),
         _txt(lang, "pay_extra", v=_minutes_label(totals.get('extra_minutes') or totals.get('extraMinutes'))),
-        _txt(lang, "pay_gross", v=_money_label(totals.get('gross_amount') or totals.get('gross'))),
+        _txt(lang, "pay_gross", v=_pay_money_061a(totals.get('gross_amount') or totals.get('gross'), totals.get("rate_pending") is True, lang)),
         _txt(lang, "pay_discount", v=_money_label(totals.get('discount_amount') or totals.get('discount'))),
-        _txt(lang, "pay_net", v=_money_label(totals.get('net_amount') or totals.get('net'))),
+        _txt(lang, "pay_net", v=_pay_money_061a(totals.get('net_amount') or totals.get('net'), totals.get("rate_pending") is True, lang)),
     ]
     if detail_rows:
         lines.append("")
@@ -561,7 +569,7 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
             lines.append(_txt(
                 lang, "pay_row", name=row.get('employee_name') or row.get('name') or _txt(lang, 'pay_collaborator'),
                 total=_minutes_label(regular_minutes + extra_minutes), reg=_minutes_label(regular_minutes),
-                ext=_minutes_label(extra_minutes), net=_money_label(row.get('net_amount') or row.get('net')),
+                ext=_minutes_label(extra_minutes), net=_pay_money_061a(row.get('net_amount') or row.get('net'), row.get("rate_pending") is True, lang),
             ))
     return "\n".join(lines)
 
@@ -4674,6 +4682,23 @@ async def _shift_end_summary_message(
     language: str,
 ) -> str:
     base = _txt(language, "shift_ended")
+    # 061A: con us_payroll (hoy solo VOLTAGE) el resumen sale de la misma regla de Nomina
+    # (semana laboral, overtime > 40 h, pausas sin pago, hora del lugar). En un savepoint:
+    # si algo falla, el turno igual queda cerrado y se responde "Turno finalizado".
+    from app.services import us_payroll as cx_us_payroll_061a
+
+    if await cx_us_payroll_061a.is_on(db, employee.company_id):
+        summary_061a = None
+        try:
+            async with db.begin_nested():
+                summary_061a = await cx_us_payroll_061a.bot_summary(
+                    db, employee.company_id, employee.id, ended_at, language,
+                    money_label=_bot_money_059C if GPS_STOP_059C.get() else _format_money,
+                    name=(employee.full_name or "").strip(),
+                )
+        except Exception as exc:  # nunca deja el turno sin cerrar
+            logger.warning("Resumen us_payroll fallo (%s): %s", employee.company_id, type(exc).__name__)
+        return f"{base}\n\n{summary_061a}" if summary_061a else base
     shift_projection = await _shift_end_projection(
         db,
         employee=employee,

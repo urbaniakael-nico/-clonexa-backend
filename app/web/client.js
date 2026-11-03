@@ -8896,11 +8896,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxPayrollV2Css052B";
           link.rel = "stylesheet";
-          link.href = "/client-static/payroll_v2.css?v=056J";
+          link.href = "/client-static/payroll_v2.css?v=061A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=056J";
+        script.src = "/client-static/payroll_v2.js?v=061A";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);
@@ -8933,6 +8933,7 @@ function inventoryCreatePayload() {
     return window.CxPayrollV2.mount({
       companyId: state.companyId, api, period: start, cfg, renderShell,
       loadCfg: (ref) => cxPayLoadCfg049L(ref), shiftDate: cxPayShiftDate049L,
+      apiBase: API, token: () => (typeof cxReportsToken053C === "function" ? cxReportsToken053C() : ""), // 061A: PDF y CSV de us_payroll (descarga con sesion)
       host: () => document.getElementById("cxPayrollV2Host052B"),
     });
   }
@@ -43208,11 +43209,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReportsV2Css053C";
           link.rel = "stylesheet";
-          link.href = "/client-static/reports_v2.css?v=053C";
+          link.href = "/client-static/reports_v2.css?v=061A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/reports_v2.js?v=053C";
+        script.src = "/client-static/reports_v2.js?v=061A";
         script.onload = () => resolve();
         script.onerror = () => { cxReportsV2Loading053C = null; reject(new Error("reports_v2")); };
         document.head.appendChild(script);

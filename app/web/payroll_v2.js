@@ -56,6 +56,51 @@
     return ((words[0] || "?")[0] + (words.length > 1 ? words[words.length - 1][0] : "")).toUpperCase();
   }
 
+  // ------------------------------------------------------------ 061A: reglas EE. UU. (us_payroll)
+  // Solo si el calculo trae snapshot.us_payroll (interruptor us_payroll; hoy VOLTAGE):
+  // horas pagables / regulares / overtime por semana laboral, pausas sin pago, desglose,
+  // linea de tiempo de cada turno, PDF y CSV. Sin tarifa el dinero dice "Pendiente".
+  const usOn = () => !!(model.snapshot && model.snapshot.us_payroll);
+  let usLoading = false;
+  function usLib() {
+    if (typeof window !== "undefined" && window.CxUsPayroll) return window.CxUsPayroll;
+    if (!usLoading && typeof document !== "undefined" && document.createElement && document.head) {
+      usLoading = true;
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/client-static/us_payroll.css?v=061A";
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.src = "/client-static/us_payroll.js?v=061A";
+      script.onload = () => draw();
+      script.onerror = () => { usLoading = false; };
+      document.head.appendChild(script);
+    }
+    return null;
+  }
+  const PENDING = "Pendiente";
+  const cash = (v, pending) => (pending ? PENDING : money(v));
+
+  async function usExport(kind) {
+    const p = model.period || {};
+    if (!ctx.apiBase || typeof ctx.token !== "function") { model.error = "No se pudo descargar el archivo."; draw(); return; }
+    const q = new URLSearchParams({ period_start: p.from || "", period_end: p.to || "" });
+    try {
+      const token = ctx.token();
+      const res = await fetch(`${ctx.apiBase}/us-payroll/companies/${encodeURIComponent(ctx.companyId)}/export.${kind}?${q}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error(res.status === 403 ? "La nómina es solo del dueño y del director." : "No se pudo descargar el archivo.");
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `nomina_${p.from}_${p.to}.${kind}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      model.error = error.message || "No se pudo descargar el archivo.";
+      draw();
+    }
+  }
+
   // ------------------------------------------------------------ reglas puras
   // Una tarjeta por colaborador con tiempo en el periodo o con turnos por confirmar.
   function buildCards(snapshot, activity) {
@@ -65,7 +110,8 @@
       const id = String(r.employee_id || "");
       byId.set(id, { id, name: r.employee_name || "Colaborador", role: r.employee_role || "", document: docs[id] || "",
         regular: num(r.regular_minutes), extra: num(r.extra_minutes), gross: num(r.gross_amount), discount: num(r.discount_amount),
-        net: num(r.net_amount), shifts: arr(r.shifts), closed: num(r.closed_shifts), pending: [] });
+        net: num(r.net_amount), shifts: arr(r.shifts), closed: num(r.closed_shifts), pending: [],
+        ...(r.us ? { us: r.us, ratePending: !!r.rate_pending, payable: num(r.us.payable_minutes), row: r } : {}) });
     });
     arr(snapshot && snapshot.unverified_shifts).forEach((u) => {
       const id = String(u.employee_id || `sin-id:${u.employee_name || ""}`);
@@ -216,6 +262,7 @@
         <button class="pv-btn-primary" type="button" data-pv-calc>Calcular periodo</button>
         <button class="client-btn" type="button" data-pv-refresh>Actualizar</button>
         <button class="client-btn" type="button" data-client-back-dashboard>Volver</button>
+        ${usOn() ? `<button class="client-btn" type="button" data-pv-us-export="pdf">PDF</button><button class="client-btn" type="button" data-pv-us-export="csv">CSV</button>` : ""}
       </div>
       ${cfg && cfg.enabled ? `<div class="pv-cutnav" aria-label="Periodos de corte">
         <button class="client-btn" type="button" data-pv-shift="prev">‹ Periodo anterior</button>
@@ -228,6 +275,16 @@
   function strip() {
     const t = totalsOf(model.snapshot);
     const cell = (label, value, hl) => `<div class="pv-stat${hl ? " is-total" : ""}"><span>${h(label)}</span><strong>${h(value)}</strong></div>`;
+    if (usOn()) {
+      const raw = (model.snapshot && model.snapshot.totals) || {};
+      const missing = arr(model.snapshot.us_payroll.missing_rate).length;
+      const allPending = raw.rate_pending && !t.net;
+      return `<section class="pv-strip" aria-label="Resumen del periodo">
+        ${cell("Colaboradores", String(t.people))}${cell("Horas pagables", hours(raw.payable_minutes))}${cell("Regulares", hours(t.regular))}
+        ${cell("Overtime", hours(t.extra))}${cell("Pausas (sin pago)", hours(raw.pause_minutes))}
+        ${cell("Total a pagar", allPending ? PENDING : `${money(t.net)}${missing ? ` · ${missing} sin tarifa` : ""}`, true)}
+      </section>`;
+    }
     return `<section class="pv-strip" aria-label="Resumen del periodo">
       ${cell("Colaboradores", String(t.people))}${cell("Horas ordinarias", hours(t.regular))}${cell("Horas extra", hours(t.extra))}
       ${cell("Bruto", money(t.gross))}${cell("Descuentos", money(t.discount))}${cell("Total a pagar", money(t.net), true)}
@@ -238,7 +295,13 @@
     const s = model.snapshot || {};
     const out = [];
     const missing = arr(s.missing_rate_employees);
-    if (missing.length) out.push(`<div class="pv-alert" role="status"><strong>Sin valor hora (${missing.length})</strong>: ${missing.map((m) => h(m.employee_name)).join(", ")}. Esas horas quedaron en $0.</div>`);
+    if (usOn()) {
+      const U = usLib();
+      out.push(`<p class="usp-rules">${h(U ? U.rulesLine(s.us_payroll.rules) : "")}</p>`);
+      if (missing.length) out.push(U ? U.missingRate(missing) : `<div class="pv-alert" role="status"><strong>${missing.length} empleados sin tarifa</strong>: ${missing.map((m) => h(m.employee_name)).join(", ")}.</div>`);
+      const noPlace = arr(s.us_payroll.missing_place);
+      if (noPlace.length) out.push(`<div class="pv-alert" role="status"><strong>Sin lugar asignado (${noPlace.length})</strong>: ${noPlace.map((m) => h(m.employee_name)).join(", ")}. Sus horas van en la hora de la empresa.</div>`);
+    } else if (missing.length) out.push(`<div class="pv-alert" role="status"><strong>Sin valor hora (${missing.length})</strong>: ${missing.map((m) => h(m.employee_name)).join(", ")}. Esas horas quedaron en $0.</div>`);
     const pending = arr(s.unverified_shifts);
     if (pending.length) {
       const mins = pending.reduce((a, u) => a + num(u.minutes), 0);
@@ -265,7 +328,7 @@
       <span class="pv-avatar" aria-hidden="true">${h(initials(c.name))}</span>
       <span class="pv-card-main"><span class="pv-name">${h(c.name)}</span><span class="pv-role">${h(c.role || "Sin rol")}</span>
         ${c.pending.length ? `<span class="pv-flag">⚠ Confirmar salida</span>` : ""}</span>
-      <span class="pv-card-nums"><span class="pv-time">${h(hours(c.regular + c.extra))}</span><span class="pv-net">${h(money(c.net))}</span></span>
+      <span class="pv-card-nums"><span class="pv-time">${h(hours(c.us ? c.payable : c.regular + c.extra))}</span><span class="pv-net">${h(c.us ? cash(c.net, c.ratePending) : money(c.net))}</span></span>
       <span class="pv-arrow" aria-hidden="true">${open ? "▴" : "▾"}</span>
     </button>`;
   }
@@ -396,8 +459,21 @@
     </li>`;
   }
 
+  // 061A: desglose de nomina, semana laboral y linea de tiempo de cada turno.
+  function detailUs(c, pendingIndex) {
+    const U = usLib();
+    const shifts = c.shifts.slice().sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+    return `<section class="pv-detail" id="pv-detail-${h(c.id)}" aria-label="Registro de ${h(c.name)}">
+      ${c.pending.length ? `<ul class="pv-shifts">${c.pending.map((u) => pendingRow(u, pendingIndex(u))).join("")}</ul>` : ""}
+      ${!U ? `<p class="pv-sub">Cargando el detalle…</p>` : `${U.breakdown(c.row, money)}${U.weekTable(c.us.weeks)}
+        <div class="usp-shifts">${shifts.map((s) => U.timeline(s.us)).join("")}</div>`}
+      ${!c.shifts.length && !c.pending.length ? `<p class="pv-sub">Sin turnos en el periodo.</p>` : ""}
+    </section>`;
+  }
+
   function detail(c) {
     const pendingIndex = (u) => arr(model.snapshot && model.snapshot.unverified_shifts).indexOf(u);
+    if (c.us) return detailUs(c, pendingIndex);
     return `<section class="pv-detail" id="pv-detail-${h(c.id)}" aria-label="Registro de ${h(c.name)}">
       ${listOn() ? "" : `<div class="pv-detail-head"><span>${c.document ? `Documento ${h(c.document)}` : "Sin documento"}</span>
         <span>${h(c.closed)} ${c.closed === 1 ? "turno" : "turnos"}</span><span>Extras ${h(hours(c.extra))}</span>
@@ -583,6 +659,8 @@
     if (!t || !t.closest || !inside(t)) return;
     if (t.closest("[data-pv-close]") || (t.matches && t.matches("[data-pv-modal]"))) { model.modal = null; draw(); return; }
     if (t.closest("[data-pv-confirm-go]")) { confirmGo(); return; }
+    const usx = t.closest("[data-pv-us-export]");
+    if (usx) { usExport(usx.getAttribute("data-pv-us-export") === "csv" ? "csv" : "pdf"); return; }
     const pend = t.closest("[data-pv-confirm]");
     if (pend) {
       const item = arr(model.snapshot && model.snapshot.unverified_shifts)[Number(pend.getAttribute("data-pv-confirm"))];
@@ -674,5 +752,5 @@
     return true;
   }
 
-  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort };
+  window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort, usOn, cash };
 })();

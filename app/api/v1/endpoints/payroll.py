@@ -1253,6 +1253,16 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
 # CLONEXA_049A_NOMINA_COLOMBIA_END
 
 
+def _cx_slim_061a(value: Any) -> Any:
+    """061A: al guardar un cierre, sin la linea de tiempo de cada turno (se recalcula de
+    las marcaciones); quedan los numeros. Sin us_payroll no hay nada que quitar."""
+    if isinstance(value, dict):
+        return {k: _cx_slim_061a(v) for k, v in value.items() if not (k == "us" and isinstance(v, dict) and "pauses" in v)}
+    if isinstance(value, list):
+        return [_cx_slim_061a(v) for v in value]
+    return value
+
+
 async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
     token = await use_company_tz_052C(db, company_id)
     try:
@@ -1266,6 +1276,12 @@ async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_s
 async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
     # 049L: con dias de corte configurados (hoy VELVET) cada turno va al
     # periodo en el que EMPEZO; sin configuracion, como siempre (por su fin).
+    # 061A: con us_payroll (hoy solo VOLTAGE) los tiempos y la nomina salen de las reglas
+    # de EE. UU. (app.services.us_time, una sola funcion); apagado, el calculo de siempre.
+    from app.services import us_payroll as cx_us_payroll_061a
+
+    if await cx_us_payroll_061a.is_on(db, company_id):
+        return await cx_us_payroll_061a.snapshot(db, company_id, period_start, period_end)
     by_start = await load_period_config_049L(db, company_id) is not None
     co_state = await _cx_co_state_049A(db, company_id)
     if co_state == "colombia":
@@ -1840,7 +1856,7 @@ async def close_period_core_049L(
             "period_end": period_end,
             "currency": currency,
             "totals_json": as_json(totals),
-            "snapshot_json": as_json(snapshot),
+            "snapshot_json": as_json(_cx_slim_061a(snapshot)),
         },
     )
 
@@ -1903,7 +1919,7 @@ async def close_period_core_049L(
                 "gross_amount": str(money(row.get("gross_amount"))),
                 "discount_amount": str(money(row.get("discount_amount"))),
                 "net_amount": str(money(row.get("net_amount"))),
-                "item_json": as_json(row),
+                "item_json": as_json(_cx_slim_061a(row)),
             },
         )
 

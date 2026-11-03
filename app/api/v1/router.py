@@ -25,6 +25,7 @@ for _module_name, _prefix, _tags in [
     ("payroll", "/payroll", ["payroll"]),
     ("payroll_colombia", "/payroll-co", ["payroll_colombia"]),
     ("payroll_v2", "/payroll", ["payroll_v2"]),
+    ("us_payroll", "/us-payroll", ["us_payroll"]),
     ("workforce_sessions", "/workforce-sessions", ["workforce_sessions"]),
     ("employee_roles", "/employee-roles", ["employee_roles"]),
     ("work_locations", "/work-locations", ["work_locations"]),

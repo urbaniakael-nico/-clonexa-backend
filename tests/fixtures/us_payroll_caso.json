@@ -1,0 +1,468 @@
+{
+ "insights_v2": {
+  "alerts": [],
+  "figures": {
+   "active": 1,
+   "extra_minutes": 0,
+   "gps_outside": 0,
+   "in_shift": 0,
+   "low_stock": 0,
+   "materials_pending": 0,
+   "net": 0.0,
+   "regular_minutes": 525,
+   "zero_stock": 0
+  },
+  "hours_by_day": [
+   {
+    "date": "2026-10-31",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   },
+   {
+    "date": "2026-11-01",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   },
+   {
+    "date": "2026-11-02",
+    "extra": 0,
+    "pause": 55,
+    "payable": 525,
+    "regular": 525
+   },
+   {
+    "date": "2026-11-03",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   },
+   {
+    "date": "2026-11-04",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   },
+   {
+    "date": "2026-11-05",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   },
+   {
+    "date": "2026-11-06",
+    "extra": 0,
+    "pause": 0,
+    "payable": 0,
+    "regular": 0
+   }
+  ],
+  "inventory_low": [],
+  "materials": {
+   "consigned": [],
+   "delivered": [],
+   "requested": [],
+   "returned": []
+  },
+  "people": [
+   {
+    "days_worked": 1,
+    "deliveries": null,
+    "employee_id": "emp-caso",
+    "extra": 0,
+    "gps_outside": 0,
+    "name": "Colaboradora Caso 2 Nov",
+    "net": 0.0,
+    "orders_requested": null,
+    "pause": 55,
+    "payable": 525,
+    "place": "Virginia",
+    "rate_pending": true,
+    "regular": 525,
+    "role": "",
+    "role_code": "operario",
+    "shifts": [
+     {
+      "end": "2026-11-02T21:25:00Z",
+      "extra": 0,
+      "gross": null,
+      "pause": 55,
+      "payable": 525,
+      "regular": 525,
+      "start": "2026-11-02T11:45:00Z",
+      "timeline": {
+       "abbr": "ET",
+       "check_in": {
+        "abbr": "ET",
+        "at": "2026-11-02T11:45:00Z",
+        "date": "2026-11-02",
+        "local": "06:45",
+        "location": {
+         "label": "Sin perímetro",
+         "lat": 38.9,
+         "lng": -77.0,
+         "map": "https://www.google.com/maps?q=38.900000,-77.000000",
+         "perimeter": null,
+         "status": "unconfigured"
+        }
+       },
+       "check_out": {
+        "abbr": "ET",
+        "at": "2026-11-02T21:25:00Z",
+        "date": "2026-11-02",
+        "local": "16:25",
+        "location": {
+         "label": "Sin perímetro",
+         "lat": 38.901,
+         "lng": -77.001,
+         "map": "https://www.google.com/maps?q=38.901000,-77.001000",
+         "perimeter": null,
+         "status": "unconfigured"
+        }
+       },
+       "confirmed": false,
+       "connected_minutes": 580,
+       "days": [
+        {
+         "date": "2026-11-02",
+         "overtime": 0,
+         "pause": 55,
+         "payable": 525,
+         "regular": 525,
+         "week_start": "2026-11-01"
+        }
+       ],
+       "employee_id": "emp-caso",
+       "manual_close": null,
+       "notes": [
+        {
+         "at": "2026-11-02T21:25:20.056547Z",
+         "kind": "summary",
+         "label": "Resumen de la jornada",
+         "local": "16:25",
+         "text": "Etiquetado rack A \nCables:\n1-1\n1-2"
+        }
+       ],
+       "overtime_minutes": 0,
+       "pause_minutes": 55,
+       "pauses": [
+        {
+         "closed_by_checkout": false,
+         "end": {
+          "abbr": "ET",
+          "at": "2026-11-02T16:29:00Z",
+          "date": "2026-11-02",
+          "local": "11:29",
+          "location": {
+           "label": "Sin ubicación",
+           "lat": null,
+           "lng": null,
+           "map": null,
+           "perimeter": null,
+           "status": "none"
+          }
+         },
+         "minutes": 55,
+         "start": {
+          "abbr": "ET",
+          "at": "2026-11-02T15:34:00Z",
+          "date": "2026-11-02",
+          "local": "10:34",
+          "location": {
+           "label": "Sin ubicación",
+           "lat": null,
+           "lng": null,
+           "map": null,
+           "perimeter": null,
+           "status": "none"
+          }
+         }
+        }
+       ],
+       "payable_minutes": 525,
+       "place": "Virginia",
+       "place_missing": false,
+       "regular_minutes": 525,
+       "system_cutoff": false,
+       "tz": "America/New_York"
+      }
+     }
+    ],
+    "state": "off",
+    "weeks": [
+     {
+      "days": [
+       {
+        "date": "2026-11-02",
+        "overtime": 0,
+        "pause": 55,
+        "payable": 525,
+        "regular": 525
+       }
+      ],
+      "overtime": 0,
+      "pause": 55,
+      "payable": 525,
+      "regular": 525,
+      "week_end": "2026-11-07",
+      "week_start": "2026-11-01"
+     }
+    ]
+   }
+  ],
+  "period": {
+   "end": "2026-11-06",
+   "start": "2026-10-31"
+  },
+  "us": {
+   "missing_rate": [
+    "Colaboradora Caso 2 Nov"
+   ],
+   "overtime_minutes": 0,
+   "pause_minutes": 55,
+   "payable_minutes": 525,
+   "rate_pending": true,
+   "regular_minutes": 525
+  },
+  "weekly_limit_minutes": 2400
+ },
+ "snapshot": {
+  "missing_rate_employees": [
+   {
+    "employee_id": "emp-caso",
+    "employee_name": "Colaboradora Caso 2 Nov",
+    "employee_role": "operario",
+    "minutes": 525,
+    "missing": [
+     "valor hora"
+    ]
+   }
+  ],
+  "payroll_rule": {
+   "applied_by": "US_PAYROLL_FLSA",
+   "enabled": true,
+   "limit_scope": "week",
+   "ordinary_minutes_limit": 2400
+  },
+  "period": {
+   "company_id": "company-voltage",
+   "period_end": "2026-11-07",
+   "period_start": "2026-11-01",
+   "status": "open"
+  },
+  "rows": [
+   {
+    "closed_shifts": 1,
+    "deduction_1": 0.0,
+    "deduction_2": 0.0,
+    "discount_amount": 0.0,
+    "employee_id": "emp-caso",
+    "employee_name": "Colaboradora Caso 2 Nov",
+    "employee_role": "operario",
+    "extra_amount": 0.0,
+    "extra_minutes": 0,
+    "gross_amount": 0.0,
+    "hourly_rate_extra": 0.0,
+    "hourly_rate_regular": 0.0,
+    "net_amount": 0.0,
+    "rate_missing": [
+     "valor hora"
+    ],
+    "rate_pending": true,
+    "regular_amount": 0.0,
+    "regular_minutes": 525,
+    "shifts": [
+     {
+      "connected_minutes": 580,
+      "end": "2026-11-02T21:25:00Z",
+      "extra_minutes": 0,
+      "gross_amount": "0.00",
+      "mini_panel_session_id": null,
+      "pause_minutes": 55,
+      "rate_pending": true,
+      "regular_minutes": 525,
+      "source": "attendance",
+      "start": "2026-11-02T11:45:00Z",
+      "us": {
+       "abbr": "ET",
+       "check_in": {
+        "abbr": "ET",
+        "at": "2026-11-02T11:45:00Z",
+        "date": "2026-11-02",
+        "local": "06:45",
+        "location": {
+         "label": "Sin perímetro",
+         "lat": 38.9,
+         "lng": -77.0,
+         "map": "https://www.google.com/maps?q=38.900000,-77.000000",
+         "perimeter": null,
+         "status": "unconfigured"
+        }
+       },
+       "check_out": {
+        "abbr": "ET",
+        "at": "2026-11-02T21:25:00Z",
+        "date": "2026-11-02",
+        "local": "16:25",
+        "location": {
+         "label": "Sin perímetro",
+         "lat": 38.901,
+         "lng": -77.001,
+         "map": "https://www.google.com/maps?q=38.901000,-77.001000",
+         "perimeter": null,
+         "status": "unconfigured"
+        }
+       },
+       "confirmed": false,
+       "connected_minutes": 580,
+       "days": [
+        {
+         "date": "2026-11-02",
+         "overtime": 0,
+         "pause": 55,
+         "payable": 525,
+         "regular": 525,
+         "week_start": "2026-11-01"
+        }
+       ],
+       "employee_id": "emp-caso",
+       "manual_close": null,
+       "notes": [
+        {
+         "at": "2026-11-02T21:25:20.056547Z",
+         "kind": "summary",
+         "label": "Resumen de la jornada",
+         "local": "16:25",
+         "text": "Etiquetado rack A \nCables:\n1-1\n1-2"
+        }
+       ],
+       "overtime_minutes": 0,
+       "pause_minutes": 55,
+       "pauses": [
+        {
+         "closed_by_checkout": false,
+         "end": {
+          "abbr": "ET",
+          "at": "2026-11-02T16:29:00Z",
+          "date": "2026-11-02",
+          "local": "11:29",
+          "location": {
+           "label": "Sin ubicación",
+           "lat": null,
+           "lng": null,
+           "map": null,
+           "perimeter": null,
+           "status": "none"
+          }
+         },
+         "minutes": 55,
+         "start": {
+          "abbr": "ET",
+          "at": "2026-11-02T15:34:00Z",
+          "date": "2026-11-02",
+          "local": "10:34",
+          "location": {
+           "label": "Sin ubicación",
+           "lat": null,
+           "lng": null,
+           "map": null,
+           "perimeter": null,
+           "status": "none"
+          }
+         }
+        }
+       ],
+       "payable_minutes": 525,
+       "place": "Virginia",
+       "place_missing": false,
+       "regular_minutes": 525,
+       "system_cutoff": false,
+       "tz": "America/New_York"
+      },
+      "worked_minutes": 525
+     }
+    ],
+    "us": {
+     "abbr": "ET",
+     "connected_minutes": 580,
+     "days_worked": 1,
+     "deductions": 0.0,
+     "gross": null,
+     "net": null,
+     "overtime_amount": null,
+     "overtime_minutes": 0,
+     "overtime_rate": null,
+     "pause_minutes": 55,
+     "payable_minutes": 525,
+     "place": "Virginia",
+     "place_missing": false,
+     "rate": null,
+     "rate_pending": true,
+     "regular_amount": null,
+     "regular_minutes": 525,
+     "tz": "America/New_York",
+     "weeks": [
+      {
+       "days": [
+        {
+         "date": "2026-11-02",
+         "overtime": 0,
+         "pause": 55,
+         "payable": 525,
+         "regular": 525
+        }
+       ],
+       "overtime": 0,
+       "pause": 55,
+       "payable": 525,
+       "regular": 525,
+       "week_end": "2026-11-07",
+       "week_start": "2026-11-01"
+      }
+     ]
+    }
+   }
+  ],
+  "totals": {
+   "closed_shifts": 1,
+   "connected_minutes": 580,
+   "discount_amount": 0.0,
+   "extra_minutes": 0,
+   "gross_amount": 0.0,
+   "net_amount": 0.0,
+   "pause_minutes": 55,
+   "payable_minutes": 525,
+   "people": 1,
+   "rate_pending": true,
+   "regular_minutes": 525
+  },
+  "us_payroll": {
+   "company_abbr": "CT",
+   "company_tz": "America/Chicago",
+   "missing_place": [],
+   "missing_rate": [
+    {
+     "employee_id": "emp-caso",
+     "employee_name": "Colaboradora Caso 2 Nov",
+     "employee_role": "operario",
+     "minutes": 525,
+     "missing": [
+      "valor hora"
+     ]
+    }
+   ],
+   "rules": {
+    "overtime_after_minutes": 2400,
+    "overtime_factor": 1.5,
+    "week_start_day": "sunday",
+    "week_start_time": "00:00"
+   }
+  }
+ }
+}
