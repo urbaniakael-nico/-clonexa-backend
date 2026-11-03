@@ -365,7 +365,7 @@ async def test_apagado_el_bot_y_nomina_no_cambian(maker):
         cid = await seedmod.company(db, "Otra", board=False)
         pid = await seedmod.place(db, cid, "Sede", "SD", "America/Chicago", 1)
         eid = await seedmod.person(db, cid, "Otra Persona", "OT-1", pid)
-        await db.execute(text("INSERT INTO work_location_perimeters (company_id, location_id, name, latitude, longitude) VALUES (CAST(:c AS uuid), CAST(:l AS uuid), 'x', 1, 1)"), {"c": cid, "l": pid})
+        await db.execute(text("INSERT INTO work_location_perimeters (company_id, work_location_id, name, latitude, longitude) VALUES (CAST(:c AS uuid), CAST(:l AS uuid), 'x', 1, 1)"), {"c": cid, "l": pid})
         await db.commit()
         out = await bots._validate_gps_location_for_company(db, company_id=UUID(cid), latitude=1.0, longitude=1.0, employee_id=eid)
         assert out["gps_status"] == "unconfigured" and "geo_source" not in out, "sin el interruptor manda lo de siempre"

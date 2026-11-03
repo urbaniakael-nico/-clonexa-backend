@@ -3,9 +3,12 @@ tests/fixtures/make_reports_board_fixture.py. "Ahora" = jueves 5 nov 2026, 18:00
 laboral dom 1 a sáb 7 nov. Virginia = ET (UTC-5), Alabama = CT (UTC-6)."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import uuid
 from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy import text
 
@@ -29,10 +32,8 @@ CREATE TABLE employees (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_i
 CREATE TABLE work_location_changes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, employee_id uuid NOT NULL, from_location_id uuid, to_location_id uuid,
   from_name text, to_name text, changed_by text, changed_by_user_id uuid, source text, changed_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE work_location_perimeters (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  location_id uuid NOT NULL REFERENCES work_locations(id) ON DELETE CASCADE, name varchar(80) NOT NULL, latitude numeric(10,7) NOT NULL, longitude numeric(10,7) NOT NULL,
-  radius_m integer NOT NULL DEFAULT 300, created_by varchar(200), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE work_location_supervisors (company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE, location_id uuid NOT NULL REFERENCES work_locations(id) ON DELETE CASCADE,
-  employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_by varchar(200), created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (location_id, employee_id));
+  work_location_id uuid NOT NULL REFERENCES work_locations(id) ON DELETE CASCADE, perimeter_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_work_location_perimeters_perimeter UNIQUE (perimeter_id));
 CREATE TABLE workforce_attendance_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, employee_id uuid,
   event_type varchar(80) NOT NULL, event_label varchar(180) NOT NULL, employee_name varchar(180), employee_role varchar(80), status_after varchar(40) NOT NULL,
   source varchar(80) NOT NULL DEFAULT 'client', notes text, module_code varchar(80) NOT NULL DEFAULT 'workforce',
@@ -51,8 +52,22 @@ def T(s: str) -> datetime:
     return datetime.fromisoformat(f"2026-{s}:00+00:00")
 
 
+def _migration_024z() -> list[str]:
+    """Sentencias reales de 024z: el escenario parte de la tabla de 024x, igual que produccion."""
+    path = Path(__file__).resolve().parents[2] / "migrations" / "versions" / "024z_reports_board.py"
+    spec = importlib.util.spec_from_file_location("migration_024z_seed", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    statements: list[str] = []
+    module.op = SimpleNamespace(execute=lambda sql: statements.append(str(sql)))
+    module.upgrade()
+    return statements
+
+
 async def create_schema(conn) -> None:
     for stmt in [s for s in SCHEMA.split(";") if s.strip()]:
+        await conn.execute(text(stmt))
+    for stmt in _migration_024z():
         await conn.execute(text(stmt))
     for code in ("payroll", "reports", "workforce"):
         await conn.execute(text("INSERT INTO modules (code, name) VALUES (:c, :c)"), {"c": code})

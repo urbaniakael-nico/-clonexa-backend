@@ -164,8 +164,8 @@ async def save_near_ot(db: AsyncSession, company_id: Any, hours: Any) -> float:
 # ------------------------------------------------------------------ datos
 async def perimeters_by_place(db: AsyncSession, company_id: Any) -> dict[str, list[dict]]:
     rows = (await db.execute(text("""
-        SELECT id::text AS id, location_id::text AS location_id, name, latitude, longitude, radius_m, created_at
-        FROM work_location_perimeters WHERE company_id = CAST(:c AS uuid) ORDER BY created_at, name
+        SELECT id::text AS id, work_location_id::text AS location_id, name, latitude, longitude, radius_m, created_at
+        FROM work_location_perimeters WHERE company_id = CAST(:c AS uuid) AND latitude IS NOT NULL ORDER BY created_at, name
     """), {"c": str(company_id)})).mappings().all()
     out: dict[str, list[dict]] = {}
     for r in rows:
@@ -213,10 +213,11 @@ async def save_place(db: AsyncSession, company_id: Any, location_id: Any, body: 
     employees = await active_employees(db, company_id)
     perimeters, supervisors = validate_place(body, {e["id"] for e in employees})
     params = {"c": str(company_id), "l": str(location_id), "by": str(actor or "")[:200] or None}
-    await db.execute(text("DELETE FROM work_location_perimeters WHERE company_id = CAST(:c AS uuid) AND location_id = CAST(:l AS uuid)"), params)
+    # Solo perimetros del Board: una fila vieja de 024x (sin latitud) no se toca.
+    await db.execute(text("DELETE FROM work_location_perimeters WHERE company_id = CAST(:c AS uuid) AND work_location_id = CAST(:l AS uuid) AND latitude IS NOT NULL"), params)
     for p in perimeters:
         await db.execute(text("""
-            INSERT INTO work_location_perimeters (company_id, location_id, name, latitude, longitude, radius_m, created_by)
+            INSERT INTO work_location_perimeters (company_id, work_location_id, name, latitude, longitude, radius_m, created_by)
             VALUES (CAST(:c AS uuid), CAST(:l AS uuid), :n, :lat, :lng, :r, :by)
         """), {**params, "n": p["name"], "lat": p["latitude"], "lng": p["longitude"], "r": p["radius_m"]})
     await db.execute(text("DELETE FROM work_location_supervisors WHERE company_id = CAST(:c AS uuid) AND location_id = CAST(:l AS uuid)"), params)
@@ -262,8 +263,8 @@ async def stamp_or_none(db: AsyncSession, company_id: Any, employee_id: Any, lat
                 return None
             rows = (await db.execute(text("""
                 SELECT p.id::text AS id, p.name, p.latitude, p.longitude, p.radius_m
-                FROM employees e JOIN work_location_perimeters p ON p.location_id = e.work_location_id AND p.company_id = e.company_id
-                WHERE e.id = CAST(:e AS uuid) AND e.company_id = CAST(:c AS uuid)
+                FROM employees e JOIN work_location_perimeters p ON p.work_location_id = e.work_location_id AND p.company_id = e.company_id
+                WHERE e.id = CAST(:e AS uuid) AND e.company_id = CAST(:c AS uuid) AND p.latitude IS NOT NULL
             """), {"e": str(employee_id), "c": str(company_id)})).mappings().all()
         return classify(latitude, longitude, [dict(r) for r in rows]) if rows else None
     except Exception:
