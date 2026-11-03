@@ -178,9 +178,16 @@
   }
 
   // Barra apilada por referencia: horas efectivas de cada persona (participación, no productividad).
+  // Trabajado sin referencia (aparte) y total trabajado = referencias + sin referencia.
+  function noReference(tt) {
+    const free = num(tt && tt.no_reference_seconds);
+    if (free <= 0) return "";
+    return `<p class="pp-note pp-no-ref"><b>${h(T("Sin referencia"))}</b> ${h(hm(free / 60))} · ${h(T("Total trabajado"))} ${h(hm(num(tt.worked_seconds) / 60))}</p>`;
+  }
+
   function share(tt) {
     const list = arr(tt && tt.by_reference);
-    if (!list.length) return `<p class="pp-muted">${h(T("Sin tiempo del equipo en el periodo."))}</p>`;
+    if (!list.length) return `<p class="pp-muted">${h(T("Sin tiempo del equipo en el periodo."))}</p>${noReference(tt)}`;
     const names = [];
     list.forEach((r) => arr(r.people).forEach((p) => { if (!names.includes(p.name)) names.push(p.name); }));
     const tone = (name) => names.indexOf(name) % 6;
@@ -193,7 +200,7 @@
         const label = people.map((p) => `${p.name} ${hm(num(p.seconds) / 60)}`).join(", ");
         return `<li><span class="pp-share-name">${h(r.name)}</span><span class="pp-stack" role="img" aria-label="${h(label || r.name)}">${segs || `<i class="pp-tone-0" style="--w:${(num(r.seconds) / max) * 100}%"></i>`}</span>
           <b>${h(num(r.percent))}%</b><small>${h(hm(num(r.seconds) / 60))}</small></li>`;
-      }).join("")}</ul>`;
+      }).join("")}</ul>${noReference(tt)}`;
   }
 
   function alertText(a) {

@@ -77,6 +77,14 @@ test('tiempo apilado por persona: participación, no productividad; nada de pren
   assert.equal(P.alertText({ kind: 'not_sent', reference: 'X', quantity: 3 }), 'X: 3 prendas cerradas sin enviar a Bombón');
 });
 
+test('tiempo trabajado sin referencia: aparte, con el total trabajado (referencias + sin referencia)', () => {
+  const P = load();
+  P.model.data = { ...DATA, team_time: { ...DATA.team_time, no_reference_seconds: 5400, worked_seconds: 23400 } };
+  assert.match(P.view(), /<p class="pp-note pp-no-ref"><b>Sin referencia<\/b> 1 h 30 min · Total trabajado 6 h 30 min<\/p>/);
+  P.model.data = DATA;
+  assert.doesNotMatch(P.view(), /pp-no-ref/, 'sin tiempo sin referencia no sale la línea');
+});
+
 test('client.js monta el tablero solo con production_v2 encendido', () => {
   assert.match(CLIENT, /settings\.production_v2 === true/);
   assert.match(CLIENT, /if \(cxProductionV2On056G\(\) && await cxProductionV2Mount056G\(\)\) return;/);

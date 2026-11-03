@@ -1286,7 +1286,69 @@ def _prod_cap_operator_reference_seconds_023r(
     return applied, capped_total
 
 
+async def _prod_sessions_summary_reference_time(db: AsyncSession, company_id: str, start: date, end: date) -> dict[str, Any]:
+    """Empresas con production_v2 (hoy solo Velvet): la regla unica de app.services.reference_time
+    (ventana de Bogota, trabajado = conectado - pausas recortado al periodo, sin tope de nomina),
+    con la misma forma de respuesta que sessions_summary."""
+    from app.services import reference_time
+
+    times = await reference_time.load(db, company_id, start, end)
+    closure_period, closure_all = await _prod_closure_totals(db, company_id, start, end)
+    names = times["names"]
+
+    def per_unit(seconds: int, quantity: int) -> Any:
+        return round(seconds / quantity, 2) if quantity > 0 else None
+
+    time_by_reference = []
+    for ref, secs in sorted(times["by_reference"].items(), key=lambda kv: -kv[1]):
+        key = _prod_reference_time_key(ref)
+        st = times["sessions"].get(ref) or {}
+        time_by_reference.append({
+            "reference_key": key, "reference_id": "", "reference_name": ref, "size": "", "reference_scope": "name", "source_reference_ids": [],
+            "operators_count": int(st.get("people") or 0), "sessions_count": int(st.get("sessions") or 0), "active_sessions": int(st.get("active") or 0),
+            "total_effective_seconds": int(secs), "total_effective_minutes": round(secs / 60, 2), "total_effective_label": _prod_format_seconds(int(secs)),
+            "finished_quantity_period": closure_period.get(key, 0), "finished_quantity_all_time": closure_all.get(key, 0),
+            "seconds_per_unit_period": per_unit(int(secs), closure_period.get(key, 0)),
+            "seconds_per_unit_all_time": per_unit(int(secs), closure_all.get(key, 0)),
+        })
+    time_by_operator_reference = []
+    for who, refs in times["by_person"].items():
+        name = clean(names.get(who)) or "Sin operario"
+        for ref, secs in refs.items():
+            key = _prod_reference_time_key(ref)
+            op_key = _prod_operator_key(who, name, "", key)
+            time_by_operator_reference.append({
+                "operator_key": op_key, "employee_id": who, "employee_name": name, "telegram_user_id": "", "reference_key": key,
+                "reference_id": "", "reference_name": ref, "size": "", "reference_scope": "name", "source_reference_ids": [],
+                "sessions_count": 0, "active_sessions": 0, "effective_seconds": int(secs), "effective_minutes": round(secs / 60, 2),
+                "effective_label": _prod_format_seconds(int(secs)), "finished_quantity_period": closure_period.get(op_key, 0),
+                "finished_quantity_all_time": closure_all.get(op_key, 0), "seconds_per_unit_period": per_unit(int(secs), closure_period.get(op_key, 0)),
+                "seconds_per_unit_all_time": per_unit(int(secs), closure_all.get(op_key, 0)), "is_active": False,
+            })
+    time_by_operator_reference.sort(key=lambda x: -x["effective_seconds"])
+    total = int(times["total_worked"])
+    active = sum(int(v.get("active") or 0) for v in times["sessions"].values())
+    return {
+        "active_sessions": active, "total_sessions_period": sum(int(v.get("sessions") or 0) for v in times["sessions"].values()),
+        "raw_sessions_found": sum(int(v.get("sessions") or 0) for v in times["sessions"].values()), "query_strategy": "reference_time",
+        "total_effective_seconds_period": total, "total_effective_label_period": _prod_format_seconds(total), "total_minutes_period": round(total / 60, 2),
+        "raw_effective_seconds_period": total, "raw_effective_label_period": _prod_format_seconds(total),
+        "payroll_cap_applied": False, "payroll_cap_seconds_period": 0, "payroll_cap_label_period": _prod_format_seconds(0),
+        "no_reference_seconds_period": int(times["no_reference"]),
+        "time_rule": "reference_time_bogota_window_worked_clipped",
+        "by_reference": [{"reference_name": t["reference_name"], "size": "", "minutes": t["total_effective_minutes"], "sessions": t["sessions_count"],
+                          "operators_count": t["operators_count"], "effective_seconds": t["total_effective_seconds"],
+                          "effective_label": t["total_effective_label"]} for t in time_by_reference[:20]],
+        "time_by_reference": time_by_reference[:100],
+        "time_by_operator_reference": time_by_operator_reference[:200],
+    }
+
+
 async def sessions_summary(db: AsyncSession, company_id: str, start: date, end: date) -> dict[str, Any]:
+    from app.services import production_v2
+
+    if await production_v2.is_on(db, company_id):
+        return await _prod_sessions_summary_reference_time(db, company_id, start, end)
     now_value = datetime.now(timezone.utc)
     period_start_dt, period_end_dt = _prod_period_bounds_023r(start, end)
     as_of = min(now_value, period_end_dt)

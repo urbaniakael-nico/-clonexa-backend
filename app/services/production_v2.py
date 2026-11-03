@@ -94,7 +94,8 @@ def _sin(reason: str) -> dict:
 # ---------------------------------------------------------------- calculo puro
 def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id: dict, moves: list[dict], closures: list[dict],
           first_session: dict, last_session: dict, team_seconds: int, time_by_ref: list[dict], live: dict,
-          labor_gross: Optional[float], time_by_person: Optional[list[dict]] = None) -> dict:
+          labor_gross: Optional[float], time_by_person: Optional[list[dict]] = None, no_reference_seconds: int = 0,
+          worked_seconds: Optional[int] = None) -> dict:
     """moves: {reference_id, kind, quantity, event_date, size?, section?} (ingreso, novedad, despliegue);
     closures: {key, quantity, day}; first_session/last_session: {key: date};
     time_by_ref: {key, name, seconds, active}; time_by_person: {key, person, seconds}
@@ -280,7 +281,10 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
         "live": [{"name": p["name"], "status": p["status"], "reference": p.get("reference_name"), "since": p.get("since"),
                   "elapsed_minutes": p.get("elapsed_minutes")} for p in live.get("live", [])],
         "series": list(series.values()),
-        "team_time": {"total_seconds": total, "by_reference": share},
+        "team_time": {"total_seconds": total, "by_reference": share,
+                      # trabajado sin referencia (aparte) y el total trabajado = referencias + sin referencia
+                      "no_reference_seconds": int(no_reference_seconds or 0),
+                      "worked_seconds": int(worked_seconds if worked_seconds is not None else total + int(no_reference_seconds or 0))},
         "alerts": alerts,
     }
 
@@ -288,7 +292,7 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
 # ---------------------------------------------------------------- datos
 async def insights(db: AsyncSession, company_id: str, start: date, end: date, today: date) -> dict:
     from app.api.v1.endpoints import production_v1 as prod
-    from app.services import crm_lab, references_v2
+    from app.services import crm_lab, reference_time, references_v2
     from app.services.references_v2 import group_key
 
     cid = str(company_id)
@@ -316,21 +320,26 @@ async def insights(db: AsyncSession, company_id: str, start: date, end: date, to
         k = group_key(r["reference_name"])
         first_session[k] = min(first_session.get(k, r["first"]), r["first"])
         last_session[k] = max(last_session.get(k, r["last"]), r["last"])
-    sessions = await prod.sessions_summary(db, cid, start, end)
+    # Tiempo por referencia y por persona: la regla unica de reference_time (ventana de Bogota,
+    # trabajado = conectado - pausas, recortado al periodo, sin tope de nomina).
+    times = await reference_time.load(db, cid, start, end)
     time_by_ref: dict[str, dict] = {}
-    for t in sessions.get("time_by_reference", []):
-        k = group_key(t.get("reference_name"))
-        item = time_by_ref.setdefault(k, {"key": k, "name": t.get("reference_name") or "", "seconds": 0, "active": 0})
-        item["seconds"] += int(t.get("total_effective_seconds") or 0)
-        item["active"] += int(t.get("active_sessions") or 0)
-    time_by_person = [{"key": group_key(t.get("reference_name")), "person": (t.get("employee_name") or "").strip() or "—",
-                       "seconds": int(t.get("effective_seconds") or 0)} for t in sessions.get("time_by_operator_reference", [])]
+    for ref, secs in times["by_reference"].items():
+        if ref == reference_time.NO_REFERENCE:
+            continue
+        k = group_key(ref)
+        item = time_by_ref.setdefault(k, {"key": k, "name": ref, "seconds": 0, "active": 0})
+        item["seconds"] += int(secs)
+        item["active"] += int((times["sessions"].get(ref) or {}).get("active") or 0)
+    time_by_person = [{"key": group_key(ref), "person": (times["names"].get(who) or "").strip() or "—", "seconds": int(secs)}
+                      for who, refs in times["by_person"].items() for ref, secs in refs.items() if ref != reference_time.NO_REFERENCE]
     live = await crm_lab.team(db, cid)
     closed_period = sum(c["quantity"] for c in closures if start <= c["day"] <= end)
     labor = await labor_gross(db, company_id, start, end) if closed_period > 0 else None
     return build(start=start, end=end, today=today, groups=groups, key_by_id=key_by_id, moves=moves, closures=closures,
-                 first_session=first_session, last_session=last_session, team_seconds=int(sessions.get("total_effective_seconds_period") or 0),
-                 time_by_ref=list(time_by_ref.values()), live=live, labor_gross=labor, time_by_person=time_by_person)
+                 first_session=first_session, last_session=last_session, team_seconds=sum(t["seconds"] for t in time_by_ref.values()),
+                 time_by_ref=list(time_by_ref.values()), live=live, labor_gross=labor, time_by_person=time_by_person,
+                 no_reference_seconds=int(times["no_reference"]), worked_seconds=int(times["total_worked"]))
 
 
 async def labor_gross(db: AsyncSession, company_id: Any, start: date, end: date) -> Optional[float]:
@@ -518,6 +527,9 @@ def build_pdf(ins: dict, company: dict, logo_reader=None) -> bytes:
               [[r["name"], hm(r["seconds"] / 60), f"{r['percent']}%"] for r in ins["team_time"]["by_reference"]], [0.5, 0.25, 0.25], ["l", "r", "r"])
     else:
         note(tr("Sin tiempo del equipo en el periodo."))
+    if ins["team_time"].get("no_reference_seconds"):
+        note(f'{tr("Sin referencia")}: {hm(ins["team_time"]["no_reference_seconds"] / 60)} · '
+             f'{tr("Total trabajado")}: {hm(ins["team_time"]["worked_seconds"] / 60)}')
 
     section("Alertas")
     if ins["alerts"]:
