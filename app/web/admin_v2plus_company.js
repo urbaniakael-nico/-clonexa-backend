@@ -27,7 +27,7 @@
 
   const blank = () => ({ id: "", tab: "resumen", company: null, modules: null, packages: null, users: null, accessPolicy: null,
     sessionPolicy: null, sessions: null, experience: null, brand: null, telegram: null, reset: null, modal: null, error: "", notice: "", busy: false,
-    activity: null, audit: null, billing: null, roles: null, crmLab: null, rolesDraft: null, userQuery: "", sess: { open: false, query: "", page: 1 },
+    activity: null, audit: null, billing: null, roles: null, crmLab: null, lider: null, liderUi: {}, rolesDraft: null, userQuery: "", sess: { open: false, query: "", page: 1 },
     board: { query: "", filter: "todos", collapsed: {}, draft: null, dirty: false, pick: null, pickQuery: "", error: "" } });
   let model = blank();
   let ctx = null;
@@ -84,6 +84,8 @@
     roles: (id) => apiGet(`/admin-v2/api/companies/${encodeURIComponent(id)}/employee-roles`),
     // 056F: CRM VELVET-LAB (interruptor crm_velvet_lab); apagado responde 404 = no se muestra.
     crmLab: (id) => apiGet(`${API}/crm-lab/companies/${encodeURIComponent(id)}/panel-user`).catch(() => ({ off: true })),
+    // 064B: Líder de operación; sin los interruptores responde 404 = no se muestra.
+    lider: (id) => apiGet(`${API}/lider-operacion/consola/companies/${encodeURIComponent(id)}`).catch(() => ({ off: true })),
     async telegram(id) {                                                                             // T01 + T02
       // Nunca se queda en "Cargando bot…": cada consulta tiene tope de tiempo.
       const base = await withTimeout(apiGet(`${API}/bots/companies/${id}/telegram`), BOT_READ_TIMEOUT_MS);
@@ -110,6 +112,8 @@
       window.CxFicha.segmentBody(segments, type, on)),
     // 056F: usuario UNICO del CRM VELVET-LAB (clave temporal que se cambia al entrar).
     createCrmUser: (id) => apiPost(`${API}/crm-lab/companies/${encodeURIComponent(id)}/panel-user`, {}),
+    // 064B: la clave escrita no se devuelve; una generada se muestra una sola vez.
+    createLeader: (id, body) => apiPost(`${API}/lider-operacion/consola/companies/${encodeURIComponent(id)}/lideres`, body),
     // U02
     createUser: (id, fullName, email, password) => apiPost(`${API}/companies/${id}/users`, {
       name: fullName, full_name: fullName, email, password, temporary_password: password, role: "company_admin", status: "active", must_change_password: true,
@@ -352,6 +356,7 @@
     <p class="vp-login-hint">Solo encender, apagar y asignar módulos a los paneles. La configuración operativa (categorías, estaciones, porciones, imágenes, metas) no vive en la consola.
       ${waiterLink(c)}</p>
     ${crmCard(c)}
+    ${F().leaderZone(model.lider, model.liderUi, origin())}
     ${F().picker(model.modules, model.board)}`;
   }
 
@@ -617,7 +622,7 @@
     if (md.type === "confirm") {
       body = `${head(md.title)}<p class="vp-login-hint">${h(md.message)}</p>${err}<div class="vp-actions"><button class="vp-btn vp-btn-primary ${md.danger ? "vp-btn-danger" : ""}" type="button" data-vpf-confirm-go>${h(md.cta || "Confirmar")}</button><button class="vp-btn" type="button" data-vpf-modal-close>Cancelar</button></div>`;
     } else if (md.type === "password") {
-      body = `${head("Clave temporal")}<p class="vp-login-hint">Entrégala por un canal seguro: el usuario deberá cambiarla al entrar. No se volverá a mostrar.</p>
+      body = `${head("Clave temporal")}<p class="vp-login-hint">${h(md.hint || "Entrégala por un canal seguro: el usuario deberá cambiarla al entrar. No se volverá a mostrar.")}</p>
         <label class="vp-field">Clave<span class="vp-inline"><input readonly value="${h(md.password)}" data-vpf-copy-value><button class="vp-btn vp-btn-sm" type="button" data-vpf-copy-password>Copiar</button></span></label>`;
     } else if (md.type === "links") {
       body = `${head("Links de acceso")}<div class="vp-actions"><button class="vp-btn vp-btn-sm vp-btn-primary" type="button" data-vpf-copy-all>Copiar todos</button></div>
@@ -722,7 +727,7 @@
   }
 
   // ------------------------------------------------------------ carga
-  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity", "crmLab"],
+  const TAB_NEEDS = { resumen: ["users", "modules", "experience", "activity", "audit", "brand", "billing"], paquete: ["packages", "modules"], modulos: ["modules", "activity", "crmLab", "lider"],
     accesos: ["users", "accessPolicy", "sessionPolicy", "activity"], roles: ["roles"], bots: ["telegram", "modules"], datos: [], marca: ["experience", "brand"], facturacion: ["billing"], auditoria: [] };
 
   async function ensure(keys, force = false) {
@@ -847,7 +852,7 @@
       const typed = ((document.querySelector(`[data-vpf-reset-input="${userId}"]`) || {}).value || "").trim();
       ask("Clave temporal", "Generar una clave temporal para este usuario? La actual deja de servir.", async () => {
         const data = await act(() => writes.resetPassword(id, userId, typed), "Clave regenerada.", ["users"]);
-        if (data) { model.modal = { type: "password", password: data.temporary_password || data.password || typed || "No devuelta" }; draw(); }
+        if (data) { model.modal = { type: "password", password: data.temporary_password || data.password || typed || "No devuelta", ...(isLeaderUser(userId) ? { hint: LEADER_KEY_HINT } : {}) }; draw(); }
       });
       return;
     }
@@ -958,6 +963,30 @@
     return false;
   }
 
+  // 064B: el líder es de solo lectura: no cambia su clave desde el panel.
+  const LEADER_KEY_HINT = "Entrégala aparte, nunca por correo. El panel del líder es de solo lectura: para cambiarla se genera otra aquí. No se volverá a mostrar.";
+  const isLeaderUser = (userId) => arr(model.lider && model.lider.places).some((p) => arr(p.leaders).some((l) => l.user_id === userId));
+
+  // 064B: al cambiar de operación, el formulario solo ofrece a sus supervisores.
+  function onLeaderChange(event) {
+    const t = event.target;
+    if (!t || !t.hasAttribute || !t.hasAttribute("data-vpl-select")) return;
+    model.liderUi = { ...model.liderUi, place: t.value, error: "" };
+    draw();
+  }
+
+  async function onLeaderSubmit(form, c) {
+    const field = (name) => (form.elements.namedItem(name) || {}).value || "";
+    const body = { work_location_id: field("work_location_id"), employee_id: field("employee_id"), username: field("username").trim() };
+    if (field("password")) body.password = field("password");
+    model.liderUi = { ...model.liderUi, place: body.work_location_id, error: "" };
+    const typed = Boolean(body.password);
+    ask("Crear líder de operación", `Crear el usuario ${body.username} en ${c.name}? Verá solo CRM Campo y Reportes de esa operación.`, async () => {
+      const data = await act(() => writes.createLeader(c.id, body), typed ? "Líder creado. Entrega la clave aparte; nunca por correo." : "Líder creado.", ["lider"]);
+      if (data && data.temporary_password) { model.modal = { type: "password", password: data.temporary_password, hint: LEADER_KEY_HINT }; draw(); }
+    });
+  }
+
   function onInput(event) {
     const t = event.target;
     if (!ctx || !ctx.active() || !t || !t.matches) return;
@@ -1022,6 +1051,9 @@
       const code = String(get("package_code") || "");
       if (!code) return;
       ask("Activar paquete", `Activar el paquete ${code} en ${model.company.name}? Enciende sus módulos.`, () => act(() => writes.activatePackage(id, code), "Paquete activado.", ["modules"]));
+    } else if (form.matches("[data-vpl-form]")) {
+      event.preventDefault();
+      onLeaderSubmit(form, model.company);
     } else if (form.matches("[data-vpf-user-form]")) {
       event.preventDefault();
       const fullName = String(get("full_name") || "").trim();
@@ -1058,6 +1090,7 @@
       document.addEventListener("click", onClick);
       document.addEventListener("submit", onSubmit);
       document.addEventListener("input", onInput);
+      document.addEventListener("change", onLeaderChange);
       document.addEventListener("dragstart", onDragStart);
       document.addEventListener("dragover", onDragOver);
       document.addEventListener("dragleave", onDragLeave);

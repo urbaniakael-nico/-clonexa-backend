@@ -211,6 +211,32 @@ async def get_company_user_or_404(db: AsyncSession, company_id: UUID, user_id: U
     return user
 
 
+# Mini panel "Lider de operacion": solo lectura de UNA operacion. Su usuario no sirve en ninguna
+# ruta que pase por get_current_company_user, venga de donde venga el token; sus lecturas validan
+# la sesion con user_from_token_claims (app/api/v1/endpoints/lider_operacion.py).
+LEADER_PANEL_TYPE = "lider_operacion"
+LEADER_ONLY_DETAIL = "Esta sesión de líder de operación solo puede leer su propia operación."
+MAX_FAILED_LOGINS = 5
+LOCK_MINUTES = 15
+
+
+def is_leader_user(user: Any) -> bool:
+    settings = getattr(user, "settings_json", None)
+    mini = settings.get("mini_panel") if isinstance(settings, dict) else None
+    return isinstance(mini, dict) and str(mini.get("type") or "").strip().lower() == LEADER_PANEL_TYPE
+
+
+def is_locked(user: Any) -> bool:
+    locked_until = _aware(getattr(user, "locked_until", None))
+    return bool(locked_until and locked_until > utc_now())
+
+
+def note_failed_login(user: Any) -> None:
+    user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+    if user.failed_login_attempts >= MAX_FAILED_LOGINS:
+        user.locked_until = utc_now() + timedelta(minutes=LOCK_MINUTES)
+
+
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> CompanyUser:
     normalized_email = normalize_email(email)
     user = await get_user_by_email(db, normalized_email)
@@ -227,21 +253,24 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> Comp
             detail="Usuario inactivo o bloqueado.",
         )
 
-    locked_until = _aware(user.locked_until)
-    if locked_until and locked_until > utc_now():
+    if is_locked(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario temporalmente bloqueado.",
         )
 
     if not verify_password(password, user.password_hash):
-        user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
-        if user.failed_login_attempts >= 5:
-            user.locked_until = utc_now() + timedelta(minutes=15)
+        note_failed_login(user)
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales inválidas.",
+        )
+
+    if is_leader_user(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este usuario solo entra por el enlace de su mini panel.",
         )
 
     user.failed_login_attempts = 0
@@ -253,7 +282,13 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> Comp
 
 
 async def get_current_company_user(db: AsyncSession, token: str) -> CompanyUser:
-    payload = decode_access_token(token)
+    user = await user_from_token_claims(db, decode_access_token(token))
+    if is_leader_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=LEADER_ONLY_DETAIL)
+    return user
+
+
+async def user_from_token_claims(db: AsyncSession, payload: Dict[str, Any]) -> CompanyUser:
     session_key = payload.get("sid") or payload.get("session_key")
     if session_key:
         from app.services.access_sessions import validate_access_session

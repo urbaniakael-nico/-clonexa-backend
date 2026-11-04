@@ -156,7 +156,7 @@ test('consola v2+: tarjeta CRM VELVET-LAB solo con el interruptor (404 = no se m
   assert.match(SRC, /crmLab: \(id\) => apiGet\(`\$\{API\}\/crm-lab\/companies\/\$\{encodeURIComponent\(id\)\}\/panel-user`\)\.catch\(\(\) => \(\{ off: true \}\)\)/);
   assert.match(SRC, /if \(!crm \|\| crm\.off\) return "";/);
   assert.match(SRC, /createCrmUser: \(id\) => apiPost\(`\$\{API\}\/crm-lab\/companies\/\$\{encodeURIComponent\(id\)\}\/panel-user`, \{\}\)/);
-  assert.match(SRC, /modulos: \["modules", "activity", "crmLab"\]/);
+  assert.match(SRC, /modulos: \["modules", "activity", "crmLab", "lider"\]/);
   assert.match(SRC, /data-vpf-reset="\$\{h\(crm\.user_id\)\}">Regenerar clave/);
 });
 

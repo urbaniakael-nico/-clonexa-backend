@@ -19,6 +19,10 @@
   const ALERTS_SHOWN = 5;
   const NOTES_STEP = 5;
   const PRESETS = [["today", "Hoy"], ["week", "Semana"], ["month", "Mes"], ["custom", "Personalizado"]];
+  // Mini panel Líder de operación: el mismo Board, solo lectura y sin exportes (ctx.readonly).
+  const readonly = () => Boolean(ctx && ctx.readonly);
+  const presets = () => (readonly() ? PRESETS.filter(([k]) => k !== "custom") : PRESETS);
+  const payLabel = (word) => (readonly() ? "Horas" : word);
   const STATUS = [["working", "En turno"], ["on_break", "En pausa"], ["alerts", "Con alertas"]];
   const SORTS = [["az", "A-Z"], ["hours", "Horas en turno"], ["last", "Última marca"]];
   const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -41,6 +45,8 @@
     return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
   }
   function today() {
+    const fixed = ctx && ctx.today && ctx.today();
+    if (fixed) return fixed;
     const loc = typeof window !== "undefined" ? window.CxLocale : null;
     return (loc && typeof loc.filterDay === "function" && loc.filterDay(new Date())) || new Date().toISOString().slice(0, 10);
   }
@@ -153,7 +159,7 @@
   }
 
   // ------------------------------------------------------------ datos
-  const base = () => `${ctx.apiBase}/reports-board/companies/${encodeURIComponent(ctx.companyId)}`;
+  const base = () => ctx.baseUrl || `${ctx.apiBase}/reports-board/companies/${encodeURIComponent(ctx.companyId)}`;
   const headers = () => { const t = ctx.token(); return t ? { Authorization: `Bearer ${t}` } : {}; };
   const params = () => { const r = range(); return new URLSearchParams({ start: r.from, end: r.to }).toString(); };
 
@@ -163,6 +169,7 @@
     try {
       const res = await fetch(`${base()}?${params()}`, { headers: headers() });
       if (mine !== seq) return;
+      if (res.status === 401 && ctx.onLost) { ctx.onLost(); return; }
       if (res.status === 401 || res.status === 403) { model.denied = true; model.data = null; return; }
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
@@ -319,23 +326,24 @@
     const company = (model.data && model.data.company) || {};
     const busy = model.busy ? "disabled" : "";
     return `<header class="rb-panel rb-head">
-      <div class="rb-title"><button type="button" class="client-btn rb-back" data-rb-back>← ${h(T("Módulos"))}</button>
-        <div><p class="client-eyebrow">${h(company.name || "")}</p><h1 class="client-title">${h(T("Board de gerencia"))}</h1></div></div>
+      <div class="rb-title">${readonly() ? "" : `<button type="button" class="client-btn rb-back" data-rb-back>← ${h(T("Módulos"))}</button>`}
+        <div><p class="client-eyebrow">${h(company.name || "")}</p><h1 class="client-title">${h(T(readonly() ? "Reportes" : "Board de gerencia"))}</h1></div></div>
       <div class="rb-controls">
-        <div class="rb-seg" role="group" aria-label="${h(T("Periodo"))}">${PRESETS.map(([k, l]) => `<button type="button" class="client-btn ${model.preset === k ? "is-on" : ""}" data-rb-preset="${k}" aria-pressed="${model.preset === k}">${h(T(l))}</button>`).join("")}</div>
+        <div class="rb-seg" role="group" aria-label="${h(T("Periodo"))}">${presets().map(([k, l]) => `<button type="button" class="client-btn ${model.preset === k ? "is-on" : ""}" data-rb-preset="${k}" aria-pressed="${model.preset === k}">${h(T(l))}</button>`).join("")}</div>
         <div class="rb-nav"><button type="button" class="client-btn rb-arrow" data-rb-move="-1" aria-label="${h(T("Periodo anterior"))}">‹</button>
           <span class="rb-range" role="status">${h(r.from === r.to ? dayLabel(r.from) : `${dayLabel(r.from)} – ${dayLabel(r.to)}`)}</span>
           <button type="button" class="client-btn rb-arrow" data-rb-move="1" aria-label="${h(T("Periodo siguiente"))}">›</button></div>
         ${model.preset === "custom" ? `<label class="rb-date">${h(T("Desde"))}<input type="date" data-rb-from value="${h(r.from)}"></label><label class="rb-date">${h(T("Hasta"))}<input type="date" data-rb-to value="${h(r.to)}"></label>` : ""}
-        <div class="rb-exports"><button type="button" class="client-btn" data-rb-export="marks" ${busy}>${h(T("CSV marcaciones"))}</button>
+        ${readonly() ? "" : `<div class="rb-exports"><button type="button" class="client-btn" data-rb-export="marks" ${busy}>${h(T("CSV marcaciones"))}</button>
           <button type="button" class="client-btn" data-rb-export="notes" ${busy}>${h(T("CSV notas"))}</button>
-          <button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>
+          <button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>`}
       </div></header>`;
   }
 
   function figures(f = {}) {
     const tiles = [["En turno ahora", num(f.working)], ["En pausa ahora", num(f.on_break)], ["Sin turno hoy", num(f.no_shift)], ["Horas en turno", hm(f.connected)],
       ["Pausas", hm(f.pause)], ["Fuera de perímetro", num(f.outside), num(f.outside) > 0 ? "is-danger" : ""], ["Por confirmar", num(f.to_confirm), num(f.to_confirm) > 0 ? "is-warn" : ""], ["Notas del periodo", num(f.notes)]];
+    if (readonly()) tiles.splice(5, 0, ["Overtime", hm(f.overtime)]);
     return `<div class="rb-figs">${tiles.map(([l, v, c]) => `<div class="rb-fig ${c || ""}"><span>${h(T(l))}</span><strong>${h(v)}</strong></div>`).join("")}</div>`;
   }
 
@@ -344,10 +352,11 @@
     const ops = arr(data.operations);
     const limited = data.scope && data.scope.limited;
     const c = countOf();
+    const searchHint = T(readonly() ? "Buscar por nombre o texto de una nota" : "Buscar por nombre, documento o texto de una nota");
     const opChips = limited || ops.length < 2 ? "" : [["all", ops.length > 2 ? T("Todas") : T("Ambas")], ...ops.map((o) => [o.key, o.name])]
       .map(([k, l]) => `<button type="button" class="rb-chip ${model.op === k ? "is-on" : ""}" data-rb-op="${h(k)}" aria-pressed="${model.op === k}">${h(l)}</button>`).join("");
     return `<section class="rb-panel rb-filters" aria-label="${h(T("Filtros"))}">
-      <div class="rb-searchrow"><div class="rb-search"><input type="search" data-rb-search value="${h(model.query)}" placeholder="${h(T("Buscar por nombre, documento o texto de una nota"))}" aria-label="${h(T("Buscar por nombre, documento o texto de una nota"))}" autocomplete="off">
+      <div class="rb-searchrow"><div class="rb-search"><input type="search" data-rb-search value="${h(model.query)}" placeholder="${h(searchHint)}" aria-label="${h(searchHint)}" autocomplete="off">
         <button type="button" class="rb-clear" data-rb-clear aria-label="${h(T("Limpiar búsqueda"))}" ${model.query ? "" : "hidden"}>✕</button></div>
         <span class="rb-count" data-rb-count role="status">${h(T("{n} de {m} personas", { n: c.shown, m: c.total }))}</span></div>
       <div class="rb-chiprow">${opChips}${opChips ? `<span class="rb-sep" aria-hidden="true"></span>` : ""}${STATUS.map(([k, l]) => `<button type="button" class="rb-chip ${model.status === k ? "is-on" : ""}" data-rb-status="${k}" aria-pressed="${model.status === k}">${h(T(l))}</button>`).join("")}
@@ -361,9 +370,9 @@
     const max = Math.max(1, ...days.map((d) => num(d.payable) + num(d.pause)));
     const every = days.length <= 8 ? 1 : days.length <= 16 ? 2 : 5;
     const compact = days.length > 8;
-    return `<div class="rb-legend"><i class="rb-sw is-pay"></i>${h(T("Pagable"))}<i class="rb-sw is-pause"></i>${h(T("Pausas"))}<span class="rb-legend-max">${h(T("Máximo {h}", { h: hm(max) }))}</span></div>
+    return `<div class="rb-legend"><i class="rb-sw is-pay"></i>${h(T(payLabel("Pagable")))}<i class="rb-sw is-pause"></i>${h(T("Pausas"))}<span class="rb-legend-max">${h(T("Máximo {h}", { h: hm(max) }))}</span></div>
       <ul class="rb-chart" role="list" style="--n:${days.length}">${days.map((d, i) => {
-        const label = `${dayLabel(d.date)}: ${T("Pagable")} ${hm(d.payable)} · ${T("Pausas")} ${hm(d.pause)}`;
+        const label = `${dayLabel(d.date)}: ${T(payLabel("Pagable"))} ${hm(d.payable)} · ${T("Pausas")} ${hm(d.pause)}`;
         const show = i % every === 0;
         return `<li class="rb-col" tabindex="0" aria-label="${h(label)}"><span class="rb-tip ${i >= days.length / 2 ? "is-end" : ""}">${h(label)}</span>
           <span class="rb-bars"><i class="is-pause" style="height:${(num(d.pause) / max) * 100}%"></i><i class="is-pay" style="height:${(num(d.payable) / max) * 100}%"></i></span>
@@ -437,14 +446,14 @@
     return `<div class="rb-days">${days.map((d) => `<article class="rb-day"><h4>${h(dayLabel(d.date))}</h4>
       ${arr(d.shifts).map((s) => shiftView(s, d, q)).join("")}
       ${arr(d.materials).length ? `<div class="rb-mats"><b>${h(T("Pedidos de material"))}</b><ul>${d.materials.map((m) => `<li>${h(m.what)}${num(m.qty) ? ` × ${h(m.qty)}${m.unit ? ` ${h(m.unit)}` : ""}` : ""} <time>${h(m.t)} ${h(m.a)}</time></li>`).join("")}</ul></div>` : ""}
-      <p class="rb-daytotal"><span>${h(T("En turno"))} <b>${h(hm(d.connected))}</b></span> · <span>${h(T("Pausas"))} <b>${h(hm(d.pause))}</b></span> · <span>${h(T("Pagable"))} <b>${h(hm(d.payable))}</b></span></p></article>`).join("")}</div>`;
+      <p class="rb-daytotal"><span>${h(T("En turno"))} <b>${h(hm(d.connected))}</b></span> · <span>${h(T("Pausas"))} <b>${h(hm(d.pause))}</b></span> · <span>${h(T(payLabel("Pagable")))} <b>${h(hm(d.payable))}</b></span></p></article>`).join("")}</div>`;
   }
 
   function tableOf(op) {
     const q = norm(model.query);
     const list = visiblePeople(op);
     if (!list.length && (q || model.status)) return "";
-    const cols = ["Empleado", "Rol", "Ahora", "Días", "En turno", "Pausas", "Pagables", "Overtime", "Fuera de perímetro", "Notas", "Materiales", "Última marca"].map((c) => T(c));
+    const cols = ["Empleado", "Rol", "Ahora", "Días", "En turno", "Pausas", payLabel("Pagables"), "Overtime", "Fuera de perímetro", "Notas", "Materiales", "Última marca"].map((c) => T(c));
     return `<div class="rb-table-wrap rb-op-${h(op.color)}"><table class="rb-table" aria-label="${h(T("Tabla {name}", { name: op.name }))}">
       <caption>${h(op.name)} <small>${h(op.abbr)}</small></caption>
       <thead><tr>${cols.map((c, i) => `<th scope="col" class="${i >= 3 && i <= 10 ? "rb-n" : ""}">${h(c)}</th>`).join("")}</tr></thead>
@@ -596,5 +605,5 @@
     await load();
   }
 
-  window.CxReportsBoard = { mount, model, view, results, rangeOf, norm, matchOf, highlight, visiblePeople, countOf, chipOf, applyLive, hm, alertText, contrast, _ctx: (c) => { ctx = c; } };
+  window.CxReportsBoard = { mount, model, view, results, rangeOf, norm, matchOf, highlight, visiblePeople, countOf, chipOf, applyLive, hm, alertText, contrast, applyContrast, _ctx: (c) => { ctx = c; } };
 })();

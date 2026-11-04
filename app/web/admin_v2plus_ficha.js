@@ -379,6 +379,45 @@
     </section>`;
   }
 
+  // 064B: Líder de operación. Una tarjeta por operación con su enlace para copiar y sus líderes;
+  // el formulario solo ofrece a quienes tienen rol Supervisor en la operación elegida (el
+  // servidor lo vuelve a validar). La clave nunca va por correo.
+  function leaderZone(data, ui = {}, origin = "") {
+    if (!data || data.off || !arr(data.places).length) return "";
+    const places = arr(data.places);
+    const place = places.find((p) => p.id === ui.place) || places[0];
+    const cards = places.map((p) => {
+      const link = `${origin}${p.link}`;
+      return `<article class="vp-panel-card ${arr(p.leaders).length ? "is-on" : ""}" data-vpl-place="${h(p.id)}">
+        <header><b>${h(p.name)}</b> <small class="vp-mono-muted">${h(p.abbr)}</small><span class="vp-state-pill ${arr(p.leaders).length ? "is-on" : ""}">${arr(p.leaders).length ? `${arr(p.leaders).length} líder${arr(p.leaders).length === 1 ? "" : "es"}` : "Sin líder"}</span></header>
+        <small class="vp-mono" data-vpl-link>${h(link)}</small>
+        ${arr(p.leaders).map((l) => `<div class="vp-toggle-row"><small><b>${h(l.full_name)}</b> · <span class="vp-mono">${h(l.username)}</span>${l.valid ? "" : " · ya no es Supervisor de esta operación: no puede entrar"}${String(l.status).toLowerCase() === "active" ? "" : " · inactivo"}</small>
+          <button class="vp-btn vp-btn-sm" type="button" data-vpf-reset="${h(l.user_id)}">Clave temporal</button></div>`).join("")}
+        <div class="vp-actions"><button class="vp-btn vp-btn-sm" type="button" data-vpf-copy="${h(link)}">Copiar enlace</button></div>
+      </article>`;
+    }).join("");
+    const candidates = arr(place.supervisors);
+    return `<section class="vp-panel vp-section" aria-label="Líder de operación" data-vpl-zone>
+      <h2>Líder de operación</h2>
+      <p class="vp-login-hint">Solo lectura de CRM Campo y Reportes de una operación. Sin Nómina, tarifas ni la otra operación. La clave nunca va por correo: entrégala aparte.</p>
+      <div class="vp-panel-grid">${cards}</div>
+      <form class="vp-section" data-vpl-form autocomplete="off">
+        <h3 class="vp-subtitle">Crear líder</h3>
+        ${ui.error ? `<div class="vp-alert" role="alert"><span>${h(ui.error)}</span></div>` : ""}
+        <div class="vp-actions">
+          <label class="vp-field">Operación<select class="vp-search vp-input-sm" name="work_location_id" data-vpl-select aria-label="Operación">${places.map((p) => `<option value="${h(p.id)}" ${p.id === place.id ? "selected" : ""}>${h(p.name)}</option>`).join("")}</select></label>
+          <label class="vp-field">Supervisor<select class="vp-search vp-input-sm" name="employee_id" aria-label="Supervisor de la operación" required ${candidates.length ? "" : "disabled"}>${candidates.length
+            ? candidates.map((c) => `<option value="${h(c.id)}">${h(c.name)}</option>`).join("")
+            : `<option value="">Sin supervisores en ${h(place.name)}</option>`}</select></label>
+          <label class="vp-field">Usuario<input class="vp-search vp-input-sm" name="username" required minlength="3" maxlength="40" autocomplete="off" aria-label="Usuario del líder"></label>
+          <label class="vp-field">Clave<input class="vp-search vp-input-sm" name="password" type="text" minlength="8" autocomplete="new-password" placeholder="Vacío: se genera una" aria-label="Clave del líder"></label>
+          <button class="vp-btn vp-btn-sm vp-btn-primary" type="submit" ${candidates.length ? "" : "disabled"}>Crear líder</button>
+        </div>
+        ${candidates.length ? "" : `<p class="vp-login-hint">Para crear el líder, asigna a alguien el rol Supervisor en ${h(place.name)} desde Personal.</p>`}
+      </form>
+    </section>`;
+  }
+
   function picker(modules, ui) {
     if (!ui.pick) return "";
     const label = (GENERAL_PANELS.find((p) => p.type === ui.pick) || {}).label || ui.pick;
@@ -424,7 +463,7 @@
 
   window.CxFicha = {
     fold, matches, canonicalCode, moduleList, filterModules, groupByCategory, categoryLabel, assignModule, unassignModule,
-    setPanelEnabled, miniPanelsBody, restaurantState, segmentBody, barChart, summary, warnings, people, modulesZone, panelsZone,
+    setPanelEnabled, miniPanelsBody, restaurantState, segmentBody, barChart, summary, warnings, people, modulesZone, panelsZone, leaderZone,
     picker, sessionsCard, sessionsTable, GENERAL_PANELS, RESTAURANT_PANELS, BASE_CODES,
   };
 })();

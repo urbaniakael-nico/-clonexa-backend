@@ -32,6 +32,27 @@ async def _branded_html(path: Path, db: AsyncSession, company_id: object) -> HTM
     return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
+async def _leader_html(path: Path, db: AsyncSession, company_id: object, lugar: str) -> HTMLResponse:
+    """Lider de operacion: la pantalla de ingreso con el nombre y el color de la operacion del
+    enlace, incrustados (ningun endpoint sin sesion). Enlace malo o interruptores apagados:
+    la misma pagina con un aviso, sin decir por que."""
+    import logging
+
+    from app.services import lider_operacion
+    from app.web import brand_inject
+
+    boot: dict = {"ok": False}
+    cid = brand_inject._uuid(company_id)
+    if cid is not None:
+        try:
+            boot = await lider_operacion.entry_page(db, cid, lugar)
+        except Exception:
+            logging.getLogger("clonexa.lider_operacion").exception("ingreso del lider company=%s", cid)
+            await db.rollback()
+    html = path.read_text(encoding="utf-8").replace("<!--CX_LIDER_BOOT-->", f"<script>window.__CX_LIDER__={brand_inject._json_for_script(boot)};</script>", 1)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+
 async def _portal_html(path: Path, db: AsyncSession, company_id: object) -> HTMLResponse:
     """Portal y su ingreso: con marca publicada del Estudio de marca, la suya;
     sin ella, el archivo tal cual (mismo HTML de siempre)."""
@@ -230,15 +251,20 @@ def register_client_portal(app: FastAPI) -> None:
             return RedirectResponse(url=target, status_code=302, headers={"Cache-Control": "no-store"})
 
     # CLONEXA_019D_MINI_PANEL_ROUTES_START
+    async def _mini_panel_page(company_id: str, panel_type: str, lugar: str, db: AsyncSession) -> HTMLResponse:
+        if panel_type.strip().lower() == "lider_operacion":
+            return await _leader_html(web_dir / "lider_operacion.html", db, company_id, lugar)
+        return await _branded_html(web_dir / "mini_panel.html", db, company_id)
+
     if not any(getattr(route, "path", None) == "/mini-panel/login" for route in app.routes):
         @app.get("/mini-panel/login", response_class=HTMLResponse, include_in_schema=False)
-        async def mini_panel_login_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
-            return await _branded_html(web_dir / "mini_panel.html", db, company_id)
+        async def mini_panel_login_page(company_id: str = "", type: str = "", lugar: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _mini_panel_page(company_id, type, lugar, db)
 
     if not any(getattr(route, "path", None) == "/mini-panel" for route in app.routes):
         @app.get("/mini-panel", response_class=HTMLResponse, include_in_schema=False)
-        async def mini_panel_shell_page(company_id: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
-            return await _branded_html(web_dir / "mini_panel.html", db, company_id)
+        async def mini_panel_shell_page(company_id: str = "", type: str = "", lugar: str = "", db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+            return await _mini_panel_page(company_id, type, lugar, db)
     # CLONEXA_019D_MINI_PANEL_ROUTES_END
 
     # CLONEXA_026K_WAITER_ORDERING_ROUTES_START

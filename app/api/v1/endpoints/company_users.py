@@ -29,7 +29,9 @@ from app.schemas.auth import (
     UnlockUserResponse,
 )
 from app.services.auth_service import (
+    LEADER_PANEL_TYPE,
     company_user_out_payload,
+    is_leader_user,
     create_access_token,
     create_company_user,
     decode_access_token,
@@ -111,6 +113,8 @@ class MiniPanelLoginRequest(BaseModel):
     # Random id the mesero/cocina/caja browser keeps in localStorage, so a
     # re-login from the same phone doesn't count as "otro dispositivo".
     device_id: Optional[str] = None
+    # Lider de operacion: la operacion del enlace (?lugar=).
+    lugar: Optional[str] = None
 
 
 def _cx_clean_device_id_044a(value: Any) -> str:
@@ -170,6 +174,8 @@ def _cx_panel_type_019d(value: Any) -> str:
         "crmlab": "crm_lab",
         "crm-lab": "crm_lab",
         "velvet_lab": "crm_lab",
+        "lider_operacion": "lider_operacion",
+        "lider": "lider_operacion",
     }
     clean = aliases.get(panel_type, panel_type)
     if clean not in MINI_PANEL_ALLOWED_TYPES_019C:
@@ -190,6 +196,7 @@ def _cx_minipanel_type_label_019d(panel_type: str) -> str:
         "cocina": "Cocina",
         "caja": "Caja",
         "crm_lab": "CRM VELVET-LAB",
+        "lider_operacion": "Líder de operación",
     }.get(panel_type, panel_type)
 
 
@@ -304,6 +311,10 @@ async def mini_panel_login(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     panel_type = _cx_panel_type_019d(payload.panel_type)
+    if panel_type == LEADER_PANEL_TYPE:
+        from app.api.v1.endpoints import lider_operacion as _lider
+
+        return await _lider.login(db, company_id, payload, request)
     company = await _cx_company_or_404_019d(db, company_id)
 
     if panel_type == "crm_lab":
@@ -483,7 +494,7 @@ async def mini_panel_session(
 
 MINI_PANEL_ALLOWED_TYPES_019C = {
     "sales", "store", "inventory", "logistics", "call_center", "external", "other",
-    "mesero", "cocina", "caja", "crm_lab",
+    "mesero", "cocina", "caja", "crm_lab", "lider_operacion",
 }
 SALES_ROLE_TOKENS_019C = {"vendedor", "ventas", "sales", "comercial", "asesor_comercial", "asesor comercial"}
 
@@ -998,6 +1009,8 @@ async def _cx_create_minipanel_user_from_employee_026j(
     source: str,
 ) -> Dict[str, Any]:
     clean_type = _cx_panel_type_019d(panel_type)
+    if clean_type == LEADER_PANEL_TYPE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El líder de operación se crea en la consola v2+.")
     employee = await _cx_employee_or_404_019c(db, company_id, payload.employee_id)
 
     if clean_type == "sales" and not _cx_employee_is_sales_019c(employee):
@@ -1137,6 +1150,7 @@ async def create_generic_mini_panel_user_026j(
 async def reset_mini_panel_user_password_019d_r2(
     company_id: UUID,
     user_id: UUID,
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     result = await db.execute(
@@ -1148,6 +1162,10 @@ async def reset_mini_panel_user_password_019d_r2(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario mini panel no encontrado.")
+
+    # La clave de un lider de operacion solo se cambia con sesion de la consola.
+    if is_leader_user(user) and not await active_admin_v2_session(request, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La clave del líder de operación se cambia en la consola v2+.")
 
     if not _cx_is_minipanel_user_019c(user):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El usuario no pertenece a mini panel.")

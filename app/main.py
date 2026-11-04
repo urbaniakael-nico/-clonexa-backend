@@ -50,7 +50,7 @@ def _clonexa_access_scope(path: str) -> str | None:
         return "mini_panel"
     if clean_path == "/ordenar":
         return "ordering_qr"
-    if clean_path.startswith("/api/v1/mini-panel-"):
+    if clean_path.startswith("/api/v1/mini-panel-") or clean_path.startswith("/api/v1/lider-operacion/companies/"):
         return "mini_panel"
     return None
 
@@ -389,8 +389,11 @@ async def _clonexa_has_valid_session(request, db, token: str | None) -> bool:
 
         await get_current_company_user(db, token)
         return True
-    except Exception:
-        return False
+    except Exception as exc:
+        # Una sesion de lider de operacion es valida; solo tiene las rutas contadas.
+        from app.services.auth_service import LEADER_ONLY_DETAIL
+
+        return getattr(exc, "detail", None) == LEADER_ONLY_DETAIL
 
 
 def _clonexa_audit_origin(request, token_scope: str | None) -> str:
@@ -471,6 +474,34 @@ async def _clonexa_auth_audit_middleware(request, call_next):
 
     return await call_next(request)
 # CLONEXA_SEC_2026_09_23_SWEEP_END
+
+
+def _clonexa_leader_session_blocked(request) -> bool:
+    """Lista blanca del mini panel Lider de operacion: una sesion suya solo responde sus lecturas
+    y su salida. Cubre tambien rutas que leen el token por su cuenta o que no piden sesion."""
+    token = _clonexa_token_from_request(request) or request.query_params.get("access_token")
+    if not token:
+        return False
+    from app.services.auth_service import LEADER_PANEL_TYPE, decode_access_token
+
+    try:
+        claims = decode_access_token(token)
+    except Exception:
+        return False  # token invalido: cada ruta responde como siempre
+    if claims.get("panel_type") != LEADER_PANEL_TYPE:
+        return False
+    from app.services.lider_operacion import request_allowed
+
+    return not request_allowed(request.method, request.url.path)
+
+
+@app.middleware("http")
+async def _clonexa_leader_guard(request, call_next):
+    if _clonexa_leader_session_blocked(request):
+        from app.services.auth_service import LEADER_ONLY_DETAIL
+
+        return JSONResponse({"detail": LEADER_ONLY_DETAIL}, status_code=403, headers={"Cache-Control": "no-store"})
+    return await call_next(request)
 
 
 app.add_middleware(

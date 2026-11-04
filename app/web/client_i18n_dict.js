@@ -2188,6 +2188,20 @@
   Object.assign(FR, { "Conectado": "Connecté", "Trabajado": "Travaillé", "Pausa": "Pause", "total pausas": "total pauses",
     "Ref.": "Réf.", "Anterior": "Précédente" });
 
+  // Mini panel Líder de operación (064B).
+  Object.assign(EN, { "Líder de operación": "Operation lead", "Hola, {name}": "Hello, {name}", "{n} personas": "{n} people", "1 persona": "1 person",
+    "Horas de la semana": "Hours this week", "Notas de hoy": "Notes today", "Trabajando": "Working", "Sin turno": "No shift", "Todos": "All",
+    "CRM Campo": "Field CRM", "Salir": "Sign out", "Usuario": "Username", "Clave": "Password", "Entrar": "Sign in", "Entrando…": "Signing in…",
+    "Este panel solo muestra {op}. Nómina, tarifas y la otra operación no están disponibles aquí.": "This panel only shows {op}. Payroll, rates and the other operation are not available here.",
+    "Este panel es solo para el líder de {op}": "This panel is only for the {op} lead",
+    "Usuario o clave inválidos.": "Invalid username or password.", "Usuario temporalmente bloqueado.": "User temporarily locked. Try again in 15 minutes.", "Usuario inactivo o bloqueado.": "User inactive or locked.",
+    "Este enlace no es válido. Pide el enlace de tu operación.": "This link is not valid. Ask for your operation's link.",
+    "Tu sesión terminó. Vuelve a entrar.": "Your session ended. Please sign in again.", "Hora local": "Local time", "Buscar persona": "Search person",
+    "Ninguna persona coincide.": "No one matches.", "Última marca": "Last mark", "Sin marcas recientes": "No recent marks", "En vivo": "Live",
+    "Actualizado {t}": "Updated {t}", "No se pudo actualizar. Revisa la conexión.": "Could not update. Check your connection.", "Entrada": "Check-in", "Retomar": "Resume", "Salida": "Check-out",
+    "Sin perímetro": "No perimeter", "Sin ubicación": "No location", "En perímetro": "In perimeter", "Fuera de perímetro": "Outside perimeter", "Ajuste manual": "Manual adjustment",
+    "Buscar por nombre o texto de una nota": "Search by name or note text", "Terminó": "Finished", "Idioma": "Language", "Navegación": "Navigation", "Cargando…": "Loading…" });
+
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };
 })();
