@@ -1,6 +1,11 @@
 // Mini panel "Líder de operación" (064B): CRM Campo y Reportes de UNA operación, solo lectura.
 // Esta pantalla no decide nada: la operación sale de la sesión y el servidor filtra siempre.
 // Aquí no hay botones de escritura; aunque los hubiera, el servidor responde 403.
+//
+// Flecha atrás: cada pantalla es una entrada del historial, misma página y misma sesión:
+//   [guard] [inicio] [crm] [reportes] [reportes + persona] ...
+// Inicio siempre es la entrada 1. Atrás desde ella cae en guard: el panel vuelve a poner Inicio y
+// pregunta "¿Salir del panel?". Al entrar, el formulario se reemplaza por guard: nunca se vuelve a él.
 (() => {
   "use strict";
 
@@ -15,7 +20,7 @@
   const CHIPS = [["all", "Todos"], ["working", "Trabajando"], ["on_break", "En pausa"], ["no_shift", "Sin turno"], ["to_confirm", "Por confirmar"]];
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
 
-  const st = { tab: "inicio", busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "" };
+  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "" };
   let homeTimer = null;
   let crmTimer = null;
   let clockTimer = null;
@@ -66,8 +71,75 @@
   function sessionLost(message) {
     setToken("");
     stopTimers();
-    Object.assign(st, { tab: "inicio", home: null, crm: null, busy: false, notice: message || "Tu sesión terminó. Vuelve a entrar." });
+    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, busy: false, notice: message || "Tu sesión terminó. Vuelve a entrar." });
+    window.history.replaceState(LOGIN_ENTRY, "");
     draw();
+  }
+
+  // ------------------------------------------------------------ historial
+  const LOGIN_ENTRY = { lo: 1, screen: "login" };
+  const GUARD_ENTRY = { lo: 1, screen: "guard", depth: 0 };
+  const entry = (screen, person, depth) => ({ lo: 1, screen, person: person || "", depth });
+
+  function pushScreen(screen, person = "") {
+    st.depth += 1;
+    window.history.pushState(entry(screen, person, st.depth), "");
+  }
+
+  function toTop() { if (window.scrollTo) window.scrollTo(0, 0); }
+
+  // Dibuja una pantalla sin tocar el historial.
+  function show(screen, person = "") {
+    const sameBoard = st.tab === "reportes" && screen === "reportes";
+    st.tab = screen;
+    st.person = person || "";
+    if (sameBoard && window.CxReportsBoard) { window.CxReportsBoard.setOpen(st.person); return; }
+    draw();
+    toTop();
+    if (screen === "inicio") loadHome();
+    if (screen === "crm") loadCrm();
+  }
+
+  // Desde la barra o las tarjetas. Inicio no se apila: es volver a la entrada 1.
+  function go(screen) {
+    if (screen === "inicio") {
+      if (st.depth > 1) window.history.go(1 - st.depth);
+      else show("inicio");
+      return;
+    }
+    if (st.tab === screen && !st.person) return;
+    pushScreen(screen);
+    show(screen);
+  }
+
+  function onPop(event) {
+    if (!token()) {
+      window.history.replaceState(LOGIN_ENTRY, "");
+      st.confirmExit = false;
+      draw();
+      return;
+    }
+    const state = event.state;
+    if (!state || !state.lo || state.screen === "guard" || state.screen === "login") {
+      st.depth = 1;
+      window.history.pushState(entry("inicio", "", 1), "");
+      st.confirmExit = true;
+      st.tab = "inicio";
+      st.person = "";
+      draw();
+      return;
+    }
+    st.depth = Number(state.depth) || 1;
+    st.confirmExit = false;
+    show(state.screen, state.person);
+  }
+
+  function enterHistory() {
+    window.history.replaceState(GUARD_ENTRY, "");
+    st.depth = 1;
+    window.history.pushState(entry("inicio", "", 1), "");
+    st.tab = "inicio";
+    st.person = "";
   }
 
   async function read(path) {
@@ -201,9 +273,16 @@
       <button type="button" data-lo-exit>${h(T("Salir"))}</button></nav>`;
   }
 
+  function exitDialog() {
+    return `<div class="lo-modal"><div class="lo-dialog" role="alertdialog" aria-modal="true" aria-labelledby="loExitTitle">
+      <h2 id="loExitTitle">${h(T("¿Salir del panel?"))}</h2>
+      <div class="lo-dialog-actions"><button type="button" data-lo-exit-no>${h(T("No"))}</button><button type="button" class="lo-primary" data-lo-exit-yes>${h(T("Sí"))}</button></div>
+    </div></div>`;
+  }
+
   function panelView() {
     const body = st.tab === "crm" ? crmView() : st.tab === "reportes" ? `<main class="lo-main lo-reports"><div id="loBoardHost"></div></main>` : homeView();
-    return `${header()}${body}${nav()}`;
+    return `${header()}${body}${nav()}${st.confirmExit ? exitDialog() : ""}`;
   }
 
   // ------------------------------------------------------------ dibujo
@@ -228,12 +307,19 @@
 
   function mountBoard() {
     if (!window.CxReportsBoard) return;
-    window.CxReportsBoard.mount({
+    const mounted = window.CxReportsBoard.mount({
       companyId: CID, apiBase: API, baseUrl: panelUrl("reportes"), token, readonly: true,
       host: () => document.getElementById("loBoardHost"), back: () => {},
       today: () => (st.home && st.home.operation && st.home.operation.local_date) || "",
       onLost: () => sessionLost(),
+      keep: st.boardReady,
+      // Abrir o cerrar una persona es una entrada más del historial.
+      onOpen: (id) => { st.person = id || ""; pushScreen("reportes", st.person); },
     });
+    st.boardReady = true;
+    if (!st.person) return;
+    const wanted = st.person;
+    Promise.resolve(mounted).then(() => { if (st.tab === "reportes" && st.person === wanted) window.CxReportsBoard.setOpen(wanted); });
   }
 
   function draw() {
@@ -243,6 +329,7 @@
     el.innerHTML = token() ? panelView() : loginView();
     if (window.CxReportsBoard) window.CxReportsBoard.applyContrast(el);
     if (token() && st.tab === "reportes") mountBoard();
+    if (st.confirmExit) { const no = document.querySelector("[data-lo-exit-no]"); if (no) no.focus(); }
   }
 
   function drawCrmBody() {
@@ -258,18 +345,12 @@
   }
 
   // ------------------------------------------------------------ eventos
-  async function openTab(tab) {
-    st.tab = tab;
-    draw();
-    if (tab === "inicio") await loadHome();
-    if (tab === "crm") await loadCrm();
-  }
-
   async function exit() {
     const current = token();
     setToken("");
     stopTimers();
-    Object.assign(st, { tab: "inicio", home: null, crm: null, notice: "", query: "", chip: "all" });
+    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, notice: "", query: "", chip: "all" });
+    window.history.replaceState(LOGIN_ENTRY, "");
     draw();
     if (current) { try { await fetch(`${API}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${current}` } }); } catch (_) { /* el corte diario la cierra */ } }
   }
@@ -280,7 +361,9 @@
     const attr = (name) => { const el = t.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
     let v;
     if ((v = attr("data-lo-lang"))) { setLang(v); draw(); return; }
-    if ((v = attr("data-lo-tab"))) { openTab(v); return; }
+    if ((v = attr("data-lo-tab"))) { go(v); return; }
+    if (t.closest("[data-lo-exit-no]")) { st.confirmExit = false; draw(); return; }
+    if (t.closest("[data-lo-exit-yes]")) { exit(); return; }
     if ((v = attr("data-lo-chip"))) { st.chip = v; drawCrmBody(); return; }
     if (t.closest("[data-lo-exit]")) exit();
   }
@@ -309,6 +392,7 @@
       if (!res.ok) { st.notice = data.detail || "No se pudo actualizar. Revisa la conexión."; st.busy = false; draw(); return; }
       setToken(data.access_token);
       st.busy = false;
+      enterHistory();
       startTimers();
       draw();
       await loadHome();
@@ -319,18 +403,42 @@
     }
   }
 
-  function start() {
+  function onKey(event) {
+    if (event.key === "Escape" && st.confirmExit) { st.confirmExit = false; draw(); }
+  }
+
+  async function start() {
     if (!appEl()) return;
     setLang(savedLang(), false);
     applyBrand();
     document.addEventListener("click", onClick);
     document.addEventListener("input", onInput);
     document.addEventListener("submit", onSubmit);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("popstate", onPop);
     clockTimer = setInterval(tickClock, 20000);
+    if (!token()) {
+      window.history.replaceState(LOGIN_ENTRY, "");
+      draw();
+      return;
+    }
+    startTimers();
+    const state = window.history.state;
+    if (state && state.lo && state.screen !== "guard" && state.screen !== "login") {
+      // Recargó la página: sigue en la misma pantalla.
+      st.depth = Number(state.depth) || 1;
+      st.tab = state.screen;
+      st.person = state.person || "";
+      await loadHome();
+      draw();
+      if (st.tab === "crm") loadCrm();
+      return;
+    }
+    enterHistory();
     draw();
-    if (token()) { startTimers(); loadHome(); }
+    loadHome();
   }
 
-  window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer };
+  window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer, go, onPop, enterHistory, exitDialog };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

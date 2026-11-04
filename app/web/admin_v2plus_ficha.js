@@ -387,7 +387,7 @@
     const places = arr(data.places);
     const place = places.find((p) => p.id === ui.place) || places[0];
     const cards = places.map((p) => {
-      const link = `${origin}${p.link}`;
+      const link = `${origin}${p.short_link || p.link}`;
       return `<article class="vp-panel-card ${arr(p.leaders).length ? "is-on" : ""}" data-vpl-place="${h(p.id)}">
         <header><b>${h(p.name)}</b> <small class="vp-mono-muted">${h(p.abbr)}</small><span class="vp-state-pill ${arr(p.leaders).length ? "is-on" : ""}">${arr(p.leaders).length ? `${arr(p.leaders).length} líder${arr(p.leaders).length === 1 ? "" : "es"}` : "Sin líder"}</span></header>
         <small class="vp-mono" data-vpl-link>${h(link)}</small>

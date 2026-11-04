@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import extract_bearer_token, get_db
 from app.api.v1.endpoints.reports_board import _json_response, _period
 from app.models.auth import CompanyUser
-from app.services import auth_service, lider_operacion as svc
+from app.services import auth_service, lider_operacion as svc, short_links
 from app.services.access_sessions import register_access_session
 
 router = APIRouter()
@@ -185,16 +185,30 @@ async def _leaders(db: AsyncSession, company_id: UUID) -> list[CompanyUser]:
     return [u for u in users if svc.leader_settings(u).get("type") == svc.PANEL_TYPE and svc.leader_settings(u).get("enabled") is True]
 
 
+async def _short_links(db: AsyncSession, company_id: UUID, places: list[dict]) -> dict[str, str]:
+    """/c/CODIGO por operacion, el mismo siempre. Si falla, la consola muestra el enlace largo."""
+    targets = {p["id"]: short_links.panel_target(company_id, svc.entry_link(company_id, p)) for p in places}
+    try:
+        codes = await short_links.panel_links(db, company_id, sorted(t for t in targets.values() if t), length=short_links.LEADER_CODE_LENGTH)
+    except Exception:
+        await db.rollback()
+        return {}
+    return {pid: f"/c/{codes[t]}" for pid, t in targets.items() if t in codes}
+
+
 @router.get("/consola/companies/{company_id}")
 async def get_console(company_id: UUID, who: dict = Depends(admin_only), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    # Primero los enlaces: crear uno confirma o revierte la sesion y venceria a los usuarios ya cargados.
+    places = await svc.places(db, company_id)
+    shorts = await _short_links(db, company_id, places)
     leaders = await _leaders(db, company_id)
     out = []
-    for place in await svc.places(db, company_id):
+    for place in places:
         candidates = await svc.supervisors(db, company_id, place["id"])
         valid = {c["id"] for c in candidates}
         mine = [{**_leader_out(u), "valid": str(svc.leader_settings(u).get("employee_id")) in valid} for u in leaders if svc.is_leader_of(u, place["id"])]
         out.append({"id": place["id"], "name": place["name"], "code": place.get("code"), "abbr": place["abbr"], "accent": place["accent"],
-                    "link": svc.entry_link(company_id, place), "supervisors": candidates, "leaders": mine})
+                    "link": svc.entry_link(company_id, place), "short_link": shorts.get(place["id"]), "supervisors": candidates, "leaders": mine})
     return {"ok": True, "label": svc.LABEL, "places": out}
 
 

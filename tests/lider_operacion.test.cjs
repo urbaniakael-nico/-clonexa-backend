@@ -154,6 +154,22 @@ test('Consola: los dos enlaces para copiar y el formulario solo con los supervis
   assert.ok(al.includes('value="al" selected'));
 });
 
+test('Consola: muestra y copia el enlace corto en lugar del largo; sin corto, el largo', () => {
+  const F = ficha();
+  const withShort = { places: CONSOLE.places.map((p, i) => ({ ...p, short_link: i ? '/c/2M496FCU' : '/c/8AWXZJSY' })) };
+  const html = F.leaderZone(withShort, {}, 'https://clonexa.app');
+  for (const s of ['data-vpf-copy="https://clonexa.app/c/8AWXZJSY"', 'data-vpf-copy="https://clonexa.app/c/2M496FCU"', 'Copiar enlace', '<small class="vp-mono" data-vpl-link>https://clonexa.app/c/8AWXZJSY</small>']) assert.ok(html.includes(s), s);
+  assert.ok(!html.includes('company_id='), 'sin company_id visible');
+  assert.ok(F.leaderZone(CONSOLE, {}, 'https://clonexa.app').includes('lugar=virginia'), 'si no se pudo crear, el largo sigue');
+});
+
+test('Pregunta de salida en español e inglés, con Sí y No', () => {
+  const { L, window } = load({ token: 't' });
+  for (const s of ['¿Salir del panel?', 'data-lo-exit-yes', 'data-lo-exit-no', 'role="alertdialog"', '>Sí<', '>No<']) assert.ok(L.exitDialog().includes(s), s);
+  window.CxI18n.setLanguage('en');
+  for (const s of ['Leave the panel?', '>Yes<', '>No<']) assert.ok(L.exitDialog().includes(s), s);
+});
+
 test('Consola: sin supervisores no deja crear; apagado no se muestra; sin estilos en línea (CSP)', () => {
   const F = ficha();
   const empty = F.leaderZone({ places: [{ ...CONSOLE.places[0], supervisors: [] }] }, {}, '');

@@ -2200,7 +2200,7 @@
     "Ninguna persona coincide.": "No one matches.", "Última marca": "Last mark", "Sin marcas recientes": "No recent marks", "En vivo": "Live",
     "Actualizado {t}": "Updated {t}", "No se pudo actualizar. Revisa la conexión.": "Could not update. Check your connection.", "Entrada": "Check-in", "Retomar": "Resume", "Salida": "Check-out",
     "Sin perímetro": "No perimeter", "Sin ubicación": "No location", "En perímetro": "In perimeter", "Fuera de perímetro": "Outside perimeter", "Ajuste manual": "Manual adjustment",
-    "Buscar por nombre o texto de una nota": "Search by name or note text", "Terminó": "Finished", "Idioma": "Language", "Navegación": "Navigation", "Cargando…": "Loading…" });
+    "Buscar por nombre o texto de una nota": "Search by name or note text", "Terminó": "Finished", "Idioma": "Language", "Navegación": "Navigation", "Cargando…": "Loading…", "¿Salir del panel?": "Leave the panel?", "Sí": "Yes", "No": "No" });
 
   window.CX_I18N_DICT = { en: EN, fr: FR };
   window.CX_I18N_PATTERNS = { en: PATTERNS_EN, fr: PATTERNS_FR };

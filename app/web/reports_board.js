@@ -560,8 +560,10 @@
     if ((v = attr("data-rb-notes"))) { model.notesShown[v] = (model.notesShown[v] || NOTES_STEP) + NOTES_STEP * 2; drawResults(); return; }
     if ((v = attr("data-rb-open"))) {
       const fromTable = Boolean(t.closest(".rb-who"));
+      const before = model.open;
       model.open = model.open === v && fromTable ? "" : v;
       drawResults();
+      if (ctx.onOpen && model.open !== before) ctx.onOpen(model.open);
       if (!fromTable && model.open && typeof document.querySelector === "function") {
         const row = ctx.host().querySelector(`.rb-who[data-rb-open="${String(v).replace(/"/g, "")}"]`);
         if (row && row.scrollIntoView) row.scrollIntoView({ block: "center" });
@@ -597,13 +599,23 @@
       document.addEventListener("keydown", onKey);
       bound = true;
     }
-    Object.assign(model, { preset: "week", anchor: today(), data: null, error: "", denied: false, query: "", open: "", notesShown: {}, alertsAll: {} });
-    loadPrefs();
+    // keep: volver con la flecha atrás conserva el periodo y la búsqueda; solo refresca.
+    const keep = Boolean(context.keep && model.data);
+    if (!keep) {
+      Object.assign(model, { preset: "week", anchor: today(), data: null, error: "", denied: false, query: "", open: "", notesShown: {}, alertsAll: {} });
+      loadPrefs();
+    }
     stopTimer();
     ticks = 0;
     if (typeof setInterval === "function") timer = setInterval(tick, LIVE_MS);
-    await load();
+    if (keep) draw();
+    await load(keep);
   }
 
-  window.CxReportsBoard = { mount, model, view, results, rangeOf, norm, matchOf, highlight, visiblePeople, countOf, chipOf, applyLive, hm, alertText, contrast, applyContrast, _ctx: (c) => { ctx = c; } };
+  function setOpen(id) {
+    model.open = id || "";
+    drawResults();
+  }
+
+  window.CxReportsBoard = { mount, model, view, results, rangeOf, norm, matchOf, highlight, visiblePeople, countOf, chipOf, applyLive, hm, alertText, contrast, applyContrast, setOpen, _ctx: (c) => { ctx = c; } };
 })();

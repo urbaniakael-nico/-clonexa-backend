@@ -75,6 +75,13 @@ _SHORT_LINK_NOT_FOUND = """<!doctype html><html lang="es"><head><meta charset="u
 main{max-width:360px;text-align:center}h1{font-size:20px}p{opacity:.8}</style></head>
 <body><main><h1>Este link no existe o ya no sirve</h1><p>Pide a quien te lo envió un link nuevo.</p></main></body></html>"""
 
+_SHORT_LINK_TOO_MANY = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Demasiados intentos</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#0b0a14;color:#f4f2fb;padding:24px}
+main{max-width:360px;text-align:center}h1{font-size:20px}p{opacity:.8}</style></head>
+<body><main><h1>Demasiados intentos</h1><p>Espera unos minutos y abre de nuevo el link que te enviaron.</p>
+<h1 lang="en">Too many attempts</h1><p lang="en">Wait a few minutes and open the link you were sent again.</p></main></body></html>"""
+
 
 def register_client_portal(app: FastAPI) -> None:
     if getattr(app.state, "clonexa_client_portal_registered", False):
@@ -238,15 +245,23 @@ def register_client_portal(app: FastAPI) -> None:
     # propio ingreso o su codigo de un solo uso); no entrega datos.
     if not any(getattr(route, "path", None) == "/c/{code}" for route in app.routes):
         @app.get("/c/{code}", include_in_schema=False)
-        async def short_link_redirect(code: str, db: AsyncSession = Depends(get_db)) -> Response:
+        async def short_link_redirect(code: str, request: Request, db: AsyncSession = Depends(get_db)) -> Response:
             from app.services import short_links
 
+            ip = short_links.client_ip(request)
+            # Bloqueada, ni siquiera consulta: un codigo bueno no se distingue de uno malo.
+            if short_links.MISSES.blocked(ip):
+                return HTMLResponse(_SHORT_LINK_TOO_MANY, status_code=429,
+                                    headers={"Cache-Control": "no-store", "Retry-After": str(short_links.MISS_WINDOW_SECONDS)})
+            failed = False
             try:
                 target = await short_links.resolve(db, code)
             except Exception:
                 await db.rollback()
-                target = ""
+                target, failed = "", True
             if not target:
+                if not failed:  # una falla de la base no es un intento
+                    short_links.MISSES.note(ip)
                 return HTMLResponse(_SHORT_LINK_NOT_FOUND, status_code=404, headers={"Cache-Control": "no-store"})
             return RedirectResponse(url=target, status_code=302, headers={"Cache-Control": "no-store"})
 

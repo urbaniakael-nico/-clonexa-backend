@@ -73,6 +73,13 @@ html, body { margin: 0; }
 .lo-nav button { min-height: 48px; padding: 0 4px; background: transparent; color: var(--lo-on); border: 0; border-radius: 10px; font-size: 14px; font-weight: 600; }
 .lo-nav button.is-on { background: var(--lo-bg); color: var(--lo-fg); }
 
+.lo-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .6); }
+.lo-dialog { width: min(360px, 100%); display: grid; gap: 16px; padding: 20px; background: var(--lo-surface); color: var(--lo-on); border: 1px solid var(--lo-line); border-radius: 14px; }
+.lo-dialog h2 { margin: 0; font-size: 19px; }
+.lo-dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lo-dialog-actions button { min-height: 48px; border: 1px solid var(--lo-line); border-radius: 10px; font-weight: 700; background: var(--lo-plate); color: var(--lo-on); }
+.lo-dialog-actions .lo-primary { background: var(--lo-bg); color: var(--lo-fg); }
+
 /* El Board reutilizado: las piezas del portal que aquí no se cargan. */
 .lo-reports .client-btn { font: inherit; border: 1px solid var(--lo-line); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
 .lo-reports .client-eyebrow, .lo-reports .client-title { margin: 0; }

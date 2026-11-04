@@ -18,7 +18,9 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import time
 import uuid
+from collections import deque
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -32,7 +34,54 @@ PANEL_CODE_LENGTH = 6
 # Codigo de domicilio: credencial de un solo uso que vence en minutos;
 # 10 caracteres de 31 (~49 bits) no se pueden adivinar a fuerza bruta.
 DELIVERY_CODE_LENGTH = 10
+# Lider de operacion: 8 caracteres de 31 (~39 bits) mas el limite de intentos de abajo.
+LEADER_CODE_LENGTH = 8
+# Probar codigos al azar: 20 fallos en 10 minutos desde una IP y esa IP recibe 429 hasta que
+# envejezcan. Solo cuentan los fallos: un restaurante entero por la misma IP no se bloquea por usar
+# sus links. Un solo worker (scripts/start.sh), igual que los demas limites en memoria.
+MISS_LIMIT = 20
+MISS_WINDOW_SECONDS = 600
 CODE_RE = re.compile(rf"^[{ALPHABET}]{{4,16}}$")
+
+
+class MissLimiter:
+    def __init__(self, limit: int = MISS_LIMIT, window: float = MISS_WINDOW_SECONDS):
+        self.limit, self.window = limit, window
+        self.hits: dict[str, deque] = {}
+
+    def _recent(self, key: str, now: float) -> deque:
+        hits = self.hits.get(key)
+        if hits is None:
+            return deque()
+        while hits and now - hits[0] > self.window:
+            hits.popleft()
+        if not hits:
+            self.hits.pop(key, None)
+        return hits
+
+    def blocked(self, key: str, now: float | None = None) -> bool:
+        return len(self._recent(key, time.monotonic() if now is None else now)) >= self.limit
+
+    def note(self, key: str, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        self._recent(key, now)
+        if len(self.hits) > 20000:  # nunca crece sin limite
+            for old in list(self.hits)[:10000]:
+                self.hits.pop(old, None)
+        self.hits.setdefault(key, deque()).append(now)
+
+
+MISSES = MissLimiter()
+
+
+def client_ip(request: Any) -> str:
+    """La IP que puso el proxy de Railway. La primera de X-Forwarded-For la escribe el cliente:
+    con ella bastaria cambiarla en cada intento para saltarse el limite."""
+    headers = request.headers
+    real = str(headers.get("x-real-ip") or "").strip()
+    forwarded = [part.strip() for part in str(headers.get("x-forwarded-for") or "").split(",") if part.strip()]
+    client = getattr(request, "client", None)
+    return (real or (forwarded[-1] if forwarded else "") or (client.host if client else "") or "?")[:64]
 
 
 def new_code(length: int = PANEL_CODE_LENGTH) -> str:
@@ -81,10 +130,14 @@ def panel_target(company_id: Any, path_or_url: str) -> str:
     allowed = {k: v[0] for k, v in query.items() if k in {"company_id", "type"} and v}
     if "type" in allowed and not re.fullmatch(r"[a-z0-9_]{1,40}", allowed["type"]):
         return ""
+    # Lider de operacion: la operacion es parte del destino.
+    lugar = (query.get("lugar") or [""])[0]
+    if allowed.get("type") == "lider_operacion" and re.fullmatch(r"[a-z0-9-]{1,80}", lugar):
+        allowed["lugar"] = lugar
     return f"{path}?{urlencode(allowed)}"
 
 
-async def panel_links(db: AsyncSession, company_id: uuid.UUID, targets: list[str]) -> dict[str, str]:
+async def panel_links(db: AsyncSession, company_id: uuid.UUID, targets: list[str], length: int = PANEL_CODE_LENGTH) -> dict[str, str]:
     """Codigo corto (el mismo siempre) para cada ruta de mini panel."""
     out: dict[str, str] = {}
     for target in targets:
@@ -95,7 +148,7 @@ async def panel_links(db: AsyncSession, company_id: uuid.UUID, targets: list[str
             out[target] = str(row["code"])
             continue
         for _attempt in range(5):
-            code = new_code()
+            code = new_code(length)
             inserted = (await db.execute(text("""
                 INSERT INTO short_links (code, company_id, kind, target) VALUES (:code, CAST(:c AS uuid), 'mini_panel', :t)
                 ON CONFLICT DO NOTHING RETURNING code
