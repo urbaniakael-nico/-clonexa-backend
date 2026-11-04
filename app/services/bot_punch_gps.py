@@ -58,6 +58,13 @@ TEXTS = {
         "material_ok": "📍 Location registered.",
         "no_pending": "📍 Location received. To clock an action, first tap an option in the menu.",
     },
+    "fr": {
+        "btn": "📍 Envoyer ma position",
+        "prompt": "Touchez le bouton pour envoyer votre position actuelle.",
+        "reminder": "⏰ Nous n'avons pas encore reçu votre position. Touchez « 📍 Envoyer ma position » pour enregistrer votre action.",
+        "material_ok": "📍 Position enregistrée.",
+        "no_pending": "📍 Position reçue. Pour enregistrer une action, touchez d'abord une option du menu.",
+    },
 }
 
 
@@ -262,7 +269,7 @@ async def loop() -> None:
     base (UPDATE ... RETURNING / INSERT ... ON CONFLICT DO NOTHING), asi que aunque
     corrieran dos copias (despliegue solapado) nadie recibe dos mensajes."""
     from app.core.database import AsyncSessionLocal
-    from app.services import open_shift_alert
+    from app.services import bot_finish_summary, bot_processing_alert, open_shift_alert
 
     last_alert = 0.0
     while True:
@@ -274,6 +281,13 @@ async def loop() -> None:
                     await open_shift_alert.run_all(db)
         except Exception as exc:  # nunca tumba el servidor
             log.warning("Recordatorios del bot no pudieron correr: %s", type(exc).__name__)
+        try:  # 068A: aparte, para que un recordatorio que falla no atrase los cierres
+            async with AsyncSessionLocal() as db:
+                await bot_finish_summary.run_all(db)
+        except Exception as exc:
+            log.warning("Cierre de turnos sin resumen no pudo correr: %s", type(exc).__name__)
+            for company_id in list(bot_processing_alert._WATCHED):
+                await bot_processing_alert.observe(company_id, kind="ciclo del bot", seconds=0.0, error=type(exc).__name__)
         await asyncio.sleep(LOOP_SECONDS)
 
 

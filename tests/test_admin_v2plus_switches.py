@@ -148,7 +148,7 @@ def test_switches_endpoint_requires_admin_v2_session(client):
     assert client.db.sql == []
     client.mp.setattr(ep.v2, "_active_session", AsyncMock(return_value=True))
     body = client.c.get("/admin-v2/api/switches").json()
-    assert len(body["registry"]["switches"]) == 34 and len(body["companies"]) == 2
+    assert len(body["registry"]["switches"]) == 35 and len(body["companies"]) == 2
 
 
 def test_switches_script_is_served():

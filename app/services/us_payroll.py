@@ -525,6 +525,17 @@ BOT_TEXTS = {
         "pending": "💵 Pay: per hourly rate (pending)",
         "no_place": "📍 No work location (company time)",
     },
+    "fr": {
+        "head": "Bon repos, {name}.",
+        "times": "🕐 Entrée {start} · Sortie {end}",
+        "pauses": "⏸ Pauses : {pause} (non payées)",
+        "today": "✅ Temps payable aujourd'hui : {payable}",
+        "week": "📅 Semaine : {week} sur {limit}",
+        "overtime": "⏱ Heures supplémentaires de la semaine : {ot}",
+        "pay": "💵 Projection de la semaine : {amount}",
+        "pending": "💵 Paiement : selon le tarif (en attente)",
+        "no_place": "📍 Sans lieu de travail (heure de l'entreprise)",
+    },
 }
 
 

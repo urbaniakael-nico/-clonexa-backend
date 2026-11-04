@@ -52,6 +52,11 @@ TEXTS = {
         "boss": "⏰ Shift open for {hours} h\n👤 {name}\n📍 {place}\n🕐 Started: {start}\n\nIf they already left, close it in the portal (CRM Campo or Personal › Close shift) with the real end time.",
         "no_place": "No work location",
     },
+    "fr": {
+        "worker": "⏰ Votre service est toujours ouvert depuis {start} ({hours} h).\nSi vous avez terminé, touchez « Fin service » dans le menu. Sinon, demandez à votre superviseur de le fermer avec votre heure réelle de sortie.",
+        "boss": "⏰ Service ouvert depuis {hours} h\n👤 {name}\n📍 {place}\n🕐 Début : {start}\n\nSi la personne est déjà partie, fermez-le dans le portail (CRM Campo ou Personal › Fermer le service) avec l'heure réelle de sortie.",
+        "no_place": "Sans lieu de travail",
+    },
 }
 
 
@@ -269,7 +274,7 @@ async def run_all(db: AsyncSession) -> int:
                 except Exception:
                     await db.rollback()
                     return "es"
-                return "en" if lang == "en" else "es"
+                return lang if lang in TEXTS else "es"
 
             total += await run_company(db, cid, send=send, language_of=language_of)
         except Exception as exc:  # una empresa con datos raros no frena a las demas
@@ -301,16 +306,21 @@ def clean_note(value: Any) -> str:
 
 async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body: Any, *, actor: str,
                       actor_user_id: str | None, now_utc: datetime | None = None,
-                      min_hours: float = 0.0, leader: dict[str, Any] | None = None) -> dict[str, Any]:
+                      min_hours: float = 0.0, leader: dict[str, Any] | None = None,
+                      origin: dict[str, Any] | None = None) -> dict[str, Any]:
     """Cierra un turno abierto con la hora real de salida y la nota. Nunca abre ni cambia
     otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto.
     Con `min_hours` (el limite del aviso de la empresa) un turno mas nuevo no se cierra:
     TooEarly. El portal siempre lo pasa.
     Con `leader` (067A, "Finalizar turno ahora" del panel del lider) la salida es AHORA y solo
     si el turno va por debajo de leader["max_hours"]; lleva origen cerrado_por_lider y la
-    ubicacion del equipo del lider (leader["latitude"], leader["longitude"])."""
+    ubicacion del equipo del lider (leader["latitude"], leader["longitude"]).
+    Con `origin` (068A, cierre sin resumen del bot) cambian canal, etiqueta y fuente, y lleva
+    su ubicacion y datos extra; misma auditoria."""
     now_utc = now_utc or datetime.now(timezone.utc)
     channel, label, source = "portal_manual_close", "Turno cerrado por supervisor", "portal"
+    if origin:
+        channel, label, source = origin["channel"], origin["label"], origin["source"]
     if leader:
         channel, label, source = LEADER_CHANNEL, "Turno finalizado por el líder", LEADER_CHANNEL
         body = {"end_at": now_utc.isoformat(), "note": body.get("note") if isinstance(body, dict) else None}
@@ -343,6 +353,9 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
         payload["closed_by_leader"] = True
         payload["punch_location"] = {"latitude": leader["latitude"], "longitude": leader["longitude"],
                                      "horizontal_accuracy": leader.get("accuracy"), "device": "leader"}
+    if origin:
+        payload.update(origin.get("payload") or {})
+    point = leader or origin or {}
     event_id = (await db.execute(text("""
         INSERT INTO workforce_attendance_events (
             company_id, employee_id, event_type, event_label, employee_name, status_after,
@@ -354,7 +367,7 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
         )
         RETURNING id::text
     """), {"c": cid, "e": eid, "n": str(row["employee_name"])[:180], "note": note, "p": json.dumps(payload), "at": end_at, "label": label,
-           "source": source, "channel": channel, "lat": leader["latitude"] if leader else None, "lng": leader["longitude"] if leader else None})).scalar()
+           "source": source, "channel": channel, "lat": point.get("latitude"), "lng": point.get("longitude")})).scalar()
     await db.execute(text("""
         UPDATE workforce_attendance_status
            SET status = 'checked_out', last_event_type = 'check_out', last_event_at = :at,

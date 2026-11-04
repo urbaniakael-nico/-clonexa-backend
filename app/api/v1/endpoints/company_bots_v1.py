@@ -34,6 +34,11 @@ DEDICATED_FLOW_CODES = {"velvet_references", "field_operations"}
 # no debe iniciar turnos tarde: se responde 200 y se descarta.
 STALE_UPDATE_SECONDS = 600
 STALE_UPDATE_REPLY = "Este mensaje llegó tarde, vuelve a intentarlo."
+STALE_UPDATE_REPLIES_068A = {
+    "es": STALE_UPDATE_REPLY,
+    "en": "This message arrived late, please try again.",
+    "fr": "Ce message est arrivé en retard, veuillez réessayer.",
+}
 
 
 def clean(value: Any) -> str:
@@ -1282,6 +1287,10 @@ async def process_company_telegram_update(
     (nunca silencio) y el log trae el error real (sin secretos)."""
     from app.services import telegram_chat_queue as queue
 
+    from app.services import bot_processing_alert
+
+    started = time.monotonic()
+    error_name: str | None = None
     kind = queue.update_kind(update)
     meta = {"update_id": update.get("update_id"), "kind": kind, "tg_user": queue.user_id_of(update)}
 
@@ -1312,18 +1321,38 @@ async def process_company_telegram_update(
         await queue.run_in_order(key, work, on_retry=retrying)
     except Exception as exc:
         info = queue.describe_error(exc)
+        error_name = "/".join(x for x in (info["type"], info["sqlstate"]) if x)
         logger.warning(
             "Telegram update %s de la empresa %s fallo en segundo plano (%s) tipo=%s usuario_telegram=%s driver=%s sqlstate=%s mensaje=%s",
             meta["update_id"], company_id, info["type"], kind, meta["tg_user"], info["driver_type"], info["sqlstate"], info["message"],
         )
         if flow_code == "field_operations" and queue.is_action(update):
             await send_failure_reply_060A(token, update)
+    await bot_processing_alert.observe(company_id, kind=kind, seconds=time.monotonic() - started, error=error_name)  # 068A
 
 
 FAILURE_REPLY_060A = {
     "es": "⚠️ No pudimos registrar tu acción, intenta de nuevo.",
     "en": "⚠️ We couldn't register your action, please try again.",
+    "fr": "⚠️ Nous n'avons pas pu enregistrer votre action, veuillez réessayer.",
 }
+
+
+async def stale_reply_068A(db: AsyncSession, company_id: str, update: dict[str, Any]) -> str:
+    """"Llego tarde" en el idioma de la persona: el que eligio en el bot o el de su celular."""
+    from app.services import telegram_chat_queue as queue
+
+    callback = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
+    source = callback or update.get("message") or update.get("edited_message") or {}
+    language = str(((source or {}).get("from") or {}).get("language_code") or "").lower()[:2]
+    with contextlib.suppress(Exception):
+        chosen = (await db.execute(text("""
+            SELECT language FROM company_telegram_user_preferences
+            WHERE company_id = CAST(:c AS uuid) AND telegram_user_id = :t LIMIT 1
+        """), {"c": company_id, "t": queue.user_id_of(update)})).scalar()
+        if chosen in STALE_UPDATE_REPLIES_068A:
+            language = chosen
+    return STALE_UPDATE_REPLIES_068A.get(language, STALE_UPDATE_REPLY)
 
 
 async def send_failure_reply_060A(token: str, update: dict[str, Any]) -> None:
@@ -1421,7 +1450,8 @@ async def company_telegram_webhook(
     if age is not None and age > STALE_UPDATE_SECONDS:
         logger.warning("Telegram update %s de la empresa %s descartado: llego %d s tarde", update_id, company_id, int(age))
         if not (live_updates and isinstance(update.get("edited_message"), dict)):  # 059C: una ubicacion en vivo atrasada, en silencio
-            background_tasks.add_task(send_message, token, extract_update(update).get("chat_id"), STALE_UPDATE_REPLY)
+            late_reply = await stale_reply_068A(db, company_id, update) if flow_code == "field_operations" else STALE_UPDATE_REPLY
+            background_tasks.add_task(send_message, token, extract_update(update).get("chat_id"), late_reply)
         return {"ok": True, "ignored": "stale_update"}
 
     background_tasks.add_task(process_company_telegram_update, company_id, flow_code, token, update)

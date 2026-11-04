@@ -1936,6 +1936,69 @@ BOT_TEXTS["fr"].update({
     "shift_discount_059C": "Remise de la période : {discount}",
 })
 
+# CLONEXA_068A_TEXTS_START: Finalizar sin bucles y textos que faltaban o estaban fijos en un idioma.
+BOT_TEXTS["es"].update({
+    "summary_missing_068A": "Te falta escribir el resumen de hoy. Escríbelo en un solo mensaje.",
+    "auto_closed_068A": "⏰ Tu turno se cerró con la hora de tu ubicación ({time}) porque no llegó el resumen de hoy. Quedó con la nota «Sin resumen».",
+    "gps_live_required_strict": "📍 Para iniciar turno necesito tu ubicación en vivo: toca 📎 › Ubicación › Compartir ubicación en vivo.",
+    "no_material_permission": "No tienes permisos para solicitar material.",
+    "no_permission_or_module": "No tienes permisos o el módulo no está activo.",
+    "no_material_or_inventory": "No tienes permisos para solicitar material o Inventario no está activo.",
+    "telegram_id_intro": "🆔 Tu Telegram ID es: {telegram_user_id}\n\nEntrega este número a la persona encargada para completar tu registro en CLONEXA.",
+    "telegram_id_missing": "NO_DETECTADO",
+    "event_duplicate": "Evento duplicado ignorado.",
+    "material_order_created": "📦 Solicitud registrada. Orden: {order_number}.",
+    "materials_webapp_intro": "📦 Abre el inventario, busca el material, agrega cantidades al carrito y confirma la solicitud.",
+    "btn_open_inventory": "📦 Abrir inventario",
+    "status_label_working": "trabajando",
+    "status_label_on_break": "en pausa",
+    "status_label_checked_out": "turno finalizado",
+    "status_label_sin_turno": "sin turno",
+})
+BOT_TEXTS["en"].update({
+    "end_shift_summary_prompt": "🏁 To end your shift, please summarize today's work.\n\nWrite your summary in a single message.",
+    "end_shift_summary_saved": "📝 Work summary saved with your end of shift.",
+    "end_shift_summary_required": "To close the workday I need your summary of today's work.",
+    "summary_missing_068A": "You still need to write today's summary. Send it in a single message.",
+    "auto_closed_068A": "⏰ Your shift was closed at the time of your location ({time}) because today's summary didn't arrive. It was saved with the note \"No summary\".",
+    "gps_live_required_strict": "📍 To start your shift I need your live location: tap 📎 › Location › Share live location.",
+    "no_material_permission": "You don't have permission to request material.",
+    "no_permission_or_module": "You don't have permission or this module is not active.",
+    "no_material_or_inventory": "You don't have permission to request material or Inventory is not active.",
+    "telegram_id_intro": "🆔 Your Telegram ID is: {telegram_user_id}\n\nGive this number to the person in charge to complete your CLONEXA registration.",
+    "telegram_id_missing": "NOT_DETECTED",
+    "event_duplicate": "Duplicate event ignored.",
+    "material_order_created": "📦 Request saved. Order: {order_number}.",
+    "materials_webapp_intro": "📦 Open the inventory, find the material, add quantities to the cart and confirm the request.",
+    "btn_open_inventory": "📦 Open inventory",
+    "status_label_working": "working",
+    "status_label_on_break": "on break",
+    "status_label_checked_out": "shift ended",
+    "status_label_sin_turno": "no shift",
+})
+BOT_TEXTS["fr"].update({
+    "end_shift_summary_prompt": "🏁 Pour terminer le service, veuillez résumer votre travail d'aujourd'hui.\n\nÉcrivez votre résumé en un seul message.",
+    "end_shift_summary_saved": "📝 Résumé de travail enregistré à la clôture du service.",
+    "end_shift_summary_required": "Pour clôturer la journée, j'ai besoin de votre résumé de travail d'aujourd'hui.",
+    "summary_missing_068A": "Il vous reste à écrire le résumé d'aujourd'hui. Écrivez-le en un seul message.",
+    "auto_closed_068A": "⏰ Votre service a été fermé à l'heure de votre position ({time}) car le résumé d'aujourd'hui n'est pas arrivé. Il porte la note « Sans résumé ».",
+    "gps_live_required_strict": "📍 Pour commencer le service, j'ai besoin de votre position en direct : touchez 📎 › Position › Partager ma position en direct.",
+    "no_material_permission": "Vous n'avez pas l'autorisation de demander du matériel.",
+    "no_permission_or_module": "Vous n'avez pas l'autorisation ou ce module n'est pas actif.",
+    "no_material_or_inventory": "Vous n'avez pas l'autorisation de demander du matériel ou l'Inventaire n'est pas actif.",
+    "telegram_id_intro": "🆔 Votre Telegram ID est : {telegram_user_id}\n\nDonnez ce numéro à la personne responsable pour terminer votre inscription à CLONEXA.",
+    "telegram_id_missing": "NON_DÉTECTÉ",
+    "event_duplicate": "Événement en double ignoré.",
+    "material_order_created": "📦 Demande enregistrée. Ordre : {order_number}.",
+    "materials_webapp_intro": "📦 Ouvrez l'inventaire, cherchez le matériel, ajoutez les quantités au panier et confirmez la demande.",
+    "btn_open_inventory": "📦 Ouvrir l'inventaire",
+    "status_label_working": "au travail",
+    "status_label_on_break": "en pause",
+    "status_label_checked_out": "service terminé",
+    "status_label_sin_turno": "sans service",
+})
+# CLONEXA_068A_TEXTS_END
+
 # Encendido solo si la empresa del bot tiene bot_gps_stop; se lee una vez por mensaje.
 GPS_STOP_059C: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_gps_stop", default=False)
 
@@ -2013,6 +2076,8 @@ async def _process_gps_stop_button_059D(db: AsyncSession, *, bot: Any, token: st
 
 # CLONEXA_060B_BOT_PUNCH_GPS_START: ubicacion solo en cada marcacion (interruptor bot_punch_gps, VOLTAGE).
 PUNCH_GPS_060: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_punch_gps", default=False)
+# 068A: Finalizar sin bucles (interruptor bot_finish_summary, VOLTAGE).
+FINISH_SUMMARY_068A: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_finish_summary", default=False)
 BOT_TEXTS["es"]["punch_shift_started_060"] = "✅ Ubicación recibida.\nInicio de turno registrado."
 BOT_TEXTS["en"]["punch_shift_started_060"] = "✅ Location received.\nShift started."
 BOT_TEXTS["fr"]["punch_shift_started_060"] = "✅ Position reçue.\nDébut de service enregistré."
@@ -2107,8 +2172,13 @@ async def _process_punch_location_060(db: AsyncSession, *, bot: Any, token: str,
 
     if turn_action == "end_shift" and not args:
         # Finalizar sigue pidiendo el resumen del dia; la salida lleva esta ubicacion.
+        extra_068a: dict[str, Any] = {}
+        if FINISH_SUMMARY_068A.get():  # 068A: sin resumen en 30 min, se cierra con esta hora
+            from app.services import bot_finish_summary
+
+            extra_068a = {"auto_close_at": bot_finish_summary.auto_close_at(punch)}
         await _set_pending_end_shift_summary(db, company_id=bot.company_id, telegram_user_id=telegram_user_id, telegram_username=username,
-                                             employee_id=employee.id, chat_id=chat_id, language=language, punch_location=punch)
+                                             employee_id=employee.id, chat_id=chat_id, language=language, punch_location=punch, **extra_068a)
         await db.commit()
         if send_replies:
             await _send_telegram_message(token, chat_id, _txt(language, "end_shift_summary_prompt"), reply_markup=_remove_reply_keyboard())
@@ -2119,7 +2189,7 @@ async def _process_punch_location_060(db: AsyncSession, *, bot: Any, token: str,
         await db.commit()
         if send_replies:
             await _send_telegram_message(token, chat_id, bot_punch_gps.t(language, "material_ok"), reply_markup=_remove_reply_keyboard())
-            await _send_materials_webapp_button(token=token, chat_id=chat_id, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+            await _send_materials_webapp_button(token=token, chat_id=chat_id, company_id=bot.company_id, telegram_user_id=telegram_user_id, language=language)
         return TelegramBotPollItem(update_id=update_id, ok=True, action="materials_webapp_button", message="Botón Web App Materiales enviado.", **base)
 
     created, message_text = await _create_bot_attendance_event(db, bot=bot, employee=employee, update=update, message=message, command=command,
@@ -2456,11 +2526,11 @@ def _materials_webapp_url(*, company_id: Any, telegram_user_id: str | None = Non
     return f"{CLONEXA_MATERIALS_WEBAPP_BASE_URL}/webapp/materials?{urlencode(params)}"
 
 
-def _materials_webapp_keyboard(*, company_id: Any, telegram_user_id: str | None = None) -> dict[str, Any]:
+def _materials_webapp_keyboard(*, company_id: Any, telegram_user_id: str | None = None, language: str = DEFAULT_LANGUAGE) -> dict[str, Any]:
     return {
         "inline_keyboard": [[
             {
-                "text": "📦 Abrir inventario",
+                "text": _txt(language, "btn_open_inventory"),
                 "web_app": {"url": _materials_webapp_url(company_id=company_id, telegram_user_id=telegram_user_id)},
             }
         ]]
@@ -2473,12 +2543,13 @@ async def _send_materials_webapp_button(
     chat_id: str | None,
     company_id: Any,
     telegram_user_id: str | None,
+    language: str = DEFAULT_LANGUAGE,
 ) -> None:
     await _send_telegram_message(
         token,
         chat_id,
-        "📦 Abre el inventario, busca el material, agrega cantidades al carrito y confirma la solicitud.",
-        reply_markup=_materials_webapp_keyboard(company_id=company_id, telegram_user_id=telegram_user_id),
+        _txt(language, "materials_webapp_intro"),
+        reply_markup=_materials_webapp_keyboard(company_id=company_id, telegram_user_id=telegram_user_id, language=language),
     )
 
 
@@ -2903,6 +2974,7 @@ async def _set_pending_end_shift_summary(
     chat_id: str | None,
     language: str,
     punch_location: dict[str, Any] | None = None,
+    auto_close_at: str | None = None,
 ) -> None:
     await ensure_bot_storage(db)
     await db.execute(
@@ -2946,6 +3018,7 @@ async def _set_pending_end_shift_summary(
                     "language": _lang(language),
                     "reason": "end_shift_summary_required",
                     **({"punch_location": punch_location} if punch_location else {}),  # 060B
+                    **({"auto_close_at": auto_close_at} if auto_close_at else {}),  # 068A
                 }
             ),
         },
@@ -3066,6 +3139,13 @@ async def _process_end_shift_summary_text(
 
     command_config = TELEGRAM_COMMANDS["/salida"]
     pending_payload = _pending_payload(pending)  # 060B: jsonb puede llegar como texto
+    punch_location = pending_payload.get("punch_location") if PUNCH_GPS_060.get() else None  # 060B
+    exit_at = None
+    if punch_location:  # 068A: la salida es la hora de la ubicacion de Finalizar, no la del resumen
+        from app.services import bot_finish_summary
+
+        current = await _get_current_attendance_status(db, employee.company_id, employee.id)
+        exit_at = bot_finish_summary.exit_time(punch_location, getattr(current, "last_event_at", None))
     created, message_text = await _create_bot_attendance_event(
         db,
         bot=bot,
@@ -3076,7 +3156,8 @@ async def _process_end_shift_summary_text(
         args=summary,
         command_config=command_config,
         language=language,
-        punch_location=pending_payload.get("punch_location") if PUNCH_GPS_060.get() else None,  # 060B
+        punch_location=punch_location,
+        occurred_at=exit_at,
     )
 
     await _clear_pending_end_shift_summary(
@@ -3110,6 +3191,55 @@ async def _process_end_shift_summary_text(
         telegram_user_id=telegram_user_id,
         telegram_username=username,
     )
+
+
+# CLONEXA_068A_FINISH_SUMMARY_START: Finalizar sin bucles (interruptor bot_finish_summary, VOLTAGE).
+async def _summary_gate_068A(db: AsyncSession, *, bot: Any, token: str, update: dict[str, Any], telegram_user_id: str, username: str | None,
+                             chat_id: str | None, text_value: str, language: str, send_replies: bool) -> "TelegramBotPollItem | None":
+    """Esperando el resumen: un boton, un comando, otra ubicacion o una foto no reinician nada;
+    se responde que falta. El texto normal es el resumen y cambiar de idioma sigue funcionando.
+    Si el turno ya se cerro (lider, portal), el pendiente se descarta y todo sigue normal."""
+    if text_value == "clx:language" or text_value.startswith("clx:lang:"):
+        return None
+    pending = await _get_pending_end_shift_summary(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+    if pending is None:
+        return None
+    current = await _get_current_attendance_status(db, bot.company_id, UUID(str(pending["employee_id"]))) if pending.get("employee_id") else None
+    if _current_status_key(current) not in {"working", "on_break"}:
+        await _clear_pending_end_shift_summary(db, company_id=bot.company_id, telegram_user_id=telegram_user_id)
+        await db.commit()
+        return None
+    is_button = isinstance(update.get("callback_query"), dict)
+    if text_value and not is_button and not text_value.startswith(("/", "clx:")):
+        return None  # este es el resumen
+    reply = _txt(language, "summary_missing_068A")
+    if send_replies:
+        await _send_telegram_message(token, chat_id, reply, reply_markup=_remove_reply_keyboard())
+    return TelegramBotPollItem(update_id=update.get("update_id"), ok=True, action="end_shift_summary_missing", message=reply, event_created=False,
+                               telegram_user_id=telegram_user_id, telegram_username=username)
+
+
+async def notify_no_summary_close_068A(db: AsyncSession, *, company_id: UUID, token: str, done: dict[str, Any]) -> None:
+    """Aviso del cierre sin resumen, en el idioma de la persona, con el menu de siempre."""
+    from app.services import bot_gps_stop, bot_punch_gps
+
+    telegram_user_id = str(done["telegram_user_id"])
+    phone = PHONE_LANGUAGE_052D.set(done.get("language"))  # lo que tenia cuando toco Finalizar
+    gps_stop = GPS_STOP_059C.set(await bot_gps_stop.is_on(db, company_id))
+    punch = PUNCH_GPS_060.set(await bot_punch_gps.is_on(db, company_id))
+    try:
+        language = await _get_user_language(db, company_id, telegram_user_id)
+        message_text = _txt(language, "auto_closed_068A", time=done["time_label"])
+        employee = await db.get(Employee, UUID(str(done["employee_id"])))
+        await _send_checkout_message_059C(token, done["chat_id"], message_text, language, db=db, employee=employee, telegram_user_id=telegram_user_id)
+        if employee is not None:
+            company = await ensure_company_exists(db, company_id)
+            await _send_dynamic_menu(db, token=token, chat_id=done["chat_id"], company=company, employee=employee, language=language)
+    finally:
+        PUNCH_GPS_060.reset(punch)
+        GPS_STOP_059C.reset(gps_stop)
+        PHONE_LANGUAGE_052D.reset(phone)
+# CLONEXA_068A_FINISH_SUMMARY_END
 
 
 @ddl_once("material_requests_storage")  # 060A: sin DDL (ni bloqueos de tabla) en cada mensaje
@@ -3643,7 +3773,7 @@ async def _process_material_cart_callback(
             elif error == "turn_validation_failed":
                 await _send_telegram_message(token, chat_id, _txt(language, "must_start_shift"))
             else:
-                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material.")
+                await _send_telegram_message(token, chat_id, _txt(language, "no_material_permission"))
 
             if employee is not None and company is not None:
                 await _send_dynamic_menu(
@@ -3965,7 +4095,7 @@ async def _process_material_cart_text(
                     reply_markup=_language_keyboard(),
                 )
             else:
-                await _send_telegram_message(token, chat_id, "No tienes permisos o el módulo no está activo.")
+                await _send_telegram_message(token, chat_id, _txt(language, "no_permission_or_module"))
 
             if employee is not None and company is not None:
                 fresh_employee = await _find_employee_by_telegram(db, company_id_value, telegram_user_id, username)
@@ -4253,6 +4383,7 @@ async def _create_material_request_record(
     event: WorkforceAttendanceEvent,
     employee: Employee,
     detail: str,
+    language: str = DEFAULT_LANGUAGE,
 ) -> str:
     await _ensure_material_requests_storage(db)
     parsed = _parse_material_request_text(detail)
@@ -4336,7 +4467,7 @@ async def _create_material_request_record(
             "order_number": order_number,
         },
     )
-    return f"📦 Solicitud registrada. Orden: {order_number}."
+    return _txt(language, "material_order_created", order_number=order_number)
 
 
 async def _create_gps_location_event(
@@ -4821,15 +4952,19 @@ async def _create_bot_attendance_event(
     language: str = DEFAULT_LANGUAGE,
     punch_location: dict[str, Any] | None = None,
     origin: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
 ) -> tuple[bool, str]:
     """origin (067A): la marca NO viene de Telegram (Marcar con PIN del panel del lider). Misma
-    logica y mismas reglas; cambian solo source, source_channel, source_ref y lo que se anota."""
+    logica y mismas reglas; cambian solo source, source_channel, source_ref y lo que se anota.
+    occurred_at (068A): la hora de la marcacion cuando no es la de ahora (Finalizar: la de la ubicacion)."""
     update_id = str(update.get("update_id") or "")
     message_id = str(message.get("message_id") or "")
     callback = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
     if callback and not message_id:
         message_id = str((callback.get("message") or {}).get("message_id") or "")
-    occurred_at = utcnow()
+    exit_from_location = occurred_at is not None
+    received_at = utcnow()
+    occurred_at = occurred_at or received_at
     source_ref = origin["source_ref"] if origin else f"telegram:{update_id}:{message_id}:{command}"
 
     duplicate_result = await db.execute(
@@ -4839,7 +4974,7 @@ async def _create_bot_attendance_event(
         )
     )
     if duplicate_result.scalar_one_or_none() is not None:
-        return False, "Evento duplicado ignorado."
+        return False, _txt(language, "event_duplicate")
 
     event_type = command_config["event_type"]
     event_label = command_config["event_label"]
@@ -4896,6 +5031,8 @@ async def _create_bot_attendance_event(
             event.longitude = Decimal(str(punch_location.get("longitude")))
         event.payload_json = {**(event.payload_json or {}), "punch_location": punch_location,
                               "gps_status": punch_location.get("gps_status"), "gps_status_label": punch_location.get("gps_status_label")}
+    if exit_from_location:
+        event.payload_json = {**(event.payload_json or {}), "exit_from_location": True, "summary_received_at": received_at.isoformat()}
     db.add(event)
     await db.flush()
 
@@ -4906,6 +5043,7 @@ async def _create_bot_attendance_event(
             event=event,
             employee=employee,
             detail=detail,
+            language=language,
         )
 
     started_at: datetime | None = None
@@ -5220,9 +5358,13 @@ async def _process_telegram_update(
     from app.services import bot_punch_gps
 
     punch = PUNCH_GPS_060.set(await bot_punch_gps.is_on(db, bot.company_id))  # 060B
+    from app.services import bot_finish_summary
+
+    finish = FINISH_SUMMARY_068A.set(await bot_finish_summary.is_on(db, bot.company_id))  # 068A
     try:
         return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
     finally:
+        FINISH_SUMMARY_068A.reset(finish)
         PUNCH_GPS_060.reset(punch)
         GPS_STOP_059C.reset(gps_stop)
         PHONE_LANGUAGE_052D.reset(phone)
@@ -5318,6 +5460,12 @@ async def _process_telegram_update_052C(
 
     if callback_query_id:
         await _answer_callback_query(token, callback_query_id)
+
+    if FINISH_SUMMARY_068A.get() and telegram_user_id:  # 068A: esperando el resumen, nada lo reinicia
+        waiting = await _summary_gate_068A(db, bot=bot, token=token, update=update, telegram_user_id=telegram_user_id, username=username,
+                                           chat_id=chat_id, text_value=text_value, language=language, send_replies=send_replies)
+        if waiting is not None:
+            return waiting
 
     if isinstance(message.get("location"), dict):
         return await _process_telegram_location(
@@ -5422,13 +5570,14 @@ async def _process_telegram_update_052C(
             if employee is None:
                 await _send_telegram_message(token, chat_id, _txt(language, "not_linked", telegram_user_id=telegram_user_id), reply_markup=_language_keyboard())
             elif "materials" not in enabled_modules or "inventory" not in enabled_modules or not _employee_can_request_material(employee):
-                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material o Inventario no está activo.")
+                await _send_telegram_message(token, chat_id, _txt(language, "no_material_or_inventory"))
             else:
                 await _send_materials_webapp_button(
                     token=token,
                     chat_id=chat_id,
                     company_id=bot.company_id,
                     telegram_user_id=telegram_user_id,
+                    language=language,
                 )
         return TelegramBotPollItem(
             update_id=update_id,
@@ -5453,8 +5602,7 @@ async def _process_telegram_update_052C(
                 await _send_telegram_message(
                     token,
                     chat_id,
-                    f"🆔 Tu Telegram ID es: {telegram_user_id or 'NO_DETECTADO'}\n\n"
-                    "Entrega este número a la persona encargada para completar tu registro en CLONEXA.",
+                    _txt(language, "telegram_id_intro", telegram_user_id=telegram_user_id or _txt(language, "telegram_id_missing")),
                 )
             if not has_language:
                 await _send_telegram_message(token, chat_id, _txt(language, "choose_language"), reply_markup=_language_keyboard())
@@ -5601,7 +5749,7 @@ async def _process_telegram_update_052C(
     if command in {"/material", "/materiales"}:
         if "inventory" not in enabled_modules or not _employee_can_request_material(employee):
             if send_replies:
-                await _send_telegram_message(token, chat_id, "No tienes permisos para solicitar material o Inventario no está activo.")
+                await _send_telegram_message(token, chat_id, _txt(language, "no_material_or_inventory"))
                 await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
             return TelegramBotPollItem(
                 update_id=update_id,
@@ -5678,6 +5826,7 @@ async def _process_telegram_update_052C(
                 chat_id=chat_id,
                 company_id=bot.company_id,
                 telegram_user_id=telegram_user_id,
+                language=language,
             )
         return TelegramBotPollItem(
             update_id=update_id,
@@ -5723,7 +5872,8 @@ async def _process_telegram_update_052C(
             language=language,
         )
         await db.commit()
-        reply = _txt(language, "status_line", employee_name=employee.full_name, status_text=status_text)
+        status_label = _txt(language, f"status_label_{status_text}") if f"status_label_{status_text}" in BOT_TEXTS[DEFAULT_LANGUAGE] else status_text
+        reply = _txt(language, "status_line", employee_name=employee.full_name, status_text=status_label)
         if send_replies:
             await _send_telegram_message(token, chat_id, reply)
             await _send_dynamic_menu(db, token=token, chat_id=chat_id, company=company, employee=employee, language=language)
