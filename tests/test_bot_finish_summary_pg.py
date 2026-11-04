@@ -153,7 +153,7 @@ async def world(maker, monkeypatch):
     bot_processing_alert.reset()
 
 
-async def _company(w, switches: dict | None = None) -> str:
+async def _company(w, switches: dict | None = None) -> tuple[str, str]:
     async with w.maker() as db:
         cid = await seedmod.company(db, f"E{uuid.uuid4().hex[:6]}", board=False)
         await db.execute(text("""UPDATE company_modules cm SET settings = CAST(:s AS jsonb) FROM modules m
@@ -243,6 +243,14 @@ async def _backdate(w, cid: str, tg: str, minutes: float) -> datetime:
         await db.execute(text("""UPDATE company_telegram_pending_actions SET payload_json = CAST(:p AS jsonb)
                                  WHERE company_id = CAST(:c AS uuid) AND telegram_user_id = :t AND action = 'end_shift_summary'"""),
                          {"c": cid, "t": tg, "p": json.dumps(payload)})
+        # El turno empezo antes de esa ubicacion (si no, la regla de la ultima marcacion manda).
+        started = located - timedelta(hours=8)
+        person = """(SELECT employee_id FROM company_telegram_pending_actions
+                     WHERE company_id = CAST(:c AS uuid) AND telegram_user_id = :t AND action = 'end_shift_summary')"""
+        await db.execute(text(f"""UPDATE workforce_attendance_status SET check_in_at = :s, last_event_at = :s
+                                  WHERE company_id = CAST(:c AS uuid) AND employee_id = {person}"""), {"c": cid, "t": tg, "s": started})
+        await db.execute(text(f"""UPDATE workforce_attendance_events SET occurred_at = :s
+                                  WHERE company_id = CAST(:c AS uuid) AND event_type = 'check_in' AND employee_id = {person}"""), {"c": cid, "t": tg, "s": started})
         await db.commit()
     return located
 

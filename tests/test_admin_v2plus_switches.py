@@ -55,7 +55,7 @@ async def test_activate_changes_only_the_sent_key_and_only_that_company(monkeypa
 def test_registry_is_valid_and_matches_the_approved_inventory():
     data = sr.registry()
     keys = {s["key"] for s in data["switches"]}
-    assert len(keys) == 34 and {"carta_video", "carta_qr_piezas", "references_v2", "workforce_v2", "payroll_v2", "reports_v2", "loyalty_games", "loyalty_retos_v2", "qr_welcome_name"} <= keys
+    assert len(keys) == 35 and {"carta_video", "carta_qr_piezas", "references_v2", "workforce_v2", "payroll_v2", "reports_v2", "loyalty_games", "loyalty_retos_v2", "qr_welcome_name"} <= keys
     delicate = {s["key"] for s in data["switches"] if s.get("delicate")}
     assert {"sales_ledger", "cashier_redesign", "checkout_v2"} <= delicate
     assert sr.required_modules() == ["carta", "cotizacion", "crm", "domicilios_whatsapp", "gps", "hospitality", "loyalty", "payroll", "production", "qr", "references", "reports", "waiter_ordering", "workforce"]
