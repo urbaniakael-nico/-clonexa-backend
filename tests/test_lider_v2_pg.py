@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import re
 import sys
 import tempfile
@@ -435,6 +436,7 @@ async def test_marcar_con_pin_todo_el_turno_y_se_ve_en_crm_reportes_y_nomina(wor
     crm = (await w.client.get(_panel(w, "crm"), headers=w.auth)).json()
     noa = next(p for p in crm["people"] if p["name"] == "Noa Prado")
     assert noa["origin"] == "pin" and noa["last_mark"]["o"] == "pin" and noa["last_mark"]["k"] == "out" and noa["can_finish"] is False
+    assert noa["shift"]["in"]["o"] == "pin" and noa["shift"]["out"]["o"] == "pin" and len(noa["shift"]["pauses"]) == 1 and noa["shift"]["pauses"][0]["o"] == "pin"
 
     day = datetime.now(UTC).date()
     rep = (await w.client.get(_panel(w, "reportes"), params={"start": (day - timedelta(days=1)).isoformat(), "end": (day + timedelta(days=1)).isoformat()}, headers=w.auth)).json()
@@ -497,6 +499,11 @@ async def test_lider_finaliza_ahora_con_auditoria_y_aviso(world, status):
     crm = (await w.client.get(_panel(w, "crm"), headers=w.auth)).json()
     zoe = next(p for p in crm["people"] if p["name"] == "Zoe Mar")
     assert zoe["state"] == status and zoe["can_finish"] is True and zoe["since"]
+    assert zoe["shift"]["in"]["t"] == zoe["since"] and zoe["shift"]["out"] is None
+    if status == "on_break":
+        assert len(zoe["shift"]["pauses"]) == 1 and zoe["shift"]["pauses"][0]["end"] is None
+    for word in ("lat", "lng"):
+        assert f'"{word}"' not in json.dumps(zoe), "el detalle no lleva coordenadas"
 
     before = datetime.now(UTC)
     # Cualquier hora que mande el navegador se ignora: no existe ese campo.

@@ -114,6 +114,23 @@ def last_mark_of(person: dict) -> Optional[dict]:
     return {"k": last["k"], "label": reports_board.MARK_LABEL[last["k"]], "t": last["t"], "d": last["d"], "a": last["a"], "at": last["at"], "place": place, "s": status, "o": last.get("o") or ""}
 
 
+def _brief_mark(mark: dict) -> dict:
+    return {"t": mark["t"], "d": mark["d"], "a": mark["a"], "o": mark.get("o") or ""}
+
+
+def latest_shift(person: dict, since: Optional[dict]) -> Optional[dict]:
+    """El detalle de la persona: su turno mas reciente con entrada, pausas y salida, sin coordenadas."""
+    shifts = [s for d in person.get("days") or [] for s in d.get("shifts") or [] if s.get("in")]
+    last = max(shifts, key=lambda s: s["in"]["at"]) if shifts else None
+    if since and (not last or str(last["in"]["at"]) < str(since.get("at") or "")):
+        return {"in": _brief_mark(since), "out": None, "pauses": []}  # entro en este mismo minuto
+    if not last:
+        return None
+    pauses = [{"start": p["start"]["t"], "end": p["end"]["t"] if p.get("end") else None, "minutes": int(p.get("minutes") or 0), "o": p["start"].get("o") or ""}
+              for p in last.get("pauses") or [] if p.get("start")]
+    return {"in": _brief_mark(last["in"]), "out": _brief_mark(last["out"]) if last.get("out") else None, "pauses": pauses}
+
+
 def crm_person(person: dict) -> dict:
     now = person.get("now") or {}
     state = people_state(person)
@@ -123,7 +140,7 @@ def crm_person(person: dict) -> dict:
         # Entro en este mismo minuto: su turno aun no tiene linea de tiempo, pero ya marco.
         mark = {"k": "in", "label": reports_board.MARK_LABEL["in"], "t": since["t"], "d": since["d"], "a": since["a"], "place": "", "s": None, "o": since.get("o") or ""}
     out = {"id": person["id"], "name": person["name"], "role": person.get("role") or "", "state": state,
-           "last_mark": mark, "origin": (mark or {}).get("o") or "", "can_finish": state in ("working", "on_break")}
+           "last_mark": mark, "origin": (mark or {}).get("o") or "", "can_finish": state in ("working", "on_break"), "shift": latest_shift(person, since)}
     if now.get("minutes") is not None:
         out["minutes"] = int(now["minutes"])
     if now.get("end"):

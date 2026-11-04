@@ -4,6 +4,7 @@
    Alabama ámbar. Todos los pares de color pasan AA sobre estas placas. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; }
+html[data-lo-theme="light"] .lo-body { background: #eef3fa; }
 .lo-body { background: #050b1c; font-family: var(--lo-font, Inter, "Segoe UI", system-ui, sans-serif); }
 .lo-app {
   --lo-on: #f2f6ff;
@@ -18,15 +19,46 @@ html, body { margin: 0; }
   --lo-gray: #aebad0;
   --lo-ink: #06101f;
   --lo-cyan: #27d3f5;
+  --lo-panel: #0e1a36;
+  --lo-nav: #081124;
+  --lo-input: rgba(8, 16, 36, .9);
+  --lo-err-bg: rgba(60, 16, 28, .75);
+  --lo-ok-bg: rgba(8, 48, 34, .75);
+  --lo-glow-1: rgba(35, 110, 220, .34);
   --rb-line: var(--lo-line);
   min-height: 100vh; min-height: 100dvh; color: var(--lo-on); font-size: 15px; line-height: 1.4; overflow-wrap: anywhere;
   background-color: var(--lo-surface);
-  background-image: radial-gradient(90% 55% at 12% -8%, rgba(35, 110, 220, .34), transparent 70%), radial-gradient(70% 45% at 100% 8%, var(--lo-glow), transparent 70%);
+  background-image: radial-gradient(90% 55% at 12% -8%, var(--lo-glow-1), transparent 70%), radial-gradient(70% 45% at 100% 8%, var(--lo-glow), transparent 70%);
   background-attachment: fixed; background-repeat: no-repeat;
 }
 .lo-a0 { --lo-accent: #2dd4bf; --lo-glow: rgba(45, 212, 191, .16); --lo-head: #0a2a33; }
 .lo-a1 { --lo-accent: #fbbf24; --lo-glow: rgba(251, 191, 36, .14); --lo-head: #2a2212; }
 .lo-ax { --lo-accent: #93c5fd; --lo-glow: rgba(147, 197, 253, .14); --lo-head: #14213d; }
+/* Modo claro: mismas piezas y mismo significado; los colores bajan de tono para pasar AA sobre claro. */
+.lo-app.is-light {
+  color-scheme: light;
+  --lo-on: #0f1b33;
+  --lo-soft: #46546c;
+  --lo-surface: #eef3fa;
+  --lo-glass: rgba(255, 255, 255, .86);
+  --lo-glass-2: rgba(255, 255, 255, .97);
+  --lo-line: rgba(30, 60, 120, .24);
+  --lo-green: #0a7a43;
+  --lo-orange: #a84d06;
+  --lo-red: #c0183a;
+  --lo-gray: #566279;
+  --lo-ink: #ffffff;
+  --lo-cyan: #0a6685;
+  --lo-panel: #ffffff;
+  --lo-nav: #ffffff;
+  --lo-input: #ffffff;
+  --lo-err-bg: #fdecef;
+  --lo-ok-bg: #e6f6ee;
+  --lo-glow-1: rgba(35, 110, 220, .14);
+}
+.lo-app.is-light.lo-a0 { --lo-accent: #0b6b63; --lo-glow: rgba(15, 118, 110, .12); --lo-head: #d8f3ee; }
+.lo-app.is-light.lo-a1 { --lo-accent: #8a3f0a; --lo-glow: rgba(180, 83, 9, .10); --lo-head: #fdeccb; }
+.lo-app.is-light.lo-ax { --lo-accent: #1e4f9c; --lo-glow: rgba(30, 79, 156, .10); --lo-head: #dfe9f8; }
 .lo-app button { font: inherit; cursor: pointer; color: inherit; }
 .lo-app button:disabled { cursor: progress; opacity: .75; }
 .lo-app :is(button, input, textarea, a):focus-visible { outline: 3px solid var(--lo-cyan); outline-offset: 2px; }
@@ -41,7 +73,8 @@ html, body { margin: 0; }
 .lo-lang { display: inline-flex; border: 1px solid var(--lo-line); border-radius: 10px; overflow: hidden; }
 .lo-lang button { min-height: 44px; padding: 0 10px; background: transparent; color: var(--lo-on); border: 0; font-size: 13px; font-weight: 600; }
 .lo-lang button.is-on { background: var(--lo-on); color: var(--lo-ink); }
-.lo-lang-row { display: flex; justify-content: flex-end; }
+.lo-lang-row { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.lo-theme { min-height: 44px; padding: 0 12px; border: 1px solid var(--lo-line); border-radius: 10px; background: transparent; color: var(--lo-on) !important; font-size: 13px; font-weight: 600; }
 
 /* Vidrio */
 .lo-card, .lo-module, .lo-counter, .lo-person, .lo-note, .lo-dialog, .lo-search, .lo-chip, .lo-key, .lo-clockcard { background-color: var(--lo-glass); border: 1px solid var(--lo-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
@@ -52,11 +85,11 @@ html, body { margin: 0; }
 .lo-main .lo-card { max-width: none; }
 .lo-card h1 { margin: 0; font-size: 22px; }
 .lo-card label { display: grid; gap: 6px; font-weight: 600; }
-.lo-card input, .lo-search, .lo-summary textarea { width: 100%; min-height: 46px; padding: 8px 12px; border: 1px solid var(--lo-line); border-radius: 12px; background-color: rgba(8, 16, 36, .9); color: var(--lo-on); font: inherit; }
+.lo-card input, .lo-search, .lo-summary textarea { width: 100%; min-height: 46px; padding: 8px 12px; border: 1px solid var(--lo-line); border-radius: 12px; background-color: var(--lo-input); color: var(--lo-on); font: inherit; }
 .lo-search::placeholder, .lo-summary textarea::placeholder { color: var(--lo-soft); opacity: 1; }
 .lo-primary { min-height: 48px; padding: 0 16px; border: 0; border-radius: 12px; background-color: var(--lo-accent); color: var(--lo-ink) !important; font-weight: 700; }
-.lo-error { margin: 0; padding: 10px 12px; border: 1px solid var(--lo-red); border-radius: 12px; font-weight: 600; color: var(--lo-red); background-color: rgba(60, 16, 28, .75); }
-.lo-ok { margin: 0; padding: 10px 12px; border: 1px solid var(--lo-green); border-radius: 12px; font-weight: 600; color: var(--lo-green); background-color: rgba(8, 48, 34, .75); }
+.lo-error { margin: 0; padding: 10px 12px; border: 1px solid var(--lo-red); border-radius: 12px; font-weight: 600; color: var(--lo-red); background-color: var(--lo-err-bg); }
+.lo-ok { margin: 0; padding: 10px 12px; border: 1px solid var(--lo-green); border-radius: 12px; font-weight: 600; color: var(--lo-green); background-color: var(--lo-ok-bg); }
 
 /* Inicio */
 .lo-main { display: grid; gap: 14px; padding: 16px 16px calc(92px + env(safe-area-inset-bottom)); max-width: 1180px; margin: 0 auto; }
@@ -94,13 +127,29 @@ html, body { margin: 0; }
 @keyframes lo-pulse { 0% { box-shadow: 0 0 0 0 rgba(47, 240, 143, .65); } 70% { box-shadow: 0 0 0 9px rgba(47, 240, 143, 0); } 100% { box-shadow: 0 0 0 0 rgba(47, 240, 143, 0); } }
 @media (prefers-reduced-motion: reduce) { .lo-dot { animation: none !important; } }
 .lo-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
-.lo-person { display: grid; gap: 6px 10px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 11px 12px 11px 14px; border-radius: 14px; border-left: 4px solid var(--lo-c, var(--lo-gray)); }
+.lo-people li { display: grid; min-width: 0; }
+.lo-person { display: grid; gap: 6px 10px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: 56px; padding: 11px 12px 11px 14px; text-align: left; border-radius: 14px; border-left: 4px solid var(--lo-c, var(--lo-gray)); }
 .lo-person-who { display: grid; gap: 1px; min-width: 0; }
 .lo-person b { color: var(--lo-on); }
 .lo-person small { font-size: 12.5px; color: var(--lo-soft); }
 .lo-person small.lo-st { color: var(--lo-c); font-weight: 600; }
 .lo-time { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--lo-c, var(--lo-on)); white-space: nowrap; }
-.lo-finish { grid-column: 1 / -1; min-height: 44px; border: 1px solid var(--lo-red); border-radius: 10px; background-color: rgba(60, 16, 28, .75); color: #ffc2c8 !important; font-size: 14px; font-weight: 600; }
+
+/* Detalle de la persona. "Finalizar turno" es discreto a propósito: texto rojo sin relleno. */
+.lo-sheet { width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; display: grid; gap: 12px; padding: 18px; background-color: var(--lo-panel); color: var(--lo-on); border: 1px solid var(--lo-line); border-radius: 16px; }
+.lo-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lo-sheet-head h2 { margin: 0; font-size: 19px; line-height: 1.25; color: var(--lo-on); }
+.lo-sheet-head p { margin: 2px 0 0; font-size: 13px; color: var(--lo-soft); }
+.lo-sheet-head .lo-link { flex: none; padding: 0 14px; }
+.lo-rows { display: grid; gap: 10px; margin: 0; }
+.lo-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.lo-row dt { font-size: 13px; color: var(--lo-soft); }
+.lo-row dd { margin: 0; color: var(--lo-on); font-variant-numeric: tabular-nums; }
+.lo-pauses { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lo-sheet-foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--lo-line); padding-top: 4px; }
+.lo-finish-link { min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--lo-red) !important; font-size: 13px; font-weight: 500; }
+.lo-check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; font-size: 14px; font-weight: 600; color: var(--lo-on); cursor: pointer; }
+.lo-check input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--lo-red); }
 .lo-state { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border: 1px solid var(--lo-c, var(--lo-line)); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--lo-c, var(--lo-on)); }
 
 /* PIN */
@@ -129,22 +178,25 @@ html, body { margin: 0; }
 .lo-summary textarea { min-height: 110px; resize: vertical; font-weight: 400; }
 
 /* Barra inferior */
-.lo-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background-color: #081124; border-top: 1px solid var(--lo-line); }
+.lo-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background-color: var(--lo-nav); border-top: 1px solid var(--lo-line); }
 .lo-nav button { min-height: 48px; padding: 0 2px; background: transparent; color: var(--lo-on); border: 0; border-radius: 10px; font-size: 13.5px; font-weight: 600; }
 .lo-nav button.is-on { color: var(--lo-accent); background-color: var(--lo-head); }
 
 /* Diálogos */
 .lo-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0, 4, 14, .72); }
-.lo-dialog { width: min(380px, 100%); display: grid; gap: 16px; padding: 20px; background-color: #0e1a36; color: var(--lo-on); border-radius: 16px; }
+.lo-dialog { width: min(380px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; display: grid; gap: 16px; padding: 20px; background-color: var(--lo-panel); color: var(--lo-on); border-radius: 16px; }
 .lo-dialog h2 { margin: 0; font-size: 19px; line-height: 1.25; }
 .lo-dialog p { margin: 0; font-size: 14px; color: var(--lo-soft); }
 .lo-dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .lo-dialog-actions button { min-height: 48px; border: 1px solid var(--lo-line); border-radius: 12px; font-weight: 700; background-color: var(--lo-glass-2); color: var(--lo-on); }
 .lo-dialog-actions .lo-primary { border: 0; background-color: var(--lo-accent); }
 .lo-dialog-actions .is-danger { border: 0; background-color: var(--lo-red); color: var(--lo-ink) !important; }
+.lo-dialog-actions .is-danger:disabled { opacity: 1; cursor: not-allowed; border: 1px solid var(--lo-line); background-color: transparent; color: var(--lo-soft) !important; }
+.lo-dialog-actions .lo-next { background-color: transparent; }
 
 /* El Board reutilizado: mismo estilo y el mismo semáforo. */
 /* !important: el Board escribe sus colores en línea sobre .rb-root; aquí manda el semáforo del panel. */
+.lo-app.is-light .lo-reports .rb-root { --rb-plate: rgba(255, 255, 255, .9); }
 .lo-reports .rb-root { --rb-good: var(--lo-green) !important; --rb-warn: var(--lo-orange) !important; --rb-danger: var(--lo-red) !important; --rb-pause: var(--lo-orange) !important; --rb-plate: rgba(21, 36, 72, .68); }
 .lo-reports .rb-panel { background-color: var(--lo-glass); border-color: var(--lo-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
 .lo-reports .rb-now.is-off, .lo-reports .rb-now.is-done { color: var(--lo-gray); border-color: var(--lo-gray); }

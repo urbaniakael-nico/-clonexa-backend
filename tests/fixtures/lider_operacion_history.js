@@ -28,7 +28,7 @@
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   function snapshot(name) {
     const on = q(".lo-nav .is-on");
-    steps.push({ name, same_page: window.__boot === boot, screen: q("[data-lo-login]") ? "login" : on ? on.getAttribute("data-lo-tab") : "?", person_open: Boolean(q(".rb-detail")), confirm: Boolean(q(".lo-dialog")),
+    steps.push({ name, same_page: window.__boot === boot, screen: q("[data-lo-login]") ? "login" : on ? on.getAttribute("data-lo-tab") : "?", person_open: Boolean(q(".rb-detail") || q(".lo-sheet")), confirm: Boolean(q(".lo-dialog")),
       preset: (q('[data-rb-preset].is-on') || {}).getAttribute ? q('[data-rb-preset].is-on').getAttribute("data-rb-preset") : "", logouts,
       token: sessionStorage.getItem(window.CxLiderOperacion.TOKEN_KEY) || "", state: (history.state || {}).screen || "", overflow: document.documentElement.scrollWidth > innerWidth + 1, width: innerWidth });
   }
@@ -69,6 +69,10 @@
     await pause(300);
     snapshot("reportes conserva mes");
     await back("atras a crm 2");
+    await click("[data-lo-person]", "detalle");
+    await back("atras cierra detalle");
+    await forward("adelante abre detalle");
+    await click("[data-lo-detail-close]", "cerrar detalle");
     await back("atras a inicio");
     await back("atras pregunta");
     await click("[data-lo-exit-no]");

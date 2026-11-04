@@ -12,6 +12,7 @@
   const getItem = Storage.prototype.getItem;
   Storage.prototype.getItem = function (k) {
     if (k === "cx_lider_lang") return P.get("lang") || "es";
+    if (k === "cx_lider_theme") return P.get("theme") || "dark";
     if (String(k).startsWith("clonexa_mini_panel_token_")) return tab === "login" ? "" : "preview";
     return getItem.call(this, k);
   };
@@ -21,7 +22,8 @@
   const STATES = [["working", 280], ["on_break", 20], ["no_shift"], ["to_confirm", 900], ["working", 45]];
   const PEOPLE = Array.from({ length: 25 }, (_, i) => {
     const [state, minutes] = STATES[i % STATES.length];
-    return { id: `p${i}`, name: i === 3 ? LONG : `Persona de prueba ${String(i + 1).padStart(2, "0")}`, role: i % 7 === 0 ? "Supervisor" : "Operario", state, ...(minutes ? { minutes } : {}), can_finish: state === "working" || state === "on_break", origin: i % 2 ? "pin" : "app",
+    return { id: `p${i}`, name: i === 3 || i === 4 ? LONG : `Persona de prueba ${String(i + 1).padStart(2, "0")}`, role: i % 7 === 0 ? "Supervisor" : "Operario", state, ...(minutes ? { minutes } : {}), can_finish: state === "working" || state === "on_break", origin: i % 2 ? "pin" : "app",
+      shift: { in: { t: "07:00", d: "2026-11-05", a: OP.abbr, o: "app" }, out: null, pauses: [{ start: "09:00", end: "09:15", minutes: 15, o: "pin" }, { start: "11:40", end: null, minutes: 20, o: "app" }] },
       ...(i % 10 === 2 ? { end: { t: "17:05", a: OP.abbr } } : {}),
       last_mark: i % 5 === 2 && i % 10 !== 2 ? null : { k: "in", label: "Entrada", t: "07:00", d: "2026-11-05", a: OP.abbr, place: i % 2 ? "Sin perímetro" : "Patio de almacenamiento principal número 3", s: i % 2 ? "unconfigured" : "inside" } };
   });
@@ -73,19 +75,22 @@
       if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== "inline") bad.push({ tag: el.tagName, cls: String(el.className || "").slice(0, 40), text: (el.textContent || "").trim().slice(0, 40) });
     });
     const low = [];
-    root.querySelectorAll(".lo-head h1, .lo-kicker, .lo-lang button, .lo-card label, .lo-primary, .lo-bigclock strong, .lo-bigclock span, .lo-who, .lo-counter strong, .lo-counter span, .lo-module h3, .lo-module p, .lo-crm-top h2, .lo-chip, .lo-person b, .lo-person small, .lo-time, .lo-finish, .lo-pdf, .lo-state, .lo-pin-hint, .lo-key, .lo-note p, .lo-action, .lo-link, .lo-person-card h2, .lo-avatar, .lo-nav button, .client-title, .client-eyebrow, .rb-root .client-btn, .rb-fig span, .rb-fig strong, .rb-chip, .rb-table thead th, .rb-now").forEach((el) => {
+    root.querySelectorAll(".lo-head h1, .lo-kicker, .lo-lang button, .lo-card label, .lo-primary, .lo-bigclock strong, .lo-bigclock span, .lo-who, .lo-counter strong, .lo-counter span, .lo-module h3, .lo-module p, .lo-crm-top h2, .lo-chip, .lo-person b, .lo-person small, .lo-time, .lo-finish-link, .lo-sheet-head h2, .lo-sheet-head p, .lo-row dt, .lo-row dd, .lo-dialog h2, .lo-dialog p, .lo-check span, .lo-dialog-actions button:not(:disabled), .lo-pdf, .lo-state, .lo-pin-hint, .lo-key, .lo-note p, .lo-action, .lo-link, .lo-person-card h2, .lo-avatar, .lo-nav button, .client-title, .client-eyebrow, .rb-root .client-btn, .rb-fig span, .rb-fig strong, .rb-chip, .rb-table thead th, .rb-now").forEach((el) => {
       if (el.offsetParent === null || !(el.textContent || "").trim()) return;
       const r = ratio(el);
       if (r < 4.5) low.push({ cls: String(el.className || el.tagName), text: (el.textContent || "").trim().slice(0, 30), ratio: r });
     });
-    const small = [...root.querySelectorAll(".lo-nav button, .lo-chip, .lo-lang button, .lo-primary, .lo-key, .lo-action, .lo-finish, .lo-pdf, .lo-link, .lo-counter")].filter((b) => b.offsetParent !== null && b.getBoundingClientRect().height < 44).map((b) => (b.textContent || "").trim());
+    const small = [...root.querySelectorAll(".lo-nav button, .lo-chip, .lo-lang button, .lo-primary, .lo-key, .lo-action, .lo-finish-link, .lo-pdf, .lo-link, .lo-counter, .lo-dialog-actions button, .lo-check")].filter((b) => b.offsetParent !== null && b.getBoundingClientRect().height < 44).map((b) => (b.textContent || "").trim());
     const nav = document.querySelector(".lo-nav");
     const cards = [...root.querySelectorAll(".lo-module")];
     const dotColor = (cls) => { const el = root.querySelector(`.lo-person.${cls} .lo-dot, .lo-counter.${cls} strong`); return el ? getComputedStyle(el)[el.tagName === "STRONG" ? "color" : "backgroundColor"] : ""; };
     out.textContent = JSON.stringify({ width: window.innerWidth, ready: true, tab, page_overflow: document.documentElement.scrollWidth > window.innerWidth + 1, bad, low_contrast: low, small,
       text: root.textContent.replace(/\s+/g, " ").slice(0, 5000), nav: nav ? [...nav.querySelectorAll("button")].map((b) => b.textContent.trim()) : [], modules: cards.length,
       side_by_side: cards.length === 3 && Math.abs(cards[0].getBoundingClientRect().top - cards[1].getBoundingClientRect().top) < 2,
-      keys: root.querySelectorAll(".lo-key").length, actions: [...root.querySelectorAll(".lo-action")].map((b) => b.getAttribute("data-lo-punch")), finish_buttons: root.querySelectorAll(".lo-finish").length,
+      keys: root.querySelectorAll(".lo-key").length, actions: [...root.querySelectorAll(".lo-action")].map((b) => b.getAttribute("data-lo-punch")), card_finish: root.querySelectorAll(".lo-people .lo-finish-link, .lo-people [data-lo-finish]").length, sheet: Boolean(root.querySelector(".lo-sheet")), sheet_link: root.querySelectorAll(".lo-sheet .lo-finish-link").length,
+      link_style: (() => { const l = root.querySelector(".lo-finish-link"); if (!l) return null; const c = getComputedStyle(l); return { color: c.color, bg: c.backgroundColor, border: c.borderTopWidth }; })(),
+      next: Boolean(root.querySelector("[data-lo-finish-next]")), checkbox: Boolean(root.querySelector("[data-lo-confirm]")), yes_disabled: root.querySelector("[data-lo-finish-yes]") ? root.querySelector("[data-lo-finish-yes]").disabled : null,
+      focus_cancel: window.__focusCancel === true, cancel_visible: (() => { const c = root.querySelector("[data-lo-finish-no]"); if (!c) return false; const r = c.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })(),
       semaforo: { working: dotColor("is-working"), on_break: dotColor("is-on_break"), to_confirm: dotColor("is-to_confirm"), no_shift: dotColor("is-no_shift") },
       body_bg: getComputedStyle(root).backgroundColor,
       people: root.querySelectorAll(".lo-person").length, board_rows: root.querySelectorAll(".rb-row").length, exports: root.querySelectorAll("[data-rb-export]").length,
@@ -95,13 +100,21 @@
 
   const go = () => {
     if (tab === "login") return setTimeout(measure, 300);
-    const wanted = tab === "pinp" ? "pin" : tab;
+    const wanted = tab === "pinp" ? "pin" : tab.startsWith("crm") ? "crm" : tab;
     const target = [...document.querySelectorAll(".lo-nav [data-lo-tab]")].find((b) => b.getAttribute("data-lo-tab") === wanted);
     if (!target) return setTimeout(go, 150);
     target.click();
     const wait = () => {
       if (tab === "reportes" && !document.querySelector(".rb-root .rb-row")) return setTimeout(wait, 150);
-      if (tab === "crm" && !document.querySelector(".lo-person")) return setTimeout(wait, 150);
+      if (tab.startsWith("crm") && !document.querySelector(".lo-person")) return setTimeout(wait, 150);
+      if (tab.startsWith("crm") && tab !== "crm") {
+        document.querySelector('[data-lo-person="p4"]').click();
+        if (tab !== "crmd") document.querySelector("[data-lo-finish]").click();
+        if (tab === "crmc2") document.querySelector("[data-lo-finish-next]").click();
+        // Se mide aquí mismo: con varios iframes, el que se dibuja después se lleva el foco de la página.
+        window.__focusCancel = document.activeElement ? document.activeElement.hasAttribute("data-lo-finish-no") : false;
+        return setTimeout(measure, 500);
+      }
       if (tab === "inicio" && !document.querySelector(".lo-module")) return setTimeout(wait, 150);
       if ((tab === "pin" || tab === "pinp") && !document.querySelector(".lo-key")) return setTimeout(wait, 150);
       if (tab === "pinp" && !window.__pinTyped) {

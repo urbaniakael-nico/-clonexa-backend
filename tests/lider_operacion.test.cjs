@@ -58,7 +58,7 @@ test('Barra inferior: Inicio · CRM · PIN · Reportes · Salir', () => {
   assert.deepEqual([...html.matchAll(/<button[^>]*>([^<]+)</g)].map((m) => m[1]), ['Inicio', 'CRM', 'PIN', 'Reportes', 'Salir']);
 });
 
-test('CRM: buscador sin tildes, chips en semáforo, A-Z, origen y tiempo; finalizar solo si se puede', () => {
+test('CRM: buscador sin tildes, chips en semáforo, A-Z, origen y tiempo', () => {
   const { L } = load({ token: 't' });
   const names = (q, chip) => [...L.filterPeople(PEOPLE, q, chip)].map((p) => p.id).join('');
   assert.equal(names('', 'all'), 'abcde');
@@ -75,21 +75,71 @@ test('CRM: buscador sin tildes, chips en semáforo, A-Z, origen y tiempo; finali
     assert.ok(html.includes(s), s);
   assert.deepEqual([...html.matchAll(/data-lo-chip="(\w+)"/g)].map((m) => m[1]), ['working', 'on_break', 'to_confirm', 'no_shift']);
   for (const [cls, name] of [['is-working', 'Ángela'], ['is-on_break', 'Bruno'], ['is-to_confirm', 'Elena'], ['is-no_shift', 'Carla']]) assert.match(html, new RegExp(`lo-person ${cls}"[^]*?${name}`));
-  // Solo trabajando o en pausa (menos del límite): "Por confirmar" no tiene botón y nunca hay campo de hora.
-  assert.deepEqual([...html.matchAll(/data-lo-finish="(\w+)"/g)].map((m) => m[1]), ['a', 'b']);
   assert.doesNotMatch(html, /type="(time|datetime-local)"|name="end_at"|Cerrar turno/i);
 });
 
-test('Finalizar: confirmación con nombre y hora local, sin campo para escribir horas', () => {
+test('Modo claro: oscuro por defecto, se elige en el encabezado y el equipo lo recuerda', () => {
+  const dark = load({ token: 't' });
+  assert.equal(dark.L.savedTheme(), 'dark');
+  assert.equal(dark.L.st.theme, 'dark');
+  assert.match(dark.L.themeButton(), /data-lo-theme-toggle aria-label="Modo claro">Claro</);
+  dark.L.toggleTheme();
+  assert.equal(dark.L.st.theme, 'light');
+  assert.equal(dark.L.savedTheme(), 'light', 'queda guardado');
+  assert.match(dark.L.themeButton(), /aria-label="Modo oscuro">Oscuro</);
+  dark.window.CxI18n.setLanguage('en');
+  assert.match(dark.L.themeButton(), /aria-label="Dark mode">Dark</);
+  assert.equal(load({ token: 't', saved: 'es' }).L.st.theme, 'dark');
+  assert.ok(load().L.loginView().includes('data-lo-theme-toggle'), 'también al ingresar');
+});
+
+test('La tarjeta no tiene botón de finalizar: solo abre el detalle', () => {
+  const { L } = load({ token: 't' });
+  L.st.crm = { counts: {}, people: PEOPLE, operation: HOME.operation, limit_hours: 15 };
+  const html = L.crmList();
+  assert.doesNotMatch(html, /data-lo-finish|Finalizar turno/);
+  assert.deepEqual([...html.matchAll(/data-lo-person="(\w+)"/g)].map((m) => m[1]), ['a', 'b', 'c', 'd', 'e']);
+});
+
+test('Detalle: estado, entrada, pausas, origen y abajo el enlace discreto; por confirmar no lo tiene', () => {
+  const { L, window } = load({ token: 't' });
+  const ana = { ...PEOPLE[0], shift: { in: { t: '07:00', d: '2026-11-05', a: 'CT', o: 'app' }, out: null, pauses: [{ start: '09:00', end: '09:15', minutes: 15, o: 'pin' }, { start: '11:00', end: null, minutes: 5, o: 'app' }] } };
+  L.st.crm = { operation: HOME.operation, limit_hours: 15, people: [ana, PEOPLE[4]] };
+  const html = L.detailBody(ana, 15);
+  for (const s of ['Estado', 'Trabajando', 'Entrada', '07:00 CT', 'Pausas', '09:00 – 09:15 · 0 h 15 · PIN', '11:00 – en curso · 0 h 05 · App', 'Origen', 'App', 'class="lo-finish-link"', 'data-lo-finish="a"', '>Finalizar turno<']) assert.ok(html.includes(s), s);
+  assert.ok(html.indexOf('lo-finish-link') > html.indexOf('Origen'), 'va abajo');
+  const closed = L.detailBody(PEOPLE[4], 15);
+  assert.ok(!closed.includes('lo-finish-link'), 'por confirmar no se finaliza aquí');
+  assert.ok(closed.includes('Sin pausas'));
+  L.st.person = 'a';
+  assert.ok(L.detailView().includes('role="dialog"') && L.detailView().includes('Cerrar'));
+  window.CxI18n.setLanguage('en');
+  const en = L.detailBody(ana, 15);
+  for (const s of ['Status', 'Check-in', 'Source', 'in progress', '>End shift<']) assert.ok(en.includes(s), s);
+  assert.ok(L.detailBody(PEOPLE[4], 15).includes('No breaks'));
+});
+
+test('Doble confirmación: Cancelar primero; Sí, finalizar desactivado hasta marcar la casilla', () => {
   const { L, window } = load({ token: 't' });
   L.st.home = HOME;
-  L.st.finish = { id: 'a', name: 'Ángela <Núñez>', busy: false };
-  const html = L.finishDialog();
+  L.st.finish = { id: 'a', name: 'Ángela <Núñez>', step: 1, confirmed: false, busy: false };
+  let html = L.finishDialog();
   assert.match(html, /¿Finalizar el turno de Ángela &lt;Núñez&gt; ahora \(<span data-lo-clock="America\/Chicago">[\d:]*<\/span> CT\)\?/);
-  assert.doesNotMatch(html, /<input|<select|<textarea/);
-  for (const s of ['data-lo-finish-yes', 'data-lo-finish-no', 'role="alertdialog"', 'hora actual del servidor']) assert.ok(html.includes(s), s);
+  assert.doesNotMatch(html, /type="(time|datetime-local|text)"|<select|<textarea|data-lo-finish-yes/);
+  assert.ok(html.indexOf('>Cancelar<') > 0 && html.indexOf('>Cancelar<') < html.indexOf('>Continuar<'), 'Cancelar primero');
+  L.st.finish.step = 2;
+  html = L.finishDialog();
+  for (const s of ['Confirmo que esta persona ya terminó su turno', 'type="checkbox"', '>Cancelar<', '>Sí, finalizar<']) assert.ok(html.includes(s), s);
+  assert.match(html, /data-lo-finish-yes disabled/, 'desactivado hasta marcar');
+  assert.ok(html.indexOf('>Cancelar<') < html.indexOf('>Sí, finalizar<'));
+  L.st.finish.confirmed = true;
+  assert.match(L.finishDialog(), /data-lo-finish-yes >/);
   window.CxI18n.setLanguage('en');
-  assert.match(L.finishDialog(), /End Ángela &lt;Núñez&gt;&#039;s shift now|End Ángela &lt;Núñez&gt;'s shift now/);
+  const en = L.finishDialog();
+  for (const s of ['I confirm this person has finished their shift', '>Cancel<', '>Yes, end shift<']) assert.ok(en.includes(s), s);
+  L.st.finish.step = 1;
+  assert.ok(L.finishDialog().includes('>Continue<'));
+  assert.match(L.finishDialog(), /End Ángela &lt;Núñez&gt;(&#039;|')s shift now/);
 });
 
 function fakeTimers() {
@@ -110,7 +160,7 @@ function pinPanel(responses = {}, geo = { coords: { latitude: 32.3, longitude: -
     return { ok: answer.status < 400, status: answer.status, json: async () => answer.body };
   };
   const session = {};
-  const window = { location: { search: '?company_id=c1&type=lider_operacion&lugar=alabama' }, history: { state: { lo: 1, screen: 'pin', depth: 2 }, replaceState() {}, pushState() {}, go() {} }, addEventListener() {},
+  const window = { location: { search: '?company_id=c1&type=lider_operacion&lugar=alabama' }, history: { state: { lo: 1, screen: 'pin', depth: 2 }, replaceState() {}, pushState() {}, go() {}, back() { window.__backs = (window.__backs || 0) + 1; } }, addEventListener() {},
     __CX_LIDER__: { ok: true, name: 'Alabama', slug: 'alabama', accent: 1, abbr: 'CT', timezone: 'America/Chicago', brand: {} }, scrollTo() {},
     localStorage: { getItem: () => 'es', setItem() {} }, sessionStorage: { getItem: (k) => (k.includes('token') ? 't' : null), setItem: (k, v) => { session[k] = v; }, removeItem() {} } };
   const document = { readyState: 'complete', hidden: false, addEventListener() {}, getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], documentElement: { setAttribute() {}, style: { setProperty() {} } }, body: null };
@@ -222,19 +272,26 @@ test('PIN: sin ubicación no marca y lo dice; errores del servidor se muestran s
 });
 
 test('Finalizar: pide la ubicación del equipo y solo manda eso al servidor', async () => {
-  const { L, calls } = pinPanel({ '/finalizar': { status: 200, body: { ok: true, name: 'Ana', at: '09:40 CT' } }, '/crm': { status: 200, body: { ok: true, operation: HOME.operation, counts: {}, people: [] } } });
+  const { L, calls, window } = pinPanel({ '/finalizar': { status: 200, body: { ok: true, name: 'Ana', at: '09:40 CT' } }, '/crm': { status: 200, body: { ok: true, operation: HOME.operation, counts: {}, people: [] } } });
   L.st.tab = 'crm';
-  L.st.finish = { id: 'e1', name: 'Ana', busy: false };
+  L.st.person = 'e1';
+  for (const half of [{ step: 1, confirmed: true }, { step: 2, confirmed: false }]) {
+    L.st.finish = { id: 'e1', name: 'Ana', busy: false, ...half };
+    await L.finishNow();
+    assert.equal(calls.filter((c) => c.url.includes('/finalizar')).length, 0, 'sin los dos pasos no llama');
+  }
+  L.st.finish = { id: 'e1', name: 'Ana', step: 2, confirmed: true, busy: false };
   await L.finishNow();
   await settle();
   const call = calls.find((c) => c.url.includes('/finalizar'));
   assert.deepEqual(Object.keys(call.body).sort(), ['accuracy', 'latitude', 'longitude']);
   assert.match(call.url, /\/crm\/e1\/finalizar$/);
   assert.equal(L.st.crmNote.text, 'Turno de Ana finalizado a las 09:40 CT.');
+  assert.equal(window.__backs, 1, 'vuelve a la lista');
 
   const none = pinPanel({}, null);
   none.L.st.tab = 'crm';
-  none.L.st.finish = { id: 'e1', name: 'Ana', busy: false };
+  none.L.st.finish = { id: 'e1', name: 'Ana', step: 2, confirmed: true, busy: false };
   await none.L.finishNow();
   assert.equal(none.calls.filter((c) => c.url.includes('/finalizar')).length, 0);
   assert.equal(none.L.st.crmNote.text, 'Activa la ubicación de este equipo');
@@ -260,7 +317,7 @@ test('EN: pantalla y mensajes del servidor traducidos', () => {
   assert.equal(L.serverText('Este panel es solo para el líder de Alabama'), 'This panel is only for the Alabama lead');
   assert.equal(L.serverText('Usuario o clave inválidos.'), 'Invalid username or password.');
   L.st.crm = { counts: {}, people: PEOPLE, operation: HOME.operation, limit_hours: 15 };
-  for (const s of ['Check-in 07:00 · App', 'Working', 'On break', 'Finished 17:05 CT', 'To confirm', 'No recent marks', 'End shift now', 'PDF list', 'Check-out yesterday 17:05 · Lead', '+15 h']) assert.ok(L.crmList().includes(s), s);
+  for (const s of ['Check-in 07:00 · App', 'Working', 'On break', 'Finished 17:05 CT', 'To confirm', 'No recent marks', 'PDF list', 'Check-out yesterday 17:05 · Lead', '+15 h']) assert.ok(L.crmList().includes(s), s);
 });
 
 test('Ingreso: usuario y clave con el nombre de la operación; enlace malo avisa', () => {

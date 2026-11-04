@@ -1,12 +1,13 @@
 // Mini panel "Líder de operación" v2 (067A): CRM Campo, Reportes y Marcar con PIN de UNA operación.
 // Esta pantalla no decide nada: la operación sale de la sesión y el servidor filtra siempre.
-// Las únicas escrituras son marcar con el PIN de una persona y finalizar ahora un turno; el servidor
+// Las únicas escrituras son marcar con el PIN de una persona y finalizar ahora un turno (desde el
+// detalle de la persona, con doble confirmación; nunca desde la tarjeta); el servidor
 // pone la hora y responde 403 a cualquier otra. No hay ningún campo para escribir horas.
 //
 // El PIN solo vive en memoria mientras dura su pantalla: a los 20 s sin tocar vuelve al teclado.
 //
 // Flecha atrás: cada pantalla es una entrada del historial, misma página y misma sesión:
-//   [guard] [inicio] [crm] [pin] [reportes] [reportes + persona] ...
+//   [guard] [inicio] [crm] [pin] [crm + persona] [reportes] [reportes + persona] ...
 // Inicio siempre es la entrada 1. Atrás desde ella cae en guard: el panel vuelve a poner Inicio y
 // pregunta "¿Salir del panel?". Al entrar, el formulario se reemplaza por guard: nunca se vuelve a él.
 (() => {
@@ -16,6 +17,8 @@
   const CRM_MS = 30000;
   const HOME_MS = 60000;
   const LANG_KEY = "cx_lider_lang";
+  const THEME_KEY = "cx_lider_theme"; // oscuro por defecto; cada equipo recuerda su elección
+  const THEMES = { dark: { bg: "#050b1c", text: "#f2f6ff" }, light: { bg: "#eef3fa", text: "#0f1b33" } };
   const params = new URLSearchParams(window.location.search);
   const CID = params.get("company_id") || "";
   const BOOT = window.__CX_LIDER__ && typeof window.__CX_LIDER__ === "object" ? window.__CX_LIDER__ : { ok: false };
@@ -31,7 +34,7 @@
   const NO_LOCATION = "Activa la ubicación de este equipo";
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
 
-  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "", pin: null, finish: null, crmNote: null };
+  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "", pin: null, finish: null, crmNote: null, theme: "dark" };
   let homeTimer = null;
   let pinTimer = null;
   let crmTimer = null;
@@ -58,6 +61,17 @@
     if (remember) { try { window.localStorage.setItem(LANG_KEY, value); } catch (_) { /* sin almacenamiento */ } }
   }
   const homeWord = () => (lang() === "en" ? "Home" : "Inicio");
+
+  // ------------------------------------------------------------ modo claro / oscuro
+  function savedTheme() {
+    try { return window.localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"; } catch (_) { return "dark"; }
+  }
+  function toggleTheme() {
+    st.theme = st.theme === "light" ? "dark" : "light";
+    try { window.localStorage.setItem(THEME_KEY, st.theme); } catch (_) { /* sin almacenamiento */ }
+    applyBrand();
+    draw();
+  }
 
   // Lo que responde el servidor viene en español.
   const SERVER = [
@@ -112,13 +126,14 @@
   // Dibuja una pantalla sin tocar el historial.
   function show(screen, person = "") {
     const sameBoard = st.tab === "reportes" && screen === "reportes";
+    const sameCrm = st.tab === "crm" && screen === "crm"; // abrir o cerrar un detalle no mueve la lista
     if (screen !== "pin") resetPin();
     st.finish = null;
     st.tab = screen;
     st.person = person || "";
     if (sameBoard && window.CxReportsBoard) { window.CxReportsBoard.setOpen(st.person); return; }
     draw();
-    toTop();
+    if (!sameCrm) toTop();
     if (screen === "inicio") loadHome();
     if (screen === "crm") loadCrm();
     if (screen === "pin") checkDeviceLocation();
@@ -225,7 +240,7 @@
       st.crmStale = false;
       st.updated = data.operation.local_time;
     } catch (_) { st.crmStale = true; }
-    if (st.tab === "crm") drawCrmBody();
+    if (st.tab === "crm") { drawCrmBody(); drawDetailBody(); }
   }
 
   function startTimers() {
@@ -276,6 +291,11 @@
       `<button type="button" data-no-i18n data-lo-lang="${k}" class="${now === k ? "is-on" : ""}" aria-pressed="${now === k}">${l}</button>`).join("")}</div>`;
   }
 
+  function themeButton() {
+    const toLight = st.theme !== "light";
+    return `<button type="button" class="lo-theme" data-no-i18n data-lo-theme-toggle aria-label="${h(T(toLight ? "Modo claro" : "Modo oscuro"))}">${h(T(toLight ? "Claro" : "Oscuro"))}</button>`;
+  }
+
   function headerText() {
     const op = operation();
     if (!token()) return { kicker: T("Líder de operación"), title: op.name };
@@ -289,12 +309,12 @@
   function header() {
     const text = headerText();
     const logo = BOOT.brand && /^(https:|data:image\/|\/)/.test(String(BOOT.brand.logo_url || "")) ? `<img class="lo-logo" src="${h(BOOT.brand.logo_url)}" alt="">` : "";
-    return `<header class="lo-head">${logo}<div class="lo-head-text"><p class="lo-kicker" data-no-i18n>${h(text.kicker)}</p><h1 data-no-i18n>${text.html ? text.title : h(text.title)}</h1></div>${langPicker()}</header>`;
+    return `<header class="lo-head">${logo}<div class="lo-head-text"><p class="lo-kicker" data-no-i18n>${h(text.kicker)}</p><h1 data-no-i18n>${text.html ? text.title : h(text.title)}</h1></div>${langPicker()}${themeButton()}</header>`;
   }
 
   function loginView() {
     if (!BOOT.ok) {
-      return `<main class="lo-login"><section class="lo-card"><div class="lo-lang-row">${langPicker()}</div><h1>${h(T("Líder de operación"))}</h1><p role="alert">${h(T("Este enlace no es válido. Pide el enlace de tu operación."))}</p></section></main>`;
+      return `<main class="lo-login"><section class="lo-card"><div class="lo-lang-row">${langPicker()}${themeButton()}</div><h1>${h(T("Líder de operación"))}</h1><p role="alert">${h(T("Este enlace no es válido. Pide el enlace de tu operación."))}</p></section></main>`;
     }
     return `${header()}<main class="lo-login"><form class="lo-card" data-lo-login autocomplete="on">
       ${st.notice ? `<p class="lo-error" role="alert">${h(serverText(st.notice))}</p>` : ""}
@@ -334,11 +354,57 @@
     return ORIGIN[p.origin] ? `${when} · ${T(ORIGIN[p.origin])}` : when;
   }
 
+  // La tarjeta solo abre el detalle: finalizar un turno está allá, con doble confirmación.
   function personRow(p, limitHours) {
     const chip = stateChip(p, limitHours);
-    const finish = p.can_finish ? `<button type="button" class="lo-finish" data-lo-finish="${h(p.id)}">${h(T("Finalizar turno ahora"))}</button>` : "";
-    return `<li class="lo-person ${chip.cls}"><span class="lo-dot ${p.state === "working" ? "is-live" : ""}" aria-hidden="true"></span><div class="lo-person-who"><b data-no-i18n>${h(p.name)}</b><small class="lo-st" data-no-i18n>${h(chip.text)}</small><small data-no-i18n>${h(markText(p))}</small></div>
-      <span class="lo-time" data-no-i18n>${h(chip.time)}</span>${finish}</li>`;
+    return `<li><button type="button" class="lo-person ${chip.cls}" data-lo-person="${h(p.id)}" aria-haspopup="dialog"><span class="lo-dot ${p.state === "working" ? "is-live" : ""}" aria-hidden="true"></span><span class="lo-person-who"><b data-no-i18n>${h(p.name)}</b><small class="lo-st" data-no-i18n>${h(chip.text)}</small><small data-no-i18n>${h(markText(p))}</small></span>
+      <span class="lo-time" data-no-i18n>${h(chip.time)}</span></button></li>`;
+  }
+
+  // ------------------------------------------------------------ detalle de la persona
+  const personOf = (id) => arr(st.crm && st.crm.people).find((p) => p.id === id);
+  const originWord = (key) => (ORIGIN[key] ? T(ORIGIN[key]) : "—");
+  const markWhen = (m) => (m ? [dayWord(m.d), m.t, m.a].filter(Boolean).join(" ") : "—");
+  const detailRow = (label, value) => `<div class="lo-row"><dt>${h(T(label))}</dt><dd data-no-i18n>${value}</dd></div>`;
+
+  function detailBody(p, limitHours) {
+    const chip = stateChip(p, limitHours);
+    const shift = p.shift || {};
+    const pauses = arr(shift.pauses).map((pa) => `<li>${h(pa.start)} – ${h(pa.end || (shift.out ? shift.out.t : T("en curso")))} · ${h(hm(pa.minutes))} · ${h(originWord(pa.o))}</li>`).join("");
+    const note = st.crmNote && !st.crmNote.ok ? `<p class="lo-error" role="alert" data-no-i18n>${h(st.crmNote.text)}</p>` : "";
+    return `<dl class="lo-rows">
+        ${detailRow("Estado", `<span class="lo-state ${chip.cls}"><span class="lo-dot ${p.state === "working" ? "is-live" : ""}" aria-hidden="true"></span>${h(chip.text)}</span>`)}
+        ${detailRow("Entrada", h(markWhen(shift.in)))}
+        ${detailRow("Pausas", pauses ? `<ul class="lo-pauses">${pauses}</ul>` : h(T("Sin pausas")))}
+        ${shift.out ? detailRow("Salida", h(markWhen(shift.out))) : ""}
+        ${detailRow("Tiempo", h(chip.time))}
+        ${detailRow("Origen", h(originWord(p.origin)))}
+      </dl>${note}
+      ${p.can_finish ? `<div class="lo-sheet-foot"><button type="button" class="lo-finish-link" data-lo-finish="${h(p.id)}">${h(T("Finalizar turno"))}</button></div>` : ""}`;
+  }
+
+  function detailView() {
+    const p = personOf(st.person);
+    if (!p) return "";
+    return `<div class="lo-modal"><section class="lo-sheet" role="dialog" aria-modal="true" aria-labelledby="loDetailTitle">
+      <header class="lo-sheet-head"><div><h2 id="loDetailTitle" data-no-i18n>${h(p.name)}</h2>${p.role ? `<p data-no-i18n>${h(T(p.role))}</p>` : ""}</div><button type="button" class="lo-link" data-lo-detail-close>${h(T("Cerrar"))}</button></header>
+      <div data-lo-detail-body>${detailBody(p, st.crm.limit_hours)}</div></section></div>`;
+  }
+
+  function openDetail(id) {
+    st.crmNote = null;
+    pushScreen("crm", id);
+    show("crm", id);
+  }
+  function closeDetail() { if (st.person) window.history.back(); }
+
+  // El refresco de 30 s actualiza el detalle, nunca una confirmación a medias.
+  function drawDetailBody() {
+    if (!st.person || st.finish) return;
+    const p = personOf(st.person);
+    const box = document.querySelector("[data-lo-detail-body]");
+    if (!p || !box) { draw(); return; }
+    box.innerHTML = detailBody(p, st.crm.limit_hours);
   }
 
   function crmList(crm = st.crm) {
@@ -363,9 +429,15 @@
     const op = operation();
     const time = `<span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone))}</span> ${h(op.abbr)}`;
     const title = h(T("¿Finalizar el turno de {name} ahora ({time})?", { name: f.name, time: "\u0001" })).replace("\u0001", time);
+    // Cancelar va primero y es el foco por defecto (draw) en los dos pasos.
+    const cancel = `<button type="button" data-lo-finish-no ${f.busy ? "disabled" : ""}>${h(T("Cancelar"))}</button>`;
+    const second = f.step === 2;
     return `<div class="lo-modal"><div class="lo-dialog" role="alertdialog" aria-modal="true" aria-labelledby="loFinishTitle">
       <h2 id="loFinishTitle" data-no-i18n>${title}</h2><p>${h(T("La salida queda con la hora actual del servidor."))}</p>
-      <div class="lo-dialog-actions"><button type="button" data-lo-finish-no ${f.busy ? "disabled" : ""}>${h(T("No"))}</button><button type="button" class="is-danger" data-lo-finish-yes ${f.busy ? "disabled" : ""}>${h(T(f.busy ? "Guardando…" : "Finalizar"))}</button></div>
+      ${second ? `<label class="lo-check"><input type="checkbox" data-lo-confirm ${f.confirmed ? "checked" : ""} ${f.busy ? "disabled" : ""}><span>${h(T("Confirmo que esta persona ya terminó su turno"))}</span></label>` : ""}
+      <div class="lo-dialog-actions">${cancel}${second
+        ? `<button type="button" class="is-danger" data-lo-finish-yes ${f.confirmed && !f.busy ? "" : "disabled"}>${h(T(f.busy ? "Guardando…" : "Sí, finalizar"))}</button>`
+        : `<button type="button" class="lo-next" data-lo-finish-next>${h(T("Continuar"))}</button>`}</div>
     </div></div>`;
   }
 
@@ -496,7 +568,7 @@
 
   function panelView() {
     const body = st.tab === "crm" ? crmView() : st.tab === "pin" ? pinView() : st.tab === "reportes" ? `<main class="lo-main lo-reports"><div id="loBoardHost"></div></main>` : homeView();
-    return `${header()}${body}${nav()}${st.finish ? finishDialog() : ""}${st.confirmExit ? exitDialog() : ""}`;
+    return `${header()}${body}${nav()}${st.tab === "crm" && st.person ? detailView() : ""}${st.finish ? finishDialog() : ""}${st.confirmExit ? exitDialog() : ""}`;
   }
 
   // ------------------------------------------------------------ dibujo
@@ -506,16 +578,17 @@
     const el = appEl();
     if (!el) return;
     const accent = operation().accent;
-    el.className = `lo-app lo-a${accent === 0 || accent === 1 ? accent : "x"}`;
+    el.className = `lo-app lo-a${accent === 0 || accent === 1 ? accent : "x"}${st.theme === "light" ? " is-light" : ""}`;
   }
 
   function applyBrand() {
-    // v2: el panel siempre es oscuro; de la marca salen el logo y la letra. El Board calcula sus
-    // pares de contraste (CxReportsBoard.applyContrast) sobre este mismo fondo.
+    // v2: colores del panel, oscuro o claro; de la marca salen el logo y la letra. El Board calcula
+    // sus pares de contraste (CxReportsBoard.applyContrast) sobre este mismo fondo.
     const b = BOOT.brand || {};
     const root = document.documentElement.style;
-    root.setProperty("--cx-bg", "#050b1c");
-    root.setProperty("--cx-text", "#f2f6ff");
+    document.documentElement.setAttribute("data-lo-theme", st.theme);
+    root.setProperty("--cx-bg", THEMES[st.theme].bg);
+    root.setProperty("--cx-text", THEMES[st.theme].text);
     root.setProperty("--cx-primary", "#16489a");
     root.setProperty("--cx-secondary", "#2ff08f");
     if (b.font_family) root.setProperty("--lo-font", `"${String(b.font_family).replace(/["\\]/g, "")}", Inter, "Segoe UI", system-ui, sans-serif`);
@@ -547,6 +620,7 @@
     if (token() && st.tab === "reportes") mountBoard();
     if (st.confirmExit) { const no = document.querySelector("[data-lo-exit-no]"); if (no) no.focus(); }
     else if (st.finish) { const no = document.querySelector("[data-lo-finish-no]"); if (no) no.focus(); }
+    else if (st.tab === "crm" && st.person) { const close = document.querySelector("[data-lo-detail-close]"); if (close) close.focus(); }
   }
 
   function drawCrmBody() {
@@ -584,7 +658,7 @@
 
   async function finishNow() {
     const f = st.finish;
-    if (!f || f.busy) return;
+    if (!f || f.busy || f.step !== 2 || !f.confirmed) return; // sin los dos pasos no llega al servidor
     f.busy = true;
     draw();
     const where = await deviceLocation();
@@ -592,7 +666,10 @@
     try {
       const data = await send(`crm/${encodeURIComponent(f.id)}/finalizar`, where);
       if (!data) return;
+      st.finish = null;
       st.crmNote = { ok: true, text: T("Turno de {name} finalizado a las {time}.", { name: data.name, time: data.at }) };
+      closeDetail(); // al volver a la lista se recarga y muestra el aviso
+      return;
     } catch (error) { st.crmNote = { ok: false, text: serverText(error.message) }; }
     st.finish = null;
     draw();
@@ -606,18 +683,22 @@
     const attr = (name) => { const el = t.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
     let v;
     if ((v = attr("data-lo-lang"))) { setLang(v); draw(); return; }
+    if (t.closest("[data-lo-theme-toggle]")) { toggleTheme(); return; }
     if ((v = attr("data-lo-tab"))) { go(v); return; }
     if (t.closest("[data-lo-exit-no]")) { st.confirmExit = false; draw(); return; }
     if (t.closest("[data-lo-exit-yes]")) { exit(); return; }
     if ((v = attr("data-lo-chip"))) { st.chip = st.chip === v ? "all" : v; drawCrmBody(); return; }
     if ((v = attr("data-lo-counter"))) { st.chip = v; go("crm"); return; }
     if (t.closest("[data-lo-pdf]")) { pdfList(); return; }
+    if ((v = attr("data-lo-person"))) { openDetail(v); return; }
+    if (t.closest("[data-lo-detail-close]")) { closeDetail(); return; }
     if ((v = attr("data-lo-finish"))) {
-      const person = arr(st.crm && st.crm.people).find((p) => p.id === v);
-      if (person) { st.crmNote = null; st.finish = { id: person.id, name: person.name, busy: false }; draw(); }
+      const person = personOf(v);
+      if (person && person.can_finish) { st.crmNote = null; st.finish = { id: person.id, name: person.name, step: 1, confirmed: false, busy: false }; draw(); }
       return;
     }
     if (t.closest("[data-lo-finish-no]")) { st.finish = null; draw(); return; }
+    if (t.closest("[data-lo-finish-next]")) { if (st.finish) { st.finish.step = 2; st.finish.confirmed = false; draw(); } return; }
     if (t.closest("[data-lo-finish-yes]")) { finishNow(); return; }
     if ((v = attr("data-lo-key"))) { pressKey(v); return; }
     if ((v = attr("data-lo-punch"))) { punch(v); return; }
@@ -628,6 +709,11 @@
   function onInput(event) {
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-search")) { st.query = event.target.value; drawCrmBody(); }
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-summary")) { pinState().summary = event.target.value; touchPin(); }
+    if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-confirm") && st.finish) {
+      st.finish.confirmed = Boolean(event.target.checked);
+      const yes = document.querySelector("[data-lo-finish-yes]");
+      if (yes) yes.disabled = !st.finish.confirmed;
+    }
   }
 
   async function onSubmit(event) {
@@ -664,6 +750,7 @@
   function onKey(event) {
     if (event.key === "Escape" && st.confirmExit) { st.confirmExit = false; draw(); return; }
     if (event.key === "Escape" && st.finish && !st.finish.busy) { st.finish = null; draw(); return; }
+    if (event.key === "Escape" && st.tab === "crm" && st.person && !st.finish) { closeDetail(); return; }
     if (st.tab !== "pin" || st.confirmExit || (st.pin && st.pin.person)) return;
     if (/^\d$/.test(event.key)) pressKey(event.key);
     else if (event.key === "Backspace") pressKey("del");
@@ -673,6 +760,7 @@
   async function start() {
     if (!appEl()) return;
     setLang(savedLang(), false);
+    st.theme = savedTheme();
     applyBrand();
     document.addEventListener("click", onClick);
     document.addEventListener("input", onInput);
@@ -704,6 +792,6 @@
   }
 
   window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer, go, onPop, enterHistory, exitDialog,
-    pinView, pinState, pressKey, punch, checkPin, resetPin, touchPin, backToKeypad, finishDialog, finishNow, stateChip, personRow, IDLE_MS };
+    pinView, pinState, pressKey, punch, checkPin, resetPin, touchPin, backToKeypad, finishDialog, finishNow, stateChip, personRow, detailBody, detailView, openDetail, themeButton, toggleTheme, savedTheme, IDLE_MS };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
