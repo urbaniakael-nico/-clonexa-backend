@@ -8900,7 +8900,7 @@ function inventoryCreatePayload() {
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=063A";
+        script.src = "/client-static/payroll_v2.js?v=067A";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);
@@ -33978,11 +33978,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxWorkforceV2Css051B";
           link.rel = "stylesheet";
-          link.href = "/client-static/workforce_v2.css?v=064A";
+          link.href = "/client-static/workforce_v2.css?v=067A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/workforce_v2.js?v=064A";
+        script.src = "/client-static/workforce_v2.js?v=067A";
         script.onload = () => resolve();
         script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
         document.head.appendChild(script);
@@ -43220,7 +43220,7 @@ function inventoryCreatePayload() {
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/reports_v2.js?v=061A";
+        script.src = "/client-static/reports_v2.js?v=067A";
         script.onload = () => resolve();
         script.onerror = () => { cxReportsV2Loading053C = null; reject(new Error("reports_v2")); };
         document.head.appendChild(script);
@@ -43273,11 +43273,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReportsBoardCss064A";
           link.rel = "stylesheet";
-          link.href = "/client-static/reports_board.css?v=066A";
+          link.href = "/client-static/reports_board.css?v=067A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/reports_board.js?v=066A";
+        script.src = "/client-static/reports_board.js?v=067A";
         script.onload = () => resolve();
         script.onerror = () => { cxReportsBoardLoading064A = null; reject(new Error("reports_board")); };
         document.head.appendChild(script);

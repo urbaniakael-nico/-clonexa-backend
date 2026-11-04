@@ -27,6 +27,7 @@
   const SORTS = [["az", "A-Z"], ["hours", "Horas en turno"], ["last", "Última marca"]];
   const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
+  const ORIGIN = { pin: "PIN", lider: "Líder" }; // sin etiqueta: la app de siempre
   const GEO = { inside: "En perímetro", outside: "Fuera de perímetro", unconfigured: "Sin perímetro", none: "Sin ubicación", adjusted: "Ajuste manual" };
 
   const model = {
@@ -230,7 +231,8 @@
     const [path, ext] = paths[kind] || paths.pdf;
     model.busy = kind; model.error = ""; draw();
     try {
-      const res = await fetch(`${base()}/${path}?${params()}`, { headers: headers() });
+      const langParam = kind === "pdf" && window.CxI18n && window.CxI18n.lang ? `&lang=${encodeURIComponent(window.CxI18n.lang())}` : "";
+      const res = await fetch(`${base()}/${path}?${params()}${langParam}`, { headers: headers() });
       if (!res.ok) throw new Error(String(res.status));
       const url = URL.createObjectURL(await res.blob());
       const r = range();
@@ -334,7 +336,7 @@
           <span class="rb-range" role="status">${h(r.from === r.to ? dayLabel(r.from) : `${dayLabel(r.from)} – ${dayLabel(r.to)}`)}</span>
           <button type="button" class="client-btn rb-arrow" data-rb-move="1" aria-label="${h(T("Periodo siguiente"))}">›</button></div>
         ${model.preset === "custom" ? `<label class="rb-date">${h(T("Desde"))}<input type="date" data-rb-from value="${h(r.from)}"></label><label class="rb-date">${h(T("Hasta"))}<input type="date" data-rb-to value="${h(r.to)}"></label>` : ""}
-        ${readonly() ? "" : `<div class="rb-exports"><button type="button" class="client-btn" data-rb-export="marks" ${busy}>${h(T("CSV marcaciones"))}</button>
+        ${readonly() ? (ctx && ctx.pdf ? `<div class="rb-exports"><button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>` : "") : `<div class="rb-exports"><button type="button" class="client-btn" data-rb-export="marks" ${busy}>${h(T("CSV marcaciones"))}</button>
           <button type="button" class="client-btn" data-rb-export="notes" ${busy}>${h(T("CSV notas"))}</button>
           <button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>`}
       </div></header>`;
@@ -415,7 +417,8 @@
   const geoChip = (m) => (m && m.s ? `<span class="rb-geo is-${h(m.s)}">${h(T(GEO[m.s] || ""))}${m.n ? ` · ${h(m.n)}` : ""}</span>` : "");
   function markLine(m, dayIso) {
     if (!m) return "";
-    return `<span class="rb-mk"><b>${h(T(MARK[m.k]))}</b> <time>${h(m.t)} ${h(m.a)}</time>${m.d !== dayIso ? ` <small>(${h(dayLabel(m.d, false))})</small>` : ""} ${geoChip(m)} ${mapLink(m)}</span>`;
+    const origin = ORIGIN[m.o] ? ` <span class="rb-origin">${h(T(ORIGIN[m.o]))}</span>` : "";
+    return `<span class="rb-mk"><b>${h(T(MARK[m.k]))}</b> <time>${h(m.t)} ${h(m.a)}</time>${m.d !== dayIso ? ` <small>(${h(dayLabel(m.d, false))})</small>` : ""}${origin} ${geoChip(m)} ${mapLink(m)}</span>`;
   }
 
   function shiftView(s, d, q) {

@@ -5,10 +5,20 @@ operacion 403, interruptor apagado 404):
 - GET "/companies/{id}/inicio"    saludo y cifras de su operacion
 - GET "/companies/{id}/crm"       CRM Campo de su operacion
 - GET "/companies/{id}/reportes"  Board de su operacion (?start&end) o estado en vivo (?part=live)
+- GET "/companies/{id}/crm/lista.pdf"       Lista de asistencia
+- GET "/companies/{id}/reportes/export.pdf" Reporte del periodo
+- POST "/companies/{id}/pin/verificar"      el PIN de una persona de su operacion y que puede marcar
+- POST "/companies/{id}/pin/marcar"         la marca de esa persona, con la ubicacion del equipo
+- POST "/companies/{id}/crm/{empleado}/finalizar"  finalizar AHORA un turno de menos del limite
 
 Consola v2+ (solo sesion de Admin V2):
 - GET  "/consola/companies/{id}"          operaciones, enlaces, supervisores y lideres
 - POST "/consola/companies/{id}/lideres"  crear un lider (la clave nunca va por correo)
+
+Workforce (Admin V2, o dueno / admin de la empresa):
+- GET    "/workforce/companies/{id}/pins"                 quien tiene PIN y quien tiene Telegram
+- POST   "/workforce/companies/{id}/employees/{e}/pin"    generar (el PIN sale UNA sola vez)
+- DELETE "/workforce/companies/{id}/employees/{e}/pin"    quitar
 
 El ingreso es el de todos los mini paneles (POST /companies/{id}/mini-panel-login), que aqui
 llama a login().
@@ -21,6 +31,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import extract_bearer_token, get_db
 from app.api.v1.endpoints.reports_board import _json_response, _period
 from app.models.auth import CompanyUser
-from app.services import auth_service, lider_operacion as svc, short_links
+from app.services import auth_service, lider_operacion as svc, lider_pin, short_links
 from app.services.access_sessions import register_access_session
 
 router = APIRouter()
@@ -96,6 +107,118 @@ async def get_reportes(company_id: UUID, request: Request, start: Optional[date]
         return _json_response(request, await svc.reportes_live(db, company_id, who["place"]))
     first, last = _period(start, end)
     return _json_response(request, await svc.reportes(db, company_id, who["place"], first, last))
+
+
+def _pdf(body: bytes, name: str) -> Response:
+    return Response(content=body, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@router.get("/companies/{company_id}/crm/lista.pdf")
+async def get_attendance_pdf(company_id: UUID, lang: str = Query("es"), who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> Response:
+    body = await svc.attendance_pdf(db, company_id, who["user"], who["place"], lang)
+    return _pdf(body, f"lista_asistencia_{who['place']['slug']}.pdf")
+
+
+@router.get("/companies/{company_id}/reportes/export.pdf")
+async def get_report_pdf(company_id: UUID, start: Optional[date] = Query(None), end: Optional[date] = Query(None), lang: str = Query("es"),
+                         who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> Response:
+    first, last = _period(start, end)
+    body = await svc.report_pdf(db, company_id, who["user"], who["place"], first, last, lang)
+    return _pdf(body, f"reporte_{who['place']['slug']}_{first}_{last}.pdf")
+
+
+# ------------------------------------------------------------------ sus dos escrituras
+class PinCheck(BaseModel):
+    pin: str = ""
+
+
+class PinPunch(BaseModel):
+    pin: str = ""
+    action: str = ""
+    summary: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
+    lang: Optional[str] = None
+
+
+class DeviceLocation(BaseModel):
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+async def _leader_of(who: dict, db: AsyncSession, company_id: UUID) -> dict:
+    user = who["user"]
+    return {"user_id": str(user.id), "device": str(user.id), "name": (await svc._person_of(db, company_id, user))["name"]}
+
+
+def _denied(exc: lider_pin.Denied) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.message)
+
+
+@router.post("/companies/{company_id}/pin/verificar")
+async def post_pin_check(company_id: UUID, body: PinCheck, who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    try:
+        return await lider_pin.verify(db, company_id, who["place"], str(who["user"].id), body.pin)
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
+
+
+@router.post("/companies/{company_id}/pin/marcar")
+async def post_pin_punch(company_id: UUID, body: PinPunch, who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    leader_info = await _leader_of(who, db, company_id)
+    try:
+        return await lider_pin.mark(db, company_id, who["place"], leader_info, body.pin, body.action, body.summary, body, "en" if body.lang == "en" else "es")
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
+
+
+@router.post("/companies/{company_id}/crm/{employee_id}/finalizar")
+async def post_finish(company_id: UUID, employee_id: UUID, body: DeviceLocation, who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    leader_info = await _leader_of(who, db, company_id)
+    try:
+        return await lider_pin.finish(db, company_id, who["place"], leader_info, employee_id, body)
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
+
+
+# ------------------------------------------------------------------ Workforce: PIN de marcacion
+async def pin_manager(company_id: UUID, request: Request, authorization: Optional[str] = Header(default=None), db: AsyncSession = Depends(get_db)) -> str:
+    """Admin V2 o dueno / admin de la empresa. El lider no llega aqui: lo para la lista blanca."""
+    from app.api.deps import require_company_user_for_tenant
+    from app.api.v1.endpoints.company_users import MINI_PANEL_MANAGER_ROLES, active_admin_v2_session
+
+    if await active_admin_v2_session(request, db):
+        name = "Admin V2"
+    else:
+        user = await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=MINI_PANEL_MANAGER_ROLES)
+        name = str(user.full_name or user.email or "admin")
+    if not await svc.available(db, company_id):
+        raise HTTPException(status_code=404, detail=OFF)
+    return name
+
+
+@router.get("/workforce/companies/{company_id}/pins")
+async def get_pins(company_id: UUID, who: str = Depends(pin_manager), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    return {"ok": True, "employees": await lider_pin.status(db, company_id)}
+
+
+@router.post("/workforce/companies/{company_id}/employees/{employee_id}/pin")
+async def post_pin(company_id: UUID, employee_id: UUID, who: str = Depends(pin_manager), db: AsyncSession = Depends(get_db)) -> Response:
+    try:
+        data = await lider_pin.generate(db, company_id, employee_id, who)
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
+    return JSONResponse({"ok": True, **data}, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/workforce/companies/{company_id}/employees/{employee_id}/pin")
+async def delete_pin(company_id: UUID, employee_id: UUID, who: str = Depends(pin_manager), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    try:
+        return {"ok": True, **await lider_pin.remove(db, company_id, employee_id, who)}
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
 
 
 # ------------------------------------------------------------------ ingreso

@@ -4820,14 +4820,17 @@ async def _create_bot_attendance_event(
     command_config: dict[str, Any],
     language: str = DEFAULT_LANGUAGE,
     punch_location: dict[str, Any] | None = None,
+    origin: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
+    """origin (067A): la marca NO viene de Telegram (Marcar con PIN del panel del lider). Misma
+    logica y mismas reglas; cambian solo source, source_channel, source_ref y lo que se anota."""
     update_id = str(update.get("update_id") or "")
     message_id = str(message.get("message_id") or "")
     callback = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
     if callback and not message_id:
         message_id = str((callback.get("message") or {}).get("message_id") or "")
     occurred_at = utcnow()
-    source_ref = f"telegram:{update_id}:{message_id}:{command}"
+    source_ref = origin["source_ref"] if origin else f"telegram:{update_id}:{message_id}:{command}"
 
     duplicate_result = await db.execute(
         select(WorkforceAttendanceEvent).where(
@@ -4858,14 +4861,15 @@ async def _create_bot_attendance_event(
         employee_name=employee.full_name,
         employee_role=employee.role,
         status_after=status_after,
-        source="telegram",
-        source_channel="telegram",
+        source=origin["channel"] if origin else "telegram",
+        source_channel=origin["channel"] if origin else "telegram",
         source_ref=source_ref,
         bot_instance_id=bot.id,
         module_code=module_code,
         detail=detail,
         notes=detail,
         payload_json={
+            **((origin or {}).get("payload") or {}),
             "text": text_value,
             "command": command,
             "args": args,
@@ -4879,9 +4883,7 @@ async def _create_bot_attendance_event(
             "chat_id": (message.get("chat") or {}).get("id"),
         },
         metadata_json={
-            "source": "telegram_listener",
-            "bot_instance_id": str(bot.id),
-            "bot_username": bot.bot_username,
+            **({"source": origin["channel"]} if origin else {"source": "telegram_listener", "bot_instance_id": str(bot.id), "bot_username": bot.bot_username}),
             "turn_action": command_config.get("turn_action"),
             "module_code": module_code,
         },

@@ -48,7 +48,9 @@
   function timeline(t) {
     if (!t) return "";
     const items = [];
-    items.push(`<li class="usp-step is-in"><b>${h(T("Entrada"))}</b> <span class="usp-time">${h(punch(t.check_in))}</span> ${place(t.check_in && t.check_in.location)}</li>`);
+    // 067A: la marca del panel del líder se distingue; la del bot sigue sin etiqueta.
+    const origin = (m) => (m && m.origin === "pin" ? ` <small class="usp-origin">${h(T("Panel PIN"))}</small>` : "");
+    items.push(`<li class="usp-step is-in"><b>${h(T("Entrada"))}</b> <span class="usp-time">${h(punch(t.check_in))}</span>${origin(t.check_in)} ${place(t.check_in && t.check_in.location)}</li>`);
     arr(t.pauses).forEach((p) => {
       items.push(`<li class="usp-step is-pause"><b>${h(T("Pausa"))}</b> <span class="usp-time">${h(punch(p.start))} – ${h(p.end ? punch(p.end) : "—")}</span>
         <span class="usp-dur">${h(hm(p.minutes))} ${h(T("sin pago"))}</span>${p.start ? ` ${place(p.start.location)}` : ""}${p.closed_by_checkout ? ` <small>${h(T("(terminó al finalizar el turno)"))}</small>` : ""}</li>`);
@@ -56,7 +58,7 @@
     const m = t.manual_close;
     const closed = m ? `<div class="usp-manual">${h(T("Lo cerró {by}", { by: m.by || T("un supervisor") }))} · ${h(T("hora puesta"))} ${h(punch(t.check_out))}${m.note ? ` · “${h(m.note)}”` : ""}</div>`
       : t.confirmed ? `<div class="usp-manual">${h(T("Salida confirmada en Nómina"))}</div>` : t.system_cutoff ? `<div class="usp-manual">${h(T("Cerrado por el sistema"))}</div>` : "";
-    items.push(`<li class="usp-step is-out"><b>${h(T("Salida"))}</b> <span class="usp-time">${h(punch(t.check_out))}</span> ${place(t.check_out && t.check_out.location)}${closed}</li>`);
+    items.push(`<li class="usp-step is-out"><b>${h(T("Salida"))}</b> <span class="usp-time">${h(punch(t.check_out))}</span>${origin(t.check_out)} ${place(t.check_out && t.check_out.location)}${closed}</li>`);
     const totals = `<dl class="usp-totals">
       <div><dt>${h(T("En turno"))}</dt><dd>${h(hm(t.connected_minutes))}</dd></div>
       <div><dt>${h(T("Pausas (sin pago)"))}</dt><dd>${h(hm(t.pause_minutes))}</dd></div>

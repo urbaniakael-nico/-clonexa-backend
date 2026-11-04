@@ -61,7 +61,7 @@ def _mark(view: Optional[dict], kind: str, has_perimeter: bool, exempt: bool = F
     status = loc.get("status") or "none"
     if status not in ("none", "adjusted") and (not has_perimeter or not loc.get("geo")):
         status = "unconfigured"
-    out = {"k": kind, "t": view["local"], "d": view["date"], "a": view["abbr"], "at": view["at"], "s": None if exempt else status}
+    out = {"k": kind, "t": view["local"], "d": view["date"], "a": view["abbr"], "at": view["at"], "s": None if exempt else status, "o": view.get("origin") or ("" if exempt else "app")}
     if loc.get("lat") is not None and loc.get("lng") is not None:
         out.update({"lat": loc["lat"], "lng": loc["lng"]})
     if status == "inside" and loc.get("perimeter"):
@@ -181,13 +181,16 @@ async def _policy_hours(db: AsyncSession, company_id: Any) -> float:
     return float(ctx["limit_seconds"]) / 3600
 
 
-def running_view(s: dict, now: datetime, rule: dict) -> tuple[dict, dict]:
-    """Un turno abierto como si cerrara ahora: su vista y sus minutos (no entra a Nomina)."""
+def running_view(s: dict, now: datetime, rule: dict) -> tuple[Optional[dict], Optional[dict]]:
+    """Un turno abierto como si cerrara ahora: su vista y sus minutos (no entra a Nomina).
+    (None, None) si empezo en este mismo minuto: aun no tiene minutos que contar."""
     pause_open = s.get("pause_open")
     current = {**s, "end": now,
                "breaks": list(s.get("breaks") or []) + ([(pause_open["occurred_at"], now)] if pause_open else []),
                "break_events": list(s.get("break_events") or []) + ([(pause_open, None)] if pause_open else [])}
     computed = us_time.in_period(us_time.compute([current], rule), None, None)
+    if not computed:
+        return None, None
     return us_payroll.shift_view(computed[0]), computed[0]
 
 
@@ -214,11 +217,13 @@ async def live_state(db: AsyncSession, company_id: Any, now: datetime, rule: dic
     for s in data["open_shifts"]:
         eid = s["employee_id"]
         view, totals = running_view(s, now, rule)
-        open_views[eid] = view
+        totals = totals or {"connected": 0, "payable": 0}
+        if view:
+            open_views[eid] = view
         start = us_time.minute(s["start"])
         tz, ab = s["tz"], us_time.abbr(s["tz"], start)
         local = start.astimezone(us_time.zone(tz))
-        since = {"t": local.strftime("%H:%M"), "d": local.date().isoformat(), "a": ab, "at": us_payroll.iso(start)}
+        since = {"t": local.strftime("%H:%M"), "d": local.date().isoformat(), "a": ab, "at": us_payroll.iso(start), "o": us_payroll.origin_of(s.get("check_in")) or "app"}
         if totals["connected"] >= limit_min:
             state[eid] = now_chip("to_confirm", minutes=totals["connected"], over_limit=True, since=since)
         elif s.get("pause_open"):
@@ -317,7 +322,7 @@ def _person(emp: dict, role: str, row: Optional[dict], held: list[dict], materia
         "payable": int(us.get("payable_minutes") or 0), "regular": int(us.get("regular_minutes") or 0), "overtime": int(us.get("overtime_minutes") or 0),
         "held": len(held), "outside": sum(1 for m in marks if m["s"] == "outside"), "no_location": sum(1 for m in marks if m["s"] == "none"),
         "notes": sum(1 for d in ordered for s in d["shifts"] for n in s["notes"] if n["kind"] in NOTE_KINDS),
-        "materials": material_count, "last_mark": {"t": last["t"], "d": last["d"], "a": last["a"], "at": last["at"], "k": last["k"]} if last else None,
+        "materials": material_count, "last_mark": {"t": last["t"], "d": last["d"], "a": last["a"], "at": last["at"], "k": last["k"], "o": last.get("o") or ""} if last else None,
         "days": ordered,
     }
 

@@ -1,9 +1,12 @@
-// Mini panel "Líder de operación" (064B): CRM Campo y Reportes de UNA operación, solo lectura.
+// Mini panel "Líder de operación" v2 (067A): CRM Campo, Reportes y Marcar con PIN de UNA operación.
 // Esta pantalla no decide nada: la operación sale de la sesión y el servidor filtra siempre.
-// Aquí no hay botones de escritura; aunque los hubiera, el servidor responde 403.
+// Las únicas escrituras son marcar con el PIN de una persona y finalizar ahora un turno; el servidor
+// pone la hora y responde 403 a cualquier otra. No hay ningún campo para escribir horas.
+//
+// El PIN solo vive en memoria mientras dura su pantalla: a los 20 s sin tocar vuelve al teclado.
 //
 // Flecha atrás: cada pantalla es una entrada del historial, misma página y misma sesión:
-//   [guard] [inicio] [crm] [reportes] [reportes + persona] ...
+//   [guard] [inicio] [crm] [pin] [reportes] [reportes + persona] ...
 // Inicio siempre es la entrada 1. Atrás desde ella cae en guard: el panel vuelve a poner Inicio y
 // pregunta "¿Salir del panel?". Al entrar, el formulario se reemplaza por guard: nunca se vuelve a él.
 (() => {
@@ -17,11 +20,20 @@
   const CID = params.get("company_id") || "";
   const BOOT = window.__CX_LIDER__ && typeof window.__CX_LIDER__ === "object" ? window.__CX_LIDER__ : { ok: false };
   const TOKEN_KEY = `clonexa_mini_panel_token_${CID}_lider_operacion_${BOOT.slug || ""}`;
-  const CHIPS = [["all", "Todos"], ["working", "Trabajando"], ["on_break", "En pausa"], ["no_shift", "Sin turno"], ["to_confirm", "Por confirmar"]];
+  const STATES = [["working", "Trabajando"], ["on_break", "En pausa"], ["to_confirm", "Por confirmar"], ["no_shift", "Sin turno"]];
+  const STATE_LABEL = Object.fromEntries(STATES);
+  const ACTIONS = { start: "Iniciar turno", pause: "Pausa", resume: "Retomar", end: "Finalizar turno" };
+  const DONE = { start: "Inicio de turno registrado", pause: "Pausa registrada", resume: "Regreso registrado", end: "Turno finalizado" };
+  const ORIGIN = { app: "App", pin: "PIN", lider: "Líder" };
+  const PIN_LENGTH = 4;
+  const IDLE_MS = 20000;
+  const DONE_MS = 4000;
+  const NO_LOCATION = "Activa la ubicación de este equipo";
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
 
-  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "" };
+  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "", pin: null, finish: null, crmNote: null };
   let homeTimer = null;
+  let pinTimer = null;
   let crmTimer = null;
   let clockTimer = null;
 
@@ -48,10 +60,18 @@
   const homeWord = () => (lang() === "en" ? "Home" : "Inicio");
 
   // Lo que responde el servidor viene en español.
+  const SERVER = [
+    [/^Este panel es solo para el líder de (.+)$/, "Este panel es solo para el líder de {op}"],
+    [/^Este PIN no es de (.+)$/, "Este PIN no es de {v}"],
+    [/^PIN incorrecto\. Intentos restantes: (\d+)\.$/, "PIN incorrecto. Intentos restantes: {v}."],
+    [/^Demasiados intentos\. Este equipo queda bloqueado (\d+) min\.$/, "Demasiados intentos. Este equipo queda bloqueado {v} min."],
+    [/^Esa persona no es de (.+)\.$/, "Esa persona no es de {v}."],
+    [/^Este turno supera ([\d.]+) horas: lo cierra el dueño en el portal con la hora real\.$/, "Este turno supera {v} horas: lo cierra el dueño en el portal con la hora real."],
+  ];
   function serverText(detail) {
     const text = String(detail || "");
-    const only = text.match(/^Este panel es solo para el líder de (.+)$/);
-    return only ? T("Este panel es solo para el líder de {op}", { op: only[1] }) : T(text);
+    for (const [re, key] of SERVER) { const m = text.match(re); if (m) return T(key, { v: m[1], op: m[1] }); }
+    return T(text);
   }
 
   // ------------------------------------------------------------ sesión y datos
@@ -71,7 +91,8 @@
   function sessionLost(message) {
     setToken("");
     stopTimers();
-    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, busy: false, notice: message || "Tu sesión terminó. Vuelve a entrar." });
+    resetPin();
+    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, busy: false, finish: null, crmNote: null, notice: message || "Tu sesión terminó. Vuelve a entrar." });
     window.history.replaceState(LOGIN_ENTRY, "");
     draw();
   }
@@ -91,6 +112,8 @@
   // Dibuja una pantalla sin tocar el historial.
   function show(screen, person = "") {
     const sameBoard = st.tab === "reportes" && screen === "reportes";
+    if (screen !== "pin") resetPin();
+    st.finish = null;
     st.tab = screen;
     st.person = person || "";
     if (sameBoard && window.CxReportsBoard) { window.CxReportsBoard.setOpen(st.person); return; }
@@ -98,6 +121,7 @@
     toTop();
     if (screen === "inicio") loadHome();
     if (screen === "crm") loadCrm();
+    if (screen === "pin") checkDeviceLocation();
   }
 
   // Desde la barra o las tarjetas. Inicio no se apila: es volver a la entrada 1.
@@ -150,6 +174,39 @@
     return data;
   }
 
+  // 401, o 403 de la propia sesión, es sesión perdida. Los demás errores se muestran en pantalla.
+  async function send(path, body) {
+    const res = await fetch(panelUrl(path), { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || (res.status === 403 && /^(Este panel|Esta sesión)/.test(String(data.detail || "")))) { sessionLost(data.detail); return null; }
+    if (!res.ok) throw new Error(data.detail || "No se pudo actualizar. Revisa la conexión.");
+    return data;
+  }
+
+  async function downloadPdf(path, name) {
+    const res = await fetch(panelUrl(path), { headers: { Authorization: `Bearer ${token()}` } });
+    if (res.status === 401 || res.status === 403) { const data = await res.json().catch(() => ({})); sessionLost(data.detail); return; }
+    if (!res.ok) throw new Error("No se pudo generar el archivo.");
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  // La ubicación del equipo del líder, de este momento. Sin ella no se marca ni se finaliza.
+  function deviceLocation() {
+    return new Promise((resolve) => {
+      const geo = navigator.geolocation;
+      if (!geo) { resolve(null); return; }
+      geo.getCurrentPosition((p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }), () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    });
+  }
+
   async function loadHome() {
     try {
       const data = await read("inicio");
@@ -186,16 +243,31 @@
     const q = norm(query);
     return arr(people).filter((p) => (chip === "all" || p.state === chip) && (!q || norm(p.name).includes(q) || norm(p.role).includes(q)));
   }
-  function stateChip(p) {
-    if (p.state === "working") return { cls: "is-working", text: `${T("Trabajando")} ${hm(p.minutes)}` };
-    if (p.state === "on_break") return { cls: "is-break", text: `${T("En pausa")} ${hm(p.minutes)}` };
-    if (p.state === "to_confirm") return { cls: "is-confirm", text: p.minutes ? `${T("Por confirmar")} ${hm(p.minutes)}` : T("Por confirmar") };
-    if (p.end) return { cls: "is-off", text: `${T("Terminó")} ${p.end.t} ${p.end.a}` };
-    return { cls: "is-off", text: T("Sin turno") };
+  // El semáforo de una persona: su color, su palabra y su tiempo a la derecha.
+  function stateChip(p, limitHours) {
+    const state = STATE_LABEL[p.state] ? p.state : "no_shift";
+    const label = state === "no_shift" && p.end ? `${T("Terminó")} ${p.end.t} ${p.end.a}` : T(STATE_LABEL[state]);
+    const time = state === "working" || state === "on_break" ? hm(p.minutes) : state === "to_confirm" ? (p.minutes ? `+${limitHours || 15} h` : "!") : "—";
+    return { cls: `is-${state}`, text: label, time };
   }
   function clock(zone) {
     try { return new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()); } catch (_) { return ""; }
   }
+  function today(zone) {
+    try { return new Intl.DateTimeFormat(lang() === "en" ? "en-US" : "es-CO", { timeZone: zone, weekday: "short", day: "2-digit", month: "short" }).format(new Date()).replace(/[.,]/g, ""); } catch (_) { return ""; }
+  }
+  // "Ayer" sale de la fecha local que manda el servidor; hoy no se dice.
+  function dayWord(iso) {
+    const now = st.crm && st.crm.operation && st.crm.operation.local_date;
+    if (!iso || !now || iso === now) return "";
+    const back = Math.round((Date.parse(`${now}T00:00:00Z`) - Date.parse(`${iso}T00:00:00Z`)) / 86400000);
+    return back === 1 ? T("ayer") : `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  }
+  function initials(name) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[1][0] : "")).toUpperCase();
+  }
+  const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "";
 
   // ------------------------------------------------------------ vistas
   function langPicker() {
@@ -204,10 +276,20 @@
       `<button type="button" data-no-i18n data-lo-lang="${k}" class="${now === k ? "is-on" : ""}" aria-pressed="${now === k}">${l}</button>`).join("")}</div>`;
   }
 
-  function header() {
+  function headerText() {
     const op = operation();
+    if (!token()) return { kicker: T("Líder de operación"), title: op.name };
+    if (st.tab === "crm") return { kicker: `${T("CRM Campo")} · ${op.name}`, title: `${h(T("En vivo"))} · <span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone))}</span> ${h(op.abbr)}`, html: true };
+    if (st.tab === "pin") return { kicker: `${T("Marcación")} · ${op.name}`, title: st.pin && st.pin.person ? `<span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone))}</span> ${h(op.abbr)}` : h(T("Ingresa tu PIN")), html: true };
+    if (st.tab === "reportes") return { kicker: `${T("Reportes")} · ${op.name}`, title: op.name };
+    const me = st.home && st.home.me;
+    return { kicker: `${T("Líder")} · ${op.name}`, title: me ? T("Hola, {name}", { name: firstName(me.name) }) : op.name };
+  }
+
+  function header() {
+    const text = headerText();
     const logo = BOOT.brand && /^(https:|data:image\/|\/)/.test(String(BOOT.brand.logo_url || "")) ? `<img class="lo-logo" src="${h(BOOT.brand.logo_url)}" alt="">` : "";
-    return `<header class="lo-head">${logo}<div class="lo-head-text"><p class="lo-kicker">${h(T("Líder de operación"))}</p><h1 data-no-i18n>${h(op.name)}</h1></div>${langPicker()}</header>`;
+    return `<header class="lo-head">${logo}<div class="lo-head-text"><p class="lo-kicker" data-no-i18n>${h(text.kicker)}</p><h1 data-no-i18n>${text.html ? text.title : h(text.title)}</h1></div>${langPicker()}</header>`;
   }
 
   function loginView() {
@@ -222,7 +304,9 @@
     </form></main>`;
   }
 
-  function tile(label, value, cls = "") { return `<div class="lo-tile ${cls}"><span>${h(T(label))}</span><strong>${h(value)}</strong></div>`; }
+  function counter(key, value) {
+    return `<button type="button" class="lo-counter is-${key}" data-lo-counter="${key}"><strong>${h(value)}</strong><span>${h(T(STATE_LABEL[key]))}</span></button>`;
+  }
 
   function homeView(home = st.home) {
     if (!home) return `<main class="lo-main"><p class="lo-card" role="status">${h(T(st.notice || "Cargando…"))}</p></main>`;
@@ -230,45 +314,175 @@
     const crm = home.crm || {};
     const rep = home.reports || {};
     const people = num(crm.total) === 1 ? T("1 persona") : T("{n} personas", { n: num(crm.total) });
+    const hours = T("{h} esta semana · {n} notas · {a} alertas", { h: hm(rep.hours_minutes), n: num(rep.notes), a: num(rep.alerts) });
     return `<main class="lo-main lo-home">
-      <section class="lo-hello"><h2 data-no-i18n>${h(T("Hola, {name}", { name: home.me.name }))}</h2><p data-no-i18n>${h(T(home.me.role))} · <span>${h(people)}</span></p>
-        <p class="lo-clock" aria-label="${h(T("Hora local"))}"><span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone) || op.local_time)}</span> ${h(op.abbr)}</p></section>
+      <section class="lo-clockcard" aria-label="${h(T("Hora local"))}"><p class="lo-bigclock"><strong data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone) || op.local_time)}</strong><span>${h(op.abbr)} · ${h(today(op.timezone))}</span></p>
+        <p class="lo-who" data-no-i18n>${h(T(home.me.role))} · ${h(people)}</p></section>
+      <div class="lo-counters">${STATES.map(([k]) => counter(k, num(crm[k]))).join("")}</div>
       <div class="lo-cards">
-        <button type="button" class="lo-module" data-lo-tab="crm"><h3>${h(T("CRM Campo"))}</h3><div class="lo-tiles">${tile("Trabajando", num(crm.working))}${tile("En pausa", num(crm.on_break))}${tile("Sin turno", num(crm.no_shift))}</div></button>
-        <button type="button" class="lo-module" data-lo-tab="reportes"><h3>${h(T("Reportes"))}</h3><div class="lo-tiles">${tile("Horas de la semana", hm(rep.hours_minutes))}${tile("Alertas", num(rep.alerts), num(rep.alerts) ? "is-warn" : "")}${tile("Notas de hoy", num(rep.notes_today))}</div></button>
+        <button type="button" class="lo-module" data-lo-tab="crm"><h3>${h(T("CRM Campo"))}</h3><p>${h(T("Quién está trabajando ahora · lista PDF"))}</p></button>
+        <button type="button" class="lo-module" data-lo-tab="reportes"><h3>${h(T("Reportes"))}</h3><p data-no-i18n>${h(hours)}</p></button>
+        <button type="button" class="lo-module is-pin" data-lo-tab="pin"><h3>${h(T("Marcar con PIN"))}</h3><p>${h(T("Para quien no tiene Telegram: marca aquí con su PIN de 4 dígitos"))}</p></button>
       </div>
-      <p class="lo-scope">${h(T("Este panel solo muestra {op}. Nómina, tarifas y la otra operación no están disponibles aquí.", { op: op.name }))}</p>
     </main>`;
   }
 
-  function personRow(p) {
-    const chip = stateChip(p);
+  function markText(p) {
     const mark = p.last_mark;
-    const last = mark
-      ? `${T("Última marca")}: ${T(MARK[mark.k] || mark.label)} ${mark.t} ${mark.a}${mark.place ? ` · ${T(mark.place)}` : ""}`
-      : T("Sin marcas recientes");
-    return `<li class="lo-person"><div class="lo-person-who"><b data-no-i18n>${h(p.name)}</b>${p.role ? `<small>${h(T(p.role))}</small>` : ""}<small data-no-i18n>${h(last)}</small></div>
-      <span class="lo-state ${chip.cls}" data-no-i18n>${h(chip.text)}</span></li>`;
+    if (!mark) return T("Sin marcas recientes");
+    const when = [T(MARK[mark.k] || mark.label), dayWord(mark.d), mark.t].filter(Boolean).join(" ");
+    return ORIGIN[p.origin] ? `${when} · ${T(ORIGIN[p.origin])}` : when;
+  }
+
+  function personRow(p, limitHours) {
+    const chip = stateChip(p, limitHours);
+    const finish = p.can_finish ? `<button type="button" class="lo-finish" data-lo-finish="${h(p.id)}">${h(T("Finalizar turno ahora"))}</button>` : "";
+    return `<li class="lo-person ${chip.cls}"><span class="lo-dot ${p.state === "working" ? "is-live" : ""}" aria-hidden="true"></span><div class="lo-person-who"><b data-no-i18n>${h(p.name)}</b><small class="lo-st" data-no-i18n>${h(chip.text)}</small><small data-no-i18n>${h(markText(p))}</small></div>
+      <span class="lo-time" data-no-i18n>${h(chip.time)}</span>${finish}</li>`;
   }
 
   function crmList(crm = st.crm) {
     if (!crm) return `<p class="lo-card" role="status">${h(T("Cargando…"))}</p>`;
     const list = filterPeople(crm.people, st.query, st.chip);
     const counts = crm.counts || {};
-    const count = (k) => (k === "all" ? num(counts.total) : num(counts[k]));
-    return `<div class="lo-chips" role="group">${CHIPS.map(([k, l]) => `<button type="button" class="lo-chip ${st.chip === k ? "is-on" : ""}" data-lo-chip="${k}" aria-pressed="${st.chip === k}"><span>${h(T(l))}</span> <b>${count(k)}</b></button>`).join("")}</div>
+    const note = st.crmNote;
+    return `<div class="lo-chips" role="group">${STATES.map(([k, l]) => `<button type="button" class="lo-chip is-${k} ${st.chip === k ? "is-on" : ""}" data-lo-chip="${k}" aria-pressed="${st.chip === k}"><span class="lo-dot" aria-hidden="true"></span><span>${h(T(l))}</span> <b>${num(counts[k])}</b></button>`).join("")}</div>
       ${st.crmStale ? `<p class="lo-error" role="alert">${h(T("No se pudo actualizar. Revisa la conexión."))}</p>` : ""}
-      ${list.length ? `<ul class="lo-people">${list.map(personRow).join("")}</ul>` : `<p class="lo-card">${h(T("Ninguna persona coincide."))}</p>`}`;
+      ${note ? `<p class="${note.ok ? "lo-ok" : "lo-error"}" role="${note.ok ? "status" : "alert"}" data-no-i18n>${h(note.text)}</p>` : ""}
+      <div class="lo-crm-top"><h2 data-no-i18n>${h(num(counts.total) === 1 ? T("1 persona") : T("{n} personas", { n: num(counts.total) }))} · A-Z</h2><button type="button" class="lo-pdf" data-lo-pdf="list" ${st.busy ? "disabled" : ""}>${h(T("PDF lista"))}</button></div>
+      ${list.length ? `<ul class="lo-people">${list.map((p) => personRow(p, crm.limit_hours)).join("")}</ul>` : `<p class="lo-card">${h(T("Ninguna persona coincide."))}</p>`}`;
   }
 
   function crmView() {
-    return `<main class="lo-main lo-crm"><div class="lo-crm-top"><h2>${h(T("CRM Campo"))}</h2><span class="lo-live" data-lo-updated role="status">${h(st.updated ? T("Actualizado {t}", { t: `${st.updated} ${operation().abbr}` }) : T("En vivo"))}</span></div>
-      <input class="lo-search" type="search" data-lo-search value="${h(st.query)}" placeholder="${h(T("Buscar persona"))}" aria-label="${h(T("Buscar persona"))}" autocomplete="off">
+    return `<main class="lo-main lo-crm"><input class="lo-search" type="search" data-lo-search value="${h(st.query)}" placeholder="${h(T("Buscar persona"))}" aria-label="${h(T("Buscar persona"))}" autocomplete="off">
       <div data-lo-crm-body>${crmList()}</div></main>`;
   }
 
+  function finishDialog() {
+    const f = st.finish;
+    const op = operation();
+    const time = `<span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone))}</span> ${h(op.abbr)}`;
+    const title = h(T("¿Finalizar el turno de {name} ahora ({time})?", { name: f.name, time: "\u0001" })).replace("\u0001", time);
+    return `<div class="lo-modal"><div class="lo-dialog" role="alertdialog" aria-modal="true" aria-labelledby="loFinishTitle">
+      <h2 id="loFinishTitle" data-no-i18n>${title}</h2><p>${h(T("La salida queda con la hora actual del servidor."))}</p>
+      <div class="lo-dialog-actions"><button type="button" data-lo-finish-no ${f.busy ? "disabled" : ""}>${h(T("No"))}</button><button type="button" class="is-danger" data-lo-finish-yes ${f.busy ? "disabled" : ""}>${h(T(f.busy ? "Guardando…" : "Finalizar"))}</button></div>
+    </div></div>`;
+  }
+
+  // ------------------------------------------------------------ marcar con PIN
+  function pinState() {
+    if (!st.pin) st.pin = { digits: "", person: null, error: "", busy: false, ending: false, summary: "", done: "", located: null };
+    return st.pin;
+  }
+  function clearPinTimer() { if (pinTimer) { clearTimeout(pinTimer); pinTimer = null; } }
+  // Borra de la memoria todo lo de la persona: se usa también para volver al teclado.
+  function resetPin() {
+    clearPinTimer();
+    const located = st.pin ? st.pin.located : null;
+    st.pin = null;
+    if (located !== null) pinState().located = located;
+  }
+  function backToKeypad() {
+    resetPin();
+    if (st.tab === "pin") draw();
+  }
+  // Cualquier toque reinicia los 20 s. Sin nada escrito no hay nada que proteger.
+  function touchPin() {
+    clearPinTimer();
+    const p = st.pin;
+    if (st.tab === "pin" && p && (p.digits || p.person) && !p.done) pinTimer = setTimeout(backToKeypad, IDLE_MS);
+  }
+  async function checkDeviceLocation() {
+    const where = await deviceLocation();
+    pinState().located = Boolean(where);
+    if (st.tab === "pin" && !st.pin.person && !st.pin.done) draw();
+  }
+
+  function pressKey(key) {
+    const p = pinState();
+    if (p.busy || p.person) return;
+    p.error = "";
+    if (key === "ok") { checkPin(); return; }
+    if (key === "del") p.digits = p.digits.slice(0, -1);
+    else if (/^\d$/.test(key) && p.digits.length < PIN_LENGTH) p.digits += key;
+    touchPin();
+    draw();
+  }
+
+  async function checkPin() {
+    const p = pinState();
+    if (p.digits.length !== PIN_LENGTH) { p.error = "El PIN tiene 4 dígitos."; draw(); return; }
+    p.busy = true;
+    draw();
+    try {
+      const data = await send("pin/verificar", { pin: p.digits });
+      if (!data) return;
+      p.person = data.employee;
+    } catch (error) {
+      p.error = error.message;
+      p.digits = "";
+    }
+    p.busy = false;
+    touchPin();
+    draw();
+  }
+
+  async function punch(action) {
+    const p = pinState();
+    if (p.busy || !p.person) return;
+    if (action === "end" && !p.ending) { p.ending = true; touchPin(); draw(); return; }
+    if (action === "end" && !p.summary.trim()) { p.error = "Escribe el resumen de la jornada."; touchPin(); draw(); return; }
+    p.busy = true;
+    p.error = "";
+    draw();
+    const where = await deviceLocation();
+    p.located = Boolean(where);
+    if (!where) { p.busy = false; p.error = NO_LOCATION; touchPin(); draw(); return; }
+    try {
+      const data = await send("pin/marcar", { pin: p.digits, action, summary: action === "end" ? p.summary : null, lang: lang(), ...where });
+      if (!data) return;
+      clearPinTimer();
+      Object.assign(p, { digits: "", person: null, summary: "", ending: false, busy: false, done: `${T(DONE[action])} · ${data.name} · ${data.at}` });
+      pinTimer = setTimeout(backToKeypad, DONE_MS);
+    } catch (error) {
+      p.busy = false;
+      p.error = error.message;
+      touchPin();
+    }
+    draw();
+  }
+
+  function pinPersonView(p) {
+    const person = p.person;
+    const chip = stateChip({ state: person.state });
+    const error = p.error ? `<p class="lo-error" role="alert" data-no-i18n>${h(serverText(p.error))}</p>` : "";
+    const buttons = p.ending
+      ? `<label class="lo-summary">${h(T("Resumen de la jornada"))}<textarea data-lo-summary maxlength="2000" placeholder="${h(T("Escribe el resumen de la jornada."))}">${h(p.summary)}</textarea></label>
+         <div class="lo-actions"><button type="button" class="lo-action is-end" data-lo-punch="end" ${p.busy ? "disabled" : ""}>${h(T(p.busy ? "Guardando…" : "Finalizar turno"))}</button></div>`
+      : `<div class="lo-actions">${arr(person.actions).map((a) => `<button type="button" class="lo-action is-${h(a)}" data-lo-punch="${h(a)}" ${p.busy ? "disabled" : ""}>${h(T(ACTIONS[a] || a))}</button>`).join("")}</div>`;
+    return `<section class="lo-pin lo-person-card"><div class="lo-avatar" aria-hidden="true">${h(initials(person.name))}</div><h2 data-no-i18n>${h(person.name)}</h2>
+      <span class="lo-state ${chip.cls}" data-no-i18n><span class="lo-dot" aria-hidden="true"></span>${h(chip.text)}</span>${error}${buttons}
+      <button type="button" class="lo-link" data-lo-pin-back>${h(T("Volver al teclado"))}</button>
+      <div class="lo-note"><p>${h(T("Vuelve solo al teclado en 20 s."))}</p><p>${h(T("Origen: Panel PIN, con la hora del servidor y la ubicación de este equipo."))}</p></div></section>`;
+  }
+
+  function pinView() {
+    const p = pinState();
+    if (p.person) return `<main class="lo-main">${pinPersonView(p)}</main>`;
+    const dots = Array.from({ length: PIN_LENGTH }, (_, i) => `<i class="${i < p.digits.length ? "is-on" : ""}"></i>`).join("");
+    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((k) => `<button type="button" class="lo-key" data-lo-key="${k}">${k}</button>`).join("");
+    const where = p.located === false ? T(NO_LOCATION) : T("Ubicación de este equipo: se guarda con la marca");
+    return `<main class="lo-main"><section class="lo-pin">
+      <p class="lo-pin-hint">${h(T("Cada persona marca con su propio PIN"))}</p>
+      <div class="lo-dots" role="img" aria-label="${h(T("{n} de 4 dígitos", { n: p.digits.length }))}">${dots}</div>
+      ${p.done ? `<p class="lo-ok" role="status" data-no-i18n>${h(p.done)}</p>` : ""}${p.error ? `<p class="lo-error" role="alert" data-no-i18n>${h(serverText(p.error))}</p>` : ""}
+      <div class="lo-keys">${keys}<button type="button" class="lo-key is-word" data-lo-key="del">${h(T("Borrar"))}</button><button type="button" class="lo-key" data-lo-key="0">0</button><button type="button" class="lo-key is-word is-ok" data-lo-key="ok" ${p.busy ? "disabled" : ""}>OK</button></div>
+      <div class="lo-note"><p>${h(where)}</p><p>${h(T("5 intentos fallidos = bloqueo de 15 min"))}</p></div>
+    </section></main>`;
+  }
+
   function nav() {
-    const items = [["inicio", homeWord()], ["crm", "CRM"], ["reportes", T("Reportes")]];
+    const items = [["inicio", homeWord()], ["crm", "CRM"], ["pin", "PIN"], ["reportes", T("Reportes")]];
     return `<nav class="lo-nav" aria-label="${h(T("Navegación"))}">${items.map(([k, l]) => `<button type="button" data-no-i18n data-lo-tab="${k}" class="${st.tab === k ? "is-on" : ""}" ${st.tab === k ? 'aria-current="page"' : ""}>${h(l)}</button>`).join("")}
       <button type="button" data-lo-exit>${h(T("Salir"))}</button></nav>`;
   }
@@ -281,8 +495,8 @@
   }
 
   function panelView() {
-    const body = st.tab === "crm" ? crmView() : st.tab === "reportes" ? `<main class="lo-main lo-reports"><div id="loBoardHost"></div></main>` : homeView();
-    return `${header()}${body}${nav()}${st.confirmExit ? exitDialog() : ""}`;
+    const body = st.tab === "crm" ? crmView() : st.tab === "pin" ? pinView() : st.tab === "reportes" ? `<main class="lo-main lo-reports"><div id="loBoardHost"></div></main>` : homeView();
+    return `${header()}${body}${nav()}${st.finish ? finishDialog() : ""}${st.confirmExit ? exitDialog() : ""}`;
   }
 
   // ------------------------------------------------------------ dibujo
@@ -296,19 +510,21 @@
   }
 
   function applyBrand() {
+    // v2: el panel siempre es oscuro; de la marca salen el logo y la letra. El Board calcula sus
+    // pares de contraste (CxReportsBoard.applyContrast) sobre este mismo fondo.
     const b = BOOT.brand || {};
     const root = document.documentElement.style;
-    root.setProperty("--cx-bg", b.background_color || "#0f172a");
-    root.setProperty("--cx-text", b.text_color || "#ffffff");
-    root.setProperty("--cx-primary", b.primary_color || "#1e293b");
-    root.setProperty("--cx-secondary", b.secondary_color || b.primary_color || "#334155");
+    root.setProperty("--cx-bg", "#050b1c");
+    root.setProperty("--cx-text", "#f2f6ff");
+    root.setProperty("--cx-primary", "#16489a");
+    root.setProperty("--cx-secondary", "#2ff08f");
     if (b.font_family) root.setProperty("--lo-font", `"${String(b.font_family).replace(/["\\]/g, "")}", Inter, "Segoe UI", system-ui, sans-serif`);
   }
 
   function mountBoard() {
     if (!window.CxReportsBoard) return;
     const mounted = window.CxReportsBoard.mount({
-      companyId: CID, apiBase: API, baseUrl: panelUrl("reportes"), token, readonly: true,
+      companyId: CID, apiBase: API, baseUrl: panelUrl("reportes"), token, readonly: true, pdf: true,
       host: () => document.getElementById("loBoardHost"), back: () => {},
       today: () => (st.home && st.home.operation && st.home.operation.local_date) || "",
       onLost: () => sessionLost(),
@@ -330,14 +546,13 @@
     if (window.CxReportsBoard) window.CxReportsBoard.applyContrast(el);
     if (token() && st.tab === "reportes") mountBoard();
     if (st.confirmExit) { const no = document.querySelector("[data-lo-exit-no]"); if (no) no.focus(); }
+    else if (st.finish) { const no = document.querySelector("[data-lo-finish-no]"); if (no) no.focus(); }
   }
 
   function drawCrmBody() {
     const box = document.querySelector("[data-lo-crm-body]");
     if (!box) { draw(); return; }
     box.innerHTML = crmList();
-    const updated = document.querySelector("[data-lo-updated]");
-    if (updated && st.updated) updated.textContent = T("Actualizado {t}", { t: `${st.updated} ${operation().abbr}` });
   }
 
   function tickClock() {
@@ -349,27 +564,70 @@
     const current = token();
     setToken("");
     stopTimers();
-    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, notice: "", query: "", chip: "all" });
+    resetPin();
+    Object.assign(st, { tab: "inicio", person: "", confirmExit: false, boardReady: false, home: null, crm: null, notice: "", query: "", chip: "all", finish: null, crmNote: null });
     window.history.replaceState(LOGIN_ENTRY, "");
     draw();
     if (current) { try { await fetch(`${API}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${current}` } }); } catch (_) { /* el corte diario la cierra */ } }
   }
 
+  async function pdfList() {
+    st.busy = true;
+    st.crmNote = null;
+    drawCrmBody();
+    try {
+      await downloadPdf(`crm/lista.pdf?lang=${lang()}`, `lista_asistencia_${BOOT.slug || "operacion"}.pdf`);
+    } catch (error) { st.crmNote = { ok: false, text: serverText(error.message) }; }
+    st.busy = false;
+    if (st.tab === "crm") drawCrmBody();
+  }
+
+  async function finishNow() {
+    const f = st.finish;
+    if (!f || f.busy) return;
+    f.busy = true;
+    draw();
+    const where = await deviceLocation();
+    if (!where) { st.finish = null; st.crmNote = { ok: false, text: T(NO_LOCATION) }; draw(); return; }
+    try {
+      const data = await send(`crm/${encodeURIComponent(f.id)}/finalizar`, where);
+      if (!data) return;
+      st.crmNote = { ok: true, text: T("Turno de {name} finalizado a las {time}.", { name: data.name, time: data.at }) };
+    } catch (error) { st.crmNote = { ok: false, text: serverText(error.message) }; }
+    st.finish = null;
+    draw();
+    loadCrm();
+  }
+
   function onClick(event) {
     const t = event.target;
     if (!t || !t.closest) return;
+    if (st.tab === "pin") touchPin();
     const attr = (name) => { const el = t.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
     let v;
     if ((v = attr("data-lo-lang"))) { setLang(v); draw(); return; }
     if ((v = attr("data-lo-tab"))) { go(v); return; }
     if (t.closest("[data-lo-exit-no]")) { st.confirmExit = false; draw(); return; }
     if (t.closest("[data-lo-exit-yes]")) { exit(); return; }
-    if ((v = attr("data-lo-chip"))) { st.chip = v; drawCrmBody(); return; }
+    if ((v = attr("data-lo-chip"))) { st.chip = st.chip === v ? "all" : v; drawCrmBody(); return; }
+    if ((v = attr("data-lo-counter"))) { st.chip = v; go("crm"); return; }
+    if (t.closest("[data-lo-pdf]")) { pdfList(); return; }
+    if ((v = attr("data-lo-finish"))) {
+      const person = arr(st.crm && st.crm.people).find((p) => p.id === v);
+      if (person) { st.crmNote = null; st.finish = { id: person.id, name: person.name, busy: false }; draw(); }
+      return;
+    }
+    if (t.closest("[data-lo-finish-no]")) { st.finish = null; draw(); return; }
+    if (t.closest("[data-lo-finish-yes]")) { finishNow(); return; }
+    if ((v = attr("data-lo-key"))) { pressKey(v); return; }
+    if ((v = attr("data-lo-punch"))) { punch(v); return; }
+    if (t.closest("[data-lo-pin-back]")) { backToKeypad(); return; }
     if (t.closest("[data-lo-exit]")) exit();
   }
 
   function onInput(event) {
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-search")) { st.query = event.target.value; drawCrmBody(); }
+    if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-summary")) { pinState().summary = event.target.value; touchPin(); }
   }
 
   async function onSubmit(event) {
@@ -404,7 +662,12 @@
   }
 
   function onKey(event) {
-    if (event.key === "Escape" && st.confirmExit) { st.confirmExit = false; draw(); }
+    if (event.key === "Escape" && st.confirmExit) { st.confirmExit = false; draw(); return; }
+    if (event.key === "Escape" && st.finish && !st.finish.busy) { st.finish = null; draw(); return; }
+    if (st.tab !== "pin" || st.confirmExit || (st.pin && st.pin.person)) return;
+    if (/^\d$/.test(event.key)) pressKey(event.key);
+    else if (event.key === "Backspace") pressKey("del");
+    else if (event.key === "Enter") { event.preventDefault(); pressKey("ok"); }
   }
 
   async function start() {
@@ -416,7 +679,7 @@
     document.addEventListener("submit", onSubmit);
     document.addEventListener("keydown", onKey);
     window.addEventListener("popstate", onPop);
-    clockTimer = setInterval(tickClock, 20000);
+    clockTimer = setInterval(tickClock, 5000);
     if (!token()) {
       window.history.replaceState(LOGIN_ENTRY, "");
       draw();
@@ -432,6 +695,7 @@
       await loadHome();
       draw();
       if (st.tab === "crm") loadCrm();
+      if (st.tab === "pin") checkDeviceLocation();
       return;
     }
     enterHistory();
@@ -439,6 +703,7 @@
     loadHome();
   }
 
-  window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer, go, onPop, enterHistory, exitDialog };
+  window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer, go, onPop, enterHistory, exitDialog,
+    pinView, pinState, pressKey, punch, checkPin, resetPin, touchPin, backToKeypad, finishDialog, finishNow, stateChip, personRow, IDLE_MS };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

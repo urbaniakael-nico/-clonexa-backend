@@ -1,4 +1,4 @@
-"""Mini panel "Lider de operacion": CRM Campo y Reportes de UNA operacion, solo lectura.
+"""Mini panel "Lider de operacion": CRM Campo y Reportes de UNA operacion.
 
 Disponible solo con los interruptores work_locations y reports_board encendidos (hoy VOLTAGE).
 Reutiliza el Board de gerencia (reports_board.build): mismas horas que Nomina y sin dinero.
@@ -8,7 +8,8 @@ Reglas que este modulo sostiene en el servidor:
 - Solo entra un empleado activo con rol Supervisor asignado a ESA operacion, y se revisa en cada
   peticion: si cambia de rol o de lugar, pierde el acceso de inmediato.
 - Lista blanca: con una sesion de lider solo responden las rutas de request_allowed. Todo lo demas
-  (Nomina, tarifas, escrituras, la otra operacion) es 403 en app/main.py y en auth_service.
+  (Nomina, tarifas, horas, la otra operacion) es 403 en app/main.py y en auth_service. Sus dos
+  unicas escrituras estan en lider_pin: marcar con PIN y finalizar ahora un turno.
 
 Toda consulta filtra por company_id.
 """
@@ -30,17 +31,19 @@ CRM_DAYS = 7  # de cuantos dias atras sale la "ultima marca" de CRM Campo
 WEEK_DAYS = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
 GEO_LABEL = {"inside": "En perímetro", "outside": "Fuera de perímetro", "unconfigured": "Sin perímetro", "none": "Sin ubicación", "adjusted": "Ajuste manual"}
 
-_READ_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(inicio|crm|reportes)/?$")
+_READ_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(inicio|crm|reportes|crm/lista\.pdf|reportes/export\.pdf)/?$")
+# Sus unicas escrituras: marcar con PIN y finalizar ahora un turno de su operacion (lider_pin).
+_WRITE_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(pin/verificar|pin/marcar|crm/[^/]+/finalizar)/?$")
 _LOGOUT = "/api/v1/auth/logout"
 
 
 # ------------------------------------------------------------------ reglas puras
 def request_allowed(method: str, path: str) -> bool:
-    """Lo unico que responde una sesion de lider: sus tres lecturas y cerrar su propia sesion."""
+    """Lo unico que responde una sesion de lider: sus lecturas, sus dos escrituras y cerrar su sesion."""
     verb = str(method or "").upper()
     if verb == "GET":
         return bool(_READ_ROUTE.match(path or ""))
-    return verb == "POST" and (path or "").rstrip("/") == _LOGOUT
+    return verb == "POST" and ((path or "").rstrip("/") == _LOGOUT or bool(_WRITE_ROUTE.match(path or "")))
 
 
 def slug(value: Any) -> str:
@@ -108,17 +111,25 @@ def last_mark_of(person: dict) -> Optional[dict]:
     last = max(marks, key=lambda m: m["at"])
     status = last.get("s")
     place = last.get("n") or GEO_LABEL.get(status or "", "")
-    return {"k": last["k"], "label": reports_board.MARK_LABEL[last["k"]], "t": last["t"], "d": last["d"], "a": last["a"], "place": place, "s": status}
+    return {"k": last["k"], "label": reports_board.MARK_LABEL[last["k"]], "t": last["t"], "d": last["d"], "a": last["a"], "at": last["at"], "place": place, "s": status, "o": last.get("o") or ""}
 
 
 def crm_person(person: dict) -> dict:
     now = person.get("now") or {}
-    out = {"id": person["id"], "name": person["name"], "role": person.get("role") or "", "state": people_state(person),
-           "last_mark": last_mark_of(person)}
+    state = people_state(person)
+    mark = last_mark_of(person)
+    since = now.get("since")
+    if since and (not mark or str(mark.get("at") or "") < str(since.get("at") or "")):
+        # Entro en este mismo minuto: su turno aun no tiene linea de tiempo, pero ya marco.
+        mark = {"k": "in", "label": reports_board.MARK_LABEL["in"], "t": since["t"], "d": since["d"], "a": since["a"], "place": "", "s": None, "o": since.get("o") or ""}
+    out = {"id": person["id"], "name": person["name"], "role": person.get("role") or "", "state": state,
+           "last_mark": mark, "origin": (mark or {}).get("o") or "", "can_finish": state in ("working", "on_break")}
     if now.get("minutes") is not None:
         out["minutes"] = int(now["minutes"])
     if now.get("end"):
         out["end"] = now["end"]
+    if since:
+        out["since"] = since["t"]
     return out
 
 
@@ -200,7 +211,7 @@ async def inicio(db: AsyncSession, company_id: Any, user: Any, place: dict, now:
         "ok": True, "company": board["company"]["name"], "me": await _person_of(db, company_id, user), "operation": _operation_out(place, now),
         "crm": count_states(people),
         "reports": {"hours_minutes": int((op.get("figures") or {}).get("connected") or 0), "alerts": len(op.get("alerts") or []), "notes_today": notes_today,
-                    "week": {"start": start.isoformat(), "end": end.isoformat()}},
+                    "notes": int((op.get("figures") or {}).get("notes") or 0), "week": {"start": start.isoformat(), "end": end.isoformat()}},
     }
 
 
@@ -209,7 +220,30 @@ async def crm(db: AsyncSession, company_id: Any, place: dict, now: Optional[date
     today = _local(place, now).date()
     _, op = await _board(db, company_id, place, today - timedelta(days=CRM_DAYS - 1), today, now)
     people = op.get("people") or []
-    return {"ok": True, "operation": _operation_out(place, now), "counts": count_states(people), "people": [crm_person(p) for p in people]}
+    return {"ok": True, "operation": _operation_out(place, now), "counts": count_states(people), "people": [crm_person(p) for p in people],
+            "limit_hours": await reports_board._policy_hours(db, company_id)}
+
+
+async def attendance_pdf(db: AsyncSession, company_id: Any, user: Any, place: dict, lang: str = "es", now: Optional[datetime] = None) -> bytes:
+    """PDF "Lista de asistencia" de SU operacion, con los mismos datos de CRM Campo."""
+    from app.services import lider_pdf
+
+    now = now or datetime.now(timezone.utc)
+    data = await crm(db, company_id, place, now)
+    name = (await db.execute(text("SELECT COALESCE(name, '') FROM companies WHERE id = CAST(:c AS uuid)"), {"c": str(company_id)})).scalar() or ""
+    me = await _person_of(db, company_id, user)
+    logo = await lider_pdf.company_logo(db, company_id)
+    return lider_pdf.build_attendance_pdf(data, company=name, leader=me["name"], logo=logo, now=now, limit_hours=data["limit_hours"], lang=lang)
+
+
+async def report_pdf(db: AsyncSession, company_id: Any, user: Any, place: dict, start: date, end: date, lang: str = "es", now: Optional[datetime] = None) -> bytes:
+    from app.services import lider_pdf
+
+    now = now or datetime.now(timezone.utc)
+    board = await reportes(db, company_id, place, start, end, now)
+    me = await _person_of(db, company_id, user)
+    logo = await lider_pdf.company_logo(db, company_id)
+    return lider_pdf.build_report_pdf(board, logo=logo, now=now, leader=me["name"], lang=lang)
 
 
 async def reportes(db: AsyncSession, company_id: Any, place: dict, start: date, end: date, now: Optional[datetime] = None) -> dict:

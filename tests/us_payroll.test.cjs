@@ -124,11 +124,11 @@ test('Nómina v2 sin us_payroll: la pantalla de siempre, sin PDF/CSV nuevos', ()
 });
 
 test('client.js pide las versiones nuevas y pasa la sesión para la descarga; CSS solo del tema', () => {
-  assert.match(CLIENT, /payroll_v2\.js\?v=063A/);
+  assert.match(CLIENT, /payroll_v2\.js\?v=067A/);
   assert.match(CLIENT, /payroll_v2\.css\?v=063A/);
   assert.match(CLIENT, /apiBase: API, token: \(\) => \(typeof cxReportsToken053C === "function" \? cxReportsToken053C\(\) : ""\)/);
-  assert.match(REPORTS, /\/client-static\/us_payroll\.js\?v=061A/);
-  assert.match(PAYROLL, /\/client-static\/us_payroll\.js\?v=061A/);
+  assert.match(REPORTS, /\/client-static\/us_payroll\.js\?v=067A/);
+  assert.match(PAYROLL, /\/client-static\/us_payroll\.js\?v=067A/);
   assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_061A_063A"/);
   assert.ok(!/#[0-9a-f]{3,8}\b/i.test(CSS) && !/rgb\(|hsl\(/i.test(CSS), 'sin colores propios');
 });

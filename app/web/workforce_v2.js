@@ -23,7 +23,7 @@
   // pins: null = CRM VELVET-LAB apagado (el servidor responde 404) y no se muestra nada de PIN.
   // wl: null = interruptor work_locations apagado: no se muestra nada de lugares y el
   // formulario conserva Descuento 2 (todo exactamente como antes).
-  const model = { employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null,
+  const model = { punch: null, employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null,
     wl: null, wlFilter: "all", selected: new Set() };
   let ctx = null;
   let bound = false;
@@ -437,9 +437,64 @@
         ${model.wl ? placeSelect(e) : field("deduction_2", "Descuento 2", 'type="number" step="0.01" min="0"')}
         <label class="wf-field"><span>Estado</span><select name="status">${Object.entries(STATUS).map(([v, l]) => `<option value="${v}" ${statusOf(e) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       </div></fieldset>
+      ${e.id && model.punch ? `<fieldset class="wf-fieldset" data-wf2-punch="${h(e.id)}">${punchBox(e)}</fieldset>` : ""}
       <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar</button>
         <button class="client-btn" type="button" data-wf2-close>Cancelar</button></div>
     </form></div>`;
+  }
+
+  // 067A: PIN de marcación del panel del líder (work_locations + reports_board; el servidor responde
+  // 404 sin ellos y aquí no se muestra nada). El PIN solo se ve la vez que se genera: queda en
+  // model.modal.punchShown y se borra al cerrar la ficha.
+  function punchBox(e) {
+    const info = (model.punch && model.punch[String(e.id)]) || {};
+    const md = model.modal || {};
+    const telegram = info.has_telegram || e.telegram_user_id;
+    return `<legend>PIN de marcación (4 dígitos)</legend>
+      <p class="wf-punch-line">Telegram: <strong>${telegram ? "vinculado" : "no vinculado"}</strong> · PIN: <strong>${info.has_pin ? "asignado" : "sin PIN"}</strong></p>
+      ${md.punchError ? `<div class="wf-alert" role="alert">${h(md.punchError)}</div>` : ""}
+      ${md.punchShown ? `<p class="wf-punch-code" role="status">PIN de ${h(e.full_name || "esta persona")}: <strong>${h(md.punchShown)}</strong><br>Anótalo ahora: no se volverá a mostrar.</p>` : ""}
+      <div class="wf-place-move"><button class="wf-btn-primary" type="button" data-wf2-punch-new="${h(e.id)}" ${md.punchBusy ? "disabled" : ""}>${info.has_pin ? "Generar PIN nuevo" : "Generar PIN"}</button>
+        ${info.has_pin ? `<button class="client-btn" type="button" data-wf2-punch-del="${h(e.id)}" ${md.punchBusy ? "disabled" : ""}>Quitar</button>` : ""}</div>
+      <p>Para quien no tiene Telegram: marca en "Marcar con PIN" del panel del líder de su operación. Es único en la empresa y se guarda cifrado; el líder no lo ve ni lo cambia.</p>`;
+  }
+
+  // Solo se redibuja esta caja: draw() borraría lo que ya se escribió en la ficha.
+  function drawPunch() {
+    const box = document.querySelector("[data-wf2-punch]");
+    const e = model.modal && model.modal.employee;
+    if (box && e) box.innerHTML = punchBox(e);
+  }
+
+  const punchUrl = (tail) => `/lider-operacion/workforce/companies/${encodeURIComponent(ctx.companyId)}/${tail}`;
+
+  async function loadPunch() {
+    if (!ctx.workLocations || typeof ctx.authApi !== "function") { model.punch = null; return; }
+    try {
+      const data = await ctx.authApi(punchUrl("pins"));
+      model.punch = (data && data.employees) || {};
+    } catch (_) {
+      model.punch = null;
+    }
+  }
+
+  async function punchAction(id, method) {
+    const md = model.modal;
+    if (!md) return;
+    md.punchBusy = true;
+    md.punchError = "";
+    md.punchShown = "";
+    drawPunch();
+    try {
+      const data = await ctx.authApi(punchUrl(`employees/${encodeURIComponent(id)}/pin`), { method });
+      const entry = model.punch[String(id)] || (model.punch[String(id)] = {});
+      entry.has_pin = method === "POST";
+      if (method === "POST") md.punchShown = data.pin;
+    } catch (error) {
+      md.punchError = errorText(error);
+    }
+    md.punchBusy = false;
+    drawPunch();
   }
 
   function view() {
@@ -557,6 +612,7 @@
 
   async function load() {
     loadPins().then(() => { if (model.loaded) draw(); });
+    loadPunch().then(() => { if (model.loaded && !model.modal) draw(); });
     const places = loadPlaces();
     try {
       const data = await ctx.personalApi(`/employees?company_id=${encodeURIComponent(ctx.companyId)}&include_archived=true`);
@@ -755,6 +811,10 @@
     if (a) { const action = a.getAttribute("data-wf2-act"); act(a.getAttribute("data-id"), action, action === "activate" ? "Empleado activado." : "Empleado inactivado."); return; }
     const del = t.closest("[data-wf2-delete]");
     if (del) { const e = byId(del.getAttribute("data-wf2-delete")) || {}; model.menu = ""; model.modal = { type: "delete", id: String(e.id || ""), name: e.full_name || "este empleado" }; draw(); return; }
+    const punchNew = t.closest("[data-wf2-punch-new]");
+    if (punchNew) { punchAction(punchNew.getAttribute("data-wf2-punch-new"), "POST"); return; }
+    const punchDel = t.closest("[data-wf2-punch-del]");
+    if (punchDel) { punchAction(punchDel.getAttribute("data-wf2-punch-del"), "DELETE"); return; }
     const pinBtn = t.closest("[data-wf2-pin]");
     if (pinBtn) { const e = byId(pinBtn.getAttribute("data-wf2-pin")) || {}; model.menu = ""; model.notice = ""; model.modal = { type: "pin", id: String(e.id || ""), name: e.full_name || "" }; draw(); return; }
     const pinClear = t.closest("[data-wf2-pin-clear]");

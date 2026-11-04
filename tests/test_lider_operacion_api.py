@@ -53,6 +53,11 @@ def test_la_lista_blanca_es_exacta():
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/inicio"),
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/crm"),
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/reportes"),
+        ("GET", f"/api/v1/lider-operacion/companies/{CID}/crm/lista.pdf"),
+        ("GET", f"/api/v1/lider-operacion/companies/{CID}/reportes/export.pdf"),
+        ("POST", f"/api/v1/lider-operacion/companies/{CID}/pin/verificar"),
+        ("POST", f"/api/v1/lider-operacion/companies/{CID}/pin/marcar"),
+        ("POST", f"/api/v1/lider-operacion/companies/{CID}/crm/{CID}/finalizar"),
         ("POST", "/api/v1/auth/logout"),
     }
 

@@ -209,7 +209,7 @@ test('063A: semana laboral dom-sáb y quincena; orden y elección recordada (loc
 test('063A: client.js pasa el interruptor y la semana laboral al montar; versiones nuevas; CSS sin colores propios', () => {
   assert.match(CLIENT, /function cxPayrollUsCtx063A\(\) \{[\s\S]*settings\.us_payroll === true[\s\S]*us_payroll_rules/);
   assert.match(CLIENT, /\.\.\.cxPayrollUsCtx063A\(\), \/\/ 063A/);
-  assert.match(CLIENT, /payroll_v2\.js\?v=063A/);
+  assert.match(CLIENT, /payroll_v2\.js\?v=067A/);
   assert.match(CLIENT, /payroll_v2\.css\?v=063A/);
   assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_063A"/);
   const block = CSS.slice(CSS.indexOf('063A'));

@@ -81,7 +81,7 @@ def closed_by(t: dict) -> str:
         return "Salida confirmada en Nómina"
     if t.get("system_cutoff"):
         return "Cerrado por el sistema"
-    return "Bot"
+    return "Panel PIN" if (t.get("check_out") or {}).get("origin") == "pin" else "Bot"
 
 
 # ------------------------------------------------------------------ operaciones

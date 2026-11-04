@@ -40,7 +40,7 @@
       link.href = "/client-static/us_payroll.css?v=061A";
       document.head.appendChild(link);
       const script = document.createElement("script");
-      script.src = "/client-static/us_payroll.js?v=061A";
+      script.src = "/client-static/us_payroll.js?v=067A";
       script.onload = () => draw();
       script.onerror = () => { usLoading = false; };
       document.head.appendChild(script);

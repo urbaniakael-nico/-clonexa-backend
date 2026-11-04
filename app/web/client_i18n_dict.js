@@ -2188,6 +2188,20 @@
   Object.assign(FR, { "Conectado": "Connecté", "Trabajado": "Travaillé", "Pausa": "Pause", "total pausas": "total pauses",
     "Ref.": "Réf.", "Anterior": "Précédente" });
 
+  // Mini panel Líder de operación v2 (067A).
+  Object.assign(EN, { "Líder": "Lead", "Marcación": "Clock-in", "Ingresa tu PIN": "Enter your PIN", "Marcar con PIN": "Clock in with PIN", "Quién está trabajando ahora · lista PDF": "Who is working now · PDF list",
+    "Para quien no tiene Telegram: marca aquí con su PIN de 4 dígitos": "For people without Telegram: clock in here with a 4-digit PIN",
+    "{h} esta semana · {n} notas · {a} alertas": "{h} this week · {n} notes · {a} alerts", "ayer": "yesterday", "App": "App", "PIN": "PIN", "Panel PIN": "PIN panel", "PDF lista": "PDF list", "Finalizar turno ahora": "End shift now",
+    "¿Finalizar el turno de {name} ahora ({time})?": "End {name}'s shift now ({time})?", "La salida queda con la hora actual del servidor.": "The check-out is saved with the current server time.",
+    "Finalizar": "End shift", "Guardando…": "Saving…", "Turno de {name} finalizado a las {time}.": "{name}'s shift ended at {time}.", "Activa la ubicación de este equipo": "Turn on location on this device",
+    "Cada persona marca con su propio PIN": "Each person clocks in with their own PIN", "{n} de 4 dígitos": "{n} of 4 digits", "Borrar": "Delete", "Ubicación de este equipo: se guarda con la marca": "This device's location is saved with the mark",
+    "5 intentos fallidos = bloqueo de 15 min": "5 failed attempts = locked for 15 min", "Iniciar turno": "Start shift", "Pausa": "Break", "Retomar": "Resume", "Finalizar turno": "End shift",
+    "Inicio de turno registrado": "Shift start saved", "Pausa registrada": "Break saved", "Regreso registrado": "Return saved", "Turno finalizado": "Shift ended", "Resumen de la jornada": "Shift summary",
+    "Escribe el resumen de la jornada.": "Write the shift summary.", "Volver al teclado": "Back to keypad", "Vuelve solo al teclado en 20 s.": "Returns to the keypad on its own after 20 s.",
+    "Origen: Panel PIN, con la hora del servidor y la ubicación de este equipo.": "Source: PIN panel, with the server time and this device's location.", "El PIN tiene 4 dígitos.": "The PIN has 4 digits.",
+    "Este PIN no es de {v}": "This PIN is not from {v}", "PIN incorrecto. Intentos restantes: {v}.": "Wrong PIN. Attempts left: {v}.", "Demasiados intentos. Este equipo queda bloqueado {v} min.": "Too many attempts. This device is locked for {v} min.",
+    "Esa persona no es de {v}.": "That person is not from {v}.", "Este turno supera {v} horas: lo cierra el dueño en el portal con la hora real.": "This shift is over {v} hours: the owner closes it in the portal with the real time.",
+    "Esa persona no tiene un turno abierto.": "That person has no open shift.", "Esa acción no es posible ahora.": "That action is not possible now.", "No se pudo generar el archivo.": "The file could not be generated." });
   // Mini panel Líder de operación (064B).
   Object.assign(EN, { "Líder de operación": "Operation lead", "Hola, {name}": "Hello, {name}", "{n} personas": "{n} people", "1 persona": "1 person",
     "Horas de la semana": "Hours this week", "Notas de hoy": "Notes today", "Trabajando": "Working", "Sin turno": "No shift", "Todos": "All",

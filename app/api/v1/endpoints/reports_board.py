@@ -24,6 +24,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Requ
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.services import lider_pdf
 from app.services import reports_board as svc
 from app.services import reports_board_export as export
 from app.services import us_time, work_location_geo as geo, work_locations
@@ -101,10 +102,12 @@ def _download(body: bytes, media: str, name: str) -> Response:
 
 
 @router.get("/companies/{company_id}/export.pdf")
-async def get_pdf(company_id: UUID, start: Optional[date] = Query(None), end: Optional[date] = Query(None),
+async def get_pdf(company_id: UUID, start: Optional[date] = Query(None), end: Optional[date] = Query(None), lang: str = Query("es"),
                   who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> Response:
     board = await _board(db, company_id, who, start, end)
-    return _download(export.build_pdf(board), "application/pdf", f"board_{board['period']['start']}_{board['period']['end']}.pdf")
+    logo = await lider_pdf.company_logo(db, company_id)
+    body = lider_pdf.build_report_pdf(board, logo=logo, now=datetime.now(timezone.utc), lang=lang)
+    return _download(body, "application/pdf", f"board_{board['period']['start']}_{board['period']['end']}.pdf")
 
 
 @router.get("/companies/{company_id}/marks.csv")

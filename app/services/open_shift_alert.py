@@ -39,6 +39,7 @@ SUPERVISOR_ROLES = {"supervisor"}
 DIRECTOR_ROLES = {"gerencia", "director", "gerente", "manager", "management"}
 OWNER_ROLES = {"company_admin", "admin_empresa", "dueno", "dueño", "owner", "propietario"}
 CLOSE_ROLES = OWNER_ROLES | DIRECTOR_ROLES | SUPERVISOR_ROLES
+LEADER_CHANNEL = "cerrado_por_lider"
 
 TEXTS = {
     "es": {
@@ -66,6 +67,13 @@ class TooEarly(Invalid):
 
     def __init__(self, hours: float):
         super().__init__("employee_id", f"Este turno aún no supera {hours_number(hours)} horas")
+
+
+class TooLate(Invalid):
+    """El turno ya llego al limite: esta por confirmar y lo cierra el dueno con la hora real."""
+
+    def __init__(self, hours: float):
+        super().__init__("employee_id", f"Este turno supera {hours_number(hours)} horas: lo cierra el dueño en el portal con la hora real.")
 
 
 def hours_number(value: float) -> str:
@@ -293,12 +301,19 @@ def clean_note(value: Any) -> str:
 
 async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body: Any, *, actor: str,
                       actor_user_id: str | None, now_utc: datetime | None = None,
-                      min_hours: float = 0.0) -> dict[str, Any]:
+                      min_hours: float = 0.0, leader: dict[str, Any] | None = None) -> dict[str, Any]:
     """Cierra un turno abierto con la hora real de salida y la nota. Nunca abre ni cambia
     otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto.
     Con `min_hours` (el limite del aviso de la empresa) un turno mas nuevo no se cierra:
-    TooEarly. El portal siempre lo pasa."""
+    TooEarly. El portal siempre lo pasa.
+    Con `leader` (067A, "Finalizar turno ahora" del panel del lider) la salida es AHORA y solo
+    si el turno va por debajo de leader["max_hours"]; lleva origen cerrado_por_lider y la
+    ubicacion del equipo del lider (leader["latitude"], leader["longitude"])."""
     now_utc = now_utc or datetime.now(timezone.utc)
+    channel, label, source = "portal_manual_close", "Turno cerrado por supervisor", "portal"
+    if leader:
+        channel, label, source = LEADER_CHANNEL, "Turno finalizado por el líder", LEADER_CHANNEL
+        body = {"end_at": now_utc.isoformat(), "note": body.get("note") if isinstance(body, dict) else None}
     body = body if isinstance(body, dict) else {}
     end_at = parse_end_at(body.get("end_at"))
     note = clean_note(body.get("note"))
@@ -315,6 +330,8 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
     started = aware(row["check_in_at"])
     if min_hours > 0 and (started is None or hours_open(started, now_utc) < min_hours):
         raise TooEarly(min_hours)
+    if leader and (started is None or hours_open(started, now_utc) >= float(leader["max_hours"])):
+        raise TooLate(float(leader["max_hours"]))
     if started is not None and end_at <= started:
         raise Invalid("end_at", "La salida debe ser después del inicio del turno.")
     if end_at > now_utc + timedelta(minutes=2):
@@ -322,17 +339,22 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
     payload = {"manual_close": True, "note": note, "closed_by": actor, "closed_by_user_id": actor_user_id,
                "original_status": row["status"], "shift_started_at": started.isoformat() if started else None,
                "closed_at": now_utc.isoformat()}
+    if leader:
+        payload["closed_by_leader"] = True
+        payload["punch_location"] = {"latitude": leader["latitude"], "longitude": leader["longitude"],
+                                     "horizontal_accuracy": leader.get("accuracy"), "device": "leader"}
     event_id = (await db.execute(text("""
         INSERT INTO workforce_attendance_events (
             company_id, employee_id, event_type, event_label, employee_name, status_after,
-            source, module_code, source_channel, detail, notes, payload_json, metadata_json, occurred_at
+            source, module_code, source_channel, detail, notes, payload_json, metadata_json, latitude, longitude, occurred_at
         )
         VALUES (
-            CAST(:c AS uuid), CAST(:e AS uuid), 'check_out', 'Turno cerrado por supervisor', :n, 'checked_out',
-            'portal', 'workforce', 'portal_manual_close', :note, :note, CAST(:p AS jsonb), CAST(:p AS jsonb), :at
+            CAST(:c AS uuid), CAST(:e AS uuid), 'check_out', :label, :n, 'checked_out',
+            :source, 'workforce', :channel, :note, :note, CAST(:p AS jsonb), CAST(:p AS jsonb), :lat, :lng, :at
         )
         RETURNING id::text
-    """), {"c": cid, "e": eid, "n": str(row["employee_name"])[:180], "note": note, "p": json.dumps(payload), "at": end_at})).scalar()
+    """), {"c": cid, "e": eid, "n": str(row["employee_name"])[:180], "note": note, "p": json.dumps(payload), "at": end_at, "label": label,
+           "source": source, "channel": channel, "lat": leader["latitude"] if leader else None, "lng": leader["longitude"] if leader else None})).scalar()
     await db.execute(text("""
         UPDATE workforce_attendance_status
            SET status = 'checked_out', last_event_type = 'check_out', last_event_at = :at,

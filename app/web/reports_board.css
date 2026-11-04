@@ -206,3 +206,4 @@
   .rb-table tr.rb-detail > td { display: block; padding: 8px; }
   .rb-now { white-space: normal; }
 }
+.rb-origin { display: inline-block; padding: 0 6px; border: 1px solid currentColor; border-radius: 6px; font-size: 11px; font-weight: 700; }

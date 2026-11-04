@@ -41,6 +41,7 @@ GPS_WINDOW = timedelta(minutes=3)
 EVENT_REPLACED = "reemplazada_por_ajuste"
 EVENT_UNDONE = "ajuste_deshecho"
 EVENTS_NOT_COUNTED = (EVENT_REPLACED, EVENT_UNDONE)
+ORIGINS = {"panel_pin": "pin", "cerrado_por_lider": "lider"}
 
 
 def _adjusted(ev: Optional[dict]) -> bool:
@@ -278,13 +279,18 @@ async def load(db: AsyncSession, company_id: Any, lo: datetime, hi: datetime, em
 
 
 # ------------------------------------------------------------------ vista de un turno
+def origin_of(ev: Optional[dict]) -> str:
+    """Marca que NO salio del bot (067A): pin (panel del lider) o lider (la cerro el lider). Vacio: el bot."""
+    return ORIGINS.get(str((ev or {}).get("source_channel") or ""), "")
+
+
 def _punch_view(ev: Optional[dict], gps: Optional[dict], tz_name: str, at: Optional[datetime] = None) -> Optional[dict]:
     if not ev and not at:
         return None
     when = us_time.minute(at or ev["occurred_at"])
     local = when.astimezone(us_time.zone(tz_name))
     return {"at": iso(when), "local": local.strftime("%H:%M"), "date": local.date().isoformat(), "abbr": us_time.abbr(tz_name, when),
-            "location": _location(ev, gps)}
+            "location": _location(ev, gps), **({"origin": origin_of(ev)} if origin_of(ev) else {})}
 
 
 def shift_view(s: dict) -> dict:

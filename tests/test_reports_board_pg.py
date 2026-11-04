@@ -29,6 +29,7 @@ from app.api.v1.endpoints import bots  # noqa: E402
 from app.api.v1.endpoints import payroll as core  # noqa: E402
 from app.api.v1.endpoints import reports_board as api  # noqa: E402
 from app.services import reports_board as svc  # noqa: E402
+from app.services import lider_pdf  # noqa: E402
 from app.services import reports_board_export as export  # noqa: E402
 from app.services import us_payroll  # noqa: E402
 from app.services import work_location_geo as geo  # noqa: E402
@@ -394,16 +395,16 @@ async def test_csv_y_pdf(maker):
         # Un texto no puede volverse formula en Excel.
         assert export.safe_cell("=1+1") == "'=1+1" and export.safe_cell("rack 9") == "rack 9"
 
-        pdf = export.build_pdf(board)
+        pdf = lider_pdf.build_report_pdf(board, logo=None, now=NOW)
         assert pdf.startswith(b"%PDF")
-        assert b"/MediaBox [ 0 0 792 612 ]" in pdf, "carta horizontal"
+        assert b"/MediaBox [ 0 0 612 792 ]" in pdf, "carta vertical"
         words = pdf_text(pdf)
-        for needle in ("Board de gerencia", "Virginia (ET)", "Alabama (CT)", "Ángela Núñez", "Iván Mena", "rack 9", "Alertas", "Notas de cierre", "Perímetro sin configurar"):
+        for needle in ("Reporte · VOLTAGE", "Virginia (ET)", "Alabama (CT)", "Ángela Núñez", "Iván Mena", "rack 9", "4 · Alertas del periodo", "3 · Notas de cierre", "Generado por Clonexa", "hora local de cada operación"):
             assert needle in words, needle
         for banned in ("Tarifa", "Bruto", "Neto", "$"):
             assert banned not in words, banned
         # Tabla A-Z dentro de cada operacion.
-        table = words[words.index("Empleado"):]
+        table = words[words.index("2 · Personal"):]
         assert table.index("Ángela Núñez") < table.index("Bruno Díaz") < table.index("Sofía Mora")
 
 
