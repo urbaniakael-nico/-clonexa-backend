@@ -32,6 +32,8 @@ from app.services.auth_service import (
     LEADER_PANEL_TYPE,
     company_user_out_payload,
     is_leader_user,
+    is_locked,
+    note_failed_login,
     create_access_token,
     create_company_user,
     decode_access_token,
@@ -72,6 +74,36 @@ async def require_company_user_admin_access(
         company_id,
         allowed_roles=COMPANY_USER_ADMIN_ROLES,
     )
+
+# Quien administra los usuarios de mini panel: Admin V2 o dueno / admin de ESA empresa. Sin sesion
+# 401; otra empresa o rol sin permiso 403. Estas rutas estuvieron abiertas: cualquiera con los ids
+# podia listar usuarios, crearlos o cambiarles la clave (la respuesta traia la clave nueva).
+MINI_PANEL_MANAGER_ROLES = ADMIN_ROLES | {"dueno", "dueño", "owner", "propietario", "admin", "administrador"}
+
+
+async def require_mini_panel_manager(
+    company_id: UUID,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, bool]:
+    if await active_admin_v2_session(request, db):
+        return {"admin_v2": True}
+    await require_company_user_for_tenant(db, authorization, company_id, allowed_roles=MINI_PANEL_MANAGER_ROLES)
+    return {"admin_v2": False}
+
+
+async def require_tenant_session(
+    company_id: UUID,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Cualquier sesion de ESA empresa: el CRM del portal lee las tiendas con todos sus roles."""
+    if await active_admin_v2_session(request, db):
+        return
+    await require_company_user_for_tenant(db, authorization, company_id)
+
 
 # CLONEXA_019C_SALES_MINIPANEL_USERS_BACKEND_START
 
@@ -339,12 +371,16 @@ async def mini_panel_login(
     if str(user.status or "").lower() not in {"active", "activo"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo o bloqueado.")
 
+    if is_locked(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario temporalmente bloqueado.")
+
     if not verify_password(payload.password, user.password_hash):
-        user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+        note_failed_login(user)
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o clave inválidos.")
 
     user.failed_login_attempts = 0
+    user.locked_until = None
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(user)
@@ -979,7 +1015,7 @@ def _cx_minipanel_user_payload_019c(
     }
 
 
-@router.get("/{company_id}/mini-panel-users")
+@router.get("/{company_id}/mini-panel-users", dependencies=[Depends(require_mini_panel_manager)])
 async def list_mini_panel_users(
     company_id: UUID,
     panel_type: Optional[str] = None,
@@ -1100,7 +1136,7 @@ async def _cx_create_minipanel_user_from_employee_026j(
     return _cx_minipanel_user_payload_019c(user, temporary_password=temp_password)
 
 
-@router.post("/{company_id}/mini-panel-users/sales/from-employee")
+@router.post("/{company_id}/mini-panel-users/sales/from-employee", dependencies=[Depends(require_mini_panel_manager)])
 async def create_sales_mini_panel_user(
     company_id: UUID,
     payload: SalesMiniPanelUserCreateRequest,
@@ -1115,7 +1151,7 @@ async def create_sales_mini_panel_user(
     )
 
 
-@router.post("/{company_id}/mini-panel-users/store/from-employee")
+@router.post("/{company_id}/mini-panel-users/store/from-employee", dependencies=[Depends(require_mini_panel_manager)])
 async def create_store_mini_panel_user_023s(
     company_id: UUID,
     payload: SalesMiniPanelUserCreateRequest,
@@ -1129,7 +1165,7 @@ async def create_store_mini_panel_user_023s(
         source="client_stores_module",
     )
 
-@router.post("/{company_id}/mini-panel-users/{panel_type}/from-employee")
+@router.post("/{company_id}/mini-panel-users/{panel_type}/from-employee", dependencies=[Depends(require_mini_panel_manager)])
 async def create_generic_mini_panel_user_026j(
     company_id: UUID,
     panel_type: str,
@@ -1150,7 +1186,7 @@ async def create_generic_mini_panel_user_026j(
 async def reset_mini_panel_user_password_019d_r2(
     company_id: UUID,
     user_id: UUID,
-    request: Request = None,
+    who: Dict[str, bool] = Depends(require_mini_panel_manager),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     result = await db.execute(
@@ -1164,7 +1200,7 @@ async def reset_mini_panel_user_password_019d_r2(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario mini panel no encontrado.")
 
     # La clave de un lider de operacion solo se cambia con sesion de la consola.
-    if is_leader_user(user) and not await active_admin_v2_session(request, db):
+    if is_leader_user(user) and not who["admin_v2"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La clave del líder de operación se cambia en la consola v2+.")
 
     if not _cx_is_minipanel_user_019c(user):
@@ -1194,7 +1230,7 @@ async def reset_mini_panel_user_password_019d_r2(
 
 
 # CLONEXA_023P_SALES_GOALS_MESSAGES_START
-@router.put("/{company_id}/mini-panel-users/{user_id}/sales-goal")
+@router.put("/{company_id}/mini-panel-users/{user_id}/sales-goal", dependencies=[Depends(require_mini_panel_manager)])
 async def update_sales_mini_panel_goal_023p(
     company_id: UUID,
     user_id: UUID,
@@ -1229,7 +1265,7 @@ async def update_sales_mini_panel_goal_023p(
     return _cx_minipanel_user_payload_019c(user)
 
 
-@router.get("/{company_id}/mini-panel-sales-message")
+@router.get("/{company_id}/mini-panel-sales-message", dependencies=[Depends(require_mini_panel_manager)])
 async def get_sales_mini_panel_message_023p(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -1244,7 +1280,7 @@ async def get_sales_mini_panel_message_023p(
     }
 
 
-@router.put("/{company_id}/mini-panel-sales-message")
+@router.put("/{company_id}/mini-panel-sales-message", dependencies=[Depends(require_mini_panel_manager)])
 async def update_sales_mini_panel_message_023p(
     company_id: UUID,
     payload: SalesMiniPanelMessageUpdateRequest,
@@ -1280,7 +1316,7 @@ async def update_sales_mini_panel_message_023p(
     }
 
 
-@router.get("/{company_id}/mini-panel-stores-message")
+@router.get("/{company_id}/mini-panel-stores-message", dependencies=[Depends(require_mini_panel_manager)])
 async def get_stores_mini_panel_message_023s(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -1295,7 +1331,7 @@ async def get_stores_mini_panel_message_023s(
     }
 
 
-@router.put("/{company_id}/mini-panel-stores-message")
+@router.put("/{company_id}/mini-panel-stores-message", dependencies=[Depends(require_mini_panel_manager)])
 async def update_stores_mini_panel_message_023s(
     company_id: UUID,
     payload: SalesMiniPanelMessageUpdateRequest,
@@ -1331,7 +1367,7 @@ async def update_stores_mini_panel_message_023s(
     }
 
 
-@router.get("/{company_id}/store-login-config")
+@router.get("/{company_id}/store-login-config", dependencies=[Depends(require_tenant_session)])
 async def get_store_login_config_023v(
     company_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -1344,7 +1380,7 @@ async def get_store_login_config_023v(
     }
 
 
-@router.put("/{company_id}/store-login-config")
+@router.put("/{company_id}/store-login-config", dependencies=[Depends(require_mini_panel_manager)])
 async def update_store_login_config_023v(
     company_id: UUID,
     payload: StoreLoginConfigUpdateRequest023V,
@@ -2691,8 +2727,15 @@ async def mini_panel_store_team_login_023w(
     )
     if not _cx_minipanel_user_matches_login_019d(target_user, payload.username, "store"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario de tienda invalido.")
+    if is_locked(target_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario temporalmente bloqueado.")
     if not verify_password(str(payload.password or ""), target_user.password_hash):
+        note_failed_login(target_user)
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Clave de tienda invalida.")
+    target_user.failed_login_attempts = 0
+    target_user.locked_until = None
+    await db.commit()
     team = await _cx_store_team_payload_023w(db, company, current_user, current_mini_panel)
     return {"ok": True, "authenticated": True, "team": team}
 

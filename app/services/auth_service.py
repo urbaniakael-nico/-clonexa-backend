@@ -232,6 +232,10 @@ def is_locked(user: Any) -> bool:
 
 
 def note_failed_login(user: Any) -> None:
+    # Los mini paneles contaron fallos durante anos sin bloquear nunca: un contador viejo sin
+    # bloqueo no castiga el primer error de hoy, empieza de nuevo.
+    if int(user.failed_login_attempts or 0) >= MAX_FAILED_LOGINS and not getattr(user, "locked_until", None):
+        user.failed_login_attempts = 0
     user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
     if user.failed_login_attempts >= MAX_FAILED_LOGINS:
         user.locked_until = utc_now() + timedelta(minutes=LOCK_MINUTES)

@@ -386,7 +386,7 @@ async def test_clave_del_lider_solo_desde_la_consola(world):
     made = await _create(w, w.ids["al"], w.ids["alma"], "alma.lider")
     uid = made.json()["leader"]["user_id"]
     url = f"/api/v1/companies/{w.cid}/mini-panel-users/{uid}/reset-password"
-    assert (await w.client.post(url)).status_code == 403, "sin sesion de consola no se cambia"
+    assert (await w.client.post(url)).status_code == 401, "sin sesion no se cambia"
     w.admin.on = True
     res = await w.client.post(url)
     w.admin.on = False
