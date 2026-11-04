@@ -41,6 +41,12 @@ sys.modules["reports_board_seed"] = seedmod
 spec.loader.exec_module(seedmod)
 POINT = {"latitude": 32.3, "longitude": -86.3, "accuracy": 12.0}
 UTC = timezone.utc
+PEPPER = "clave-de-prueba-solo-para-estas-pruebas-0123456789"
+
+
+@pytest.fixture(autouse=True)
+def pepper(monkeypatch):
+    monkeypatch.setenv("PIN_PEPPER", PEPPER)
 
 
 def _statements(filename: str) -> list[str]:
@@ -249,6 +255,47 @@ async def test_generar_exige_lugar_y_persona_de_la_empresa(world):
     assert (await w.client.post(_pins(w, f"employees/{w.ids['jaime']}/pin"))).status_code == 422, "sin lugar de trabajo"
     assert (await w.client.post(_pins(w, f"employees/{w.ids['company']}/pin"))).status_code == 404
     w.admin.on = False
+
+
+def test_el_hash_usa_pin_pepper_y_no_el_secreto_jwt(monkeypatch):
+    first = lider_pin.pin_hash("a", "4827")
+    monkeypatch.setattr(auth_service, "get_jwt_secret", lambda: "otro-secreto-jwt")
+    monkeypatch.setenv("SECRET_KEY", "otro-secreto-jwt")
+    monkeypatch.setenv("JWT_SECRET_KEY", "otro-secreto-jwt")
+    assert lider_pin.pin_hash("a", "4827") == first, "rotar el JWT no invalida los PIN"
+    source = (ROOT / "app" / "services" / "lider_pin.py").read_text(encoding="utf-8")
+    assert "get_jwt_secret" not in source and "auth_service" not in source
+    monkeypatch.setenv("PIN_PEPPER", PEPPER + "-otra")
+    assert lider_pin.pin_hash("a", "4827") != first
+
+
+@pytest.mark.parametrize("value", [None, "", "corta"])
+def test_sin_pin_pepper_no_hay_respaldo(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("PIN_PEPPER")
+    else:
+        monkeypatch.setenv("PIN_PEPPER", value)
+    with pytest.raises(lider_pin.Denied) as e:
+        lider_pin.pin_hash("a", "4827")
+    assert e.value.status == 503
+
+
+@pytest.mark.asyncio
+async def test_sin_pin_pepper_ni_genera_ni_marca_ni_cuenta_fallos(world, monkeypatch):
+    w = world
+    pin = await _new_pin(w, "noa")
+    monkeypatch.delenv("PIN_PEPPER")
+    w.admin.on = True
+    assert (await w.client.post(_pins(w, f"employees/{w.ids['zoe']}/pin"))).status_code == 503
+    w.admin.on = False
+    res = await w.client.post(_panel(w, "pin/verificar"), headers=w.auth, json={"pin": pin})
+    assert res.status_code == 503 and pin not in res.text
+    assert (await _punch(w, pin, "start")).status_code == 503
+    assert await _events(w, "noa") == []
+    assert await _rows(w, "SELECT 1 FROM lider_pin_attempts WHERE company_id = CAST(:c AS uuid)") == [], "la falta de clave no bloquea a nadie"
+    assert await _rows(w, "SELECT 1 FROM employee_punch_pins WHERE employee_id = CAST(:e AS uuid)", e=w.ids["zoe"]) == []
+    monkeypatch.setenv("PIN_PEPPER", PEPPER)
+    assert (await w.client.post(_panel(w, "pin/verificar"), headers=w.auth, json={"pin": pin})).status_code == 200
 
 
 def test_el_hash_depende_de_la_empresa_y_la_clave():

@@ -8,10 +8,11 @@ escrituras y ambas viven aqui:
 - Finalizar AHORA el turno abierto de alguien de su operacion que va por debajo del limite de la
   empresa (open_shift_alert.close_shift con origen cerrado_por_lider). Nunca recibe una hora.
 
-El PIN se guarda como HMAC-SHA256 con la clave del servidor: determinista por empresa para que la
-base impida repetidos (UNIQUE company_id, pin_hash), e inutil sin la clave si se filtra la base. Un
-hash sin clave de 10.000 valores posibles se romperia al instante. Rotar el secreto JWT invalida los
-PIN: hay que volver a generarlos en Workforce.
+El PIN se guarda como HMAC-SHA256 con PIN_PEPPER, una clave propia en el entorno del servidor:
+determinista por empresa para que la base impida repetidos (UNIQUE company_id, pin_hash), e inutil
+sin la clave si se filtra la base. Un hash sin clave de 10.000 valores posibles se romperia al
+instante. No depende del secreto JWT: rotarlo no toca los PIN. Sin PIN_PEPPER no hay respaldo con otra
+clave: generar y marcar responden 503. Cambiar PIN_PEPPER si invalida todos los PIN.
 
 El bloqueo (5 fallos = 15 min) se cuenta por usuario lider y operacion, en la base: un identificador
 de equipo guardado en el navegador se borra con limpiar los datos y el limite dejaria de existir.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -37,7 +39,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import open_shift_alert, reports_board, us_time
-from app.services.auth_service import get_jwt_secret
 
 log = logging.getLogger("clonexa.lider_pin")
 
@@ -45,6 +46,8 @@ CHANNEL = "panel_pin"
 MAX_FAILURES = 5
 LOCK_MINUTES = 15
 SUMMARY_MAX = 2000
+PEPPER_ENV = "PIN_PEPPER"
+PEPPER_MIN_LENGTH = 32
 ACTIONS = {"start": "/entrada", "pause": "/pausa", "resume": "/retomar", "end": "/salida"}
 NEEDS_LOCATION = "Activa la ubicación de este equipo"
 NOTICE = {
@@ -65,7 +68,11 @@ class Denied(Exception):
 
 # ------------------------------------------------------------------ reglas puras
 def pin_hash(company_id: Any, pin: str) -> str:
-    return hmac.new(get_jwt_secret().encode(), f"punch-pin|{str(company_id).lower()}|{pin}".encode(), hashlib.sha256).hexdigest()
+    pepper = os.environ.get(PEPPER_ENV, "")
+    if len(pepper) < PEPPER_MIN_LENGTH:  # nunca con otra clave: esos PIN dejarian de servir al configurarla
+        log.error("%s no esta configurada: el PIN de marcacion no funciona.", PEPPER_ENV)
+        raise Denied(503, "El PIN de marcación no está disponible. Avísale al administrador.")
+    return hmac.new(pepper.encode(), f"punch-pin|{str(company_id).lower()}|{pin}".encode(), hashlib.sha256).hexdigest()
 
 
 def well_formed(pin: Any) -> bool:

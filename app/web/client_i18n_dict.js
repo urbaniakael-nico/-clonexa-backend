@@ -2201,7 +2201,7 @@
     "Origen: Panel PIN, con la hora del servidor y la ubicación de este equipo.": "Source: PIN panel, with the server time and this device's location.", "El PIN tiene 4 dígitos.": "The PIN has 4 digits.",
     "Este PIN no es de {v}": "This PIN is not from {v}", "PIN incorrecto. Intentos restantes: {v}.": "Wrong PIN. Attempts left: {v}.", "Demasiados intentos. Este equipo queda bloqueado {v} min.": "Too many attempts. This device is locked for {v} min.",
     "Esa persona no es de {v}.": "That person is not from {v}.", "Este turno supera {v} horas: lo cierra el dueño en el portal con la hora real.": "This shift is over {v} hours: the owner closes it in the portal with the real time.",
-    "Esa persona no tiene un turno abierto.": "That person has no open shift.", "Esa acción no es posible ahora.": "That action is not possible now.", "No se pudo generar el archivo.": "The file could not be generated." });
+    "Esa persona no tiene un turno abierto.": "That person has no open shift.", "Esa acción no es posible ahora.": "That action is not possible now.", "No se pudo generar el archivo.": "The file could not be generated.", "El PIN de marcación no está disponible. Avísale al administrador.": "The clock-in PIN is not available. Tell your administrator." });
   // Mini panel Líder de operación (064B).
   Object.assign(EN, { "Líder de operación": "Operation lead", "Hola, {name}": "Hello, {name}", "{n} personas": "{n} people", "1 persona": "1 person",
     "Horas de la semana": "Hours this week", "Notas de hoy": "Notes today", "Trabajando": "Working", "Sin turno": "No shift", "Todos": "All",
