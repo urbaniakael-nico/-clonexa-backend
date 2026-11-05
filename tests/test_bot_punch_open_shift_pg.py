@@ -532,3 +532,107 @@ async def test_portal_lists_and_closes_only_shifts_over_the_limit(maker):
         ext = (await db.execute(text("SELECT status FROM workforce_attendance_status WHERE employee_id = CAST(:e AS uuid)"),
                                 {"e": people["ext"]})).scalar()
         assert ext == "working"
+
+
+# ---------------------------------------------------------------- 068B: Velvet
+async def _velvet_alert(db, cid, since=None, owner=True):
+    settings = {"open_shift_alert": True, "open_shift_alert_owner": owner}
+    if since:
+        settings["open_shift_alert_since"] = since.isoformat()
+    await _company(db, cid, settings, tz="America/Bogota")
+    kris = await _employee(db, cid, "KRIS", role="dueno", tg="1")
+    tata = await _employee(db, cid, "TATA", role="operator", tg="2")
+    return kris, tata
+
+
+async def _open_without_time(db, cid, eid, started):
+    """Como el bot de Velvet: el estado queda sin check_in_at y la hora vive en el evento."""
+    await _open_shift(db, cid, eid, started)
+    await db.execute(text("UPDATE workforce_attendance_status SET check_in_at = NULL WHERE company_id = CAST(:c AS uuid) AND employee_id = CAST(:e AS uuid)"), {"c": cid, "e": eid})
+    await db.execute(text("""INSERT INTO workforce_attendance_events (company_id, employee_id, event_type, event_label, status_after, occurred_at)
+        VALUES (CAST(:c AS uuid), CAST(:e AS uuid), 'check_in', 'Entrada', 'working', :at), (CAST(:c AS uuid), CAST(:e AS uuid), 'check_in', 'Entrada vieja', 'working', :old)"""),
+                     {"c": cid, "e": eid, "at": started, "old": started - timedelta(days=9)})
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_sin_check_in_at_usa_el_ultimo_check_in_y_avisa_a_la_duena_una_vez(maker):
+    now = datetime.now(timezone.utc)
+    cid = str(uuid.uuid4())
+    sent = []
+
+    async def send(chat, message):
+        sent.append((chat, message))
+
+    async def language_of(_):
+        return "es"
+
+    async with maker() as db:
+        kris, tata = await _velvet_alert(db, cid, since=now - timedelta(hours=1))
+        await _open_without_time(db, cid, tata, now - timedelta(hours=11))
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of) == 0, "antes de 12 h no avisa"
+        assert sent == []
+        crossed = now + timedelta(hours=2)
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of, now_utc=crossed) == 1
+        assert {chat for chat, _ in sent} == {"1", "2"}, "a la persona y a la dueña"
+        assert "TATA" in next(m for chat, m in sent if chat == "1")
+        sent.clear()
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of, now_utc=crossed) == 0, "una sola vez por turno"
+        assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_el_que_ya_paso_el_limite_antes_de_encender_no_avisa(maker):
+    now = datetime.now(timezone.utc)
+    cid = str(uuid.uuid4())
+    sent = []
+
+    async def send(chat, message):
+        sent.append(chat)
+
+    async def language_of(_):
+        return "es"
+
+    async with maker() as db:
+        kris, tata = await _velvet_alert(db, cid, since=now - timedelta(minutes=5))
+        await _open_without_time(db, cid, tata, now - timedelta(hours=30))
+        await _open_without_time(db, cid, kris, now - timedelta(hours=11, minutes=30))
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of) == 0
+        # El turno de 11:30 si cruza despues de encender; el de 30 h sigue sin avisar. La duena no se avisa a si misma como jefe.
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of, now_utc=now + timedelta(hours=1)) == 1
+        assert sent == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_sin_los_ajustes_el_dueno_no_recibe_y_todo_sigue_igual(maker):
+    now = datetime.now(timezone.utc)
+    cid = str(uuid.uuid4())
+    sent = []
+
+    async def send(chat, message):
+        sent.append(chat)
+
+    async def language_of(_):
+        return "es"
+
+    async with maker() as db:
+        kris, tata = await _velvet_alert(db, cid, owner=False)
+        await _open_shift(db, cid, tata, now - timedelta(hours=13))
+        assert await open_shift_alert.run_company(db, cid, send=send, language_of=language_of) == 1
+        assert sent == ["2"], "como siempre: el rol dueno no era destinatario"
+
+
+@pytest.mark.asyncio
+async def test_cerrar_turno_sin_check_in_at_usa_la_hora_del_evento(maker):
+    now = datetime.now(timezone.utc)
+    cid = str(uuid.uuid4())
+    async with maker() as db:
+        kris, tata = await _velvet_alert(db, cid)
+        started = now - timedelta(hours=14)
+        await _open_without_time(db, cid, tata, started)
+        with pytest.raises(open_shift_alert.Invalid):
+            await open_shift_alert.close_shift(db, cid, tata, {"end_at": (started - timedelta(hours=1)).isoformat(), "note": "Salida antes de entrar"}, actor="Dueña", actor_user_id=None)
+        await db.rollback()
+        out = await open_shift_alert.close_shift(db, cid, tata, {"end_at": (started + timedelta(hours=9)).isoformat(), "note": "Salió a las 5"}, actor="Dueña", actor_user_id=None, min_hours=12)
+        assert out["shift_started_at"] == open_shift_alert.iso(started)
+

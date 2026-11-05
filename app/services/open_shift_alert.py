@@ -12,6 +12,10 @@ sigue abierto y no se pierde nada.
 - Portal (CRM Campo y Personal): el supervisor / direccion / dueno cierra el turno de
   alguien con la hora real de salida y una nota obligatoria; queda en
   shift_manual_closes (quien, cuando, hora de inicio, hora puesta, estado original).
+068B (Velvet): su bot no guarda check_in_at en el estado; la hora de inicio sale del ultimo
+evento de entrada. Dos ajustes opcionales en settings del modulo, sin ellos nada cambia:
+- open_shift_alert_since: un turno que ya paso el limite antes de esa hora no avisa.
+- open_shift_alert_owner: si no hay supervisor, el aviso de jefe tambien va al rol dueno.
 Toda consulta filtra por company_id.
 """
 from __future__ import annotations
@@ -37,6 +41,7 @@ NOTE_MIN = 5
 NOTE_MAX = 500
 SUPERVISOR_ROLES = {"supervisor"}
 DIRECTOR_ROLES = {"gerencia", "director", "gerente", "manager", "management"}
+CHECK_IN_TYPES = "('check_in', 'entrada', 'start_shift', 'shift_start')"
 OWNER_ROLES = {"company_admin", "admin_empresa", "dueno", "dueño", "owner", "propietario"}
 CLOSE_ROLES = OWNER_ROLES | DIRECTOR_ROLES | SUPERVISOR_ROLES
 LEADER_CHANNEL = "cerrado_por_lider"
@@ -180,15 +185,21 @@ async def open_shifts(db: AsyncSession, company_id: Any, *, older_than_hours: fl
     place_join = "LEFT JOIN work_locations wl ON wl.id = e.work_location_id AND wl.company_id = e.company_id" if places else ""
     rows = (await db.execute(text(f"""
         SELECT s.employee_id::text AS employee_id, COALESCE(e.full_name, '') AS employee_name, COALESCE(e.role, '') AS employee_role,
-               COALESCE(e.telegram_user_id::text, '') AS telegram_user_id, s.status, s.check_in_at, c.timezone AS company_tz,
+               COALESCE(e.telegram_user_id::text, '') AS telegram_user_id, s.status,
+               COALESCE(s.check_in_at, last_in.at) AS check_in_at, c.timezone AS company_tz,
                {place_cols}
         FROM workforce_attendance_status s
         JOIN employees e ON e.id = s.employee_id AND e.company_id = s.company_id
         JOIN companies c ON c.id = s.company_id
         {place_join}
-        WHERE s.company_id = CAST(:c AS uuid) AND s.status IN ('working', 'on_break') AND s.check_in_at IS NOT NULL
-          AND s.check_in_at <= :limit
-        ORDER BY s.check_in_at ASC
+        LEFT JOIN LATERAL (
+            SELECT max(COALESCE(ev.occurred_at, ev.created_at)) AS at FROM workforce_attendance_events ev
+            WHERE ev.company_id = s.company_id AND ev.employee_id = s.employee_id AND lower(ev.event_type) IN {CHECK_IN_TYPES}
+        ) last_in ON s.check_in_at IS NULL
+        WHERE s.company_id = CAST(:c AS uuid) AND s.status IN ('working', 'on_break')
+          AND COALESCE(s.check_in_at, last_in.at) IS NOT NULL
+          AND COALESCE(s.check_in_at, last_in.at) <= :limit
+        ORDER BY COALESCE(s.check_in_at, last_in.at) ASC
     """), {"c": str(company_id), "limit": now_utc - timedelta(hours=older_than_hours)})).mappings().all()
     out = []
     for row in rows:
@@ -198,8 +209,25 @@ async def open_shifts(db: AsyncSession, company_id: Any, *, older_than_hours: fl
     return out
 
 
-async def bosses(db: AsyncSession, company_id: Any, work_location_id: str | None, exclude_employee_id: str) -> list[dict[str, Any]]:
-    """Supervisores del lugar del colaborador con Telegram; si no hay, la direccion."""
+async def alert_options(db: AsyncSession, company_id: Any) -> dict[str, Any]:
+    """Ajustes opcionales del aviso (068B). Sin ellos, el comportamiento de siempre."""
+    raw = (await db.execute(text("""
+        SELECT cm.settings FROM company_modules cm JOIN modules m ON m.id = cm.module_id
+        WHERE cm.company_id = CAST(:c AS uuid) AND lower(m.code) = :m LIMIT 1
+    """), {"c": str(company_id), "m": MODULE})).scalar()
+    settings = settings_dict(raw)
+    since = None
+    try:
+        since = aware(datetime.fromisoformat(str(settings.get("open_shift_alert_since") or "").replace("Z", "+00:00")))
+    except ValueError:
+        pass
+    return {"since": since, "owner": settings.get("open_shift_alert_owner") is True}
+
+
+async def bosses(db: AsyncSession, company_id: Any, work_location_id: str | None, exclude_employee_id: str,
+                 owner: bool = False) -> list[dict[str, Any]]:
+    """Supervisores del lugar del colaborador con Telegram; si no hay, la direccion
+    (y el rol dueno cuando la empresa lo pidio: open_shift_alert_owner)."""
     rows = (await db.execute(text("""
         SELECT e.id::text AS employee_id, COALESCE(e.full_name, '') AS name, COALESCE(e.role, '') AS role,
                COALESCE(e.telegram_user_id::text, '') AS telegram_user_id,
@@ -212,7 +240,8 @@ async def bosses(db: AsyncSession, company_id: Any, work_location_id: str | None
     supervisors = [p for p in people if role_of(p["role"]) in SUPERVISOR_ROLES and work_location_id and p["work_location_id"] == work_location_id]
     if supervisors:
         return supervisors
-    return [p for p in people if role_of(p["role"]) in DIRECTOR_ROLES]
+    roles = DIRECTOR_ROLES | OWNER_ROLES if owner else DIRECTOR_ROLES
+    return [p for p in people if role_of(p["role"]) in roles]
 
 
 async def claim(db: AsyncSession, company_id: Any, employee_id: str, started_at: datetime, hours: float, recipients: list[str]) -> bool:
@@ -231,9 +260,12 @@ async def run_company(db: AsyncSession, company_id: Any, *, send, language_of, n
     `send(chat_id, text)` y `language_of(telegram_user_id)` los pone quien llama."""
     now_utc = now_utc or datetime.now(timezone.utc)
     limit = await alert_hours(db, company_id)
+    options = await alert_options(db, company_id)
     done = 0
     for shift in await open_shifts(db, company_id, older_than_hours=limit, now_utc=now_utc):
-        boss_list = await bosses(db, company_id, shift.get("work_location_id"), shift["employee_id"])
+        if options["since"] and shift["check_in_at"] + timedelta(hours=limit) < options["since"]:
+            continue  # ya habia pasado el limite cuando se encendio el aviso
+        boss_list = await bosses(db, company_id, shift.get("work_location_id"), shift["employee_id"], owner=options["owner"])
         recipients = [b["name"] for b in boss_list]
         if not await claim(db, company_id, shift["employee_id"], shift["check_in_at"], shift["hours_open"], recipients):
             continue  # ya avisado este turno
@@ -338,6 +370,11 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
     if not row or row["status"] not in {"working", "on_break"}:
         raise Invalid("employee_id", "Esa persona no tiene un turno abierto.")
     started = aware(row["check_in_at"])
+    if started is None:  # 068B: el bot de esa empresa no guarda la hora en el estado
+        started = aware((await db.execute(text(f"""
+            SELECT max(COALESCE(occurred_at, created_at)) FROM workforce_attendance_events
+            WHERE company_id = CAST(:c AS uuid) AND employee_id = CAST(:e AS uuid) AND lower(event_type) IN {CHECK_IN_TYPES}
+        """), {"c": cid, "e": eid})).scalar())
     if min_hours > 0 and (started is None or hours_open(started, now_utc) < min_hours):
         raise TooEarly(min_hours)
     if leader and (started is None or hours_open(started, now_utc) >= float(leader["max_hours"])):
