@@ -60,28 +60,58 @@ test('buscar por el nombre viejo y el nuevo trae la misma referencia una sola ve
   assert.match(R.groupCard(GROUP, 'Activas'), /antes: Choco-fresa/);
 });
 
-test('corregir producido: motivo obligatorio, confirmación con los valores y casilla final', () => {
+test('corregir producido: 0 es válido, errores por casilla y confirmación con casilla', () => {
   const R = setup();
   const m = R.model;
   assert.match(R.groupModalView(), /Corregir producido/);
   const start = { 'data-rv-lf-start': 'correct', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' };
-  global.document = undefined;
   R.lifeClick(click(start));
   assert.equal(m.lifeFlow.kind, 'correct');
+  R.lifeClick(click({ 'data-rv-lf-next': 'correct2' }));
+  assert.equal(m.lifeFlow.errors.value, 'Valor inválido', 'vacío no es 0');
+  assert.equal(m.lifeFlow.errors.reason, 'Escribe el motivo');
+  const shown = R.groupModalView();
+  assert.match(shown, /data-rv-lf-err="value"[^>]*>Valor inválido/);
+  assert.match(shown, /data-rv-lf-err="reason"[^>]*>Escribe el motivo/);
   m.lifeFlow.value = '0';
   R.lifeClick(click({ 'data-rv-lf-next': 'correct2' }));
-  assert.match(m.error, /motivo/i, 'sin motivo no avanza');
-  assert.equal(m.lifeFlow.step, 1);
+  assert.equal(m.lifeFlow.errors.value, undefined, '0 es un valor válido');
+  assert.equal(m.lifeFlow.step, 1, 'sin motivo no avanza');
   m.lifeFlow.reason = 'se metió por error';
   R.lifeClick(click({ 'data-rv-lf-next': 'correct2' }));
   assert.equal(m.lifeFlow.step, 2);
-  assert.match(R.groupModalView(), /¿Cambiar producido de S de 28 a 0\?/);
-  R.lifeClick(click({ 'data-rv-lf-next': 'correct3' }));
   const last = R.groupModalView();
+  assert.match(last, /¿Cambiar producido de S de 28 a 0\?/);
   assert.match(last, /Confirmo la corrección/);
   assert.match(last, /data-rv-lf-next="correctgo" disabled/, 'sin la casilla no se puede aplicar');
   m.lifeFlow.checked = true;
   assert.doesNotMatch(R.groupModalView(), /data-rv-lf-next="correctgo" disabled/);
+});
+
+test('valor inválido: texto y negativos no pasan; 0 sí', () => {
+  const R = setup();
+  for (const bad of ['', ' ', '-1', '1.5', 'abc']) assert.equal(R.wholeNumber(bad), false, bad);
+  for (const ok of ['0', ' 0 ', '28']) assert.equal(R.wholeNumber(ok), true, ok);
+});
+
+test('cada talla: tres filas en el mismo orden y Reiniciar y Archivar dentro de Más', () => {
+  const R = setup();
+  const html = R.groupModalView();
+  const order = (s) => ['rv-tl-row1', 'rv-tl-nums', 'rv-tl-acts'].map((c) => s.indexOf(c));
+  for (const piece of html.split('data-rv-tl="').slice(1)) {
+    const at = order(piece);
+    assert.ok(at[0] > -1 && at[0] < at[1] && at[1] < at[2], 'fila 1, fila 2, fila 3');
+    assert.match(piece, /<summary[^>]*>Más<\/summary>[\s\S]*Reiniciar ciclo[\s\S]*Archivar/);
+    assert.match(piece, /Corregir producido[\s\S]*Cerrar talla[\s\S]*Más/);
+  }
+});
+
+test('sin prendas cerradas, por prenda y mano de obra dicen —', () => {
+  const R = setup();
+  R.model.lifeAccount[GROUP.key] = { totals: { closed_qty: 0, minutes_per_garment: null, labor_per_garment: null }, closed_sizes: 0, total_sizes: 2, time: { total_seconds: 72600, people: [], unclosed: [] }, sizes: [] };
+  const html = R.groupModalView();
+  assert.match(html, /Por prenda <b>—<\/b>/);
+  assert.match(html, /Mano de obra por prenda <b>—<\/b>/);
 });
 
 test('corregir a más de lo recibido avisa antes de aplicar', () => {
@@ -104,10 +134,10 @@ test('cerrar talla: pide cantidad final y motivo si es menor que lo recibido', (
   assert.match(R.groupModalView(), /Cantidad final cerrada/);
   m.lifeFlow.value = '40';
   R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.error, /menos de lo recibido/);
+  assert.match(m.lifeFlow.errors.code, /menos de lo recibido/);
   m.lifeFlow.code = 'otro';
   R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.error, /detalle/, 'Otro pide detalle');
+  assert.match(m.lifeFlow.errors.note, /detalle/, 'Otro pide detalle');
   m.lifeFlow.code = 'merma';
   R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
   assert.equal(m.lifeFlow.step, 2);
@@ -128,10 +158,9 @@ test('talla cerrada: muestra su cuenta, no el interruptor del bot, y reabrir pid
   assert.match(html, /data-rv-gm-bot="m1"/);
   R.lifeClick(click({ 'data-rv-lf-start': 'reopen', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
   R.lifeClick(click({ 'data-rv-lf-next': 'reopen2' }));
-  assert.match(m.error, /motivo/);
+  assert.match(m.lifeFlow.errors.reason, /motivo/);
   m.lifeFlow.reason = 'faltó contar';
   R.lifeClick(click({ 'data-rv-lf-next': 'reopen2' }));
-  R.lifeClick(click({ 'data-rv-lf-next': 'reopen3' }));
   assert.match(R.groupModalView(), /data-rv-lf-next="reopengo" disabled/);
 });
 
@@ -151,7 +180,7 @@ test('cambiar nombre: confirma con los dos nombres y dice que conserva todo', ()
   R.lifeClick(click({ 'data-rv-lf-start': 'rename', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': '' }));
   assert.equal(m.lifeFlow.value, 'Choco nuevo');
   R.lifeClick(click({ 'data-rv-lf-next': 'rename2' }));
-  assert.match(m.error, /ya es el nombre/);
+  assert.match(m.lifeFlow.errors.value, /ya es el nombre/);
   m.lifeFlow.value = 'Choco tres';
   R.lifeClick(click({ 'data-rv-lf-next': 'rename2' }));
   const html = R.groupModalView();
@@ -214,5 +243,5 @@ test('client.js pasa el interruptor y pide los archivos nuevos', () => {
   assert.match(CLIENT, /function cxRefLifecycleOn068A/);
   assert.match(CLIENT, /settings\.reference_lifecycle === true/);
   assert.match(CLIENT, /lifecycle: cxRefLifecycleOn068A\(code\)/);
-  assert.match(CLIENT, /name === "production_v2" \? "068A" : "056J"/);
+  assert.match(CLIENT, /name === "production_v2" \? "068D" : "056J"/);
 });

@@ -14,8 +14,8 @@ const WEB = path.join(ROOT, 'app', 'web');
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
   '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find((p) => p && fs.existsSync(p));
 const VELVET = 'd63cf68c-be5b-4a30-aee4-341973018db1';
-const FLOWS = ['none', 'correct', 'correct2', 'correct3', 'close', 'close2', 'rename', 'rename2', 'reopen', 'closed'];
-const WIDTHS = [1280, 1024, 375];
+const FLOWS = ['none', 'correct', 'correcterr', 'correct2', 'close', 'close2', 'rename', 'rename2', 'reopen', 'closed'];
+const WIDTHS = [1280, 390, 375];
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
 
 const INSIGHTS = { company: { name: 'Velvet', logo_url: '' }, period: { from: '2026-10-15', to: '2026-10-30', by: 'week' }, lifecycle: true,
@@ -94,6 +94,7 @@ test('editor de la referencia: ningún paso se sale de ancho (1280, 1024 y 375 p
       assert.ok(r, `${flow} ${w}px: no se dibujó`);
       assert.equal(r.page_overflow, false, `${flow} ${w}px: la página se sale de ancho`);
       assert.deepEqual(r.bad, [], `${flow} ${w}px: desborda ${JSON.stringify(r.bad)}`);
+      assert.deepEqual(r.low_contrast, [], `${flow} ${w}px: contraste bajo ${JSON.stringify(r.low_contrast)}`);
     }
   }
 });

@@ -190,6 +190,20 @@ def test_sin_valor_hora_la_mano_de_obra_queda_pendiente():
     assert acc["sizes"][0]["labor_per_garment"] is None and acc["totals"]["labor_per_garment"] is None
 
 
+def test_por_prenda_se_calcula_con_prendas_cerradas():
+    labor = {"status": "ok", "amount": 540000.0, "missing": []}
+    info = {"total_seconds": 72600, "first": "2026-10-15T12:00:00+00:00"}  # el caso Dreamy: 20 h 10 entre 1 h de producido daba cifras enganosas
+    none = life.accounts(GROUP, [], info, labor, BOG)
+    assert none["totals"]["minutes_per_garment"] is None and none["totals"]["labor_per_garment"] is None, "sin cerradas no hay cifra"
+    assert all(s["minutes_per_garment"] is None and s["labor_per_garment"] is None for s in none["sizes"])
+    partial = life.accounts(GROUP, closes(("S", 40, "merma")), info, labor, BOG)
+    sizes = {s["size"]: s for s in partial["sizes"]}
+    assert partial["totals"]["minutes_per_garment"] == sizes["S"]["minutes_per_garment"] == round(sizes["S"]["seconds"] / 40 / 60, 1)
+    assert partial["totals"]["labor_per_garment"] == sizes["S"]["labor_per_garment"]
+    assert sizes["M"]["minutes_per_garment"] is None, "una talla abierta no tiene cifra por prenda"
+    assert partial["totals"]["seconds"] == 72600, "el total de horas sigue siendo la suma de todas las tallas"
+
+
 def test_labor_of_usa_el_valor_de_cada_persona_y_avisa_si_falta():
     items = [{"employee_id": "a", "person": "A", "segments": [(at(5, 13), at(5, 15))]}, {"employee_id": "b", "person": "B", "segments": [(at(5, 13), at(5, 14))]}]
     month = date(2026, 10, 1)

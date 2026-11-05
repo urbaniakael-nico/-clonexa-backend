@@ -545,11 +545,11 @@ def build_pdf(ins: dict, company: dict, logo_reader=None) -> bytes:
                 note(named(lot))
                 rows = [[s["size"], s["closed_qty"], s["meta"], s["received"], s["diff_received"], s["days"] or "—", hm(s["seconds"] / 60),
                          hm(s["minutes_per_garment"]) if s["minutes_per_garment"] is not None else "—",
-                         money(s["labor_per_garment"]) if s["labor_per_garment"] is not None else tr("Pendiente")] for s in acc["sizes"]]
+                         money(s["labor_per_garment"]) if s["labor_per_garment"] is not None else (tr("Pendiente") if s["closed_qty"] else "—")] for s in acc["sizes"]]
                 tot = acc["totals"]
                 rows.append([tr("Total"), tot["closed_qty"], tot["meta"], tot["received"], tot["closed_qty"] - tot["received"], tot["days"] or "—", hm(tot["seconds"] / 60),
                              hm(tot["minutes_per_garment"]) if tot["minutes_per_garment"] is not None else "—",
-                             money(tot["labor_per_garment"]) if tot["labor_per_garment"] is not None else tr("Pendiente")])
+                             money(tot["labor_per_garment"]) if tot["labor_per_garment"] is not None else (tr("Pendiente") if tot["closed_qty"] else "—")])
                 table(["Talla", "Cerradas", "Meta", "Recibido", "Dif.", "Días", "Horas", "Por prenda", "Mano de obra"], rows,
                       [0.09, 0.1, 0.08, 0.1, 0.07, 0.07, 0.17, 0.16, 0.16], ["l", "r", "r", "r", "r", "r", "r", "r", "r"])
         else:

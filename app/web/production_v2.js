@@ -139,8 +139,8 @@
     const acc = lot.account;
     if (!acc) return "";
     const perHour = (v) => (v === null || v === undefined ? "—" : hm(v));
-    const labor = (v) => (v === null || v === undefined ? T("Pendiente") : money(v));
-    const row = (name, s, qty, diff, cls = "") => `<div class="pp-row pp-row-8 ${cls}" role="row"><span>${h(name)}</span><span>${h(qty ?? "—")}</span><span>${h(num(s.meta))}</span><span>${h(num(s.received))}</span><span>${h(diff ?? "—")}</span><span>${h(s.days ?? "—")}</span><span>${h(hm(num(s.seconds) / 60))}</span><span>${h(perHour(s.minutes_per_garment))} · ${h(labor(s.labor_per_garment))}</span></div>`;
+    const labor = (v, closed) => (!num(closed) ? "—" : v === null || v === undefined ? T("Pendiente") : money(v));
+    const row = (name, s, qty, diff, cls = "") => `<div class="pp-row pp-row-8 ${cls}" role="row"><span>${h(name)}</span><span>${h(qty ?? "—")}</span><span>${h(num(s.meta))}</span><span>${h(num(s.received))}</span><span>${h(diff ?? "—")}</span><span>${h(s.days ?? "—")}</span><span>${h(hm(num(s.seconds) / 60))}</span><span>${h(perHour(s.minutes_per_garment))} · ${h(labor(s.labor_per_garment, qty))}</span></div>`;
     const t = acc.totals || {};
     return `<h3 class="pp-h3">${h(T("Cuenta por talla"))}</h3><p class="pp-muted">${h(T("Horas y mano de obra repartidas por cantidad: el tiempo se registra por referencia, no por talla."))}</p>
       <div class="pp-table" role="table"><div class="pp-row pp-row-8 is-head" role="row"><span>${h(T("Talla"))}</span><span>${h(T("Cerradas"))}</span><span>${h(T("Meta"))}</span><span>${h(T("Recibido"))}</span><span>${h(T("Dif."))}</span><span>${h(T("Días"))}</span><span>${h(T("Horas"))}</span><span>${h(T("Por prenda"))}</span></div>
@@ -155,7 +155,7 @@
       const open = model.open === lot.key;
       const t = (lot.account || {}).totals || {};
       return `<li class="pp-lot is-closed"><button type="button" class="pp-lot-head" data-pp-lot="${h(lot.key)}" aria-expanded="${open}"><span class="pp-lot-name"><b>${h(lot.name)}</b>${former(lot)}<small class="pp-chip">${h(T("Cerrada"))}</small></span>
-        <span class="pp-lot-nums"><span>${h(T("Cerradas"))} <b>${h(num(t.closed_qty))}</b></span><span>${h(T("Horas"))} <b>${h(hm(num(t.seconds) / 60))}</b></span><span>${h(T("Por prenda"))} <b>${h(t.minutes_per_garment === null || t.minutes_per_garment === undefined ? "—" : hm(t.minutes_per_garment))}</b></span><span>${h(T("Mano de obra por prenda"))} <b>${h(t.labor_per_garment === null || t.labor_per_garment === undefined ? T("Pendiente") : money(t.labor_per_garment))}</b></span></span></button>
+        <span class="pp-lot-nums"><span>${h(T("Cerradas"))} <b>${h(num(t.closed_qty))}</b></span><span>${h(T("Horas"))} <b>${h(hm(num(t.seconds) / 60))}</b></span><span>${h(T("Por prenda"))} <b>${h(t.minutes_per_garment === null || t.minutes_per_garment === undefined ? "—" : hm(t.minutes_per_garment))}</b></span><span>${h(T("Mano de obra por prenda"))} <b>${h(!num(t.closed_qty) ? "—" : t.labor_per_garment === null || t.labor_per_garment === undefined ? T("Pendiente") : money(t.labor_per_garment))}</b></span></span></button>
         ${open ? `<div class="pp-lot-body">${timeFigures(lot)}${accountTable(lot)}<h3 class="pp-h3">${h(T("Horas del equipo en el lote"))}</h3>${peopleTable(lot)}${unclosedList(lot)}</div>` : ""}</li>`;
     }).join("")}</ul>`;
   }

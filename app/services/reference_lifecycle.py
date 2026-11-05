@@ -462,11 +462,14 @@ def accounts(group: dict, closes: list[dict], time_info: Optional[dict], labor: 
             "reason_label": REASONS.get(c["reason_code"]) if c and c["reason_code"] else None, "reason_note": c["reason_note"] if c else None,
             "closed_at": c["closed_at"].isoformat() if c and isinstance(c["closed_at"], datetime) else None, "closed_by": c["actor"] if c else None,
             "days": (closed_day - first).days + 1 if closed_day and first else None, "seconds": seconds,
-            "minutes_per_garment": round(seconds / qty / 60, 1) if qty > 0 else None,
-            "labor": money_cents / 100 if labor_ok else None, "labor_per_garment": round(money_cents / 100 / qty, 2) if labor_ok and qty > 0 else None,
+            # Por prenda solo con prendas CERRADAS; una talla abierta no tiene cifra.
+            "minutes_per_garment": round(seconds / qty / 60, 1) if c and qty > 0 else None,
+            "labor": money_cents / 100 if labor_ok else None, "labor_per_garment": round(money_cents / 100 / qty, 2) if c and labor_ok and qty > 0 else None,
         })
     closed_total = sum(q for q, r in zip(qty_of, rows) if r["closed"])
     garments = sum(qty_of)
+    closed_seconds = sum(r["seconds"] for r in rows if r["closed"])
+    closed_cents = sum(cent for cent, r in zip(cents, rows) if r["closed"])
     is_closed = bool(lines) and all(r["closed"] for r in rows)
     days = [r["days"] for r in rows if r["days"]]
     return {
@@ -474,8 +477,8 @@ def accounts(group: dict, closes: list[dict], time_info: Optional[dict], labor: 
         "labor_status": labor.get("status") if labor else "pendiente", "labor_missing": (labor or {}).get("missing") or [],
         "totals": {"closed_qty": closed_total, "garments": garments, "meta": sum(r["meta"] for r in rows), "received": sum(r["received"] for r in rows),
                    "seconds": sum(r["seconds"] for r in rows), "labor": round(sum(cents) / 100, 2) if labor_ok else None, "days": max(days) if days else None,
-                   "minutes_per_garment": round(sum(r["seconds"] for r in rows) / garments / 60, 1) if garments > 0 else None,
-                   "labor_per_garment": round(sum(cents) / 100 / garments, 2) if labor_ok and garments > 0 else None},
+                   "minutes_per_garment": round(closed_seconds / closed_total / 60, 1) if closed_total > 0 else None,
+                   "labor_per_garment": round(closed_cents / 100 / closed_total, 2) if labor_ok and closed_total > 0 else None},
     }
 
 

@@ -52,6 +52,27 @@
   const opItems = [{ id: "i1", name: "Corte y trazo de piezas", minutes: 25, size: "", position: 0 }, { id: "i2", name: "Costura", minutes: 60, size: "", position: 1 },
     { id: "i3", name: "Botones y ojales", minutes: 27, size: "", position: 2 }, { id: "i4", name: "Bolsillo extra talla M", minutes: 5, size: "M", position: 3 }];
   const opData = { group: groups[0], settings: { value_per_garment: 24000 }, calc: { items: opItems }, sizes: ["S", "SM", "M"] };
+  // reference_lifecycle: nombres anteriores, corrección, talla cerrada, solicitud del bot y cuenta por talla.
+  const LIFE = P.get("life") === "1";
+  const E2E = P.get("e2e") === "1";
+  const LIFE_KEY = "pantset|marfil";
+  const lifeAt = "2026-11-05T12:00:00Z";
+  const lifeState = LIFE ? Object.fromEntries(groups.map((g) => [g.key, { former_names: [], renames: [], corrections: [], closes: [], reopened: [], requests: [], status: "open" }])) : null;
+  let lifeAccount = null;
+  if (LIFE && E2E) {
+    // Clics reales: la talla 10 con producido 28 y ninguna talla cerrada.
+    Object.assign(groups.find((g) => g.key === LIFE_KEY).lines.find((l) => l.size === "10"), { produced: 28, pending: 2 });
+    lifeAccount = { total_sizes: 5, closed_sizes: 0, time: { total_seconds: 2033100, people: [{ name: "KRIS", total_seconds: 2033100 }], unclosed: [] }, totals: { closed_qty: 0, minutes_per_garment: null, labor_per_garment: null }, sizes: [] };
+  } else if (LIFE) {
+    lifeState[LIFE_KEY] = { former_names: ["Pantalón de la colección anterior con un nombre muy largo", "PANT"], renames: [{ old_name: "PANT", new_name: "PANT SET", actor: "Dueña de la empresa", at: lifeAt }],
+      corrections: [{ size: "10", before: 28, after: 0, actor: "Dueña de la empresa", reason: "Se metió por error desde el bot con un motivo largo para ver que no se sale", at: lifeAt }],
+      closes: [{ size: "12", closed_qty: 18, actor: "Dueña de la empresa", at: lifeAt }], reopened: [{ size: "12", reason: "Faltó contar", actor: "Dueña", at: lifeAt }],
+      requests: [{ id: "q1", size: "10", quantity: 12, received: 30, produced: 28, employee: "KRIS", at: lifeAt }], status: P.get("flow") === "closed" ? "closed" : "open" };
+    lifeAccount = { total_sizes: 5, closed_sizes: 1, time: { total_seconds: 776340, people: [{ name: "KRIS", total_seconds: 776340 }], unclosed: [{ name: "TATA", started: lifeAt, reason: "abierta" }] },
+      totals: { closed_qty: 18, minutes_per_garment: 245.5, labor_per_garment: 40900 },
+      sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Devolución", reason_note: "Detalle largo del motivo de la devolución" }] };
+  }
+  window.__lifePosts = [];
   let catalog = null;
   const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
   const real = window.fetch.bind(window);
@@ -67,7 +88,19 @@
     }
     if (p === `/companies/${CID}`) return json({ id: CID, name: T.name, slug: T.name.toLowerCase().replace(/ /g, "-"), status: "active" });
     if (p === `/companies/${CID}/experience`) return json({ company_id: CID, branding: T.branding });
-    if (p === `/companies/${CID}/modules`) return json([{ id: "cm1", company_id: CID, module_id: "m1", enabled: true, settings: { references_v2: true }, module: { code: "references", name: "Referencias" } }]);
+    if (p === `/companies/${CID}/modules`) return json([{ id: "cm1", company_id: CID, module_id: "m1", enabled: true, settings: { references_v2: true, reference_lifecycle: LIFE }, module: { code: "references", name: "Referencias" } }]);
+    if (LIFE && p.includes("/reference-lifecycle/")) {
+      if (p.endsWith("/state")) return json({ references: lifeState });
+      if (p.endsWith("/account")) return json(lifeAccount);
+      const body = JSON.parse((opts && opts.body) || "{}");
+      window.__lifePosts.push({ path: p.split("/").pop(), body });
+      if (p.endsWith("/produced-correction")) {
+        const l = groups.find((g) => g.key === LIFE_KEY).lines.find((x) => x.reference_id === body.reference_id);
+        lifeState[LIFE_KEY].corrections.unshift({ size: l.size, before: l.produced, after: body.new_value, actor: "Dueña", reason: body.reason, at: lifeAt });
+        Object.assign(l, { produced: body.new_value, pending: Math.max(l.meta - body.new_value, 0) });
+      }
+      return json({ ok: true });
+    }
     if (p.endsWith("/v2/catalog")) { catalog = catalog || await real("/client-static/garment_catalog.json").then((r) => r.json()); return json({ catalog, counts: { mujer: { parts: { inferior: 3, superior: 2 }, garments: { pantalon: 3 } } } }); }
     if (p.endsWith("/summary")) return json(summary);
     if (p.endsWith("/v2/board")) return json({ extras });
@@ -88,21 +121,12 @@
     if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
     if (m.tab === "estado" && P.get("modal") !== "0") R.openGroupModal(P.get("modal") || "pantset|marfil");
     if (m.tab === "orden") { m.op.key = groups[0].key; m.op.view = P.get("view") || ""; R.setOp(opData); }
-    if (P.get("life") === "1") {
-      // reference_lifecycle: corrección, nombres anteriores, talla cerrada, solicitud del bot y cuenta por talla.
-      const key = "pantset|marfil";
-      const at = "2026-11-05T12:00:00Z";
-      m.life = Object.fromEntries(groups.map((g) => [g.key, { former_names: [], renames: [], corrections: [], closes: [], reopened: [], requests: [], status: "open" }]));
-      m.life[key] = { former_names: ["Pantalón de la colección anterior con un nombre muy largo", "PANT"], renames: [{ old_name: "PANT", new_name: "PANT SET", actor: "Dueña de la empresa", at }],
-        corrections: [{ size: "10", before: 28, after: 0, actor: "Dueña de la empresa", reason: "Se metió por error desde el bot con un motivo largo para ver que no se sale", at }],
-        closes: [{ size: "12", closed_qty: 18, actor: "Dueña de la empresa", at }], reopened: [{ size: "12", reason: "Faltó contar", actor: "Dueña", at }],
-        requests: [{ id: "q1", size: "10", quantity: 12, received: 30, produced: 28, employee: "KRIS", at }], status: P.get("flow") === "closed" ? "closed" : "open" };
-      m.lifeAccount[key] = { total_sizes: 5, closed_sizes: 1, time: { total_seconds: 776340, people: [{ name: "KRIS", total_seconds: 776340 }], unclosed: [{ name: "TATA", started: at, reason: "abierta" }] },
-        totals: { closed_qty: 18, minutes_per_garment: 245.5, labor_per_garment: 40900 },
-        sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Devolución", reason_note: "Detalle largo del motivo de la devolución" }] };
-      const flow = { correct: { kind: "correct", step: 1, size: "10" }, correct2: { kind: "correct", step: 2, size: "10" }, correct3: { kind: "correct", step: 3, size: "10" }, close: { kind: "close", step: 1, size: "10" },
+    if (LIFE) {
+      m.life = lifeState;
+      m.lifeAccount[LIFE_KEY] = lifeAccount;
+      const flow = { correct: { kind: "correct", step: 1, size: "10" }, correcterr: { kind: "correct", step: 1, size: "10", errors: { value: "Valor inválido", reason: "Escribe el motivo" } }, correct2: { kind: "correct", step: 2, size: "10" }, close: { kind: "close", step: 1, size: "10" },
         close2: { kind: "close", step: 2, size: "10" }, rename: { kind: "rename", step: 1, size: "" }, rename2: { kind: "rename", step: 2, size: "" }, reopen: { kind: "reopen", step: 1, size: "12" } }[P.get("flow")];
-      if (flow) m.lifeFlow = { key, reason: "Se metió por error", code: "", note: "", checked: false, value: flow.kind === "rename" ? "PANT SET edición nueva" : "40", ...flow };
+      if (flow) m.lifeFlow = { key: LIFE_KEY, reason: "Se metió por error", code: "", note: "", checked: false, errors: {}, value: flow.kind === "rename" ? "PANT SET edición nueva" : "40", ...flow };
     }
     host.innerHTML = R.view();
     return true;
@@ -128,7 +152,7 @@
     return base;
   }
   function ratio(el) { const fg = rgb(getComputedStyle(el).color); const bg = backgroundOf(el); const a = lum(fg) + 0.05; const b = lum(bg) + 0.05; return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100; }
-  const CONTRAST = [".rv-gline > *", ".rv-gfoot span", ".rv-gfoot b", ".rv-gcard .rv-card-head b", ".rv-gcard .rv-card-head small", ".rv-gmline .rv-gsize", ".rv-gmnums span",
+  const CONTRAST = [".rv-tl-nums span", ".rv-tl-cell", ".rv-life-err", ".rv-life-ok", ".rv-gline > *", ".rv-gfoot span", ".rv-gfoot b", ".rv-gcard .rv-card-head b", ".rv-gcard .rv-card-head small", ".rv-gmline .rv-gsize", ".rv-gmnums span",
     ".rv-gcolor", ".rv-gmcolor", ".rv-gcuts li > *", ".rv-op-row > span", ".rv-op-kpis b", ".rv-op-kpis small", ".rv-op-sz b", ".rv-op-szn", ".rv-op-sizes .rv-chip", ".rv-gbot .rv-chip"];
 
   function measure() {

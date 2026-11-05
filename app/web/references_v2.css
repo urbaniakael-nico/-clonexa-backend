@@ -440,7 +440,6 @@
 }
 
 /* reference_lifecycle: corregir producido, renombrar y cerrar por talla. */
-.rv-gmline > .rv-life { grid-area: auto; grid-column: 1 / -1; grid-row: auto; }
 .rv-life { display: grid; gap: 8px; min-width: 0; padding-top: 6px; }
 .rv-gmline > .rv-life { border-top: 1px dashed var(--rv-line); }
 .rv-life > .rv-btn { justify-self: start; }
@@ -450,7 +449,7 @@
 .rv-life-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .rv-life-acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .rv-life-check { display: flex; gap: 8px; align-items: center; font-weight: 700; }
-.rv-life-warn { margin: 0; font-weight: 700; color: var(--cx-text); overflow-wrap: anywhere; }
+.rv-life-err { display: block; margin: 0; padding: 2px 6px; border-radius: 6px; font-size: 12.5px; font-weight: 700; color: var(--rv-danger); background: color-mix(in srgb, #ffffff 90%, transparent); overflow-wrap: anywhere; }
 .rv-life-closed { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
 .rv-life-account { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
 .rv-life-history, .rv-life-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
@@ -462,4 +461,31 @@
 .rv-closed-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; margin-top: 10px; }
 @media (max-width: 720px) {
   .rv-life-fields { grid-template-columns: 1fr; }
+}
+
+/* La talla en tres filas (con reference_lifecycle). Las reglas viejas de .rv-gmline no aplican aqui. */
+.rv-gmline.is-life { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: none; gap: 8px; }
+.rv-gmline.is-life .rv-field, .rv-gmline.is-life .rv-toggle, .rv-gmline.is-life .rv-gsize { grid-area: auto; }
+.rv-tl-row1 { display: grid; grid-template-columns: 52px minmax(72px, 110px) minmax(0, 1fr) 78px; gap: 8px; align-items: end; }
+.rv-tl-row1 > .rv-gsize { align-self: center; overflow-wrap: anywhere; }
+.rv-tl-row1 > .rv-chip, .rv-tl-row1 > .rv-tl-bot { justify-self: end; align-self: center; }
+.rv-tl-cell { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+.rv-tl-cell b, .rv-tl-cell small { overflow-wrap: anywhere; }
+.rv-tl-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rv-tl-nums span { display: grid; gap: 1px; min-width: 0; font-size: 12.5px; color: var(--rv-text); }
+.rv-tl-nums b { font-size: 15px; }
+.rv-tl-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.rv-more-menu { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.rv-more-menu > summary { list-style: none; cursor: pointer; }
+.rv-more-menu > summary::-webkit-details-marker { display: none; }
+.rv-more-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.rv-more-menu:not([open]) .rv-more-items { display: none; }
+.rv-life-field { display: grid; gap: 4px; min-width: 0; }
+.rv-life-field.is-bad input, .rv-life-field.is-bad select { border-color: var(--rv-danger); }
+.rv-life-ok { margin: 0; padding: 4px 8px; border-radius: 8px; background: var(--rv-plate); font-weight: 700; overflow-wrap: anywhere; }
+.rv-gmline.is-life .rv-life-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) {
+  .rv-gmline.is-life { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
+  .rv-gmline.is-life .rv-life-fields { grid-template-columns: minmax(0, 1fr); }
+  .rv-tl-row1 { grid-template-columns: 36px 60px minmax(0, 1fr) 66px; gap: 6px; }
 }

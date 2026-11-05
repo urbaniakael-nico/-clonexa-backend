@@ -10659,11 +10659,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = cssId;
           link.rel = "stylesheet";
-          link.href = `/client-static/${name}.css?v=${name === "production_v2" ? "068A" : "056J"}`;
+          link.href = `/client-static/${name}.css?v=${name === "production_v2" ? "068D" : "056J"}`;
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = `/client-static/${name}.js?v=${name === "production_v2" ? "068A" : "056J"}`;
+        script.src = `/client-static/${name}.js?v=${name === "production_v2" ? "068D" : "056J"}`;
         script.onload = () => resolve();
         script.onerror = () => { delete cxV2Loading056I[name]; reject(new Error(name)); };
         document.head.appendChild(script);
@@ -21106,11 +21106,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReferencesV2Css050B";
           link.rel = "stylesheet";
-          link.href = "/client-static/references_v2.css?v=068A";
+          link.href = "/client-static/references_v2.css?v=068D";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/references_v2.js?v=068A";
+        script.src = "/client-static/references_v2.js?v=068D";
         script.onload = () => resolve();
         script.onerror = () => { cxReferencesV2Loading050B = null; reject(new Error("references_v2")); };
         document.head.appendChild(script);
