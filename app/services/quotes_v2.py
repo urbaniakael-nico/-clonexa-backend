@@ -111,7 +111,7 @@ async def _closures(db: AsyncSession, company_id: str, start: Optional[date] = N
         params["ids"] = list(ids)
     return [dict(r) for r in (await db.execute(text(f"""
         SELECT c.id, COALESCE(c.reference_id, '') AS reference_id, COALESCE(c.reference_name, '') AS reference_name,
-               COALESCE(c.size, '') AS size, COALESCE(c.quantity_finished, 0) AS quantity,
+               COALESCE(c.size, '') AS size, COALESCE(c.quantity_finished, 0) AS quantity, COALESCE(c.source_channel, '') AS source_channel,
                (c.closed_at AT TIME ZONE CAST(:tz AS text))::date AS day,
                ch.quote_id AS charged_quote_id, q.quote_number AS charged_number
         FROM reference_production_closures c
@@ -131,7 +131,8 @@ def group_closures(closures: list[dict], names: dict[str, str], values: dict[str
     charged: dict[str, int] = {}
     for c in closures:
         qty = int(c["quantity"] or 0)
-        if qty <= 0:
+        # Una correccion de producido (reference_lifecycle) resta de lo que aun no se ha cobrado.
+        if qty <= 0 and c.get("source_channel") != "correccion":
             continue
         if c.get("charged_quote_id"):
             doc = mpq._account_number_from_quote_number(c.get("charged_number"))
@@ -145,7 +146,8 @@ def group_closures(closures: list[dict], names: dict[str, str], values: dict[str
         g["quantity"] += qty
         g["closure_ids"].append(str(c["id"]))
     lines = []
-    for g in sorted(groups.values(), key=lambda x: x["name"].lower()):
+    for g in sorted((x for x in groups.values() if x["quantity"] > 0), key=lambda x: x["name"].lower()):
+        g["sizes"] = {s: q for s, q in g["sizes"].items() if q > 0}
         v = pick_value(values, g["key"])
         sizes = [{"size": s, "quantity": q} for s, q in sorted(g["sizes"].items(), key=lambda kv: size_key(kv[0]))]
         lines.append({**g, "sizes": sizes, "unit_price": v["value"], "price_source": v["source"],

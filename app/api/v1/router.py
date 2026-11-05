@@ -43,6 +43,7 @@ for _module_name, _prefix, _tags in [
     ("loyalty_retos", "/loyalty-retos", ["loyalty_retos"]),
     ("crm_lab", "/crm-lab", ["crm_lab"]),
     ("production_v2", "/production-v2", ["production_v2"]),
+    ("reference_lifecycle", "/reference-lifecycle", ["reference_lifecycle"]),
     ("quotes_v2", "/quotes-v2", ["quotes_v2"]),
     ("billing_reminder", "/billing-reminder", ["billing_reminder"]),
     ("bots", "/bots", ["bots"]),

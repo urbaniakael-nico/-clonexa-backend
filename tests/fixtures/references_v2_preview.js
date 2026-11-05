@@ -88,6 +88,22 @@
     if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
     if (m.tab === "estado" && P.get("modal") !== "0") R.openGroupModal(P.get("modal") || "pantset|marfil");
     if (m.tab === "orden") { m.op.key = groups[0].key; m.op.view = P.get("view") || ""; R.setOp(opData); }
+    if (P.get("life") === "1") {
+      // reference_lifecycle: corrección, nombres anteriores, talla cerrada, solicitud del bot y cuenta por talla.
+      const key = "pantset|marfil";
+      const at = "2026-11-05T12:00:00Z";
+      m.life = Object.fromEntries(groups.map((g) => [g.key, { former_names: [], renames: [], corrections: [], closes: [], reopened: [], requests: [], status: "open" }]));
+      m.life[key] = { former_names: ["Pantalón de la colección anterior con un nombre muy largo", "PANT"], renames: [{ old_name: "PANT", new_name: "PANT SET", actor: "Dueña de la empresa", at }],
+        corrections: [{ size: "10", before: 28, after: 0, actor: "Dueña de la empresa", reason: "Se metió por error desde el bot con un motivo largo para ver que no se sale", at }],
+        closes: [{ size: "12", closed_qty: 18, actor: "Dueña de la empresa", at }], reopened: [{ size: "12", reason: "Faltó contar", actor: "Dueña", at }],
+        requests: [{ id: "q1", size: "10", quantity: 12, received: 30, produced: 28, employee: "KRIS", at }], status: P.get("flow") === "closed" ? "closed" : "open" };
+      m.lifeAccount[key] = { total_sizes: 5, closed_sizes: 1, time: { total_seconds: 776340, people: [{ name: "KRIS", total_seconds: 776340 }], unclosed: [{ name: "TATA", started: at, reason: "abierta" }] },
+        totals: { closed_qty: 18, minutes_per_garment: 245.5, labor_per_garment: 40900 },
+        sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Devolución", reason_note: "Detalle largo del motivo de la devolución" }] };
+      const flow = { correct: { kind: "correct", step: 1, size: "10" }, correct2: { kind: "correct", step: 2, size: "10" }, correct3: { kind: "correct", step: 3, size: "10" }, close: { kind: "close", step: 1, size: "10" },
+        close2: { kind: "close", step: 2, size: "10" }, rename: { kind: "rename", step: 1, size: "" }, rename2: { kind: "rename", step: 2, size: "" }, reopen: { kind: "reopen", step: 1, size: "12" } }[P.get("flow")];
+      if (flow) m.lifeFlow = { key, reason: "Se metió por error", code: "", note: "", checked: false, value: flow.kind === "rename" ? "PANT SET edición nueva" : "40", ...flow };
+    }
     host.innerHTML = R.view();
     return true;
   }

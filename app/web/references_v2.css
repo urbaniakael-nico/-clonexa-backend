@@ -438,3 +438,28 @@
   .rv-gmline.is-cut { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: none; }
   .rv-gmline.is-cut .rv-btn { grid-column: 1 / -1; white-space: normal; }
 }
+
+/* reference_lifecycle: corregir producido, renombrar y cerrar por talla. */
+.rv-gmline > .rv-life { grid-area: auto; grid-column: 1 / -1; grid-row: auto; }
+.rv-life { display: grid; gap: 8px; min-width: 0; padding-top: 6px; }
+.rv-gmline > .rv-life { border-top: 1px dashed var(--rv-line); }
+.rv-life > .rv-btn { justify-self: start; }
+.rv-life-flow { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--rv-line); border-radius: var(--rv-r); background: var(--rv-plate); min-width: 0; }
+.rv-life-flow p { margin: 0; overflow-wrap: anywhere; }
+.rv-life-flow b { overflow-wrap: anywhere; }
+.rv-life-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.rv-life-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.rv-life-check { display: flex; gap: 8px; align-items: center; font-weight: 700; }
+.rv-life-warn { margin: 0; font-weight: 700; color: var(--cx-text); overflow-wrap: anywhere; }
+.rv-life-closed { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.rv-life-account { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.rv-life-history, .rv-life-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.rv-life-history li { overflow-wrap: anywhere; }
+.rv-life-people li { display: flex; justify-content: space-between; gap: 10px; }
+.rv-life-requests { display: grid; gap: 6px; padding: 10px; border: 2px solid var(--cx-text); border-radius: var(--rv-r); background: var(--rv-plate); }
+.rv-life-requests p { margin: 0; display: grid; gap: 6px; overflow-wrap: anywhere; }
+.rv-former { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.rv-closed-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; margin-top: 10px; }
+@media (max-width: 720px) {
+  .rv-life-fields { grid-template-columns: 1fr; }
+}

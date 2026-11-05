@@ -556,6 +556,14 @@ async def update_reference(
     if not size:
         raise HTTPException(status_code=422, detail="Talla requerida.")
 
+    from app.services import reference_lifecycle
+
+    if await reference_lifecycle.is_on(db, company_id):
+        try:
+            await reference_lifecycle.guard_patch(db, company_id, dict(current), name, bot_active)
+        except reference_lifecycle.LifecycleError as error:
+            raise HTTPException(status_code=error.status, detail={"code": error.code, "message": error.message}) from None
+
     duplicate = await db.execute(
         text("""
             SELECT id
@@ -1457,6 +1465,16 @@ async def flow_close_production(
 
     if not ref:
         raise HTTPException(status_code=404, detail="Referencia/talla activa para bot no encontrada.")
+
+    from app.services import reference_lifecycle
+
+    warning = await reference_lifecycle.bot_close_guard(
+        db, company_id, {"id": clean(ref.get("id"))}, quantity_finished,
+        {"employee_id": employee_id, "employee_name": employee_name}, telegram_user_id, "flow",
+    )
+    if warning:
+        await db.commit()
+        raise HTTPException(status_code=409, detail=warning)
 
     closure_id = str(uuid4())
 

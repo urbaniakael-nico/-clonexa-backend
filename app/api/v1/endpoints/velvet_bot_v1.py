@@ -859,6 +859,16 @@ async def webhook(
 
         quantity = int(text_value)
 
+        from app.services import reference_lifecycle
+
+        warning = await reference_lifecycle.bot_close_guard(db, company_id, pending, quantity, employee, telegram_user_id)
+        if warning:
+            await _clear_pending_total(db, company_id=company_id, telegram_user_id=telegram_user_id)
+            await db.commit()
+            status = await _status(db, company_id=company_id, employee_id=employee["employee_id"])
+            await _send_message(chat_id, warning, reply_markup=_main_menu(status))
+            return {"ok": True, "handled": "production_not_registered"}
+
         await _save_production_close(
             db,
             company_id=company_id,

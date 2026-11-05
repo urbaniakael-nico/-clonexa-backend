@@ -18,7 +18,7 @@
   const PRESETS = [["week", "Semana"], ["month", "Mes"], ["quarter", "Trimestre"], ["custom", "Personalizado"]];
   const STATUS = { working: "Trabajando", on_break: "En pausa" };
 
-  const model = { preset: "week", from: "", to: "", data: null, loading: false, error: "", denied: false, open: "", busy: "" };
+  const model = { preset: "week", from: "", to: "", data: null, loading: false, error: "", denied: false, open: "", busy: "", search: "" };
   let ctx = null;
   let bound = false;
 
@@ -105,10 +105,59 @@
         <button type="button" class="client-btn pp-btn is-primary" data-pp-pdf="download" ${model.busy ? "disabled" : ""}>${h(T("Descargar PDF"))}</button></div></section>`;
   }
 
-  // Una cifra: valor o "Sin datos aún" con el motivo.
+  // Una cifra: valor, "Pendiente" (falta valor hora) o "Sin datos aún", con el motivo.
   function tile(label, item, value, sub) {
     const ok = item && item.status === "ok";
-    return `<div class="pp-kpi ${ok ? "" : "is-empty"}"><small>${h(T(label))}</small><b>${h(ok ? value : T("Sin datos aún"))}</b><span>${h(ok ? sub : T((item && item.reason) || ""))}</span></div>`;
+    const empty = item && item.status === "pendiente" ? T("Pendiente") : T("Sin datos aún");
+    return `<div class="pp-kpi ${ok ? "" : "is-empty"}"><small>${h(T(label))}</small><b>${h(ok ? value : empty)}</b><span>${h(ok ? sub : T((item && item.reason) || ""))}</span></div>`;
+  }
+
+  // ---- reference_lifecycle: dos cifras por referencia y cierre por talla
+  const fold = (v) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const UNCLOSED = { abierta: "Sesión abierta", turno_sin_confirmar: "Turno sin confirmar" };
+  function matches(lot) {
+    const q = fold(model.search);
+    return !q || [lot.name, ...arr(lot.former_names)].some((n) => fold(n).includes(q));
+  }
+  const former = (lot) => (arr(lot.former_names).length ? `<small class="pp-former">${h(T("antes: {n}", { n: arr(lot.former_names).join(", ") }))}</small>` : "");
+  function timeFigures(lot) {
+    return `<div class="pp-times"><div><small>${h(T("Total de la referencia"))}</small><b>${h(hm(num(lot.total_seconds) / 60))}</b></div>
+      <div><small>${h(T("En el periodo"))}</small><b>${h(hm(num(lot.period_seconds) / 60))}</b></div></div>`;
+  }
+  function unclosedList(lot) {
+    if (!arr(lot.unclosed).length) return "";
+    return `<h3 class="pp-h3">${h(T("Sin cerrar"))}<b>${arr(lot.unclosed).length}</b></h3><p class="pp-muted">${h(T("No se suman hasta que se cierren o confirmen."))}</p>
+      <ul class="pp-mini is-wrap">${arr(lot.unclosed).map((u) => `<li><span>${h(u.name)}</span><span>${h(T(UNCLOSED[u.reason] || u.reason))}</span><b>${h(day(String(u.started).slice(0, 10)))}</b></li>`).join("")}</ul>`;
+  }
+  function peopleTable(lot) {
+    if (!arr(lot.people).length) return `<p class="pp-muted">${h(T("Sin tiempo del equipo."))}</p>`;
+    return `<div class="pp-table" role="table"><div class="pp-row pp-row-3 is-head" role="row"><span>${h(T("Operario"))}</span><span>${h(T("Total"))}</span><span>${h(T("En el periodo"))}</span></div>
+      ${arr(lot.people).map((p) => `<div class="pp-row pp-row-3" role="row"><span>${h(p.name)}</span><span>${h(hm(num(p.total_seconds) / 60))}</span><span>${h(hm(num(p.period_seconds) / 60))}</span></div>`).join("")}
+      <div class="pp-row pp-row-3 is-total" role="row"><span>${h(T("Equipo"))}</span><span>${h(hm(num(lot.total_seconds) / 60))}</span><span>${h(hm(num(lot.period_seconds) / 60))}</span></div></div>`;
+  }
+  function accountTable(lot) {
+    const acc = lot.account;
+    if (!acc) return "";
+    const perHour = (v) => (v === null || v === undefined ? "—" : hm(v));
+    const labor = (v) => (v === null || v === undefined ? T("Pendiente") : money(v));
+    const row = (name, s, qty, diff, cls = "") => `<div class="pp-row pp-row-8 ${cls}" role="row"><span>${h(name)}</span><span>${h(qty ?? "—")}</span><span>${h(num(s.meta))}</span><span>${h(num(s.received))}</span><span>${h(diff ?? "—")}</span><span>${h(s.days ?? "—")}</span><span>${h(hm(num(s.seconds) / 60))}</span><span>${h(perHour(s.minutes_per_garment))} · ${h(labor(s.labor_per_garment))}</span></div>`;
+    const t = acc.totals || {};
+    return `<h3 class="pp-h3">${h(T("Cuenta por talla"))}</h3><p class="pp-muted">${h(T("Horas y mano de obra repartidas por cantidad: el tiempo se registra por referencia, no por talla."))}</p>
+      <div class="pp-table" role="table"><div class="pp-row pp-row-8 is-head" role="row"><span>${h(T("Talla"))}</span><span>${h(T("Cerradas"))}</span><span>${h(T("Meta"))}</span><span>${h(T("Recibido"))}</span><span>${h(T("Dif."))}</span><span>${h(T("Días"))}</span><span>${h(T("Horas"))}</span><span>${h(T("Por prenda"))}</span></div>
+      ${arr(acc.sizes).map((s) => row(s.size || "—", s, s.closed ? s.closed_qty : null, s.closed ? s.diff_received : null)).join("")}
+      ${row(T("Total"), t, t.closed_qty, num(t.closed_qty) - num(t.received), "is-total")}</div>
+      ${arr(acc.labor_missing).length ? `<p class="pp-muted">${h(T("Mano de obra pendiente: falta valor hora de {n}.", { n: arr(acc.labor_missing).join(", ") }))}</p>` : ""}`;
+  }
+  function closedLots(list) {
+    const shown = arr(list).filter(matches);
+    if (!shown.length) return `<p class="pp-muted">${h(T("Sin referencias cerradas."))}</p>`;
+    return `<ul class="pp-lots">${shown.map((lot) => {
+      const open = model.open === lot.key;
+      const t = (lot.account || {}).totals || {};
+      return `<li class="pp-lot is-closed"><button type="button" class="pp-lot-head" data-pp-lot="${h(lot.key)}" aria-expanded="${open}"><span class="pp-lot-name"><b>${h(lot.name)}</b>${former(lot)}<small class="pp-chip">${h(T("Cerrada"))}</small></span>
+        <span class="pp-lot-nums"><span>${h(T("Cerradas"))} <b>${h(num(t.closed_qty))}</b></span><span>${h(T("Horas"))} <b>${h(hm(num(t.seconds) / 60))}</b></span><span>${h(T("Por prenda"))} <b>${h(t.minutes_per_garment === null || t.minutes_per_garment === undefined ? "—" : hm(t.minutes_per_garment))}</b></span><span>${h(T("Mano de obra por prenda"))} <b>${h(t.labor_per_garment === null || t.labor_per_garment === undefined ? T("Pendiente") : money(t.labor_per_garment))}</b></span></span></button>
+        ${open ? `<div class="pp-lot-body">${timeFigures(lot)}${accountTable(lot)}<h3 class="pp-h3">${h(T("Horas del equipo en el lote"))}</h3>${peopleTable(lot)}${unclosedList(lot)}</div>` : ""}</li>`;
+    }).join("")}</ul>`;
   }
 
   function kpis(k) {
@@ -137,6 +186,14 @@
     const people = arr(lot.people).length
       ? `<ul class="pp-mini">${arr(lot.people).map((p) => `<li><span>${h(p.name)}</span><span></span><b>${h(hm(num(p.seconds) / 60))}</b></li>`).join("")}</ul>`
       : `<p class="pp-muted">${h(T("Sin tiempo del equipo en el periodo."))}</p>`;
+    if (lot.account) {
+      const corrections = arr(lot.corrections).length ? `<h3 class="pp-h3">${h(T("Correcciones"))}</h3><ul class="pp-mini is-wrap">${arr(lot.corrections).map((c) => `<li><span>${h(c.size)}</span><span>${h(T("Corregido {a} → {b} por {w} · {r}", { a: c.before, b: c.after, w: c.actor, r: c.reason }))}</span><b>${h(day(String(c.at).slice(0, 10)))}</b></li>`).join("")}</ul>` : "";
+      return `<div class="pp-lot-body"><p class="pp-muted">${h(T("Inicio {d} · última actividad {l}", { d: day(lot.started), l: day(lot.last_activity) }))}</p>${timeFigures(lot)}
+      <h3 class="pp-h3">${h(T("Tallas"))}</h3>${sizes}${accountTable(lot)}${corrections}
+      <div class="pp-detail-grid"><div><h3 class="pp-h3">${h(T("Cortes por fecha"))}</h3>${cuts}</div>
+        <div><h3 class="pp-h3">${h(T("Novedades por sección"))}</h3>${news}</div></div>
+      <h3 class="pp-h3">${h(T("Horas del equipo en el lote"))}</h3>${peopleTable(lot)}${unclosedList(lot)}</div>`;
+    }
     return `<div class="pp-lot-body"><p class="pp-muted">${h(T("Inicio {d} · última actividad {l} · tiempo del equipo en el periodo {t}", { d: day(lot.started), l: day(lot.last_activity), t: hm(num(lot.team_seconds) / 60) }))}</p>
       <h3 class="pp-h3">${h(T("Tallas"))}</h3>${sizes}
       <div class="pp-detail-grid"><div><h3 class="pp-h3">${h(T("Cortes por fecha"))}</h3>${cuts}</div>
@@ -146,15 +203,15 @@
 
   function lots(list) {
     if (!arr(list).length) return `<p class="pp-muted">${h(T("Sin lotes en proceso."))}</p>`;
-    return `<ul class="pp-lots">${arr(list).map((lot) => {
+    return `<ul class="pp-lots">${arr(list).filter(matches).map((lot) => {
       const pct = lot.meta ? Math.min(100, Math.round((num(lot.closed) * 100) / num(lot.meta))) : 0;
       const open = model.open === lot.key;
       const team = arr(lot.team).length ? `<small class="pp-team">${h(T("Equipo"))}: ${h(arr(lot.team).join(", "))}</small>` : "";
       return `<li class="pp-lot ${lot.late ? "is-late" : ""}"><button type="button" class="pp-lot-head" data-pp-lot="${h(lot.key)}" aria-expanded="${open}">
-        <span class="pp-lot-name"><b>${h(lot.name)}</b>${lot.working_now ? `<i class="pp-live-dot" aria-hidden="true"></i><small>${h(T("{n} trabajando ahora", { n: lot.working_now }))}</small>` : ""}${lot.late ? `<small class="pp-late">${h(T("Más días que el promedio"))}</small>` : ""}</span>
+        <span class="pp-lot-name"><b>${h(lot.name)}</b>${former(lot)}${lot.working_now ? `<i class="pp-live-dot" aria-hidden="true"></i><small>${h(T("{n} trabajando ahora", { n: lot.working_now }))}</small>` : ""}${lot.late ? `<small class="pp-late">${h(T("Más días que el promedio"))}</small>` : ""}</span>
         <span class="pp-meter" role="img" aria-label="${h(T("{c} de {m} cerradas", { c: num(lot.closed), m: num(lot.meta) }))}"><i style="--w:${pct}%"></i></span>
         <span class="pp-lot-nums"><span><b>${h(num(lot.closed))} / ${h(num(lot.meta))}</b></span><span>${h(T("Pendiente"))} <b>${h(lot.pending)}</b></span>
-          <span>${h(T("Enviadas"))} <b>${h(lot.sent)}</b></span><span>${h(T("Días"))} <b>${h(lot.days_open ?? "—")}</b></span></span>${team}</button>
+          <span>${h(T("Enviadas"))} <b>${h(lot.sent)}</b></span><span>${h(T("Días"))} <b>${h(lot.days_open ?? "—")}</b></span>${lot.account ? `<span>${h(T("Total"))} <b>${h(hm(num(lot.total_seconds) / 60))}</b></span><span>${h(T("En el periodo"))} <b>${h(hm(num(lot.period_seconds) / 60))}</b></span>${arr(lot.unclosed).length ? `<span>${h(T("Sin cerrar"))} <b>${arr(lot.unclosed).length}</b></span>` : ""}` : ""}</span>${team}</button>
         ${open ? lotBody(lot) : ""}</li>`;
     }).join("")}</ul>`;
   }
@@ -215,7 +272,9 @@
     const d = model.data;
     const body = !d ? `<section class="client-panel"><p class="pp-muted">${h(model.loading ? T("Cargando…") : T("Sin datos."))}</p></section>` : `
       ${kpis(d.kpis || {})}
-      <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Lotes en proceso"))}<b>${arr(d.lots_in_process).length}</b></h2>${lots(d.lots_in_process)}</section>
+      ${d.lifecycle ? `<section class="client-panel pp-toolbar"><label class="pp-field pp-search">${h(T("Buscar referencia (también por nombres anteriores)"))}<input type="search" data-pp-search value="${h(model.search)}"></label></section>` : ""}
+      <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Lotes en proceso"))}<b>${arr(d.lots_in_process).filter(matches).length}</b></h2>${lots(d.lots_in_process)}</section>
+      ${d.lifecycle ? `<section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Cerradas"))}<b>${arr(d.lots_closed).filter(matches).length}</b></h2>${closedLots(d.lots_closed)}</section>` : ""}
       <div class="pp-grid">
         <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("En vivo"))}<b>${arr(d.live).length}</b></h2>${live(d.live)}</section>
         <section class="client-panel"><h2 class="client-eyebrow pp-h">${h(T("Alertas"))}<b>${arr(d.alerts).length}</b></h2>${alerts(d.alerts)}</section>
@@ -249,11 +308,22 @@
     if (t.hasAttribute("data-pp-to")) { model.to = t.value; load(); }
   }
 
+  function onInput(event) {
+    const t = event.target;
+    if (!ctx || !t || !t.closest || !t.closest("[data-pp-root]") || !t.hasAttribute("data-pp-search")) return;
+    model.search = t.value;
+    const caret = t.selectionStart;
+    draw();
+    const again = ctx.host() && ctx.host().querySelector("[data-pp-search]");
+    if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (_) {} }
+  }
+
   async function mount(context) {
     ctx = context;
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
+      document.addEventListener("input", onInput);
       bound = true;
     }
     model.open = "";

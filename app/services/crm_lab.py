@@ -409,6 +409,10 @@ async def act(db: AsyncSession, company_id: str, employee_id: str, action: str, 
             raise CrmError("cantidad_invalida", 422)
         size_ref = await ref_or_404(payload.get("size_reference_id"))
         pending = next((s["pending"] for s in await sizes(db, company_id, size_ref["id"]) if s["reference_id"] == size_ref["id"]), 0)
+        from app.services import reference_lifecycle
+
+        room = await reference_lifecycle.over_limit(db, company_id, size_ref["id"])
+        pending = pending if room is None else min(pending, room)
         if qty > pending and payload.get("confirm") is not True:
             raise CrmError("supera_el_pendiente", 409, {"pending": pending})
         await bot.save_production_close(db, company_id=company_id, employee=employee, telegram_user_id="", reference=size_ref,

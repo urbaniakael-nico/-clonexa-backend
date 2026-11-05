@@ -945,6 +945,16 @@ async def handle_velvet_references(
 
         quantity = int(text_value)
 
+        from app.services import reference_lifecycle
+
+        warning = await reference_lifecycle.bot_close_guard(db, company_id, pending, quantity, employee, telegram_user_id)
+        if warning:
+            await clear_pending_total(db, company_id, telegram_user_id)
+            await db.commit()
+            status = await workforce_status(db, company_id, employee["employee_id"])
+            await send_message(token, chat_id, warning, reply_markup=main_menu(status))
+            return {"ok": True, "handled": "production_not_registered"}
+
         await save_production_close(
             db,
             company_id=company_id,

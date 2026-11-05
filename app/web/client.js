@@ -10659,11 +10659,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = cssId;
           link.rel = "stylesheet";
-          link.href = `/client-static/${name}.css?v=056J`;
+          link.href = `/client-static/${name}.css?v=${name === "production_v2" ? "068A" : "056J"}`;
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = `/client-static/${name}.js?v=056J`;
+        script.src = `/client-static/${name}.js?v=${name === "production_v2" ? "068A" : "056J"}`;
         script.onload = () => resolve();
         script.onerror = () => { delete cxV2Loading056I[name]; reject(new Error(name)); };
         document.head.appendChild(script);
@@ -21089,6 +21089,14 @@ function inventoryCreatePayload() {
     return settings.references_v2 === true;
   }
 
+  /* 068A: corregir producido, renombrar y cerrar por talla (interruptor reference_lifecycle). */
+  function cxRefLifecycleOn068A(code) {
+    const item = activeClientModules().find((m) => m.code === code);
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.reference_lifecycle === true;
+  }
+
   let cxReferencesV2Loading050B = null;
   function cxReferencesV2Load050B() {
     if (window.CxReferencesV2) return Promise.resolve();
@@ -21098,11 +21106,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReferencesV2Css050B";
           link.rel = "stylesheet";
-          link.href = "/client-static/references_v2.css?v=053A";
+          link.href = "/client-static/references_v2.css?v=068A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/references_v2.js?v=053A";
+        script.src = "/client-static/references_v2.js?v=068A";
         script.onload = () => resolve();
         script.onerror = () => { cxReferencesV2Loading050B = null; reject(new Error("references_v2")); };
         document.head.appendChild(script);
@@ -21130,6 +21138,7 @@ function inventoryCreatePayload() {
       </main>`;
     await window.CxReferencesV2.mount({
       companyId: state.companyId, company, api, apiBase: API, brand: cxPortalBrand050A(),
+      lifecycle: cxRefLifecycleOn068A(code),
       host: () => document.getElementById("cxReferencesV2Host050B"),
     });
     return true;

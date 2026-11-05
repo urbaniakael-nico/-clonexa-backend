@@ -94,14 +94,16 @@ def _sin(reason: str) -> dict:
 # ---------------------------------------------------------------- calculo puro
 def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id: dict, moves: list[dict], closures: list[dict],
           first_session: dict, last_session: dict, team_seconds: int, time_by_ref: list[dict], live: dict,
-          labor_gross: Optional[float], time_by_person: Optional[list[dict]] = None) -> dict:
+          labor_gross: Optional[float], time_by_person: Optional[list[dict]] = None, closed_lot_keys: Optional[set] = None) -> dict:
     """moves: {reference_id, kind, quantity, event_date, size?, section?} (ingreso, novedad, despliegue);
     closures: {key, quantity, day}; first_session/last_session: {key: date};
     time_by_ref: {key, name, seconds, active}; time_by_person: {key, person, seconds}
-    (horas del equipo en el lote: participacion, nunca prendas por persona)."""
+    (horas del equipo en el lote: participacion, nunca prendas por persona).
+    closed_lot_keys (solo con reference_lifecycle): referencias cerradas, fuera de "en proceso"."""
     from app.services.references_v2 import group_key
 
     in_period = lambda d: d is not None and start <= d <= end  # noqa: E731
+    final_keys = closed_lot_keys or set()
     gmap = {g["key"]: g for g in groups}
     name_of = {g["key"]: g["name"] for g in groups}
     for t in time_by_ref:
@@ -164,14 +166,14 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
     lots = []
     for g in groups:
         k = g["key"]
-        if g["meta"] <= 0 and not active_by_key.get(k) and not secs_by_key.get(k):
+        if g["meta"] <= 0 and not active_by_key.get(k) and not secs_by_key.get(k) and k not in final_keys:
             continue
         starts = [d for d in (first_cut.get(k), first_session.get(k)) if d]
         lasts = [d for d in (last_move.get(k), last_close.get(k), last_session.get(k)) if d]
         started = min(starts) if starts else None
         last = max(lasts) if lasts else None
         bot_active = any(line.get("bot_active") for line in g["lines"])
-        in_process = g["pending"] > 0 and (active_by_key.get(k) or bot_active or (last and (today - last).days <= RECENT_DAYS))
+        in_process = g["pending"] > 0 and k not in final_keys and (active_by_key.get(k) or bot_active or (last and (today - last).days <= RECENT_DAYS))
         done = g["meta"] > 0 and g["produced"] >= g["meta"]
         lots.append({
             "key": k, "name": g["name"], "meta": g["meta"], "closed": g["produced"], "pending": g["pending"], "received": g["received"],
@@ -250,6 +252,8 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
             alerts.append({"kind": "long_session", "level": "danger", "reference": p.get("reference_name") or "", "minutes": p["elapsed_minutes"]})
     open_news: dict[str, dict] = {}
     for lot in lots:
+        if lot["key"] in final_keys:
+            continue  # referencia cerrada: sus cifras son finales
         progress = lot["closed"] / lot["meta"] if lot["meta"] else 0
         if lot["in_process"] and lot["late"] and progress < LOW_PROGRESS:
             alerts.append({"kind": "slow_lot", "level": "danger", "reference": lot["name"], "days": lot["days_open"], "avg": avg_days,
@@ -271,6 +275,7 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
                            "quantity": open_news[sec]["quantity"]})
 
     return {
+        **({"all_lots": lots} if closed_lot_keys is not None else {}),
         "period": {"from": start.isoformat(), "to": end.isoformat(), "by": "month" if by_month else "week"},
         "data_check": {"closures_total": len(closures), "closures_period": sum(1 for c in closures if in_period(c["day"])),
                        "cut_movements": len(moves), "deploys": sum(1 for m in moves if m["kind"] == "despliegue"),
@@ -288,7 +293,7 @@ def build(*, start: date, end: date, today: date, groups: list[dict], key_by_id:
 # ---------------------------------------------------------------- datos
 async def insights(db: AsyncSession, company_id: str, start: date, end: date, today: date) -> dict:
     from app.api.v1.endpoints import production_v1 as prod
-    from app.services import crm_lab, references_v2
+    from app.services import crm_lab, reference_lifecycle, references_v2
     from app.services.references_v2 import group_key
 
     cid = str(company_id)
@@ -316,6 +321,16 @@ async def insights(db: AsyncSession, company_id: str, start: date, end: date, to
         k = group_key(r["reference_name"])
         first_session[k] = min(first_session.get(k, r["first"]), r["first"])
         last_session[k] = max(last_session.get(k, r["last"]), r["last"])
+    live = await crm_lab.team(db, cid)
+    closed_period = sum(c["quantity"] for c in closures if start <= c["day"] <= end)
+    if await reference_lifecycle.is_on(db, cid):
+        # Tiempo que no depende de las fechas elegidas (reference_time) y referencias cerradas.
+        bundle = await reference_lifecycle.production_bundle(db, cid, groups, start, end, prod._tz052c())
+        out = build(start=start, end=end, today=today, groups=groups, key_by_id=key_by_id, moves=moves, closures=closures,
+                    first_session=first_session, last_session=last_session, team_seconds=bundle["team_seconds"],
+                    time_by_ref=bundle["time_by_ref"], live=live, labor_gross=None, time_by_person=bundle["time_by_person"],
+                    closed_lot_keys=bundle["closed_keys"])
+        return await reference_lifecycle.decorate_insights(db, cid, out, bundle, groups)
     sessions = await prod.sessions_summary(db, cid, start, end)
     time_by_ref: dict[str, dict] = {}
     for t in sessions.get("time_by_reference", []):
@@ -325,8 +340,6 @@ async def insights(db: AsyncSession, company_id: str, start: date, end: date, to
         item["active"] += int(t.get("active_sessions") or 0)
     time_by_person = [{"key": group_key(t.get("reference_name")), "person": (t.get("employee_name") or "").strip() or "—",
                        "seconds": int(t.get("effective_seconds") or 0)} for t in sessions.get("time_by_operator_reference", [])]
-    live = await crm_lab.team(db, cid)
-    closed_period = sum(c["quantity"] for c in closures if start <= c["day"] <= end)
     labor = await labor_gross(db, company_id, start, end) if closed_period > 0 else None
     return build(start=start, end=end, today=today, groups=groups, key_by_id=key_by_id, moves=moves, closures=closures,
                  first_session=first_session, last_session=last_session, team_seconds=int(sessions.get("total_effective_seconds_period") or 0),
@@ -484,8 +497,14 @@ def build_pdf(ins: dict, company: dict, logo_reader=None) -> bytes:
 
     k = ins["kpis"]
 
+    def named(lot: dict) -> str:
+        former = lot.get("former_names") or []
+        return f"{lot['name']} ({tr('antes')}: {', '.join(former)})" if former else lot["name"]
+
     def val(key: str, render) -> str:
         item = k.get(key) or {}
+        if item.get("status") == "pendiente":
+            return tr("Pendiente")
         return tr("Sin datos aún") if item.get("status") != "ok" else render(item)
 
     section("Cifras del periodo")
@@ -500,12 +519,41 @@ def build_pdf(ins: dict, company: dict, logo_reader=None) -> bytes:
     ], [0.3, 0.2, 0.5], ["l", "r", "l"])
 
     section("Lotes en proceso")
-    if ins["lots_in_process"]:
+    if ins["lots_in_process"] and ins.get("lifecycle"):
+        table(["Referencia", "Meta", "Cerradas", "Pendiente", "Días", "Total", "En el periodo"],
+              [[named(lot), lot["meta"], lot["closed"], lot["pending"], lot["days_open"] or "—", hm(lot["total_seconds"] / 60), hm(lot["period_seconds"] / 60)]
+               for lot in ins["lots_in_process"]], [0.32, 0.08, 0.1, 0.1, 0.07, 0.165, 0.165], ["l", "r", "r", "r", "r", "r", "r"])
+    elif ins["lots_in_process"]:
         table(["Referencia", "Meta", "Cerradas", "Pendiente", "Enviadas", "Días", "Tiempo del equipo"],
               [[lot["name"], lot["meta"], lot["closed"], lot["pending"], lot["sent"], lot["days_open"] or "—", hm((lot["team_seconds"] or 0) / 60)]
                for lot in ins["lots_in_process"]], [0.3, 0.09, 0.11, 0.11, 0.11, 0.08, 0.2], ["l", "r", "r", "r", "r", "r", "r"])
     else:
         note(tr("Sin lotes en proceso."))
+
+    if ins.get("lifecycle"):
+        unclosed = [(lot["name"], u) for lot in ins["lots_in_process"] + ins.get("lots_closed", []) for u in lot.get("unclosed") or []]
+        if unclosed:
+            section("Sesiones sin cerrar")
+            note(tr("No se suman hasta que se cierren o confirmen."))
+            for name, u in unclosed:
+                note(f"• {name}: {u['name']} · {fmt_date(u['started'][:10])}")
+        section("Cerradas")
+        if ins.get("lots_closed"):
+            note(tr("Horas y mano de obra por talla: repartidas por cantidad."))
+            for lot in ins["lots_closed"]:
+                acc = lot["account"]
+                note(named(lot))
+                rows = [[s["size"], s["closed_qty"], s["meta"], s["received"], s["diff_received"], s["days"] or "—", hm(s["seconds"] / 60),
+                         hm(s["minutes_per_garment"]) if s["minutes_per_garment"] is not None else "—",
+                         money(s["labor_per_garment"]) if s["labor_per_garment"] is not None else tr("Pendiente")] for s in acc["sizes"]]
+                tot = acc["totals"]
+                rows.append([tr("Total"), tot["closed_qty"], tot["meta"], tot["received"], tot["closed_qty"] - tot["received"], tot["days"] or "—", hm(tot["seconds"] / 60),
+                             hm(tot["minutes_per_garment"]) if tot["minutes_per_garment"] is not None else "—",
+                             money(tot["labor_per_garment"]) if tot["labor_per_garment"] is not None else tr("Pendiente")])
+                table(["Talla", "Cerradas", "Meta", "Recibido", "Dif.", "Días", "Horas", "Por prenda", "Mano de obra"], rows,
+                      [0.09, 0.1, 0.08, 0.1, 0.07, 0.07, 0.17, 0.16, 0.16], ["l", "r", "r", "r", "r", "r", "r", "r", "r"])
+        else:
+            note(tr("Sin referencias cerradas."))
 
     section("Cerradas vs enviadas")
     table(["Semana" if ins["period"]["by"] == "week" else "Mes", "Cerradas", "Enviadas"],

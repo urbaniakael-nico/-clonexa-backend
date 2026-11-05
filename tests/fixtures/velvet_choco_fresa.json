@@ -1,0 +1,3546 @@
+{
+"note": "Datos reales de Velvet (Choco-fresa y lo demas de esas personas, oct-nov 2026), con personas y otras referencias anonimizadas.",
+"limit_hours": 12.0,
+"sessions": [
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 1",
+"started_at": "2026-10-10T12:00:26.164942+00:00",
+"ended_at": "2026-10-10T13:48:43.146929+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 1",
+"started_at": "2026-10-10T12:53:43.570101+00:00",
+"ended_at": "2026-10-10T19:57:21.331771+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 2",
+"started_at": "2026-10-10T13:48:43.146929+00:00",
+"ended_at": "2026-10-10T13:54:20.969807+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 1",
+"started_at": "2026-10-10T13:54:20.969807+00:00",
+"ended_at": "2026-10-10T20:01:12.532760+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 1",
+"started_at": "2026-10-13T13:20:03.201543+00:00",
+"ended_at": "2026-10-13T22:29:29.668279+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 1",
+"started_at": "2026-10-13T13:57:14.094848+00:00",
+"ended_at": "2026-10-13T20:00:37.224354+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-13T14:58:12.768055+00:00",
+"ended_at": "2026-10-13T16:59:10.313798+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-13T16:59:10.313798+00:00",
+"ended_at": "2026-10-13T22:18:17.007133+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 1",
+"started_at": "2026-10-13T18:22:09.435680+00:00",
+"ended_at": "2026-10-13T20:25:16.299045+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 1",
+"started_at": "2026-10-13T20:25:40.864749+00:00",
+"ended_at": "2026-10-13T23:04:56.873646+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 1",
+"started_at": "2026-10-14T12:00:07.242292+00:00",
+"ended_at": "2026-10-14T21:33:42.588061+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 1",
+"started_at": "2026-10-14T12:22:58.759532+00:00",
+"ended_at": "2026-10-15T01:47:35.539896+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-14T12:29:47.065460+00:00",
+"ended_at": "2026-10-14T15:41:55.978167+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 1",
+"started_at": "2026-10-14T13:35:34.634890+00:00",
+"ended_at": "2026-10-14T23:22:28.233933+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-14T15:41:55.978167+00:00",
+"ended_at": "2026-10-14T18:28:35.775066+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-14T18:28:35.775066+00:00",
+"ended_at": "2026-10-14T22:18:17.108248+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-14T22:18:17.108248+00:00",
+"ended_at": "2026-10-14T23:11:21.117193+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 2",
+"started_at": "2026-10-15T11:57:17.528017+00:00",
+"ended_at": "2026-10-15T12:56:45.522978+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 1",
+"started_at": "2026-10-15T12:13:02.687463+00:00",
+"ended_at": "2026-10-15T17:43:58.858069+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-15T12:56:45.522978+00:00",
+"ended_at": "2026-10-15T23:01:27.712235+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-15T14:17:11.832044+00:00",
+"ended_at": "2026-10-15T17:01:50.370147+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-15T17:01:50.370147+00:00",
+"ended_at": "2026-10-15T22:41:13.172125+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-15T17:43:58.858069+00:00",
+"ended_at": "2026-10-15T20:41:53.201620+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-16T11:55:10.256056+00:00",
+"ended_at": "2026-10-16T21:20:20.423617+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-16T12:46:55.590284+00:00",
+"ended_at": "2026-10-16T22:29:56.820532+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-16T14:03:32.803649+00:00",
+"ended_at": "2026-10-17T00:31:30.405609+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-16T16:29:56.551757+00:00",
+"ended_at": "2026-10-16T19:38:09.184045+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-17T15:36:03.738190+00:00",
+"ended_at": "2026-10-17T17:52:32.954010+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-19T12:22:10.461960+00:00",
+"ended_at": "2026-10-19T18:29:45.657165+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-19T12:30:15.332636+00:00",
+"ended_at": "2026-10-19T21:01:12.415579+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-19T12:48:29.663773+00:00",
+"ended_at": "2026-10-19T17:58:38.373096+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-19T16:46:03.256233+00:00",
+"ended_at": "2026-10-19T19:17:42.611976+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-19T19:17:42.611976+00:00",
+"ended_at": "2026-10-19T21:59:16.256220+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-20T12:00:20.102144+00:00",
+"ended_at": "2026-10-20T21:28:38.517789+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-20T12:15:14.177336+00:00",
+"ended_at": "2026-10-21T00:06:08.041123+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-20T13:26:31.164094+00:00",
+"ended_at": "2026-10-20T19:51:09.690519+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-20T15:43:40.854780+00:00",
+"ended_at": "2026-10-21T13:14:12.902397+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-21T12:00:12.333143+00:00",
+"ended_at": "2026-10-21T18:30:25.057285+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-21T12:28:06.051981+00:00",
+"ended_at": "2026-10-21T22:07:46.258997+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-21T12:33:20.407097+00:00",
+"ended_at": "2026-10-21T22:43:45.646399+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-21T13:42:35.112279+00:00",
+"ended_at": "2026-10-21T22:45:48.946252+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-22T12:11:45.506034+00:00",
+"ended_at": "2026-10-22T23:51:06.825407+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-22T12:25:12.187113+00:00",
+"ended_at": "2026-10-22T21:41:43.117963+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-22T14:03:13.518349+00:00",
+"ended_at": "2026-10-22T19:56:48.601191+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-22T14:46:16.800090+00:00",
+"ended_at": "2026-10-22T15:28:27.896102+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-22T15:28:27.896102+00:00",
+"ended_at": "2026-10-23T01:35:43.762477+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-23T12:02:47.457325+00:00",
+"ended_at": "2026-10-23T21:40:20.544140+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-23T12:08:42.833949+00:00",
+"ended_at": "2026-10-23T23:46:03.103798+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-23T12:56:22.021809+00:00",
+"ended_at": "2026-10-23T22:12:47.417944+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-23T13:19:32.339060+00:00",
+"ended_at": "2026-10-23T16:53:27.056313+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-23T16:53:27.056313+00:00",
+"ended_at": "2026-10-23T23:07:42.171915+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-24T12:41:01.880537+00:00",
+"ended_at": "2026-10-24T14:34:52.449372+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-24T14:24:02.870365+00:00",
+"ended_at": "2026-10-24T17:00:28.855888+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 1",
+"started_at": "2026-10-24T15:37:10.927909+00:00",
+"ended_at": "2026-10-24T18:44:04.148275+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-24T15:46:35.723415+00:00",
+"ended_at": "2026-10-24T19:03:07.688998+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 1",
+"started_at": "2026-10-24T17:00:28.855888+00:00",
+"ended_at": "2026-10-24T18:43:44.879456+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-24T20:53:14.472254+00:00",
+"ended_at": "2026-10-25T00:03:19.009048+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-25T16:31:54.559562+00:00",
+"ended_at": "2026-10-25T18:37:21.974070+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-26T12:40:12.974429+00:00",
+"ended_at": "2026-10-26T13:41:18.124360+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 2",
+"started_at": "2026-10-26T13:41:18.124360+00:00",
+"ended_at": "2026-10-26T19:47:17.996837+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-26T14:08:33.752146+00:00",
+"ended_at": "2026-10-26T20:57:08.905789+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-26T15:55:15.622000+00:00",
+"ended_at": "2026-10-26T22:32:20.304365+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 2",
+"started_at": "2026-10-26T17:08:30.414915+00:00",
+"ended_at": "2026-10-26T17:43:49.369330+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-26T17:43:49.369330+00:00",
+"ended_at": "2026-10-26T22:13:40.456911+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-26T19:47:17.996837+00:00",
+"ended_at": "2026-10-26T22:30:33.775937+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-26T20:57:08.905789+00:00",
+"ended_at": "2026-10-26T22:49:18.231095+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-27T11:55:54.063003+00:00",
+"ended_at": "2026-10-27T18:59:03.642802+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-27T12:07:11.160950+00:00",
+"ended_at": "2026-10-27T19:48:26.107056+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-27T13:51:18.008844+00:00",
+"ended_at": "2026-10-27T15:09:11.393599+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 1",
+"started_at": "2026-10-27T15:09:11.393599+00:00",
+"ended_at": "2026-10-27T15:46:00.087795+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-27T15:46:00.087795+00:00",
+"ended_at": "2026-10-27T20:34:19.693402+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 3",
+"started_at": "2026-10-27T18:59:03.642802+00:00",
+"ended_at": "2026-10-27T21:35:12.686470+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-10-27T19:48:26.107056+00:00",
+"ended_at": "2026-10-27T23:53:13.833643+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 3",
+"started_at": "2026-10-27T20:34:19.693402+00:00",
+"ended_at": "2026-10-27T23:16:08.173873+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 3",
+"started_at": "2026-10-28T11:11:55.406399+00:00",
+"ended_at": "2026-10-28T21:35:22.385433+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 3",
+"started_at": "2026-10-28T12:21:18.884872+00:00",
+"ended_at": "2026-10-28T22:48:20.664433+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-10-28T12:30:21.609249+00:00",
+"ended_at": "2026-10-29T00:16:11.295344+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 3",
+"started_at": "2026-10-28T14:05:14.117076+00:00",
+"ended_at": "2026-10-28T22:55:13.773353+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 3",
+"started_at": "2026-10-29T12:18:24.062702+00:00",
+"ended_at": "2026-10-29T21:35:18.143891+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-10-29T12:32:56.152125+00:00",
+"ended_at": "2026-10-30T00:18:59.605365+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 3",
+"started_at": "2026-10-29T12:35:54.463254+00:00",
+"ended_at": "2026-10-29T16:34:42.473170+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-29T18:29:44.234062+00:00",
+"ended_at": "2026-10-29T23:29:58.870843+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 3",
+"started_at": "2026-10-30T12:25:33.605088+00:00",
+"ended_at": "2026-10-30T22:41:46.234203+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-10-30T12:39:58.787346+00:00",
+"ended_at": "2026-10-30T22:42:39.461116+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 3",
+"started_at": "2026-10-30T13:56:39.265796+00:00",
+"ended_at": "2026-10-30T17:01:50.870560+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 2",
+"started_at": "2026-10-30T17:01:50.870560+00:00",
+"ended_at": "2026-10-30T18:24:43.366053+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Choco-fresa",
+"started_at": "2026-10-30T18:24:43.366053+00:00",
+"ended_at": "2026-10-30T18:24:50.419191+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP4",
+"employee_name": "OP4",
+"reference_name": "Otra 3",
+"started_at": "2026-10-30T18:24:50.419191+00:00",
+"ended_at": "2026-11-03T12:06:31.705654+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-11-03T11:49:52.927478+00:00",
+"ended_at": "2026-11-03T23:23:35.240149+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 3",
+"started_at": "2026-11-03T12:34:06.846529+00:00",
+"ended_at": "2026-11-03T22:02:38.662399+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 3",
+"started_at": "2026-11-04T11:41:17.431621+00:00",
+"ended_at": "2026-11-04T15:31:19.509265+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 3",
+"started_at": "2026-11-04T12:34:54.384851+00:00",
+"ended_at": "2026-11-04T16:35:39.418844+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 3",
+"started_at": "2026-11-04T13:44:12.419591+00:00",
+"ended_at": "2026-11-04T17:05:31.819906+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 2",
+"started_at": "2026-11-04T15:31:19.509265+00:00",
+"ended_at": "2026-11-04T17:05:13.845121+00:00",
+"status": "switched"
+},
+{
+"employee_id": "OP1",
+"employee_name": "OP1",
+"reference_name": "Otra 2",
+"started_at": "2026-11-04T16:35:39.418844+00:00",
+"ended_at": "2026-11-04T21:47:30.439243+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP3",
+"employee_name": "OP3",
+"reference_name": "Otra 4",
+"started_at": "2026-11-04T17:05:13.845121+00:00",
+"ended_at": "2026-11-04T23:01:01.990591+00:00",
+"status": "ended_with_shift"
+},
+{
+"employee_id": "OP2",
+"employee_name": "OP2",
+"reference_name": "Otra 4",
+"started_at": "2026-11-04T17:05:31.819906+00:00",
+"ended_at": "2026-11-04T22:00:52.280835+00:00",
+"status": "ended_with_shift"
+}
+],
+"events": [
+{
+"id": "ev1",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-09T11:59:30.819936+00:00"
+},
+{
+"id": "ev2",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-09T12:00:09.234714+00:00"
+},
+{
+"id": "ev3",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-09T13:16:51.052398+00:00"
+},
+{
+"id": "ev4",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-09T13:20:18.933417+00:00"
+},
+{
+"id": "ev5",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-09T13:29:39.710534+00:00"
+},
+{
+"id": "ev6",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-09T13:34:26.304806+00:00"
+},
+{
+"id": "ev7",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-09T13:35:58.010331+00:00"
+},
+{
+"id": "ev8",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-09T13:51:23.060150+00:00"
+},
+{
+"id": "ev9",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-09T13:59:12.909424+00:00"
+},
+{
+"id": "ev10",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-09T14:19:49.998901+00:00"
+},
+{
+"id": "ev11",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-09T14:35:31.298275+00:00"
+},
+{
+"id": "ev12",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-09T14:37:23.491988+00:00"
+},
+{
+"id": "ev13",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-09T15:03:18.012096+00:00"
+},
+{
+"id": "ev14",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-09T17:14:38.152259+00:00"
+},
+{
+"id": "ev15",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-09T19:14:40.571614+00:00"
+},
+{
+"id": "ev16",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-09T19:17:31.083306+00:00"
+},
+{
+"id": "ev17",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-09T19:47:11.027838+00:00"
+},
+{
+"id": "ev18",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-09T20:10:54.272366+00:00"
+},
+{
+"id": "ev19",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-09T20:12:55.087861+00:00"
+},
+{
+"id": "ev20",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-09T20:59:57.272254+00:00"
+},
+{
+"id": "ev21",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-09T23:04:15.373444+00:00"
+},
+{
+"id": "ev22",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-09T23:04:38.347669+00:00"
+},
+{
+"id": "ev23",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-10T12:00:26.164942+00:00"
+},
+{
+"id": "ev24",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-10T12:53:43.570101+00:00"
+},
+{
+"id": "ev25",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-10-10T13:48:43.146929+00:00"
+},
+{
+"id": "ev26",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-10-10T13:54:20.969807+00:00"
+},
+{
+"id": "ev27",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-10T14:54:18.059426+00:00"
+},
+{
+"id": "ev28",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-10T15:31:06.328929+00:00"
+},
+{
+"id": "ev29",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-10T15:41:48.910559+00:00"
+},
+{
+"id": "ev30",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-10T17:01:51.457851+00:00"
+},
+{
+"id": "ev31",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-10T17:01:53.393298+00:00"
+},
+{
+"id": "ev32",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-10T19:27:16.472789+00:00"
+},
+{
+"id": "ev33",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-10T19:49:49.433820+00:00"
+},
+{
+"id": "ev34",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-10T19:57:21.331771+00:00"
+},
+{
+"id": "ev35",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-10T20:01:12.532760+00:00"
+},
+{
+"id": "ev36",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-13T13:20:03.201543+00:00"
+},
+{
+"id": "ev37",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-13T13:57:14.094848+00:00"
+},
+{
+"id": "ev38",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-13T14:58:12.768055+00:00"
+},
+{
+"id": "ev39",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-13T15:38:50.404096+00:00"
+},
+{
+"id": "ev40",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-13T15:46:34.237867+00:00"
+},
+{
+"id": "ev41",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-13T15:46:59.070378+00:00"
+},
+{
+"id": "ev42",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-13T15:47:23.299023+00:00"
+},
+{
+"id": "ev43",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-13T16:39:59.323924+00:00"
+},
+{
+"id": "ev44",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-13T16:59:02.405548+00:00"
+},
+{
+"id": "ev45",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-13T16:59:10.313798+00:00"
+},
+{
+"id": "ev46",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-13T17:59:05.159976+00:00"
+},
+{
+"id": "ev47",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-13T17:59:10.700858+00:00"
+},
+{
+"id": "ev48",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-13T18:00:06.568446+00:00"
+},
+{
+"id": "ev49",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-13T18:22:09.435680+00:00"
+},
+{
+"id": "ev50",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-13T19:21:45.597622+00:00"
+},
+{
+"id": "ev51",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-13T20:00:37.224354+00:00"
+},
+{
+"id": "ev52",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-13T20:08:39.667385+00:00"
+},
+{
+"id": "ev53",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-13T20:25:16.299045+00:00"
+},
+{
+"id": "ev54",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-13T20:25:40.864749+00:00"
+},
+{
+"id": "ev55",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-13T20:25:42.741492+00:00"
+},
+{
+"id": "ev56",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-13T20:42:15.638449+00:00"
+},
+{
+"id": "ev57",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-13T22:18:17.007133+00:00"
+},
+{
+"id": "ev58",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-13T22:29:29.668279+00:00"
+},
+{
+"id": "ev59",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-13T23:04:56.873646+00:00"
+},
+{
+"id": "ev60",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-14T12:00:07.242292+00:00"
+},
+{
+"id": "ev61",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-14T12:22:58.759532+00:00"
+},
+{
+"id": "ev62",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-14T12:29:47.065460+00:00"
+},
+{
+"id": "ev63",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-14T12:50:09.757785+00:00"
+},
+{
+"id": "ev64",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-14T13:00:37.704983+00:00"
+},
+{
+"id": "ev65",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-14T13:35:34.634890+00:00"
+},
+{
+"id": "ev66",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-14T14:27:55.002617+00:00"
+},
+{
+"id": "ev67",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-14T14:28:01.638872+00:00"
+},
+{
+"id": "ev68",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-14T14:28:15.128461+00:00"
+},
+{
+"id": "ev69",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-14T14:30:44.027076+00:00"
+},
+{
+"id": "ev70",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-14T14:46:12.341296+00:00"
+},
+{
+"id": "ev71",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-14T14:55:53.809290+00:00"
+},
+{
+"id": "ev72",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-14T15:41:49.828365+00:00"
+},
+{
+"id": "ev73",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-14T15:41:55.978167+00:00"
+},
+{
+"id": "ev74",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-14T16:28:48.006621+00:00"
+},
+{
+"id": "ev75",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-14T16:28:50.511039+00:00"
+},
+{
+"id": "ev76",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-14T16:38:08.860990+00:00"
+},
+{
+"id": "ev77",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-14T16:39:59.741778+00:00"
+},
+{
+"id": "ev78",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-14T16:48:31.233053+00:00"
+},
+{
+"id": "ev79",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-14T17:10:16.079991+00:00"
+},
+{
+"id": "ev80",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-14T17:46:08.626369+00:00"
+},
+{
+"id": "ev81",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-14T18:03:35.533427+00:00"
+},
+{
+"id": "ev82",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-14T18:28:35.775066+00:00"
+},
+{
+"id": "ev83",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-14T18:35:03.518548+00:00"
+},
+{
+"id": "ev84",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-14T18:51:01.272580+00:00"
+},
+{
+"id": "ev85",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-14T19:15:15.397114+00:00"
+},
+{
+"id": "ev86",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-14T19:23:18.064964+00:00"
+},
+{
+"id": "ev87",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-14T19:47:49.462173+00:00"
+},
+{
+"id": "ev88",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-14T19:56:45.368105+00:00"
+},
+{
+"id": "ev89",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-14T20:05:12.842734+00:00"
+},
+{
+"id": "ev90",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-14T20:08:07.343748+00:00"
+},
+{
+"id": "ev91",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-14T20:41:42.047986+00:00"
+},
+{
+"id": "ev92",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-14T21:33:42.588061+00:00"
+},
+{
+"id": "ev93",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-14T21:50:06.625231+00:00"
+},
+{
+"id": "ev94",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-14T22:03:01.321572+00:00"
+},
+{
+"id": "ev95",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-14T22:18:17.108248+00:00"
+},
+{
+"id": "ev96",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-14T23:11:21.117193+00:00"
+},
+{
+"id": "ev97",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-14T23:22:28.233933+00:00"
+},
+{
+"id": "ev98",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-15T01:47:35.539896+00:00"
+},
+{
+"id": "ev99",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-15T11:57:17.528017+00:00"
+},
+{
+"id": "ev100",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-15T12:13:02.687463+00:00"
+},
+{
+"id": "ev101",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-10-15T12:56:45.522978+00:00"
+},
+{
+"id": "ev102",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-15T13:34:55.021946+00:00"
+},
+{
+"id": "ev103",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-15T13:38:34.239087+00:00"
+},
+{
+"id": "ev104",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-15T13:57:15.247648+00:00"
+},
+{
+"id": "ev105",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-15T13:57:39.812706+00:00"
+},
+{
+"id": "ev106",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-15T13:58:01.510081+00:00"
+},
+{
+"id": "ev107",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-15T14:17:11.832044+00:00"
+},
+{
+"id": "ev108",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-15T14:26:07.916311+00:00"
+},
+{
+"id": "ev109",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-15T14:43:07.760140+00:00"
+},
+{
+"id": "ev110",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-15T14:46:41.749372+00:00"
+},
+{
+"id": "ev111",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-15T14:58:01.971783+00:00"
+},
+{
+"id": "ev112",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-15T15:07:51.565559+00:00"
+},
+{
+"id": "ev113",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-15T15:39:16.094880+00:00"
+},
+{
+"id": "ev114",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-15T16:25:30.953197+00:00"
+},
+{
+"id": "ev115",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-15T16:45:06.132692+00:00"
+},
+{
+"id": "ev116",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-15T17:01:44.446395+00:00"
+},
+{
+"id": "ev117",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-15T17:01:50.370147+00:00"
+},
+{
+"id": "ev118",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-10-15T17:43:58.858069+00:00"
+},
+{
+"id": "ev119",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-15T18:08:29.767862+00:00"
+},
+{
+"id": "ev120",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-15T19:33:44.249740+00:00"
+},
+{
+"id": "ev121",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-15T19:41:07.989913+00:00"
+},
+{
+"id": "ev122",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-15T20:38:54.384313+00:00"
+},
+{
+"id": "ev123",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-15T20:41:53.201620+00:00"
+},
+{
+"id": "ev124",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-15T20:51:19.389245+00:00"
+},
+{
+"id": "ev125",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-15T22:10:23.898320+00:00"
+},
+{
+"id": "ev126",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-15T22:15:16.266700+00:00"
+},
+{
+"id": "ev127",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-15T22:41:13.172125+00:00"
+},
+{
+"id": "ev128",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-15T23:01:27.712235+00:00"
+},
+{
+"id": "ev129",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-16T11:55:10.256056+00:00"
+},
+{
+"id": "ev130",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-16T12:46:55.590284+00:00"
+},
+{
+"id": "ev131",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-16T14:03:32.803649+00:00"
+},
+{
+"id": "ev132",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-16T14:14:14.748666+00:00"
+},
+{
+"id": "ev133",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-16T14:14:57.177639+00:00"
+},
+{
+"id": "ev134",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-16T14:15:05.341176+00:00"
+},
+{
+"id": "ev135",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-16T14:32:29.062653+00:00"
+},
+{
+"id": "ev136",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-16T14:36:13.665469+00:00"
+},
+{
+"id": "ev137",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-16T14:47:15.281322+00:00"
+},
+{
+"id": "ev138",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-16T16:29:56.551757+00:00"
+},
+{
+"id": "ev139",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-16T19:11:33.330737+00:00"
+},
+{
+"id": "ev140",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-16T19:12:36.457377+00:00"
+},
+{
+"id": "ev141",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-16T19:12:38.709842+00:00"
+},
+{
+"id": "ev142",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-16T19:17:06.173749+00:00"
+},
+{
+"id": "ev143",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-16T19:38:09.184045+00:00"
+},
+{
+"id": "ev144",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-16T19:40:17.507693+00:00"
+},
+{
+"id": "ev145",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-16T20:10:13.194879+00:00"
+},
+{
+"id": "ev146",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-16T20:20:22.823195+00:00"
+},
+{
+"id": "ev147",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-16T20:20:24.911513+00:00"
+},
+{
+"id": "ev148",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-16T21:20:20.423617+00:00"
+},
+{
+"id": "ev149",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-16T22:29:56.820532+00:00"
+},
+{
+"id": "ev150",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-17T00:31:30.405609+00:00"
+},
+{
+"id": "ev151",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-17T15:36:03.738190+00:00"
+},
+{
+"id": "ev152",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-17T15:57:42.735091+00:00"
+},
+{
+"id": "ev153",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-17T16:17:56.302302+00:00"
+},
+{
+"id": "ev154",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-17T17:52:32.954010+00:00"
+},
+{
+"id": "ev155",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-19T12:22:10.461960+00:00"
+},
+{
+"id": "ev156",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-19T12:30:15.332636+00:00"
+},
+{
+"id": "ev157",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-19T12:44:33.000349+00:00"
+},
+{
+"id": "ev158",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-19T12:48:29.663773+00:00"
+},
+{
+"id": "ev159",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-19T13:53:39.877360+00:00"
+},
+{
+"id": "ev160",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-19T14:04:37.594195+00:00"
+},
+{
+"id": "ev161",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-19T14:32:59.498219+00:00"
+},
+{
+"id": "ev162",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-19T14:56:40.098939+00:00"
+},
+{
+"id": "ev163",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-19T15:00:03.686839+00:00"
+},
+{
+"id": "ev164",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-19T16:46:03.256233+00:00"
+},
+{
+"id": "ev165",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-19T17:49:34.275013+00:00"
+},
+{
+"id": "ev166",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-19T17:58:38.373096+00:00"
+},
+{
+"id": "ev167",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-19T17:58:55.063740+00:00"
+},
+{
+"id": "ev168",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-19T18:29:45.657165+00:00"
+},
+{
+"id": "ev169",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-19T19:17:42.611976+00:00"
+},
+{
+"id": "ev170",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-19T19:35:47.475250+00:00"
+},
+{
+"id": "ev171",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-19T19:36:00.090919+00:00"
+},
+{
+"id": "ev172",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-19T21:01:12.415579+00:00"
+},
+{
+"id": "ev173",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-19T21:26:08.874495+00:00"
+},
+{
+"id": "ev174",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-19T21:59:16.256220+00:00"
+},
+{
+"id": "ev175",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-20T00:30:51.558061+00:00"
+},
+{
+"id": "ev176",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-20T00:31:02.880028+00:00"
+},
+{
+"id": "ev177",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-20T00:32:08.471749+00:00"
+},
+{
+"id": "ev178",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-20T12:00:20.102144+00:00"
+},
+{
+"id": "ev179",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-20T12:15:14.177336+00:00"
+},
+{
+"id": "ev180",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-20T13:26:31.164094+00:00"
+},
+{
+"id": "ev181",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-20T13:31:50.764192+00:00"
+},
+{
+"id": "ev182",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-20T13:32:55.836879+00:00"
+},
+{
+"id": "ev183",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-20T13:51:58.407277+00:00"
+},
+{
+"id": "ev184",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-20T13:57:27.979229+00:00"
+},
+{
+"id": "ev185",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-20T14:24:34.254486+00:00"
+},
+{
+"id": "ev186",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-20T14:39:56.084621+00:00"
+},
+{
+"id": "ev187",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-20T15:43:40.854780+00:00"
+},
+{
+"id": "ev188",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-20T18:03:43.639737+00:00"
+},
+{
+"id": "ev189",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-20T18:17:39.714647+00:00"
+},
+{
+"id": "ev190",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-20T18:22:42.627015+00:00"
+},
+{
+"id": "ev191",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-20T18:39:09.982586+00:00"
+},
+{
+"id": "ev192",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-20T18:40:33.678464+00:00"
+},
+{
+"id": "ev193",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-20T19:22:36.054652+00:00"
+},
+{
+"id": "ev194",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-20T19:49:50.654744+00:00"
+},
+{
+"id": "ev195",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-20T19:51:09.690519+00:00"
+},
+{
+"id": "ev196",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-20T19:59:49.199472+00:00"
+},
+{
+"id": "ev197",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-20T20:06:50.196226+00:00"
+},
+{
+"id": "ev198",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-20T21:28:29.448387+00:00"
+},
+{
+"id": "ev199",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-20T21:28:38.517789+00:00"
+},
+{
+"id": "ev200",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-21T00:06:08.041123+00:00"
+},
+{
+"id": "ev201",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-21T12:00:12.333143+00:00"
+},
+{
+"id": "ev202",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-21T12:28:06.051981+00:00"
+},
+{
+"id": "ev203",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-21T12:33:20.407097+00:00"
+},
+{
+"id": "ev204",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-21T13:07:14.208406+00:00"
+},
+{
+"id": "ev205",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-21T13:14:12.902397+00:00"
+},
+{
+"id": "ev206",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-21T13:42:35.112279+00:00"
+},
+{
+"id": "ev207",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-21T14:35:01.944825+00:00"
+},
+{
+"id": "ev208",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-21T14:36:41.641610+00:00"
+},
+{
+"id": "ev209",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-21T14:37:41.884345+00:00"
+},
+{
+"id": "ev210",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-21T15:06:57.790516+00:00"
+},
+{
+"id": "ev211",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-21T15:10:09.227396+00:00"
+},
+{
+"id": "ev212",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-21T15:17:12.813173+00:00"
+},
+{
+"id": "ev213",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-21T15:52:26.918701+00:00"
+},
+{
+"id": "ev214",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-21T15:52:35.811268+00:00"
+},
+{
+"id": "ev215",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-21T18:30:25.057285+00:00"
+},
+{
+"id": "ev216",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-21T18:31:41.306297+00:00"
+},
+{
+"id": "ev217",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-21T18:33:30.305903+00:00"
+},
+{
+"id": "ev218",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-21T18:48:39.970165+00:00"
+},
+{
+"id": "ev219",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-21T19:06:31.269961+00:00"
+},
+{
+"id": "ev220",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-21T19:36:47.187595+00:00"
+},
+{
+"id": "ev221",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-21T21:55:44.325390+00:00"
+},
+{
+"id": "ev222",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-21T22:07:46.258997+00:00"
+},
+{
+"id": "ev223",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-21T22:43:45.646399+00:00"
+},
+{
+"id": "ev224",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-21T22:45:48.946252+00:00"
+},
+{
+"id": "ev225",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-22T12:11:45.506034+00:00"
+},
+{
+"id": "ev226",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-22T12:25:12.187113+00:00"
+},
+{
+"id": "ev227",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-22T13:04:12.723549+00:00"
+},
+{
+"id": "ev228",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-22T13:35:25.216569+00:00"
+},
+{
+"id": "ev229",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-22T14:03:13.518349+00:00"
+},
+{
+"id": "ev230",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-22T14:05:46.061827+00:00"
+},
+{
+"id": "ev231",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-22T14:41:24.505343+00:00"
+},
+{
+"id": "ev232",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-22T14:46:16.800090+00:00"
+},
+{
+"id": "ev233",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-22T14:54:55.379896+00:00"
+},
+{
+"id": "ev234",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-22T14:55:29.162469+00:00"
+},
+{
+"id": "ev235",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-22T15:16:32.172031+00:00"
+},
+{
+"id": "ev236",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-22T15:19:17.768500+00:00"
+},
+{
+"id": "ev237",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-22T15:28:19.477670+00:00"
+},
+{
+"id": "ev238",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-22T15:28:27.896102+00:00"
+},
+{
+"id": "ev239",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-22T15:30:48.588462+00:00"
+},
+{
+"id": "ev240",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-22T18:00:03.685299+00:00"
+},
+{
+"id": "ev241",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-22T19:40:49.538386+00:00"
+},
+{
+"id": "ev242",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-22T19:40:54.065908+00:00"
+},
+{
+"id": "ev243",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-22T19:56:48.601191+00:00"
+},
+{
+"id": "ev244",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-22T20:42:59.981148+00:00"
+},
+{
+"id": "ev245",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-22T21:00:15.536864+00:00"
+},
+{
+"id": "ev246",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-22T21:41:43.117963+00:00"
+},
+{
+"id": "ev247",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-22T22:39:55.180180+00:00"
+},
+{
+"id": "ev248",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-22T23:51:06.825407+00:00"
+},
+{
+"id": "ev249",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-23T01:35:41.041659+00:00"
+},
+{
+"id": "ev250",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-23T01:35:43.762477+00:00"
+},
+{
+"id": "ev251",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-23T12:02:47.457325+00:00"
+},
+{
+"id": "ev252",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-23T12:08:42.833949+00:00"
+},
+{
+"id": "ev253",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-23T12:56:22.021809+00:00"
+},
+{
+"id": "ev254",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-23T13:19:32.339060+00:00"
+},
+{
+"id": "ev255",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-23T14:06:41.022563+00:00"
+},
+{
+"id": "ev256",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-23T14:07:07.624515+00:00"
+},
+{
+"id": "ev257",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-23T14:21:40.763680+00:00"
+},
+{
+"id": "ev258",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-23T14:21:53.675420+00:00"
+},
+{
+"id": "ev259",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-23T14:27:13.934057+00:00"
+},
+{
+"id": "ev260",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-23T15:08:37.076018+00:00"
+},
+{
+"id": "ev261",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-23T16:53:27.056313+00:00"
+},
+{
+"id": "ev262",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-23T17:44:01.835574+00:00"
+},
+{
+"id": "ev263",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-23T17:51:59.448291+00:00"
+},
+{
+"id": "ev264",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-23T18:44:00.587358+00:00"
+},
+{
+"id": "ev265",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-23T19:16:21.423935+00:00"
+},
+{
+"id": "ev266",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-23T19:19:07.606935+00:00"
+},
+{
+"id": "ev267",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-23T19:41:06.688599+00:00"
+},
+{
+"id": "ev268",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-23T19:44:12.576627+00:00"
+},
+{
+"id": "ev269",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-23T19:49:57.326101+00:00"
+},
+{
+"id": "ev270",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-23T20:04:28.784404+00:00"
+},
+{
+"id": "ev271",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-23T21:40:20.544140+00:00"
+},
+{
+"id": "ev272",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-23T22:12:34.924589+00:00"
+},
+{
+"id": "ev273",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-23T22:12:47.417944+00:00"
+},
+{
+"id": "ev274",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-23T23:07:42.171915+00:00"
+},
+{
+"id": "ev275",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-23T23:46:03.103798+00:00"
+},
+{
+"id": "ev276",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-24T12:41:01.880537+00:00"
+},
+{
+"id": "ev277",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-24T14:24:02.870365+00:00"
+},
+{
+"id": "ev278",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-24T14:34:52.449372+00:00"
+},
+{
+"id": "ev279",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-24T15:37:10.927909+00:00"
+},
+{
+"id": "ev280",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-24T15:46:35.723415+00:00"
+},
+{
+"id": "ev281",
+"employee_id": "OP2",
+"type": "reference_switch",
+"occurred_at": "2026-10-24T17:00:28.855888+00:00"
+},
+{
+"id": "ev282",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-24T18:43:44.879456+00:00"
+},
+{
+"id": "ev283",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-24T18:44:04.148275+00:00"
+},
+{
+"id": "ev284",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-24T19:03:07.688998+00:00"
+},
+{
+"id": "ev285",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-24T20:53:14.472254+00:00"
+},
+{
+"id": "ev286",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-25T00:03:19.009048+00:00"
+},
+{
+"id": "ev287",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-25T16:31:54.559562+00:00"
+},
+{
+"id": "ev288",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-25T18:37:21.974070+00:00"
+},
+{
+"id": "ev289",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-26T12:40:12.974429+00:00"
+},
+{
+"id": "ev290",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-10-26T13:41:18.124360+00:00"
+},
+{
+"id": "ev291",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-26T14:08:33.752146+00:00"
+},
+{
+"id": "ev292",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-26T14:11:37.383957+00:00"
+},
+{
+"id": "ev293",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-26T14:23:05.481131+00:00"
+},
+{
+"id": "ev294",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-26T14:26:45.374369+00:00"
+},
+{
+"id": "ev295",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-26T15:08:33.367868+00:00"
+},
+{
+"id": "ev296",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-26T15:55:15.622000+00:00"
+},
+{
+"id": "ev297",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-26T17:08:30.414915+00:00"
+},
+{
+"id": "ev298",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-10-26T17:43:49.369330+00:00"
+},
+{
+"id": "ev299",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-26T18:31:30.036837+00:00"
+},
+{
+"id": "ev300",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-26T18:34:54.330885+00:00"
+},
+{
+"id": "ev301",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-26T18:36:31.117957+00:00"
+},
+{
+"id": "ev302",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-26T18:39:14.211760+00:00"
+},
+{
+"id": "ev303",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-26T18:57:30.221308+00:00"
+},
+{
+"id": "ev304",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-26T19:16:41.069354+00:00"
+},
+{
+"id": "ev305",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-26T19:23:56.590725+00:00"
+},
+{
+"id": "ev306",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-10-26T19:47:17.996837+00:00"
+},
+{
+"id": "ev307",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-26T19:48:32.929727+00:00"
+},
+{
+"id": "ev308",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-26T20:57:08.905789+00:00"
+},
+{
+"id": "ev309",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-26T22:13:40.456911+00:00"
+},
+{
+"id": "ev310",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-26T22:30:33.775937+00:00"
+},
+{
+"id": "ev311",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-26T22:32:20.304365+00:00"
+},
+{
+"id": "ev312",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-26T22:49:18.231095+00:00"
+},
+{
+"id": "ev313",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-27T11:55:54.063003+00:00"
+},
+{
+"id": "ev314",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-27T12:07:11.160950+00:00"
+},
+{
+"id": "ev315",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-27T13:09:58.753383+00:00"
+},
+{
+"id": "ev316",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-27T13:10:15.614570+00:00"
+},
+{
+"id": "ev317",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-27T13:51:18.008844+00:00"
+},
+{
+"id": "ev318",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-27T14:24:48.426162+00:00"
+},
+{
+"id": "ev319",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-27T14:27:01.375996+00:00"
+},
+{
+"id": "ev320",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-27T14:47:37.751396+00:00"
+},
+{
+"id": "ev321",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-27T14:53:52.517161+00:00"
+},
+{
+"id": "ev322",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-27T14:54:40.546099+00:00"
+},
+{
+"id": "ev323",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-27T15:09:05.510302+00:00"
+},
+{
+"id": "ev324",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-27T15:09:11.393599+00:00"
+},
+{
+"id": "ev325",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-27T15:19:44.500220+00:00"
+},
+{
+"id": "ev326",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-27T15:20:39.547336+00:00"
+},
+{
+"id": "ev327",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-27T15:33:14.782618+00:00"
+},
+{
+"id": "ev328",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-27T15:34:12.640495+00:00"
+},
+{
+"id": "ev329",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-27T15:44:24.856194+00:00"
+},
+{
+"id": "ev330",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-27T15:46:00.087795+00:00"
+},
+{
+"id": "ev331",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-27T15:46:06.753295+00:00"
+},
+{
+"id": "ev332",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-27T16:18:05.291080+00:00"
+},
+{
+"id": "ev333",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-10-27T18:59:03.642802+00:00"
+},
+{
+"id": "ev334",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-27T19:06:20.259474+00:00"
+},
+{
+"id": "ev335",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-10-27T19:48:26.107056+00:00"
+},
+{
+"id": "ev336",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-27T19:48:27.740882+00:00"
+},
+{
+"id": "ev337",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-27T19:55:44.492802+00:00"
+},
+{
+"id": "ev338",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-27T20:06:11.031252+00:00"
+},
+{
+"id": "ev339",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-27T20:34:01.740538+00:00"
+},
+{
+"id": "ev340",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-27T20:34:19.693402+00:00"
+},
+{
+"id": "ev341",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-27T21:07:58.961674+00:00"
+},
+{
+"id": "ev342",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-27T21:18:44.801988+00:00"
+},
+{
+"id": "ev343",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-27T21:35:12.686470+00:00"
+},
+{
+"id": "ev344",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-27T23:16:08.173873+00:00"
+},
+{
+"id": "ev345",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-27T23:53:13.833643+00:00"
+},
+{
+"id": "ev346",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-28T11:11:55.406399+00:00"
+},
+{
+"id": "ev347",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-28T12:21:18.884872+00:00"
+},
+{
+"id": "ev348",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-28T12:30:21.609249+00:00"
+},
+{
+"id": "ev349",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-28T13:59:47.803697+00:00"
+},
+{
+"id": "ev350",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-28T14:05:14.117076+00:00"
+},
+{
+"id": "ev351",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-28T14:12:32.647892+00:00"
+},
+{
+"id": "ev352",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-28T14:37:17.461874+00:00"
+},
+{
+"id": "ev353",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-28T14:37:48.297626+00:00"
+},
+{
+"id": "ev354",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-28T14:49:19.888652+00:00"
+},
+{
+"id": "ev355",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-28T14:54:11.481276+00:00"
+},
+{
+"id": "ev356",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-28T14:56:05.753150+00:00"
+},
+{
+"id": "ev357",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-28T15:00:33.388293+00:00"
+},
+{
+"id": "ev358",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-28T15:14:14.462961+00:00"
+},
+{
+"id": "ev359",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-28T15:20:48.198807+00:00"
+},
+{
+"id": "ev360",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-28T16:31:43.862929+00:00"
+},
+{
+"id": "ev361",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-28T17:11:01.834642+00:00"
+},
+{
+"id": "ev362",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-28T17:11:04.350853+00:00"
+},
+{
+"id": "ev363",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-28T17:11:33.333925+00:00"
+},
+{
+"id": "ev364",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-28T17:12:31.350613+00:00"
+},
+{
+"id": "ev365",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-28T17:55:50.528127+00:00"
+},
+{
+"id": "ev366",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-28T18:21:56.497070+00:00"
+},
+{
+"id": "ev367",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-28T19:38:22.460292+00:00"
+},
+{
+"id": "ev368",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-10-28T19:38:58.847367+00:00"
+},
+{
+"id": "ev369",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-28T19:40:07.885955+00:00"
+},
+{
+"id": "ev370",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-10-28T20:18:25.291323+00:00"
+},
+{
+"id": "ev371",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-28T20:24:12.697551+00:00"
+},
+{
+"id": "ev372",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-28T20:31:25.472631+00:00"
+},
+{
+"id": "ev373",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-28T20:36:38.104937+00:00"
+},
+{
+"id": "ev374",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-28T21:35:22.385433+00:00"
+},
+{
+"id": "ev375",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-28T22:48:20.664433+00:00"
+},
+{
+"id": "ev376",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-28T22:55:13.773353+00:00"
+},
+{
+"id": "ev377",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-29T00:16:11.295344+00:00"
+},
+{
+"id": "ev378",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-29T12:18:24.062702+00:00"
+},
+{
+"id": "ev379",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-29T12:32:56.152125+00:00"
+},
+{
+"id": "ev380",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-10-29T12:35:54.463254+00:00"
+},
+{
+"id": "ev381",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-29T13:30:16.243034+00:00"
+},
+{
+"id": "ev382",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-29T13:32:05.372445+00:00"
+},
+{
+"id": "ev383",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-29T14:06:45.572603+00:00"
+},
+{
+"id": "ev384",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-29T14:11:09.813388+00:00"
+},
+{
+"id": "ev385",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-10-29T16:34:42.473170+00:00"
+},
+{
+"id": "ev386",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-29T17:39:09.268947+00:00"
+},
+{
+"id": "ev387",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-29T18:29:44.234062+00:00"
+},
+{
+"id": "ev388",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-29T19:43:01.843273+00:00"
+},
+{
+"id": "ev389",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-29T20:24:21.722253+00:00"
+},
+{
+"id": "ev390",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-29T20:26:59.861775+00:00"
+},
+{
+"id": "ev391",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-29T20:44:48.739962+00:00"
+},
+{
+"id": "ev392",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-29T21:35:18.143891+00:00"
+},
+{
+"id": "ev393",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-29T21:49:54.021272+00:00"
+},
+{
+"id": "ev394",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-10-29T23:29:58.870843+00:00"
+},
+{
+"id": "ev395",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-30T00:18:59.605365+00:00"
+},
+{
+"id": "ev396",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-10-30T12:25:33.605088+00:00"
+},
+{
+"id": "ev397",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-10-30T12:39:58.787346+00:00"
+},
+{
+"id": "ev398",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-10-30T13:56:39.265796+00:00"
+},
+{
+"id": "ev399",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-30T14:04:56.989956+00:00"
+},
+{
+"id": "ev400",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-30T14:05:11.421550+00:00"
+},
+{
+"id": "ev401",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-30T14:18:26.609876+00:00"
+},
+{
+"id": "ev402",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-30T14:39:18.352343+00:00"
+},
+{
+"id": "ev403",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-30T17:01:50.870560+00:00"
+},
+{
+"id": "ev404",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-30T17:37:22.009738+00:00"
+},
+{
+"id": "ev405",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-10-30T17:40:15.683988+00:00"
+},
+{
+"id": "ev406",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-30T18:01:36.553561+00:00"
+},
+{
+"id": "ev407",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-30T18:24:43.366053+00:00"
+},
+{
+"id": "ev408",
+"employee_id": "OP4",
+"type": "reference_switch",
+"occurred_at": "2026-10-30T18:24:50.419191+00:00"
+},
+{
+"id": "ev409",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-10-30T19:23:59.575068+00:00"
+},
+{
+"id": "ev410",
+"employee_id": "OP4",
+"type": "break_start",
+"occurred_at": "2026-10-30T19:44:57.123970+00:00"
+},
+{
+"id": "ev411",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-10-30T20:27:08.694100+00:00"
+},
+{
+"id": "ev412",
+"employee_id": "OP4",
+"type": "break_end",
+"occurred_at": "2026-10-30T20:34:24.354023+00:00"
+},
+{
+"id": "ev413",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-10-30T21:12:39.412481+00:00"
+},
+{
+"id": "ev414",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-10-30T22:41:46.234203+00:00"
+},
+{
+"id": "ev415",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-10-30T22:42:39.461116+00:00"
+},
+{
+"id": "ev416",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-11-03T11:49:52.927478+00:00"
+},
+{
+"id": "ev417",
+"employee_id": "OP4",
+"type": "check_out",
+"occurred_at": "2026-11-03T12:06:31.705654+00:00"
+},
+{
+"id": "ev418",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-11-03T12:34:06.846529+00:00"
+},
+{
+"id": "ev419",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-11-03T13:55:55.188596+00:00"
+},
+{
+"id": "ev420",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-11-03T14:38:04.285078+00:00"
+},
+{
+"id": "ev421",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-11-03T14:51:30.916436+00:00"
+},
+{
+"id": "ev422",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-11-03T19:41:58.214775+00:00"
+},
+{
+"id": "ev423",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-11-03T20:20:51.078956+00:00"
+},
+{
+"id": "ev424",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-11-03T20:40:45.275995+00:00"
+},
+{
+"id": "ev425",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-11-03T22:02:38.662399+00:00"
+},
+{
+"id": "ev426",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-11-03T23:23:35.240149+00:00"
+},
+{
+"id": "ev427",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-11-04T11:41:17.431621+00:00"
+},
+{
+"id": "ev428",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-11-04T12:34:54.384851+00:00"
+},
+{
+"id": "ev429",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-11-04T13:44:12.419591+00:00"
+},
+{
+"id": "ev430",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-11-04T14:03:25.687360+00:00"
+},
+{
+"id": "ev431",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-11-04T14:05:01.925519+00:00"
+},
+{
+"id": "ev432",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-11-04T14:23:34.903776+00:00"
+},
+{
+"id": "ev433",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-11-04T14:30:13.093688+00:00"
+},
+{
+"id": "ev434",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-11-04T15:31:19.509265+00:00"
+},
+{
+"id": "ev435",
+"employee_id": "OP1",
+"type": "reference_switch",
+"occurred_at": "2026-11-04T16:35:39.418844+00:00"
+},
+{
+"id": "ev436",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-11-04T16:56:34.741107+00:00"
+},
+{
+"id": "ev437",
+"employee_id": "OP3",
+"type": "reference_switch",
+"occurred_at": "2026-11-04T17:05:13.845121+00:00"
+},
+{
+"id": "ev438",
+"employee_id": "OP2",
+"type": "reference_switch",
+"occurred_at": "2026-11-04T17:05:31.819906+00:00"
+},
+{
+"id": "ev439",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-11-04T17:48:41.805560+00:00"
+},
+{
+"id": "ev440",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-11-04T18:00:22.351943+00:00"
+},
+{
+"id": "ev441",
+"employee_id": "OP2",
+"type": "break_start",
+"occurred_at": "2026-11-04T19:52:16.905790+00:00"
+},
+{
+"id": "ev442",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-11-04T19:55:56.468812+00:00"
+},
+{
+"id": "ev443",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-11-04T20:28:31.452563+00:00"
+},
+{
+"id": "ev444",
+"employee_id": "OP2",
+"type": "break_end",
+"occurred_at": "2026-11-04T20:29:34.910513+00:00"
+},
+{
+"id": "ev445",
+"employee_id": "OP1",
+"type": "check_out",
+"occurred_at": "2026-11-04T21:47:30.439243+00:00"
+},
+{
+"id": "ev446",
+"employee_id": "OP2",
+"type": "check_out",
+"occurred_at": "2026-11-04T22:00:52.280835+00:00"
+},
+{
+"id": "ev447",
+"employee_id": "OP3",
+"type": "check_out",
+"occurred_at": "2026-11-04T23:01:01.990591+00:00"
+},
+{
+"id": "ev448",
+"employee_id": "OP4",
+"type": "check_in",
+"occurred_at": "2026-11-05T11:52:57.291218+00:00"
+},
+{
+"id": "ev449",
+"employee_id": "OP3",
+"type": "check_in",
+"occurred_at": "2026-11-05T11:55:08.061147+00:00"
+},
+{
+"id": "ev450",
+"employee_id": "OP1",
+"type": "check_in",
+"occurred_at": "2026-11-05T12:20:37.339166+00:00"
+},
+{
+"id": "ev451",
+"employee_id": "OP2",
+"type": "check_in",
+"occurred_at": "2026-11-05T12:27:13.689713+00:00"
+},
+{
+"id": "ev452",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-11-05T13:26:02.632166+00:00"
+},
+{
+"id": "ev453",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-11-05T13:28:12.705967+00:00"
+},
+{
+"id": "ev454",
+"employee_id": "OP3",
+"type": "break_start",
+"occurred_at": "2026-11-05T13:51:44.825289+00:00"
+},
+{
+"id": "ev455",
+"employee_id": "OP1",
+"type": "break_start",
+"occurred_at": "2026-11-05T13:51:57.656562+00:00"
+},
+{
+"id": "ev456",
+"employee_id": "OP3",
+"type": "break_end",
+"occurred_at": "2026-11-05T14:11:24.616800+00:00"
+},
+{
+"id": "ev457",
+"employee_id": "OP1",
+"type": "break_end",
+"occurred_at": "2026-11-05T14:31:50.503130+00:00"
+}
+],
+"closures": [
+{
+"source": "attendance",
+"session_ref": "ev61",
+"status": "confirmed",
+"real_end_at": "2026-10-15T01:47:00+00:00"
+},
+{
+"source": "attendance",
+"session_ref": "ev187",
+"status": "confirmed",
+"real_end_at": "2026-10-21T00:50:00+00:00"
+},
+{
+"source": "attendance",
+"session_ref": "ev398",
+"status": "confirmed",
+"real_end_at": "2026-10-30T23:10:00+00:00"
+}
+]
+}
