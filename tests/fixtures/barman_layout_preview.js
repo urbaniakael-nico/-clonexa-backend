@@ -60,6 +60,14 @@
       orders.forEach((order) => { if (order.status === "cerrado") order.archived_at = at(0); });
       return json({ ok: true, closure: { closure_number: "C-1" }, closed_table_accesses: 0 });
     }
+    if (p.endsWith("/closed-tables-summary")) {
+      window.__summaryCalls = (window.__summaryCalls || 0) + 1;
+      if (P.get("sum") === "fail") return json({ detail: "x" }, 500);
+      // sum=big: más cierres de los que el panel alcanza a cargar.
+      if (P.get("sum") === "big") return json({ ok: true, tables: 300, orders: 900, total: 5000000 });
+      const live = orders.filter((o) => o.status === "cerrado" && !o.archived_at);
+      return json({ ok: true, tables: new Set(live.map((o) => o.table_key)).size, orders: live.length, total: live.reduce((s, o) => s + o.total, 0) });
+    }
     const archive = /\/song-requests\/([^/]+)\/archive$/.exec(p);
     if (archive) {
       window.__archived.push(archive[1]);
@@ -87,6 +95,8 @@
     const bar = q(".hsp-bar-workspace-031d");
     const tables = q(".hsp-tables-board-034b");
     const fold = q("#hspClosedFold069A");
+    out.summary_calls = window.__summaryCalls || 0;
+    out.closed_note = q(".hsp-closed-note-069b")?.textContent || "";
     const r = (el) => { const b = rect(el); return b ? { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height) } : null; };
     out.page_overflow = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
     out.switch_class = grid.classList.contains("hsp-barman-grid-069a");

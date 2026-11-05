@@ -22,7 +22,7 @@ const CASES = [
   ['pocas-1280', 1280, '&on=1&songs=2'], ['sin-qrbar-1280', 1280, '&on=1&songs=3'],
   ['falla-copia-1280', 1280, '&on=1&songs=3&clip=fail'], ['tres-cierres-1280', 1280, '&on=1&songs=2&closed=3'],
   ['sin-cierres-1280', 1280, '&on=1&songs=2&closed=0&tables=3'], ['kanban-1280', 1280, '&on=1&board=kanban'],
-  ['cierre-1280', 1280, '&on=1&gen=1'], ['off-1280', 1280, '&songs=3&closed=8'],
+  ['cierre-1280', 1280, '&on=1&gen=1'], ['total-servidor-1280', 1280, '&on=1&songs=2&sum=big'], ['total-falla-1280', 1280, '&on=1&songs=2&sum=fail'], ['off-1280', 1280, '&songs=3&closed=8'],
 ];
 
 function serve() {
@@ -137,6 +137,17 @@ test('Panel Barman: música a la derecha, Copiar, 3 mesas por fila y cierres ple
       assert.equal(fail.copy_gone, false, 'si no copia, la canción sigue');
       assert.match(fail.toast, /No se pudo copiar/);
 
+      // El total es del servidor: nunca la suma de los pedidos cargados.
+      const big = r['total-servidor-1280'];
+      assert.match(big.title, /^Mesas cerradas hoy \(300\) · Total \$\s?5\.000\.000$/);
+      assert.equal(big.more_label, 'Ver todas (8)', 'Ver todas dice cuántas puede mostrar');
+      assert.match(big.closed_note, /muestra 8 de 300 mesas/);
+      assert.deepEqual(big.clipped, []);
+      assert.equal(r['on-1280'].closed_note, '', 'si están todas, no hay nota');
+      const down = r['total-falla-1280'];
+      assert.equal(down.title, 'Mesas cerradas hoy · Total no disponible', 'sin servidor no inventa un total parcial');
+      assert.deepEqual(down.chips_default.length, 5, 'la lista sigue funcionando');
+
       // "Generar cierre" los pasa al historial como hoy: la sección queda en cero.
       const gen = r['cierre-1280'];
       assert.equal(gen.posted, true, 'usa el mismo POST /day-closures');
@@ -153,6 +164,7 @@ test('Panel Barman: música a la derecha, Copiar, 3 mesas por fila y cierres ple
         assert.equal(o.fold, null, k);
         assert.equal(o.song_controls.search, true, `${k}: sigue el buscador`);
         assert.deepEqual(o.song_buttons, ['Archivar'], k);
+        assert.equal(o.summary_calls, 0, `${k}: sin el interruptor no consulta el total`);
       }
       assert.ok(r['off-1280'].tables.top >= r['off-1280'].grid.bottom, 'apagado: Mesas debajo, a todo el ancho');
     } finally {

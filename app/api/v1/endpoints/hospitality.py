@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import unicodedata
 import uuid
 from datetime import date as calendar_date
 from datetime import datetime, timedelta, timezone
@@ -5547,6 +5548,77 @@ async def list_hospitality_orders(
             "loss_total": _money(loss_total),
             "total": len(orders),
         },
+    }
+
+
+# Panel Barman con la música al lado (interruptor barman_music_layout, apagado por
+# defecto). Va al nivel superior de settings del módulo QR, como qr_bar_menu.
+BARMAN_MUSIC_LAYOUT_SETTING = "barman_music_layout"
+
+
+async def _barman_music_layout_on(db: AsyncSession, company_id: uuid.UUID) -> bool:
+    row = (await db.execute(
+        text(
+            """
+            SELECT cm.settings
+            FROM company_modules cm
+            JOIN modules m ON m.id = cm.module_id
+            WHERE cm.company_id = :company_id
+              AND cm.enabled IS TRUE
+              AND m.code IN ('qr', 'mesa_qr', 'mesas_qr', 'qr_mesas', 'hospitality_qr', 'voting_qr')
+            ORDER BY cm.updated_at DESC
+            LIMIT 1
+            """
+        ),
+        {"company_id": str(company_id)},
+    )).mappings().first()
+    settings = _json(row["settings"], {}) if row else {}
+    return isinstance(settings, dict) and settings.get(BARMAN_MUSIC_LAYOUT_SETTING) is True
+
+
+def _closed_table_key(table_key: Any, table_number: Any) -> str:
+    """La misma llave con la que el panel agrupa las mesas (cxHspNormKey024Y)."""
+    raw = unicodedata.normalize("NFD", str(table_key or table_number or "Mesa"))
+    plain = "".join(char for char in raw if not unicodedata.combining(char)).lower()
+    return re.sub(r"[^a-z0-9]+", "_", plain).strip("_") or "cuenta"
+
+
+@router.get("/companies/{company_id}/closed-tables-summary")
+async def closed_tables_summary(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _actor: None = Depends(require_admin_v2_or_tenant_company_user),
+) -> dict[str, Any]:
+    """Mesas cerradas y total desde el último "Generar cierre", sin límite de filas.
+
+    "Generar cierre" archiva todo lo abierto de la empresa, así que lo cerrado sin
+    archivar es exactamente lo que va desde ese cierre.
+    """
+    await _ensure_storage(db)
+    if not await _barman_music_layout_on(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="barman_music_layout_apagado")
+    # Agrupa por el estado guardado y normaliza en Python: _status() es la misma
+    # regla con la que el panel recibe cada pedido.
+    rows = (await db.execute(
+        text(
+            """
+            SELECT status, table_key, table_number, COALESCE(SUM(total), 0) AS total, COUNT(*) AS orders
+            FROM hospitality_orders
+            WHERE company_id = :company_id
+              AND archived_at IS NULL
+            GROUP BY status, table_key, table_number
+            """
+        ),
+        {"company_id": str(company_id)},
+    )).mappings().all()
+    closed = [row for row in rows if _status(row["status"]) == STATUS_CLOSED]
+    total = sum((Decimal(str(row["total"])) for row in closed), Decimal("0"))
+    return {
+        "ok": True,
+        "company_id": str(company_id),
+        "tables": len({_closed_table_key(row["table_key"], row["table_number"]) for row in closed}),
+        "orders": sum(int(row["orders"]) for row in closed),
+        "total": _money(total),
     }
 
 

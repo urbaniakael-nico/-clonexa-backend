@@ -46,7 +46,7 @@
      "description": "Carta de bar rediseñada en la pantalla del QR de mesa.",
      "delicate": true, "delicate_reason": "Reemplaza la pantalla completa del QR de mesa."},
     {"key": "barman_music_layout", "label": "Panel Barman: música al lado de las mesas", "module": "qr", "group": "Pedidos",
-     "description": "Solicitudes musicales en una columna a la derecha, a lo alto de Cuentas, Mesas y cierres, con solo el botón Copiar (copia la canción y la archiva). Mesas de 3 por fila y cierres agrupados en una sección plegable con las 5 más recientes. Mismos datos y cálculos.",
+     "description": "Solicitudes musicales en una columna a la derecha, a lo alto de Cuentas, Mesas y cierres, con solo el botón Copiar (copia la canción y la archiva). Mesas de 3 por fila y cierres agrupados en una sección plegable con las 5 más recientes y mesas y total calculados por el servidor sobre todos los cierres desde el último Generar cierre. Mismos datos.",
      "note": "Solo aplica con el tablero de mesas (orders_board: mesas); con el kanban no cambia nada."},
     {"key": "references_v2", "label": "Referencias rediseñadas", "module": "references", "group": "Referencias",
      "description": "Pantalla nueva de Referencias: catálogo comercial por prenda y talla, información de cortes (ingresos, novedades por sección y envíos a despliegue) y estado de referencias en tres columnas. La pantalla de siempre queda como respaldo.",

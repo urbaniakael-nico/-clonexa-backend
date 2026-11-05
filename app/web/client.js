@@ -24539,13 +24539,40 @@ function inventoryCreatePayload() {
       .map((row) => row.group);
   }
 
-  function cxHspClosedTitle069A(groups = []) {
-    const total = groups.reduce((sum, group) => sum + Number(group.total || 0), 0);
-    return `Mesas cerradas hoy (${groups.length}) · Total ${cxHspMoney024R(total)}`;
+  // 069B: mesas y total los calcula el servidor sobre todos los cierres desde el
+  // último "Generar cierre". El panel solo carga los pedidos más recientes, así
+  // que nunca se suma aquí: sin respuesta se dice que falta, no un total parcial.
+  let cxHspClosedServer069B = null;
+  let cxHspClosedFailed069B = false;
+  let cxHspClosedSeq069B = 0;
+
+  async function cxHspRefreshClosedSummary069B() {
+    const seq = ++cxHspClosedSeq069B;
+    try {
+      const data = await cxHspApi024R("/closed-tables-summary");
+      if (seq !== cxHspClosedSeq069B) return;
+      cxHspClosedServer069B = { tables: Number(data.tables || 0), total: Number(data.total || 0) };
+      cxHspClosedFailed069B = false;
+    } catch (_) {
+      if (seq !== cxHspClosedSeq069B) return;
+      cxHspClosedFailed069B = true;
+    }
+    cxHspRenderClosedFold069B();
+  }
+
+  function cxHspClosedTitle069A() {
+    if (cxHspClosedServer069B) {
+      return `Mesas cerradas hoy (${cxHspClosedServer069B.tables}) · Total ${cxHspMoney024R(cxHspClosedServer069B.total)}`;
+    }
+    return `Mesas cerradas hoy · Total ${cxHspClosedFailed069B ? "no disponible" : "calculando…"}`;
   }
 
   function cxHspClosedChips069A(groups = []) {
-    if (!groups.length) return `<div class="hsp-empty-024r">Todavía no hay mesas cerradas en esta jornada.</div>`;
+    const hidden = Number(cxHspClosedServer069B?.tables || 0) - groups.length;
+    const note = hidden > 0
+      ? `<small class="hsp-closed-note-069b">Esta lista muestra ${h(groups.length)} de ${h(cxHspClosedServer069B.tables)} mesas (las de los pedidos más recientes). El total las incluye todas.</small>`
+      : "";
+    if (!groups.length) return `<div class="hsp-empty-024r">${note ? "La lista no alcanza a mostrar estas mesas; el total las incluye todas." : "Todavía no hay mesas cerradas en esta jornada."}</div>`;
     const visible = cxHspClosedAll069A ? groups : groups.slice(0, 5);
     const chips = visible.map((group) => `
       <div class="hsp-closed-chip-034b">
@@ -24556,18 +24583,24 @@ function inventoryCreatePayload() {
     const more = groups.length > 5
       ? `<button class="hsp-closed-more-069a" type="button" data-hsp-closed-all>${cxHspClosedAll069A ? "Ver solo las 5 más recientes" : `Ver todas (${groups.length})`}</button>`
       : "";
-    return chips + more;
+    return chips + more + note;
   }
 
   // El tablero se repinta cada pocos segundos: el estado vive fuera del HTML y
   // solo se toca el DOM si algo cambió, para no perder el foco ni el "Ver todas".
   function cxHspPaintClosedFold069A() {
+    if (!document.getElementById("hspClosedStrip034B")) return;
+    cxHspRenderClosedFold069B();
+    void cxHspRefreshClosedSummary069B();
+  }
+
+  function cxHspRenderClosedFold069B() {
     const strip = document.getElementById("hspClosedStrip034B");
     if (!strip) return;
     const groups = cxHspClosedGroups069A();
     if (groups.length <= 5) cxHspClosedAll069A = false;
     const title = document.getElementById("hspClosedTitle069A");
-    if (title) title.textContent = cxHspClosedTitle069A(groups);
+    if (title) title.textContent = cxHspClosedTitle069A();
     const html = cxHspClosedChips069A(groups);
     if (strip.dataset.closedHtml069A !== html) {
       strip.innerHTML = html;
@@ -24576,12 +24609,15 @@ function inventoryCreatePayload() {
   }
 
   function cxHspBarmanBoard069A() {
+    cxHspClosedSeq069B += 1;
+    cxHspClosedServer069B = null;
+    cxHspClosedFailed069B = false;
     return `${cxHspTablesGridSection069A()}
       <details class="hsp-box-024r hsp-closed-fold-069a" id="hspClosedFold069A"${cxHspClosedOpen069A ? " open" : ""}>
         <summary>
           <span>
             <span class="client-eyebrow">Para el cierre de jornada</span>
-            <h2 id="hspClosedTitle069A">${h(cxHspClosedTitle069A([]))}</h2>
+            <h2 id="hspClosedTitle069A">${h(cxHspClosedTitle069A())}</h2>
           </span>
         </summary>
         <div id="hspClosedStrip034B" class="hsp-closed-list-069a"></div>
@@ -24615,6 +24651,7 @@ function inventoryCreatePayload() {
       .hsp-closed-list-069a .hsp-empty-024r{grid-column:1 / -1}
       .hsp-closed-more-069a{grid-column:1 / -1;min-height:44px;padding:8px 14px;border-radius:12px;border:1px solid var(--hsp-line);background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font:inherit;font-size:13px;font-weight:950;cursor:pointer}
       .hsp-closed-more-069a:hover{border-color:var(--hsp-primary)}
+      .hsp-closed-note-069b{grid-column:1 / -1;color:var(--hsp-muted);font-size:12px;font-weight:800;line-height:1.35}
       @media(min-width:1181px){
         .hsp-operations-grid-031d.hsp-barman-grid-069a{grid-template-columns:minmax(0,1fr) clamp(280px,23vw,340px);align-items:stretch}
         .hsp-barman-left-069a{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-content:start;min-width:0}
@@ -35586,7 +35623,7 @@ function inventoryCreatePayload() {
 
       if (target.closest("[data-hsp-closed-all]")) {
         cxHspClosedAll069A = !cxHspClosedAll069A;
-        cxHspPaintClosedFold069A();
+        cxHspRenderClosedFold069B();
         return;
       }
 
