@@ -318,22 +318,28 @@ async def test_cerrar_todas_las_tallas_cierra_la_referencia_y_reabrir_la_devuelv
         lot = ins["lots_in_process"][0]
         assert lot["total_seconds"] == 9 * 3600 and lot["period_seconds"] == 9 * 3600 and lot["people"][0]["name"] == "KRIS"
 
-        # Menos de lo recibido: motivo obligatorio.
+        # Motivo obligatorio: solo Entrega o Cierre de ciclo.
         with pytest.raises(life.LifecycleError) as reason:
             await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "confirm": True}, WHO)
-        assert reason.value.code == "motivo_requerido" and reason.value.extra["received"] == 44
+        assert reason.value.code == "motivo_requerido"
+        for retired in ("merma", "defecto", "devolucion", "otro"):
+            with pytest.raises(life.LifecycleError) as old:
+                await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": retired, "reason_note": "detalle", "confirm": True}, WHO)
+            assert old.value.code == "motivo_requerido"
+        with pytest.raises(life.LifecycleError) as missing:
+            await life.close_size(db, cid, {"key": key, "size": "S", "reason_code": "entrega", "confirm": True}, WHO)  # sin cantidad
+        assert missing.value.code == "cantidad_invalida"
         with pytest.raises(life.LifecycleError):
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "otro", "confirm": True}, WHO)  # otro sin detalle
-        with pytest.raises(life.LifecycleError):
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "merma"}, WHO)  # sin confirmar
+            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega"}, WHO)  # sin confirmar
 
-        out = await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "merma", "confirm": True}, WHO)
+        out = await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega", "confirm": True}, WHO)
         assert out["reference_closed"] is False
+        assert (await life.state(db, cid))[key]["closes"][0]["reason_label"] == "Entrega"
         assert await _bot_active(db, cid, s["id"]) is False, "el bot deja de ofrecer esa talla"
         assert await _bot_active(db, cid, m["id"]) is True
         assert [x["size"] for x in await bots.sizes_by_reference_id(db, cid, m["id"])] == ["M"]
         with pytest.raises(life.LifecycleError) as again:
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "merma", "confirm": True}, WHO)
+            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega", "confirm": True}, WHO)
         assert again.value.code == "ya_cerrada"
         with pytest.raises(refs.HTTPException) as show:
             await refs.update_reference(cid, s["id"], {"channel": "bot"}, db)
@@ -343,12 +349,12 @@ async def test_cerrar_todas_las_tallas_cierra_la_referencia_y_reabrir_la_devuelv
         now = datetime(2026, 10, 30, 13, tzinfo=timezone.utc)
         await _session(db, cid, "Lote", m["id"], now, None, emp="e2", person="TATA", status="active")
         with pytest.raises(life.LifecycleError) as open_session:
-            await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "confirm": True}, WHO)
+            await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "reason_code": "cierre_ciclo", "confirm": True}, WHO)
         assert open_session.value.code == "sesiones_abiertas" and open_session.value.extra["people"] == ["TATA"]
         await db.execute(text("UPDATE reference_work_sessions SET ended_at = :e, status = 'switched' WHERE company_id = :c AND ended_at IS NULL"), {"e": now + timedelta(hours=1), "c": cid})
         await db.commit()
 
-        out = await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "confirm": True}, WHO)
+        out = await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "reason_code": "cierre_ciclo", "confirm": True}, WHO)
         assert out["reference_closed"] is True
         assert await vbot._references(db, cid) == [], "el bot deja de ofrecerla"
         assert (await life.state(db, cid))[key]["status"] == "closed"
@@ -387,8 +393,28 @@ async def test_guardia_del_bot_rechaza_una_talla_cerrada(pg_url):
         cid = await _company(db, f"cl2{uuid.uuid4().hex[:6]}")
         await _on(db, cid)
         s, _ = await _lote(db, cid)
-        await life.close_size(db, cid, {"key": rv2.group_key("Lote"), "size": "S", "closed_qty": 44, "confirm": True}, WHO)
+        await life.close_size(db, cid, {"key": rv2.group_key("Lote"), "size": "S", "closed_qty": 44, "reason_code": "entrega", "confirm": True}, WHO)
         assert "ya está cerrada" in await life.bot_close_guard(db, cid, {"id": s["id"]}, 1, EMP)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cerrar_talla_en_cero_con_motivo_y_detalle_opcional_y_cierre_viejo_conserva_su_etiqueta(pg_url):
+    engine, maker = await _all_setup(pg_url)
+    async with maker() as db:
+        cid = await _company(db, f"cl3{uuid.uuid4().hex[:6]}")
+        await _on(db, cid)
+        await _lote(db, cid)
+        key = rv2.group_key("Lote")
+        out = await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 0, "reason_code": "cierre_ciclo", "reason_note": "fin de temporada", "confirm": True}, WHO)
+        assert out["closed_qty"] == 0
+        close = (await life.state(db, cid))[key]["closes"][0]
+        assert close["closed_qty"] == 0 and close["reason_code"] == "cierre_ciclo" and close["reason_label"] == "Cierre de ciclo"
+
+        # Un cierre hecho antes del cambio sigue mostrando su motivo.
+        await db.execute(text("UPDATE reference_size_closes SET reason_code = 'merma' WHERE company_id = :c"), {"c": cid})
+        await db.commit()
+        assert (await life.state(db, cid))[key]["closes"][0]["reason_label"] == "Merma"
     await engine.dispose()
 
 

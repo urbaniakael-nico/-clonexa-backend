@@ -30,7 +30,9 @@ MODULE = "references"
 SWITCH = "reference_lifecycle"
 CORRECTION_CHANNEL = "correccion"
 APPROVED_CHANNEL = "aprobado_portal"
-REASONS = {"merma": "Merma", "defecto": "Defecto", "devolucion": "Devolución", "otro": "Otro"}
+REASONS = {"entrega": "Entrega", "cierre_ciclo": "Cierre de ciclo"}
+# Solo para leer cierres viejos: ya no se pueden elegir.
+REASON_LABELS = {**REASONS, "merma": "Merma", "defecto": "Defecto", "devolucion": "Devolución", "otro": "Otro"}
 MAX_QTY = rv2.MAX_QTY
 # Tablas con copia del nombre: (tabla, columna del nombre). Todas se filtran por empresa.
 NAME_COPIES = ("reference_work_sessions", "reference_production_closures", "reference_cycle_resets", "mini_panel_sales_records",
@@ -348,13 +350,8 @@ async def close_size(db: AsyncSession, company_id: str, payload: dict, actor: st
         raise LifecycleError("ya_cerrada", f"La talla {line['size']} ya está cerrada.", 409)
     received = int(line.get("received") or 0)
     code, note = _text(payload.get("reason_code"), 20) or None, _text(payload.get("reason_note"))
-    if qty < received:
-        if code not in REASONS:
-            raise LifecycleError("motivo_requerido", f"Cerraste menos de lo recibido ({qty} de {received}). Elige el motivo.", received=received)
-        if code == "otro" and len(note) < 3:
-            raise LifecycleError("motivo_requerido", "Escribe el motivo.")
-    elif code not in REASONS:
-        code = None
+    if code not in REASONS:
+        raise LifecycleError("motivo_requerido", "Elige el motivo: Entrega o Cierre de ciclo.")
     pending = [x for x in closable_lines(group) if x is not line]
     closes = await _live_closes(db, company_id, key)
     last = all(any(_same_size(c["size"], x["size"]) for c in closes) for x in pending)
@@ -459,7 +456,7 @@ def accounts(group: dict, closes: list[dict], time_info: Optional[dict], labor: 
             "size": line["size"], "reference_id": line.get("reference_id"), "meta": meta, "received": received, "produced": int(line["produced"]),
             "closed": bool(c), "closed_qty": int(c["closed_qty"]) if c else None, "diff_meta": int(c["closed_qty"]) - meta if c else None,
             "diff_received": int(c["closed_qty"]) - received if c else None, "reason_code": c["reason_code"] if c else None,
-            "reason_label": REASONS.get(c["reason_code"]) if c and c["reason_code"] else None, "reason_note": c["reason_note"] if c else None,
+            "reason_label": REASON_LABELS.get(c["reason_code"]) if c and c["reason_code"] else None, "reason_note": c["reason_note"] if c else None,
             "closed_at": c["closed_at"].isoformat() if c and isinstance(c["closed_at"], datetime) else None, "closed_by": c["actor"] if c else None,
             "days": (closed_day - first).days + 1 if closed_day and first else None, "seconds": seconds,
             # Por prenda solo con prendas CERRADAS; una talla abierta no tiene cifra.
@@ -558,7 +555,7 @@ async def state(db: AsyncSession, company_id: str, groups: Optional[list[dict]] 
             "renames": [{"old_name": h["old_name"], "new_name": h["new_name"], "actor": h["actor"], "at": _iso(h["created_at"])} for h in reversed(history) if h["new_key"] == k],
             "corrections": [{"reference_id": c["reference_id"], "size": c["size"], "before": c["before_qty"], "after": c["after_qty"], "reason": c["reason"], "actor": c["actor"], "at": _iso(c["created_at"])}
                             for c in corrections if c["ref_key"] == k],
-            "closes": [{"size": c["size"], "closed_qty": c["closed_qty"], "reason_code": c["reason_code"], "actor": c["actor"], "at": _iso(c["closed_at"])} for c in own],
+            "closes": [{"size": c["size"], "closed_qty": c["closed_qty"], "reason_code": c["reason_code"], "reason_label": REASON_LABELS.get(c["reason_code"]), "actor": c["actor"], "at": _iso(c["closed_at"])} for c in own],
             "reopened": [{"size": r["size"], "closed_qty": r["closed_qty"], "reason": r["reopen_reason"], "actor": r["reopened_by"], "at": _iso(r["reopened_at"])}
                          for r in reopened if r["ref_key"] == k],
             "requests": [{"id": r["id"], "size": r["size"], "quantity": r["quantity"], "received": r["received"], "produced": r["produced"], "employee": r["employee_name"], "at": _iso(r["created_at"])}

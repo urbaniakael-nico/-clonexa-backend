@@ -437,7 +437,7 @@
     const sizesTxt = (list) => list.map((l) => l.size).join(", ").replace(/, ([^,]+)$/, " y $1");
     const lines = arr(g.lines).map((l) => `<div class="rv-gline${l.solo_corte ? " is-cut" : ""}" role="row">
         <b class="rv-gsize" role="cell">${h(l.size)}${l.color ? `<small class="rv-gcolor">${h(l.color)}</small>` : ""}</b><span role="cell" data-k="Meta">${l.solo_corte ? "—" : h(l.meta)}</span><span role="cell" data-k="Recibido">${h(l.received)}</span><span role="cell" data-k="Producido">${h(l.produced)}</span>
-        <span class="rv-gbot" role="cell">${closedSize(g.key, l.size) ? `<i class="rv-chip is-lime">Cerrada</i>` : l.solo_corte ? `<i class="rv-chip is-amber">solo corte</i>`
+        <span class="rv-gbot" role="cell">${closedSize(g.key, l.size) ? closedChip(closedSize(g.key, l.size)) : l.solo_corte ? `<i class="rv-chip is-amber">solo corte</i>`
           : `<label class="rv-toggle is-mini" title="Visible para bot"><input type="checkbox" data-rv-visible="${h(l.reference_id)}" ${l.bot_active ? "checked" : ""} aria-label="Visible para bot talla ${h(l.size)}"><i aria-hidden="true"></i></label>`}</span></div>`).join("");
     const action = column === "Activas" ? (orphan.length
       ? `<button type="button" class="rv-btn" data-rv-gcreate="${h(g.key)}" title="Crear las tallas solo corte: meta 0 y no visibles para el bot">Crear ${h(sizesTxt(orphan))}</button>`
@@ -455,6 +455,8 @@
   }
 
   // ------------------------------------------------------------ reference_lifecycle
+  const CLOSE_REASONS = { entrega: "Entrega", cierre_ciclo: "Cierre de ciclo" };
+  const closedChip = (c) => `<i class="rv-chip is-lime is-closed-why">${h(c.reason_label ? `Cerrada · ${c.reason_label}` : "Cerrada")}</i>`;
   function closedSize(key, size) { return arr((lifeOf(key) || {}).closes).find((c) => fold(c.size).trim() === fold(size).trim()) || null; }
   function formerNote(key) {
     const before = arr((lifeOf(key) || {}).former_names);
@@ -490,10 +492,10 @@
     const f = flowFor("close", g.key, l.size);
     if (!f) return "";
     if (f.step === 1) return `<div class="rv-life-flow"><b>Cerrar talla ${h(l.size)}</b><p class="client-muted">Meta ${h(l.meta)} · Recibido ${h(l.received)} · Producido ${h(l.produced)}</p>
-      ${flowField(f, "value", "Cantidad final cerrada", 'type="number" min="0" step="1" inputmode="numeric"')}
-      ${num(l.received) > 0 ? `<div class="rv-life-fields"><div class="rv-life-field ${f.errors && f.errors.code ? "is-bad" : ""}"><label class="rv-field">Motivo, si es menor que lo recibido<select data-rv-lf="code"><option value="">Elige el motivo</option>${[["merma", "Merma"], ["defecto", "Defecto"], ["devolucion", "Devolución"], ["otro", "Otro"]].map(([k, x]) => `<option value="${k}" ${f.code === k ? "selected" : ""}>${x}</option>`).join("")}</select></label>${flowErr(f, "code")}</div>
-      ${flowField(f, "note", "Detalle", 'maxlength="300"')}</div>` : ""}${flowActions("close2", "Continuar")}</div>`;
-    return `<div class="rv-life-flow"><b>¿Cerrar la talla ${h(l.size)} con ${h(num(f.value))} prendas?</b><p class="client-muted">Meta ${h(l.meta)} · Recibido ${h(l.received)} · Diferencia ${h(num(f.value) - num(l.received))}. El bot deja de ofrecer esta talla.</p>${flowActions("closego", "Sí, cerrar talla")}</div>`;
+      ${flowField(f, "value", "Cantidad final", 'type="number" min="0" step="1" inputmode="numeric"')}
+      <div class="rv-life-fields"><div class="rv-life-field ${f.errors && f.errors.code ? "is-bad" : ""}"><label class="rv-field">Motivo<select data-rv-lf="code"><option value="">Elige el motivo</option>${Object.entries(CLOSE_REASONS).map(([k, x]) => `<option value="${k}" ${f.code === k ? "selected" : ""}>${x}</option>`).join("")}</select></label>${flowErr(f, "code")}</div>
+      ${flowField(f, "note", "Detalle (opcional)", 'maxlength="300"')}</div>${flowActions("close2", "Continuar")}</div>`;
+    return `<div class="rv-life-flow"><b>¿Cerrar la talla ${h(l.size)} con ${h(num(f.value))} prendas?</b><p class="client-muted">Meta ${h(l.meta)} · Recibido ${h(l.received)} · Diferencia ${h(num(f.value) - num(l.received))}. El bot deja de ofrecer esta talla.</p><p class="client-muted">Motivo: ${h(CLOSE_REASONS[f.code] || "")}${String(f.note).trim() ? ` · ${h(String(f.note).trim())}` : ""}</p>${flowActions("closego", "Sí, cerrar talla")}</div>`;
   }
 
   function reopenFlow(g, size, label) {
@@ -544,7 +546,7 @@
     const color = !l.reference_id ? `<span class="rv-tl-cell"><small>Color</small><b>—</b></span>`
       : l.color ? `<span class="rv-tl-cell"><small>Color</small><b>${h(l.color)}</b></span>`
         : `<label class="rv-field rv-tl-color">Color<input data-rv-gm-color="${h(l.reference_id)}" value="${h(d.color || "")}" maxlength="60" placeholder="Color" aria-label="Color talla ${h(l.size)}"></label>`;
-    const bot = closed ? `<i class="rv-chip is-lime">Cerrada</i>` : !l.reference_id ? `<i class="rv-chip is-amber">solo corte</i>`
+    const bot = closed ? closedChip(closed) : !l.reference_id ? `<i class="rv-chip is-amber">solo corte</i>`
       : `<label class="rv-toggle rv-tl-bot"><span>Bot</span><input type="checkbox" data-rv-gm-bot="${h(l.reference_id)}" ${d.visible ? "checked" : ""} aria-label="Visible para bot talla ${h(l.size)}"><i aria-hidden="true"></i></label>`;
     return `<div class="rv-gmline is-life ${l.reference_id ? "" : "is-cut"}" data-rv-tl="${h(l.size)}">
       <div class="rv-tl-row1"><b class="rv-gsize">${h(l.size)}</b>${meta}${color}${bot}</div>
@@ -639,9 +641,8 @@
     }
     if (next === "close2") {
       const errors = {};
-      if (!wholeNumber(f.value)) errors.value = "Valor inválido";
-      else if (num(f.value) < num(line && line.received) && !f.code) errors.code = `Cerraste menos de lo recibido (${num(f.value)} de ${num(line.received)}). Elige el motivo`;
-      if (f.code === "otro" && String(f.note).trim().length < 3) errors.note = "Escribe el detalle";
+      if (!wholeNumber(f.value)) errors.value = "Escribe la cantidad final";
+      if (!CLOSE_REASONS[f.code]) errors.code = "Elige el motivo";
       return Object.keys(errors).length ? stop(errors) : step(2);
     }
     if (next === "closego") {

@@ -66,11 +66,11 @@
   } else if (LIFE) {
     lifeState[LIFE_KEY] = { former_names: ["Pantalón de la colección anterior con un nombre muy largo", "PANT"], renames: [{ old_name: "PANT", new_name: "PANT SET", actor: "Dueña de la empresa", at: lifeAt }],
       corrections: [{ size: "10", before: 28, after: 0, actor: "Dueña de la empresa", reason: "Se metió por error desde el bot con un motivo largo para ver que no se sale", at: lifeAt }],
-      closes: [{ size: "12", closed_qty: 18, actor: "Dueña de la empresa", at: lifeAt }], reopened: [{ size: "12", reason: "Faltó contar", actor: "Dueña", at: lifeAt }],
+      closes: [{ size: "12", closed_qty: 18, reason_code: "cierre_ciclo", reason_label: "Cierre de ciclo", actor: "Dueña de la empresa", at: lifeAt }], reopened: [{ size: "12", reason: "Faltó contar", actor: "Dueña", at: lifeAt }],
       requests: [{ id: "q1", size: "10", quantity: 12, received: 30, produced: 28, employee: "KRIS", at: lifeAt }], status: P.get("flow") === "closed" ? "closed" : "open" };
     lifeAccount = { total_sizes: 5, closed_sizes: 1, time: { total_seconds: 776340, people: [{ name: "KRIS", total_seconds: 776340 }], unclosed: [{ name: "TATA", started: lifeAt, reason: "abierta" }] },
       totals: { closed_qty: 18, minutes_per_garment: 245.5, labor_per_garment: 40900 },
-      sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Devolución", reason_note: "Detalle largo del motivo de la devolución" }] };
+      sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Cierre de ciclo", reason_note: "Detalle largo del motivo del cierre de ciclo" }] };
   }
   window.__lifePosts = [];
   let catalog = null;

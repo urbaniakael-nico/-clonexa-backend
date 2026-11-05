@@ -1,5 +1,5 @@
 // reference_lifecycle (interruptor): pantallas de Referencias v2 y Producción v2.
-// - Doble confirmación antes de corregir; historial visible; cerrar talla con motivo.
+// - Doble confirmación antes de corregir; historial visible; cerrar talla con motivo obligatorio (Entrega o Cierre de ciclo).
 // - Buscar por nombre viejo y nuevo trae la misma referencia una sola vez.
 // - Referencia cerrada: sale de Activas y va a Cerradas.
 // - Sin el interruptor no aparece nada nuevo.
@@ -125,35 +125,77 @@ test('el historial de correcciones se ve en la talla', () => {
   assert.match(R.groupModalView(), /Corregido 28 → 0 por Dueña · se metió por error/);
 });
 
-test('cerrar talla: pide cantidad final y motivo si es menor que lo recibido', () => {
+test('cerrar talla: cantidad final y motivo obligatorios, solo Entrega o Cierre de ciclo, detalle opcional y confirmación', () => {
   const R = setup();
   const m = R.model;
   assert.match(R.groupModalView(), /Cerrar talla/);
   R.lifeClick(click({ 'data-rv-lf-start': 'close', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
   assert.equal(m.lifeFlow.value, '28', 'propone lo producido');
-  assert.match(R.groupModalView(), /Cantidad final cerrada/);
+  const form = R.groupModalView();
+  assert.match(form, /Cantidad final</);
+  assert.match(form, /Motivo<select/);
+  assert.match(form, /Detalle \(opcional\)/);
+  assert.deepEqual([...form.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)</g)].map((x) => [x[1], x[2]]), [['entrega', 'Entrega'], ['cierre_ciclo', 'Cierre de ciclo']]);
+  assert.doesNotMatch(form, /Merma|Defecto|Devolución|Otro/);
+  assert.doesNotMatch(form, /Bombón/);
+
+  m.lifeFlow.value = '';
+  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
+  assert.match(m.lifeFlow.errors.value, /cantidad final/);
+  assert.match(m.lifeFlow.errors.code, /motivo/);
+  assert.equal(m.lifeFlow.step, 1);
+
   m.lifeFlow.value = '40';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.lifeFlow.errors.code, /menos de lo recibido/);
-  m.lifeFlow.code = 'otro';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.lifeFlow.errors.note, /detalle/, 'Otro pide detalle');
   m.lifeFlow.code = 'merma';
   R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
+  assert.match(m.lifeFlow.errors.code, /motivo/, 'un motivo retirado no pasa');
+
+  m.lifeFlow.code = 'entrega';
+  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
+  assert.equal(m.lifeFlow.step, 2, 'el detalle es opcional');
+  const confirm = R.groupModalView();
+  assert.match(confirm, /¿Cerrar la talla S con 40 prendas\?/);
+  assert.match(confirm, /Motivo: Entrega/);
+});
+
+test('cerrar talla: 0 es una cantidad final válida', () => {
+  const R = setup();
+  const m = R.model;
+  R.lifeClick(click({ 'data-rv-lf-start': 'close', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
+  m.lifeFlow.value = '0';
+  m.lifeFlow.code = 'cierre_ciclo';
+  m.lifeFlow.note = 'fin de temporada';
+  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
   assert.equal(m.lifeFlow.step, 2);
-  assert.match(R.groupModalView(), /¿Cerrar la talla S con 40 prendas\?/);
+  const confirm = R.groupModalView();
+  assert.match(confirm, /¿Cerrar la talla S con 0 prendas\?/);
+  assert.match(confirm, /Motivo: Cierre de ciclo · fin de temporada/);
+});
+
+test('tarjeta: dice Cerrada · Entrega o Cerrada · Cierre de ciclo; un cierre sin motivo dice solo Cerrada', () => {
+  const closes = (o) => STATE({ closes: [{ size: 'S', closed_qty: 40, actor: 'Dueña', at: '2026-11-05T12:00:00Z', ...o }] });
+  const chip = (html) => html.match(/rv-chip is-lime is-closed-why">([^<]+)</)[1];
+  for (const [state, text] of [
+    [closes({ reason_code: 'entrega', reason_label: 'Entrega' }), 'Cerrada · Entrega'],
+    [closes({ reason_code: 'cierre_ciclo', reason_label: 'Cierre de ciclo' }), 'Cerrada · Cierre de ciclo'],
+    [closes({}), 'Cerrada'],
+  ]) {
+    const R = setup(state);
+    assert.equal(chip(R.groupCard(GROUP, 'Activas')), text, 'en la tarjeta');
+    assert.equal(chip(R.groupModalView()), text, 'en el editor');
+  }
 });
 
 test('talla cerrada: muestra su cuenta, no el interruptor del bot, y reabrir pide doble confirmación', () => {
-  const R = setup(STATE({ closes: [{ size: 'S', closed_qty: 40, actor: 'Dueña', at: '2026-11-05T12:00:00Z', reason_code: 'merma' }] }));
+  const R = setup(STATE({ closes: [{ size: 'S', closed_qty: 40, actor: 'Dueña', at: '2026-11-05T12:00:00Z', reason_code: 'entrega', reason_label: 'Entrega' }] }));
   const m = R.model;
   m.lifeAccount[GROUP.key] = { totals: { closed_qty: 40 }, closed_sizes: 1, total_sizes: 2, time: { total_seconds: 7200, people: [{ name: 'KRIS', total_seconds: 7200 }], unclosed: [] },
-    sizes: [{ size: 'S', closed: true, closed_qty: 40, meta: 44, diff_meta: -4, received: 44, diff_received: -4, days: 6, seconds: 7200, minutes_per_garment: 3, labor_per_garment: null, reason_label: 'Merma' }] };
+    sizes: [{ size: 'S', closed: true, closed_qty: 40, meta: 44, diff_meta: -4, received: 44, diff_received: -4, days: 6, seconds: 7200, minutes_per_garment: 3, labor_per_garment: null, reason_label: 'Entrega' }] };
   const html = R.groupModalView();
   assert.match(html, /Talla cerrada/);
   assert.match(html, /Horas repartidas por cantidad/);
   assert.match(html, /Mano de obra por prenda <b>Pendiente/);
-  assert.match(html, /Merma/);
+  assert.match(html, /Motivo <b>Entrega/);
   assert.doesNotMatch(html, /data-rv-gm-bot="s1"/);
   assert.match(html, /data-rv-gm-bot="m1"/);
   R.lifeClick(click({ 'data-rv-lf-start': 'reopen', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
