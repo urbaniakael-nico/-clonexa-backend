@@ -229,7 +229,7 @@ async def sessions_dashboard(
     result = await db.execute(
         text("""
             SELECT * FROM workforce_session_closures
-            WHERE company_id = CAST(:company_id AS uuid) AND status NOT IN ('confirmed', 'admin_closed')
+            WHERE company_id = CAST(:company_id AS uuid) AND status <> 'confirmed' AND status <> 'admin_closed'
             ORDER BY employee_name, system_end_at
         """),
         {"company_id": str(company_id)},
@@ -260,7 +260,7 @@ async def my_closures(
         text("""
             SELECT * FROM workforce_session_closures
             WHERE company_id = CAST(:company_id AS uuid) AND employee_id = CAST(:employee_id AS uuid)
-              AND status NOT IN ('confirmed', 'admin_closed')
+              AND status <> 'confirmed' AND status <> 'admin_closed'
             ORDER BY system_end_at
         """),
         {"company_id": str(company_id), "employee_id": actor["employee_id"]},
@@ -287,7 +287,7 @@ async def declare_real_end(
         text("""
             UPDATE workforce_session_closures
                SET status = 'declared', declared_end_at = :end_at, declared_by_name = :name, declared_at = now()
-             WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status NOT IN ('confirmed', 'admin_closed')
+             WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status <> 'confirmed' AND status <> 'admin_closed'
         """),
         {"end_at": end, "name": f"{actor['name']} (declarada por el empleado)"[:180], "id": str(row["id"]),
          "company_id": str(company_id)},
@@ -340,7 +340,7 @@ async def confirm_real_end(
             UPDATE workforce_session_closures
                SET status = 'confirmed', real_end_at = :end_at, confirmed_by_name = :name,
                    confirmed_by_user_id = :user_id, confirmed_at = now(){note_sql}
-             WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status NOT IN ('confirmed', 'admin_closed')
+             WHERE id = CAST(:id AS uuid) AND company_id = CAST(:company_id AS uuid) AND status <> 'confirmed' AND status <> 'admin_closed'
         """),
         params,
     )
