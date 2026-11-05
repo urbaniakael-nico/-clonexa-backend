@@ -23844,8 +23844,42 @@ function inventoryCreatePayload() {
     }
   }
 
+  // 069A: mientras se archiva, una consulta que ya iba en camino no debe
+  // devolver la canción a la lista.
+  let cxHspSongGone069A = new Set();
+
+  // Copia primero y solo si se pudo la quita (archivada: el registro se conserva
+  // para Canciones más pedidas); si el portapapeles falla la canción se queda
+  // para que el barman no pierda el nombre.
+  async function cxHspCopySong069A(id) {
+    const key = String(id || "");
+    const request = cxHspSongRequests031C.find((row) => String(row.id || "") === key);
+    if (!request || cxHspSongGone069A.has(key)) return;
+    cxHspSongGone069A.add(key);
+    const copied = await cxHspCopyText048B(request.song || "");
+    if (!copied) {
+      cxHspSongGone069A.delete(key);
+      cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true });
+      cxHspSongToast048B("No se pudo copiar; la canción sigue en la lista.", true);
+      return;
+    }
+    cxHspPaintSongQueue031K(cxHspSongRequests031C, { force: true });
+    cxHspSongToast048B(`✓ Copiada: ${request.song || "canción"}`);
+    try {
+      await cxHspApi024R(`/song-requests/${encodeURIComponent(key)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      if (/no_encontrada/.test(String(error.message || ""))) return; // ya estaba archivada
+      cxHspSongGone069A.delete(key);
+      cxHspPaintSongQueue031K([...cxHspSongRequests031C, request], { force: true });
+      cxHspSongToast048B(error.message || "No se pudo archivar la canción.", true);
+    }
+  }
+
   function cxHspRenderSongRequests031C() {
-    if (cxHspSongByTableOn048B()) return cxHspSongGroupedHtml048D();
+    if (cxHspSongByTableOn048B() || cxHspBarmanLayoutOn069A()) return cxHspSongGroupedHtml048D();
     const query = String(cxHspSongSearch031H || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const active = cxHspActiveSongRequests031T().filter((request) => {
       const haystack = `${request.song || ""} ${request.table_number || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -23856,7 +23890,8 @@ function inventoryCreatePayload() {
   }
 
   function cxHspPaintSongQueue031K(requests = cxHspSongRequests031C, options = {}) {
-    cxHspSongRequests031C = Array.isArray(requests) ? requests : [];
+    cxHspSongRequests031C = (Array.isArray(requests) ? requests : [])
+      .filter((request) => !cxHspSongGone069A.has(String(request.id || "")));
     const list = document.getElementById("hspSongRequests031C");
     if (list) {
       const previousScrollTop = Number(list.scrollTop || 0);
@@ -24268,8 +24303,12 @@ function inventoryCreatePayload() {
         ? slots.map(cxHspTableCard034B).join("")
         : `<div class="hsp-empty-024r">No hay mesas configuradas. Revisa la cantidad de mesas en el módulo QR.</div>`;
     }
-    const strip = document.getElementById("hspClosedStrip034B");
-    if (strip) strip.innerHTML = cxHspClosedStrip034B();
+    if (cxHspBarmanLayoutOn069A()) {
+      cxHspPaintClosedFold069A();
+    } else {
+      const strip = document.getElementById("hspClosedStrip034B");
+      if (strip) strip.innerHTML = cxHspClosedStrip034B();
+    }
     cxHspTickTimers034B();
     if (!window.__cxHspTimerTick034B) window.__cxHspTimerTick034B = window.setInterval(cxHspTickTimers034B, 1000);
   }
@@ -24306,7 +24345,7 @@ function inventoryCreatePayload() {
     cxHspPaintKanbanBoard034D();
   }
 
-  function cxHspTablesBoardSection034D() {
+  function cxHspTablesGridSection069A() {
     return `
       <section class="hsp-box-024r hsp-tables-board-034b">
         <div class="hsp-tables-head-034b">
@@ -24317,7 +24356,11 @@ function inventoryCreatePayload() {
           <div class="hsp-tables-legend-034b"><span>Libre</span><span class="active">Activa</span><span class="new">Pedido nuevo</span></div>
         </div>
         <div id="hspTablesGrid034B" class="hsp-tables-grid-034b"></div>
-      </section>
+      </section>`;
+  }
+
+  function cxHspTablesBoardSection034D() {
+    return `${cxHspTablesGridSection069A()}
       <section class="hsp-box-024r hsp-closed-board-034b">
         <div class="hsp-tables-head-034b">
           <div>
@@ -24468,6 +24511,123 @@ function inventoryCreatePayload() {
     `;
     document.head.appendChild(style);
   }
+
+  /* CLONEXA_069A_BARMAN_MUSIC_LAYOUT_START */
+  // Panel Barman con la música a la derecha (interruptor barman_music_layout del
+  // módulo QR, apagado por defecto; hoy solo The Time Machine). Solo cambia la
+  // presentación: mismos datos, mismos cálculos y mismos endpoints. Necesita el
+  // tablero de mesas (orders_board: "mesas"); con el kanban no aplica.
+  let cxHspClosedAll069A = false;
+  let cxHspClosedOpen069A = true;
+
+  function cxHspBarmanLayoutOn069A(modules = activeClientModules()) {
+    const qrModule = (Array.isArray(modules) ? modules : [])
+      .find((module) => cxIsHospitalityQrCode024S(module.code || module.module_code || module.raw?.module_code));
+    const settings = qrModule?.raw?.settings || qrModule?.settings || qrModule?.raw?.module?.settings || {};
+    if (settings.barman_music_layout !== true) return false;
+    return cxHspOrdersBoardMode034D() === "mesas";
+  }
+
+  // Las mismas órdenes y grupos de la franja de siempre (034B), de la cerrada
+  // más reciente a la más antigua. Salen de aquí al "Generar cierre", que las archiva.
+  function cxHspClosedGroups069A() {
+    const closed = cxHspOrders024R.filter((order) => String(order.status || "") === "cerrado" && !order.archived_at);
+    const stamp = (order) => Date.parse(order.closed_at || order.updated_at || order.created_at || "") || 0;
+    return cxHspClosedTableGroups031R(closed)
+      .map((group) => ({ group, last: Math.max(0, ...group.orders.map(stamp)) }))
+      .sort((a, b) => b.last - a.last)
+      .map((row) => row.group);
+  }
+
+  function cxHspClosedTitle069A(groups = []) {
+    const total = groups.reduce((sum, group) => sum + Number(group.total || 0), 0);
+    return `Mesas cerradas hoy (${groups.length}) · Total ${cxHspMoney024R(total)}`;
+  }
+
+  function cxHspClosedChips069A(groups = []) {
+    if (!groups.length) return `<div class="hsp-empty-024r">Todavía no hay mesas cerradas en esta jornada.</div>`;
+    const visible = cxHspClosedAll069A ? groups : groups.slice(0, 5);
+    const chips = visible.map((group) => `
+      <div class="hsp-closed-chip-034b">
+        <b>${h(group.table_number || "Mesa")}</b>
+        <strong>${h(cxHspMoney024R(group.total || 0))}</strong>
+        <small>${h(group.payment_label || "")} · ${h(group.count || 1)} pedido(s)</small>
+      </div>`).join("");
+    const more = groups.length > 5
+      ? `<button class="hsp-closed-more-069a" type="button" data-hsp-closed-all>${cxHspClosedAll069A ? "Ver solo las 5 más recientes" : `Ver todas (${groups.length})`}</button>`
+      : "";
+    return chips + more;
+  }
+
+  // El tablero se repinta cada pocos segundos: el estado vive fuera del HTML y
+  // solo se toca el DOM si algo cambió, para no perder el foco ni el "Ver todas".
+  function cxHspPaintClosedFold069A() {
+    const strip = document.getElementById("hspClosedStrip034B");
+    if (!strip) return;
+    const groups = cxHspClosedGroups069A();
+    if (groups.length <= 5) cxHspClosedAll069A = false;
+    const title = document.getElementById("hspClosedTitle069A");
+    if (title) title.textContent = cxHspClosedTitle069A(groups);
+    const html = cxHspClosedChips069A(groups);
+    if (strip.dataset.closedHtml069A !== html) {
+      strip.innerHTML = html;
+      strip.dataset.closedHtml069A = html;
+    }
+  }
+
+  function cxHspBarmanBoard069A() {
+    return `${cxHspTablesGridSection069A()}
+      <details class="hsp-box-024r hsp-closed-fold-069a" id="hspClosedFold069A"${cxHspClosedOpen069A ? " open" : ""}>
+        <summary>
+          <span>
+            <span class="client-eyebrow">Para el cierre de jornada</span>
+            <h2 id="hspClosedTitle069A">${h(cxHspClosedTitle069A([]))}</h2>
+          </span>
+        </summary>
+        <div id="hspClosedStrip034B" class="hsp-closed-list-069a"></div>
+      </details>`;
+  }
+
+  function cxHspBarmanStyles069A() {
+    if (document.getElementById("hspBarmanStyles069A")) return;
+    const style = document.createElement("style");
+    style.id = "hspBarmanStyles069A";
+    style.textContent = `
+      .hsp-barman-left-069a{display:contents}
+      .hsp-barman-grid-069a .hsp-bar-workspace-031d{order:1}
+      .hsp-barman-grid-069a .hsp-song-queue-031c{order:2}
+      .hsp-barman-grid-069a .hsp-tables-board-034b{order:3;margin-top:0;container-type:inline-size}
+      .hsp-barman-grid-069a .hsp-closed-fold-069a{order:4;min-width:0}
+      .hsp-barman-grid-069a .hsp-bar-workspace-031d,.hsp-barman-grid-069a .hsp-tables-board-034b{min-width:0}
+      .hsp-barman-grid-069a .hsp-bar-create-031d{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+      .hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+      @container (max-width:559px){.hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @container (max-width:380px){.hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:minmax(0,1fr)}}
+      .hsp-closed-fold-069a>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;cursor:pointer;list-style:none}
+      .hsp-closed-fold-069a>summary::-webkit-details-marker{display:none}
+      .hsp-closed-fold-069a>summary::after{content:"▾";flex:none;font-size:18px;font-weight:1000;color:var(--cx-text,#fff);transition:transform .15s}
+      .hsp-closed-fold-069a:not([open])>summary::after{transform:rotate(-90deg)}
+      .hsp-closed-fold-069a>summary:focus-visible{outline:2px solid var(--hsp-primary);outline-offset:3px;border-radius:8px}
+      .hsp-closed-fold-069a h2{margin:2px 0 0;overflow-wrap:anywhere}
+      .hsp-closed-list-069a{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+      .hsp-closed-list-069a .hsp-closed-chip-034b{min-width:0}
+      .hsp-closed-list-069a .hsp-empty-024r{grid-column:1 / -1}
+      .hsp-closed-more-069a{grid-column:1 / -1;min-height:44px;padding:8px 14px;border-radius:12px;border:1px solid var(--hsp-line);background:rgba(255,255,255,.08);color:var(--cx-text,#fff);font:inherit;font-size:13px;font-weight:950;cursor:pointer}
+      .hsp-closed-more-069a:hover{border-color:var(--hsp-primary)}
+      @media(min-width:1181px){
+        .hsp-operations-grid-031d.hsp-barman-grid-069a{grid-template-columns:minmax(0,1fr) clamp(280px,23vw,340px);align-items:stretch}
+        .hsp-barman-left-069a{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-content:start;min-width:0}
+        .hsp-barman-grid-069a .hsp-song-queue-031c{position:static;display:flex;flex-direction:column;gap:9px;min-height:420px}
+        .hsp-barman-grid-069a .hsp-song-list-031c{display:block;flex:1 1 0;height:0;min-height:0;max-height:none}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("toggle", (event) => {
+    if (event.target instanceof Element && event.target.id === "hspClosedFold069A") cxHspClosedOpen069A = event.target.open;
+  }, true);
+  /* CLONEXA_069A_BARMAN_MUSIC_LAYOUT_END */
 
   function cxHspRenderOrdersBoard024R(summary = {}) {
     const groups = {
@@ -24899,6 +25059,9 @@ function inventoryCreatePayload() {
       cxHspInventory024R = [];
     }
 
+    const barmanLayout069A = cxHspBarmanLayoutOn069A();
+    if (barmanLayout069A) cxHspBarmanStyles069A();
+
     $("app").innerHTML = `
       <main class="client-shell">
         <div class="client-layout">
@@ -24942,7 +25105,8 @@ function inventoryCreatePayload() {
 
               </div>
 
-              <div class="hsp-operations-grid-031d">
+              <div class="hsp-operations-grid-031d${barmanLayout069A ? " hsp-barman-grid-069a" : ""}">
+                ${barmanLayout069A ? `<div class="hsp-barman-left-069a">` : ""}
                 <section class="hsp-box-024r hsp-bar-workspace-031d">
                   <div class="hsp-bar-head-031d">
                     <div>
@@ -24969,13 +25133,16 @@ function inventoryCreatePayload() {
                   <div id="hspBarAccounts031D" class="hsp-bar-cards-031d"></div>
                   <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
                 </section>
+                ${barmanLayout069A ? `${cxHspBarmanBoard069A()}</div>` : ""}
 
                 <section class="hsp-box-024r hsp-song-queue-031c">
                   <div class="hsp-song-queue-head-031c">
                     <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
                     <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
                   </div>
-                  ${cxHspSongByTableOn048B() ? `
+                  ${barmanLayout069A ? `
+                  <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>` : `${cxHspSongByTableOn048B() ? `
                   <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
                   <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>` : `
                   <input class="hsp-song-search-031h" type="search" data-hsp-song-search placeholder="Buscar canción o mesa..." value="${h(cxHspSongSearch031H)}" />
@@ -24989,11 +25156,11 @@ function inventoryCreatePayload() {
                       <button class="hsp-song-bulk-btn-031t all" type="button" data-hsp-song-archive-bulk="all">Todo</button>
                     </div>
                   </div>
-                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>`}
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>`}`}
                 </section>
               </div>
 
-              ${cxHspOrdersBoardSection034D()}
+              ${barmanLayout069A ? "" : cxHspOrdersBoardSection034D()}
             </section>
           </section>
         </div>
@@ -35411,7 +35578,14 @@ function inventoryCreatePayload() {
 
       const hspSongCopy = target.closest("[data-hsp-song-copy]");
       if (hspSongCopy) {
-        await cxHspCopyAndArchiveSong048B(hspSongCopy.getAttribute("data-hsp-song-copy") || "");
+        const songId = hspSongCopy.getAttribute("data-hsp-song-copy") || "";
+        await (cxHspBarmanLayoutOn069A() ? cxHspCopySong069A(songId) : cxHspCopyAndArchiveSong048B(songId));
+        return;
+      }
+
+      if (target.closest("[data-hsp-closed-all]")) {
+        cxHspClosedAll069A = !cxHspClosedAll069A;
+        cxHspPaintClosedFold069A();
         return;
       }
 

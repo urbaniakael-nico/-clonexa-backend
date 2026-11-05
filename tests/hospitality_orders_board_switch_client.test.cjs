@@ -16,7 +16,7 @@ function fn(name) {
 const NAMES = [
   'cxIsHospitalityQrCode024S', 'cxHspQrClamp025N', 'cxHspQrCleanBase025N',
   'cxHspQrConfigFromModules025N', 'cxHspOrdersBoardMode034D',
-  'cxHspTablesBoardSection034D', 'cxHspKanbanBoardSection034D', 'cxHspOrdersBoardSection034D',
+  'cxHspTablesGridSection069A', 'cxHspTablesBoardSection034D', 'cxHspKanbanBoardSection034D', 'cxHspOrdersBoardSection034D',
 ];
 
 // Only the switch/board-selection functions above are exercised here; they are

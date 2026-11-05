@@ -20,7 +20,7 @@ const NAMES = [
   'cxIsHospitalityQrCode024S', 'cxHspActiveSongRequests031T', 'cxHspSongRequestCard031C',
   'cxHspSongByTableOn048B', 'cxHspSongTableKey048B', 'cxHspSongGroups048B', 'cxHspSongGroupedHtml048D',
   'cxHspCopyText048B', 'cxHspCopyFallback048B', 'cxHspSongToast048B',
-  'cxHspCopyAndArchiveSong048B', 'cxHspRenderSongRequests031C', 'cxHspPaintSongQueue031K',
+  'cxHspBarmanLayoutOn069A', 'cxHspCopyAndArchiveSong048B', 'cxHspRenderSongRequests031C', 'cxHspPaintSongQueue031K',
 ];
 
 const song = (id, table, name, minute) => ({
@@ -52,7 +52,7 @@ function panel({ barMenu = true, songs = [], archiveFails = false } = {}) {
     Date, JSON, String, Number, Map, Set, Array, Promise, Infinity,
   });
   vm.runInContext(
-    `var cxHspSongRequests031C = ${JSON.stringify(songs)}; var cxHspSongSearch031H = "";\n`
+    `var cxHspSongRequests031C = ${JSON.stringify(songs)}; var cxHspSongSearch031H = ""; var cxHspSongGone069A = new Set();\n`
       + NAMES.map(fn).join('\n'),
     context,
   );
