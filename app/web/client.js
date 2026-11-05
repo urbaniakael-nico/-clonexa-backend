@@ -24603,6 +24603,7 @@ function inventoryCreatePayload() {
       .hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
       @container (max-width:559px){.hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:repeat(2,minmax(0,1fr))}}
       @container (max-width:380px){.hsp-barman-grid-069a .hsp-tables-grid-034b{grid-template-columns:minmax(0,1fr)}}
+      .hsp-barman-grid-069a .hsp-table-total-034b{flex-wrap:wrap}
       .hsp-closed-fold-069a>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;cursor:pointer;list-style:none}
       .hsp-closed-fold-069a>summary::-webkit-details-marker{display:none}
       .hsp-closed-fold-069a>summary::after{content:"▾";flex:none;font-size:18px;font-weight:1000;color:var(--cx-text,#fff);transition:transform .15s}
