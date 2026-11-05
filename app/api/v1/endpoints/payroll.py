@@ -975,6 +975,15 @@ def _cx_check_shift_049D(ctx: dict, source: str, ref: Any, start: Any, end: Any,
     return "pay", None
 
 
+# 068C: cierre administrativo de un turno ya pagado por fuera. Nunca se liquida (sigue en "hold")
+# y tampoco sale como turno por confirmar.
+ADMIN_CLOSED_068C = "admin_closed"
+
+
+def _cx_is_admin_closed_068C(closure: dict | None) -> bool:
+    return bool(closure) and closure.get("status") == ADMIN_CLOSED_068C
+
+
 def _cx_unverified_item_049D(
     *, source: str, ref: Any, employee: dict | None, fallback_name: Any, panel_type: Any,
     start: Any, end: Any, minutes: int, reason: Any, closure: dict | None,
@@ -1210,7 +1219,7 @@ async def _cx_co_snapshot_049A(db: AsyncSession, company_id: UUID, period_start:
                 shift_end = _cx_co_local_049A(closure["real_end_at"])
             pieces = co_engine_049a.subtract_breaks(shift["start"], shift_end, shift["breaks"], missing if missing > 60 else 0)
             if verdict == "hold":
-                if period_start_local <= (shift["start"] if by_start else shift["end"]) <= period_end_local:
+                if not _cx_is_admin_closed_068C(closure) and period_start_local <= (shift["start"] if by_start else shift["end"]) <= period_end_local:
                     unverified.append(_cx_unverified_item_049D(
                         source=shift["source"], ref=shift["ref"], employee={**employee, "id": employee_id},
                         fallback_name=None, panel_type=shift.get("panel_type") or "asistencia",
@@ -1490,6 +1499,8 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
             _cx_event_system_cutoff_049D(check_out_event),
         )
         if verdict == "hold":
+            if _cx_is_admin_closed_068C(closure):
+                continue
             held_seconds = max(0, int((shift["end"] - shift["start"]).total_seconds()) - int(shift["pauses_seconds"]))
             unverified.append(_cx_unverified_item_049D(
                 source="attendance", ref=check_in_event.get("id"), employee=employee or None,
@@ -1570,6 +1581,8 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
         if payable_minutes <= 0:
             continue
         if verdict == "hold":
+            if _cx_is_admin_closed_068C(closure):
+                continue
             unverified.append(_cx_unverified_item_049D(
                 source="mini_panel", ref=session.get("id"), employee=employee_map.get(employee_id),
                 fallback_name=session.get("employee_name"), panel_type=session.get("panel_type"),

@@ -72,6 +72,8 @@ def build_shifts(events: Iterable[dict], classify, check_shift, is_system_cutoff
                 shift["pause"] = None
             shift["end"] = at
             verdict, closure = check_shift(verification, "attendance", shift["ref"], shift["start"], at, is_system_cutoff(ev))
+            if (closure or {}).get("status") == "admin_closed":
+                verdict = "confirmed"  # cerrado sin nomina: el tiempo trabajado si cuenta en la referencia
             shift["verdict"] = verdict
             shift["real_end"] = as_utc((closure or {}).get("real_end_at")) if verdict == "confirmed" else None
             current.pop(emp, None)

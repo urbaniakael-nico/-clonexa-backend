@@ -414,6 +414,8 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
     held = [s for s in computed if s["_verdict"] == "hold"]
     good = us_time.compute([s for s in payable_shifts if s["_verdict"] != "hold"], rule)
     for s in us_time.in_period(held, period_start, period_end):
+        if core._cx_is_admin_closed_068C(s["_closure"]):
+            continue
         person = data["people"].get(s["employee_id"]) or {}
         item = core._cx_unverified_item_049D(
             source="attendance", ref=s["check_in"]["id"], employee={"id": s["employee_id"], "full_name": person.get("full_name")},
