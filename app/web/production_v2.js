@@ -207,7 +207,7 @@
       const pct = lot.meta ? Math.min(100, Math.round((num(lot.closed) * 100) / num(lot.meta))) : 0;
       const open = model.open === lot.key;
       const team = arr(lot.team).length ? `<small class="pp-team">${h(T("Equipo"))}: ${h(arr(lot.team).join(", "))}</small>` : "";
-      return `<li class="pp-lot ${lot.late ? "is-late" : ""}"><button type="button" class="pp-lot-head" data-pp-lot="${h(lot.key)}" aria-expanded="${open}">
+      return `<li class="pp-lot ${lot.late ? "is-late" : ""} ${lot.account ? "has-account" : ""}"><button type="button" class="pp-lot-head" data-pp-lot="${h(lot.key)}" aria-expanded="${open}">
         <span class="pp-lot-name"><b>${h(lot.name)}</b>${former(lot)}${lot.working_now ? `<i class="pp-live-dot" aria-hidden="true"></i><small>${h(T("{n} trabajando ahora", { n: lot.working_now }))}</small>` : ""}${lot.late ? `<small class="pp-late">${h(T("Más días que el promedio"))}</small>` : ""}</span>
         <span class="pp-meter" role="img" aria-label="${h(T("{c} de {m} cerradas", { c: num(lot.closed), m: num(lot.meta) }))}"><i style="--w:${pct}%"></i></span>
         <span class="pp-lot-nums"><span><b>${h(num(lot.closed))} / ${h(num(lot.meta))}</b></span><span>${h(T("Pendiente"))} <b>${h(lot.pending)}</b></span>
