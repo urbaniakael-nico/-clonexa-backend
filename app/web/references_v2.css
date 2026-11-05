@@ -276,7 +276,7 @@
 .rv-chip.is-lime { --c: var(--rv-ok); }
 .rv-chip.is-closed-why { white-space: normal; border-radius: 10px; line-height: 1.2; min-width: 0; padding: 2px 6px; }
 .rv-chip.is-closed-why::before { display: none; }
-.rv-gbot .rv-chip.is-closed-why { max-width: 62px; }
+.rv-gbot .rv-chip.is-closed-why { width: 62px; }
 .rv-chip.is-violet { --c: var(--rv-muted); }
 .rv-chip.is-amber { --c: var(--rv-warn); }
 .rv-chip.is-cyan { --c: var(--cx-primary); }
