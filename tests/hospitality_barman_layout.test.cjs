@@ -52,7 +52,7 @@ function chrome(args) {
   });
 }
 
-test('Panel Barman: música a la derecha, Copiar, 3 mesas por fila y cierres plegables; apagado = el de siempre',
+test('Panel Barman: música a la derecha, Copiar y cierres plegables; apagado = el de siempre',
   { skip: !CHROME && 'Chrome no está instalado en esta máquina', timeout: 400000 }, async () => {
     const server = await serve();
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-barman-layout-'));
@@ -64,42 +64,26 @@ test('Panel Barman: música a la derecha, Copiar, 3 mesas por fila y cierres ple
       const r = JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' '));
       if (process.env.CX_BARMAN_DUMP) fs.writeFileSync(process.env.CX_BARMAN_DUMP, JSON.stringify(r, null, 1));
 
+      // Desde la v2 (070A) el diseño de tarjetas y la música fija se miden en
+      // hospitality_barman_v2.test.cjs; aquí queda lo que sigue igual.
       for (const k of ['on-1280', 'on-1600', 'on-1024', 'on-768']) {
         const x = r[k];
         assert.ok(x && x.mounted, `${k}: no se montó ${x && x.error}`);
         assert.equal(x.switch_class, true, k);
         assert.equal(x.page_overflow, false, `${k}: la página se sale de ancho`);
         assert.deepEqual(x.clipped, [], `${k}: contenido por fuera de su caja`);
-        assert.deepEqual(x.tiny_inputs, [], `${k}: campos demasiado angostos`);
-        assert.equal(x.tables_per_row, 3, `${k}: 3 mesas por fila`);
         assert.deepEqual(x.song_buttons, ['Copiar'], `${k}: solo Copiar`);
         assert.deepEqual(x.song_controls, { search: false, bulk: false }, k);
-        assert.equal(x.list_scrolls, true, `${k}: la lista se desplaza dentro del panel`);
-        assert.ok(['auto', 'scroll'].includes(x.list_overflow_y), k);
-        assert.ok(x.list.bottom <= x.queue.bottom, `${k}: la lista no se sale del panel`);
       }
 
       for (const k of ['on-1280', 'on-1600']) {
         const x = r[k];
-        assert.ok(x.queue.left > x.bar.right, `${k}: música a la derecha`);
-        assert.ok(Math.abs(x.queue.top - x.bar.top) <= 2, `${k}: a la altura de Cuentas independientes`);
-        assert.ok(x.all_bottom_delta <= 2, `${k}: termina donde termina el contenido de la izquierda (${x.all_bottom_delta})`);
-        assert.ok(x.collapsed_bottom_delta <= 2, `${k}: también con los cierres plegados (${x.collapsed_bottom_delta})`);
-        assert.ok(x.shell.bottom - x.queue.bottom <= 20, `${k}: sin espacio vacío al final`);
+        assert.ok(x.queue.left > x.fold.right, `${k}: música a la derecha`);
+        assert.equal(x.list_scrolls, true, `${k}: la lista se desplaza dentro del panel`);
+        assert.ok(['auto', 'scroll'].includes(x.list_overflow_y), k);
+        assert.ok(x.list.bottom <= x.queue.bottom, `${k}: la lista no se sale del panel`);
         assert.match(x.title, /^Mesas cerradas hoy \(8\) · Total \$\s?360\.000$/, `${k}: la archivada no cuenta`);
       }
-      assert.ok(r['on-1600'].card_w > r['on-1280'].card_w);
-      assert.ok(r['on-1280'].card_w >= 180, `tarjeta de mesa legible a 1280 (${r['on-1280'].card_w})`);
-
-      // Tablet: una columna, con la música justo después de Cuentas y en altura contenida.
-      for (const k of ['on-1024', 'on-768']) {
-        const x = r[k];
-        assert.ok(x.queue.top >= x.bar.bottom && x.queue.bottom <= x.tables.top, `${k}: Cuentas, música, Mesas`);
-        assert.ok(x.list.h <= 320, `${k}: lista contenida (${x.list.h})`);
-      }
-
-      // Muchas canciones no alargan la página: lo que manda es la izquierda.
-      assert.ok(Math.abs(r['on-1280'].queue.h - r['pocas-1280'].queue.h) <= 2, 'la altura no depende de las canciones');
 
       // Plegable: 5 a la vista, de la más reciente a la más antigua, y Ver todas.
       const x = r['on-1280'];
@@ -120,7 +104,6 @@ test('Panel Barman: música a la derecha, Copiar, 3 mesas por fila y cierres ple
       const none = r['sin-cierres-1280'];
       assert.match(none.title, /^Mesas cerradas hoy \(0\) · Total \$\s?0$/);
       assert.deepEqual(none.clipped, []);
-      assert.ok(none.queue.h >= 420 && Math.abs(none.queue.bottom - none.grid.bottom) <= 1, 'con poco contenido el panel conserva una altura usable');
 
       // Copiar: portapapeles + archivar, y no vuelve con el refresco.
       for (const k of ['on-1280', 'sin-qrbar-1280']) {

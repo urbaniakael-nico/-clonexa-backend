@@ -23674,6 +23674,8 @@ function inventoryCreatePayload() {
     el.className = `hsp-msg-024r${err ? " err" : ""}`;
     el.style.display = "block";
     setTimeout(() => { el.style.display = "none"; }, 6500);
+    // 070A: con el panel flotante abierto el aviso también se ve ahí.
+    if (cxHspV2Panel070A && (id === "hspGlobalMsg024R" || id === "hspFormMsg024R")) cxHspV2PanelMsg070A(text, err);
   }
 
   async function cxHspLoadInventory024R() {
@@ -23921,6 +23923,7 @@ function inventoryCreatePayload() {
     if (count) {
       count.textContent = String(cxHspActiveSongRequests031T().length);
     }
+    cxHspV2SongSync070A();
   }
 
   function cxHspPaintLiveOrders031L(orders = cxHspOrders024R) {
@@ -24117,7 +24120,7 @@ function inventoryCreatePayload() {
   function cxHspBoardDirty034B() {
     const root = document.getElementById("hspOrdersRoot024R");
     if (!root) return false;
-    const typed = Array.from(root.querySelectorAll("[data-hsp-quick-add-search],[data-hsp-close-received],[data-hsp-bar-product-search],#hspBarCustomer031D,#hspBarProductSearch031F"))
+    const typed = Array.from(root.querySelectorAll("[data-hsp-quick-add-search],[data-hsp-close-received],[data-hsp-bar-product-search],#hspBarCustomer031D,#hspBarProductSearch031F,[data-hsp-v2-pop-search]"))
       .some((field) => String(field.value || "").trim() !== "");
     const payment = Array.from(root.querySelectorAll("[data-hsp-close-payment],[data-hsp-bar-payment]"))
       .some((field) => String(field.value || "") !== "");
@@ -24304,6 +24307,7 @@ function inventoryCreatePayload() {
         : `<div class="hsp-empty-024r">No hay mesas configuradas. Revisa la cantidad de mesas en el módulo QR.</div>`;
     }
     if (cxHspBarmanLayoutOn069A()) {
+      cxHspPaintV2070A();
       cxHspPaintClosedFold069A();
     } else {
       const strip = document.getElementById("hspClosedStrip034B");
@@ -24666,6 +24670,708 @@ function inventoryCreatePayload() {
     if (event.target instanceof Element && event.target.id === "hspClosedFold069A") cxHspClosedOpen069A = event.target.open;
   }, true);
   /* CLONEXA_069A_BARMAN_MUSIC_LAYOUT_END */
+  /* CLONEXA_070A_BARMAN_V2_START */
+  // Panel Barman v2 (mismo interruptor barman_music_layout, hoy solo The Time
+  // Machine). Solo presentación y navegación: las tarjetas compactas, el "+"
+  // rápido y el panel flotante usan los mismos datos, totales y endpoints de
+  // siempre; el detalle del panel es la misma tarjeta de mesa (034B) o de cuenta
+  // de barra (031D), con sus mismas validaciones de pago y cierre.
+  let cxHspV2Filter070A = "all";
+  let cxHspV2Search070A = "";
+  let cxHspV2FormOpen070A = false;
+  let cxHspV2MusicOpen070A = false;
+  let cxHspV2Panel070A = null; // { kind: "table" | "bar", key, active }
+  let cxHspV2Pop070A = null; // { kind, key }
+  let cxHspV2PopBusy070A = false;
+  let cxHspV2SongKnown070A = null;
+  let cxHspV2SongFlash070A = new Map(); // id de canción -> vence (ms)
+
+  function cxHspV2Norm070A(value = "") {
+    return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function cxHspV2ItemCount070A(items = []) {
+    return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + (Number(item?.quantity || 0) || 0), 0);
+  }
+
+  function cxHspV2Stamp070A(value) {
+    const time = Date.parse(value || "");
+    return Number.isFinite(time) && time > 0 ? time : Infinity;
+  }
+
+  // Mesas abiertas, libres y cuentas de barra con lo que el panel ya calcula:
+  // total de la mesa = suma de sus pedidos (como la tarjeta 034B); cuenta de
+  // barra = el total que manda el servidor.
+  function cxHspV2Entries070A() {
+    const tables = [];
+    const free = [];
+    cxHspTableSlots034B().forEach((slot) => {
+      const orders = Array.isArray(slot.orders) ? slot.orders : [];
+      const active = orders.length > 0 || Boolean(slot.qr?.access_active);
+      if (!active) {
+        free.push({ kind: "table", key: slot.key, label: slot.label || "Mesa", slot });
+        return;
+      }
+      tables.push({
+        kind: "table",
+        key: slot.key,
+        label: slot.label || "Mesa",
+        slot,
+        isNew: orders.some((order) => ["pendiente", "alistando"].includes(String(order.status || ""))),
+        total: orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+        products: orders.reduce((sum, order) => sum + cxHspV2ItemCount070A(order.items), 0),
+        start: cxHspTableStart034B(slot),
+      });
+    });
+    const bars = cxHspOpenBarAccounts031D().map((account) => ({
+      kind: "bar",
+      key: String(account.id || ""),
+      label: account.customer_name || "Cuenta de barra",
+      account,
+      isNew: false,
+      total: Number(account.total || 0),
+      products: cxHspV2ItemCount070A(cxHspGroupBarItems031Q(account.items)),
+      start: account.created_at || "",
+    }));
+    const byPriority = (a, b) => (Number(b.isNew) - Number(a.isNew))
+      || (cxHspV2Stamp070A(a.start) - cxHspV2Stamp070A(b.start))
+      || String(a.label).localeCompare(String(b.label), "es", { numeric: true });
+    tables.sort(byPriority);
+    bars.sort(byPriority);
+    free.sort((a, b) => String(a.label).localeCompare(String(b.label), "es", { numeric: true }));
+    return { tables, bars, free };
+  }
+
+  function cxHspV2Find070A(kind = "", key = "") {
+    const entries = cxHspV2Entries070A();
+    if (kind === "bar") return entries.bars.find((entry) => entry.key === key) || null;
+    return entries.tables.find((entry) => entry.key === key)
+      || entries.free.find((entry) => entry.key === key)
+      || null;
+  }
+
+  function cxHspV2Matches070A(entry = {}) {
+    const query = cxHspV2Norm070A(cxHspV2Search070A);
+    return !query || cxHspV2Norm070A(entry.label).includes(query);
+  }
+
+  function cxHspV2CardHtml070A(entry = {}) {
+    const ref = `${entry.kind}:${entry.key}`;
+    const badge = entry.isNew ? "PEDIDO NUEVO" : (entry.kind === "bar" ? "ABIERTA" : "ACTIVA");
+    const products = `${entry.products} ${entry.products === 1 ? "producto" : "productos"}`;
+    const timer = entry.start
+      ? ` · <span aria-hidden="true">⏱</span> <b data-hsp-timer-start="${h(entry.start)}">0:00</b>`
+      : "";
+    return `
+      <article class="hsp-v2-card-070a ${entry.kind === "bar" ? "bar" : "table"}${entry.isNew ? " is-new" : ""}" data-hsp-v2-card="${h(ref)}">
+        <button class="hsp-v2-open-070a" type="button" data-hsp-v2-open="${h(ref)}" aria-label="Ver ${h(entry.label)}: ${h(badge.toLowerCase())}, total ${h(cxHspMoney024R(entry.total))}">
+          <span class="hsp-v2-name-070a">${h(entry.label)}</span>
+          <span class="hsp-v2-badge-070a">${h(badge)}</span>
+          <strong class="hsp-v2-total-070a">${h(cxHspMoney024R(entry.total))}</strong>
+          <small class="hsp-v2-meta-070a">${h(products)}${timer}</small>
+        </button>
+        <button class="hsp-v2-plus-070a" type="button" data-hsp-v2-plus="${h(ref)}" aria-label="Agregar producto a ${h(entry.label)}" aria-haspopup="dialog">+</button>
+      </article>`;
+  }
+
+  function cxHspV2ListsHtml070A(entries = cxHspV2Entries070A()) {
+    const filter = cxHspV2Filter070A;
+    const query = String(cxHspV2Search070A || "").trim();
+    const tables = entries.tables.filter((entry) => (filter !== "new" || entry.isNew) && cxHspV2Matches070A(entry));
+    const bars = entries.bars.filter(cxHspV2Matches070A);
+    const free = entries.free.filter(cxHspV2Matches070A);
+    const empty = (text) => `<div class="hsp-empty-024r">${h(text)}</div>`;
+    const noMatch = query ? `Nada coincide con «${query}».` : "";
+    const parts = [];
+    if (filter !== "bar") {
+      parts.push(`
+        <section class="hsp-v2-group-070a" data-hsp-v2-group="tables">
+          <h3>Mesas (${h(tables.length)})</h3>
+          ${tables.length
+            ? `<div class="hsp-v2-cards-070a">${tables.map(cxHspV2CardHtml070A).join("")}</div>`
+            : empty(noMatch || (filter === "new" ? "No hay pedidos nuevos." : "No hay mesas abiertas."))}
+        </section>`);
+    }
+    if (filter === "all" || filter === "bar") {
+      parts.push(`
+        <section class="hsp-v2-group-070a" data-hsp-v2-group="bar">
+          <h3>Barra (${h(bars.length)})</h3>
+          ${bars.length
+            ? `<div class="hsp-v2-cards-070a">${bars.map(cxHspV2CardHtml070A).join("")}</div>`
+            : empty(noMatch || "No hay cuentas de barra abiertas.")}
+        </section>`);
+    }
+    if ((filter === "all" || filter === "tables") && free.length) {
+      parts.push(`
+        <section class="hsp-v2-group-070a hsp-v2-free-070a" data-hsp-v2-group="free">
+          <h3>Mesas libres (${h(free.length)})</h3>
+          <div class="hsp-v2-free-row-070a">${free.map((entry) => `
+            <button class="hsp-v2-free-btn-070a" type="button" data-hsp-v2-open="table:${h(entry.key)}">${h(entry.label)}</button>`).join("")}</div>
+        </section>`);
+    }
+    return parts.join("");
+  }
+
+  function cxHspPaintV2070A() {
+    const lists = document.getElementById("hspV2Lists070A");
+    if (!lists) return;
+    const entries = cxHspV2Entries070A();
+    const activeOrders = cxHspOrders024R.filter((order) => (
+      ["pendiente", "alistando", "entregado"].includes(String(order.status || "")) && !order.archived_at
+    ));
+    const title = document.getElementById("hspV2Title070A");
+    if (title) {
+      const total = activeOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+      title.textContent = `Mesas y barra abiertas (${entries.tables.length + entries.bars.length}) · Total abierto ${cxHspMoney024R(total)}`;
+    }
+    const counts = {
+      all: entries.tables.length + entries.bars.length,
+      tables: entries.tables.length,
+      bar: entries.bars.length,
+      new: entries.tables.filter((entry) => entry.isNew).length,
+    };
+    document.querySelectorAll("[data-hsp-v2-filter]").forEach((button) => {
+      const key = button.getAttribute("data-hsp-v2-filter") || "all";
+      button.setAttribute("aria-pressed", key === cxHspV2Filter070A ? "true" : "false");
+      const badge = button.querySelector("b");
+      if (badge) badge.textContent = String(counts[key] ?? 0);
+      button.classList.toggle("has-new", key === "new" && counts.new > 0);
+    });
+    const html = cxHspV2ListsHtml070A(entries);
+    if (lists.dataset.v2Html070A !== html) {
+      lists.innerHTML = html;
+      lists.dataset.v2Html070A = html;
+    }
+    cxHspV2PaintPanel070A();
+    cxHspV2PlacePop070A();
+    cxHspTickTimers034B();
+  }
+
+  // ---- Panel flotante con el detalle -------------------------------------
+  function cxHspV2PanelBody070A(entry) {
+    if (!entry) return "";
+    if (entry.kind === "bar") return cxHspBarAccountCard031D(entry.account);
+    return cxHspTableCard034B(entry.slot);
+  }
+
+  function cxHspV2OpenPanel070A(kind = "", key = "") {
+    const entry = cxHspV2Find070A(kind, key);
+    if (!entry) return;
+    cxHspV2ClosePop070A();
+    // "active": la mesa ya tenía consumo; si deja de tenerlo es porque se cerró.
+    cxHspV2Panel070A = { kind, key, active: kind === "bar" || cxHspV2Entries070A().tables.some((row) => row.key === key) };
+    let panel = document.getElementById("hspV2Panel070A");
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "hspV2Panel070A";
+      panel.className = "hsp-v2-panel-070a";
+      panel.setAttribute("role", "dialog");
+      panel.innerHTML = `
+        <header class="hsp-v2-panel-head-070a">
+          <div><div class="client-eyebrow" id="hspV2PanelKind070A"></div><h2 id="hspV2PanelTitle070A"></h2></div>
+          <button class="hsp-v2-x-070a" type="button" data-hsp-v2-panel-close aria-label="Cerrar panel">✕</button>
+        </header>
+        <div id="hspV2PanelMsg070A" class="hsp-msg-024r" role="status"></div>
+        <div class="hsp-v2-panel-body-070a" id="hspV2PanelBody070A"></div>`;
+      (document.getElementById("hspOrdersRoot024R") || document.body).appendChild(panel);
+    }
+    const body = document.getElementById("hspV2PanelBody070A");
+    if (body) delete body.dataset.v2Html070A;
+    const msg = document.getElementById("hspV2PanelMsg070A");
+    if (msg) msg.style.display = "none";
+    cxHspV2PaintPanel070A();
+    cxHspV2PlacePanel070A();
+    window.setTimeout(() => panel.querySelector("[data-hsp-v2-panel-close]")?.focus({ preventScroll: true }), 0);
+  }
+
+  function cxHspV2ClosePanel070A() {
+    const ref = cxHspV2Panel070A;
+    cxHspV2Panel070A = null;
+    document.getElementById("hspV2Panel070A")?.remove();
+    if (ref) document.querySelector(`[data-hsp-v2-open="${CSS.escape(`${ref.kind}:${ref.key}`)}"]`)?.focus({ preventScroll: true });
+  }
+
+  // Se repinta con cada actualización (no se cierra al llegar un pedido); si
+  // la mesa o cuenta ya se cerró, el panel se va solo con un aviso.
+  function cxHspV2PaintPanel070A() {
+    const ref = cxHspV2Panel070A;
+    if (!ref) return;
+    const entry = cxHspV2Find070A(ref.kind, ref.key);
+    const stillActive = Boolean(entry) && (ref.kind === "bar" || cxHspV2Entries070A().tables.some((row) => row.key === ref.key));
+    if (!entry || (ref.active && !stillActive)) {
+      const label = ref.kind === "bar" ? "Cuenta cerrada" : "Mesa cerrada";
+      cxHspV2ClosePanel070A();
+      cxHspV2Toast070A(`${label}.`);
+      return;
+    }
+    ref.active = stillActive;
+    const kind = document.getElementById("hspV2PanelKind070A");
+    if (kind) kind.textContent = ref.kind === "bar" ? "Cuenta de barra" : (stillActive ? "Mesa abierta" : "Mesa libre");
+    const title = document.getElementById("hspV2PanelTitle070A");
+    if (title) title.textContent = entry.label;
+    document.getElementById("hspV2Panel070A")?.setAttribute("aria-label", `Detalle de ${entry.label}`);
+    const body = document.getElementById("hspV2PanelBody070A");
+    const html = cxHspV2PanelBody070A(entry);
+    if (body && body.dataset.v2Html070A !== html) {
+      body.innerHTML = html;
+      body.dataset.v2Html070A = html;
+    }
+  }
+
+  // Sobre la zona izquierda, pegado a la música y sin taparla.
+  function cxHspV2PlacePanel070A() {
+    const panel = document.getElementById("hspV2Panel070A");
+    if (!panel) return;
+    const left = document.getElementById("hspV2Left070A");
+    const narrow = window.innerWidth <= 1180 || !left;
+    if (narrow) {
+      panel.style.left = "12px";
+      panel.style.width = `${Math.max(0, window.innerWidth - 24)}px`;
+      return;
+    }
+    const box = left.getBoundingClientRect();
+    const width = Math.min(680, box.width);
+    panel.style.width = `${Math.round(width)}px`;
+    panel.style.left = `${Math.round(box.right - width)}px`;
+  }
+
+  function cxHspV2PanelMsg070A(text = "", isError = false) {
+    const el = document.getElementById("hspV2PanelMsg070A");
+    if (!el) return;
+    el.textContent = text;
+    el.className = `hsp-msg-024r${isError ? " err" : ""}`;
+    el.style.display = "block";
+    window.clearTimeout(cxHspV2PanelMsg070A.timer);
+    cxHspV2PanelMsg070A.timer = window.setTimeout(() => { el.style.display = "none"; }, 6500);
+  }
+
+  // ---- "+" rápido --------------------------------------------------------
+  function cxHspV2OpenPop070A(kind = "", key = "") {
+    const entry = cxHspV2Find070A(kind, key);
+    if (!entry) return;
+    cxHspV2ClosePop070A();
+    cxHspV2Pop070A = { kind, key };
+    const pop = document.createElement("div");
+    pop.id = "hspV2Pop070A";
+    pop.className = "hsp-v2-pop-070a";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", `Agregar producto a ${entry.label}`);
+    pop.innerHTML = `
+      <div class="hsp-v2-pop-title-070a">Agregar a <b>${h(entry.label)}</b></div>
+      <div class="hsp-v2-pop-row-070a">
+        <label><span>Producto</span><input data-hsp-v2-pop-search list="hspBarInventoryList031F" autocomplete="off" placeholder="Nombre, categoría o código" /></label>
+        <label><span>Cant.</span><input data-hsp-v2-pop-qty type="number" min="1" step="1" value="1" inputmode="numeric" /></label>
+      </div>
+      <small class="hsp-v2-pop-msg-070a" data-hsp-v2-pop-msg role="alert"></small>
+      <div class="hsp-v2-pop-actions-070a">
+        <button class="hsp-btn-024r secondary" type="button" data-hsp-v2-pop-cancel>Cancelar</button>
+        <button class="hsp-btn-024r green" type="button" data-hsp-v2-pop-add>Agregar</button>
+      </div>`;
+    (document.getElementById("hspOrdersRoot024R") || document.body).appendChild(pop);
+    cxHspV2PlacePop070A();
+    pop.querySelector("[data-hsp-v2-pop-search]")?.focus({ preventScroll: true });
+  }
+
+  function cxHspV2ClosePop070A(restoreFocus = false) {
+    const ref = cxHspV2Pop070A;
+    cxHspV2Pop070A = null;
+    cxHspV2PopBusy070A = false;
+    document.getElementById("hspV2Pop070A")?.remove();
+    if (restoreFocus && ref) document.querySelector(`[data-hsp-v2-plus="${CSS.escape(`${ref.kind}:${ref.key}`)}"]`)?.focus({ preventScroll: true });
+  }
+
+  // Pegado al "+" de su tarjeta; si no cabe abajo, se abre hacia arriba.
+  function cxHspV2PlacePop070A() {
+    const pop = document.getElementById("hspV2Pop070A");
+    const ref = cxHspV2Pop070A;
+    if (!pop || !ref) return;
+    const anchor = document.querySelector(`[data-hsp-v2-plus="${CSS.escape(`${ref.kind}:${ref.key}`)}"]`);
+    if (!anchor) return;
+    const box = anchor.getBoundingClientRect();
+    const width = pop.offsetWidth || 320;
+    const height = pop.offsetHeight || 200;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = Math.min(Math.max(12, box.right - width), Math.max(12, vw - width - 12));
+    let top = box.bottom + 8;
+    if (top + height > vh - 12) top = box.top - height - 8;
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.top = `${Math.round(Math.max(12, top))}px`;
+  }
+
+  async function cxHspV2PopAdd070A() {
+    const ref = cxHspV2Pop070A;
+    const pop = document.getElementById("hspV2Pop070A");
+    if (!ref || !pop || cxHspV2PopBusy070A) return;
+    const input = pop.querySelector("[data-hsp-v2-pop-search]");
+    const qtyInput = pop.querySelector("[data-hsp-v2-pop-qty]");
+    const msg = pop.querySelector("[data-hsp-v2-pop-msg]");
+    const button = pop.querySelector("[data-hsp-v2-pop-add]");
+    const entry = cxHspV2Find070A(ref.kind, ref.key);
+    if (!entry) {
+      cxHspV2ClosePop070A();
+      return;
+    }
+    const inventory = cxHspFindInventoryBySearch031F(input?.value || "");
+    const quantity = Math.floor(Number(qtyInput?.value || 0));
+    if (!inventory?.id || !(quantity >= 1)) {
+      if (msg) msg.textContent = "Elige un producto de las sugerencias y una cantidad válida.";
+      (inventory?.id ? qtyInput : input)?.focus();
+      return;
+    }
+    const item = cxHspOrderItemFromInventory031F(inventory, quantity);
+    cxHspV2PopBusy070A = true;
+    if (button) button.disabled = true;
+    try {
+      if (entry.kind === "bar") {
+        await cxHspApi024R(`/bar-accounts/${encodeURIComponent(entry.key)}/items`, {
+          method: "POST",
+          body: JSON.stringify({ items: [item] }),
+        });
+      } else {
+        // Igual que el "+" de la tarjeta de mesa (034A): al último pedido
+        // entregado; si no hay ninguno, entra como pedido de mesa entregado.
+        const served = (entry.slot.orders || [])
+          .filter((order) => String(order.status || "") === "entregado")
+          .sort((a, b) => (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0));
+        if (served[0]?.id) {
+          await cxHspApi024R(`/orders/${encodeURIComponent(served[0].id)}/items`, {
+            method: "POST",
+            body: JSON.stringify({ items: [item] }),
+          });
+        } else {
+          const created = await cxHspApi024R("/orders", {
+            method: "POST",
+            body: JSON.stringify({ source: "table_manual", table: entry.label, customer: "Carga barra", payment_method: "other", items: [item] }),
+          });
+          const order = created?.order || created?.table || {};
+          await cxHspDeliverOrder034B(order.id, order.status || "pendiente");
+        }
+      }
+    } catch (error) {
+      cxHspV2PopBusy070A = false;
+      if (button) button.disabled = false;
+      if (msg) msg.textContent = error.message || "No se pudo agregar el producto.";
+      return;
+    }
+    cxHspV2ClosePop070A(true);
+    cxHspV2Toast070A(`Agregado: ${item.quantity} × ${item.name} a ${entry.label}`);
+    cxHspInteractionHoldUntil031G = 0;
+    try {
+      await Promise.all([cxHspLoadInventory024R(), cxHspLoadOrders024R()]);
+    } catch (_) {}
+  }
+
+  function cxHspV2Toast070A(message = "", isError = false) {
+    let toast = document.getElementById("hspV2Toast070A");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "hspV2Toast070A";
+      toast.className = "hsp-v2-toast-070a";
+      toast.setAttribute("role", "status");
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.toggle("error", Boolean(isError));
+    toast.classList.add("show");
+    window.clearTimeout(cxHspV2Toast070A.timer);
+    cxHspV2Toast070A.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+  }
+
+  // ---- Música: contador, botón flotante y aviso de canción nueva ----------
+  function cxHspV2SongSync070A() {
+    const queue = document.getElementById("hspV2Music070A");
+    if (!queue) return;
+    const ids = cxHspActiveSongRequests031T().map((request) => String(request.id || "")).filter(Boolean);
+    const count = String(ids.length);
+    const button = document.getElementById("hspV2MusicCount070A");
+    if (button) button.textContent = count;
+    const now = Date.now();
+    if (cxHspV2SongKnown070A === null) {
+      cxHspV2SongKnown070A = new Set(ids);
+    } else {
+      const fresh = ids.filter((id) => !cxHspV2SongKnown070A.has(id));
+      fresh.forEach((id) => cxHspV2SongKnown070A.add(id));
+      if (fresh.length && cxHspVisualAlertsOn031D) fresh.forEach((id) => cxHspV2SongFlash070A.set(id, now + 20000));
+    }
+    [...cxHspV2SongFlash070A.entries()].forEach(([id, until]) => {
+      if (until <= now || !ids.includes(id)) cxHspV2SongFlash070A.delete(id);
+    });
+    const flashing = cxHspV2SongFlash070A.size > 0 && cxHspVisualAlertsOn031D;
+    queue.classList.toggle("is-new-song-070a", flashing);
+    document.querySelector("[data-hsp-v2-music]")?.classList.toggle("is-new-song-070a", flashing);
+    queue.querySelectorAll("[data-hsp-song-copy]").forEach((copy) => {
+      copy.closest(".hsp-song-item-048b")?.classList.toggle("is-new-song-070a", flashing && cxHspV2SongFlash070A.has(String(copy.getAttribute("data-hsp-song-copy") || "")));
+    });
+    if (flashing) {
+      window.clearTimeout(cxHspV2SongSync070A.timer);
+      const next = Math.min(...cxHspV2SongFlash070A.values()) - now;
+      cxHspV2SongSync070A.timer = window.setTimeout(cxHspV2SongSync070A, Math.max(250, next + 50));
+    }
+  }
+
+  function cxHspV2SetMusicOpen070A(open) {
+    cxHspV2MusicOpen070A = Boolean(open);
+    document.getElementById("hspV2Grid070A")?.classList.toggle("is-music-open-070a", cxHspV2MusicOpen070A);
+    document.querySelector("[data-hsp-v2-music]")?.setAttribute("aria-expanded", cxHspV2MusicOpen070A ? "true" : "false");
+  }
+
+  // ---- Estructura --------------------------------------------------------
+  function cxHspV2Operations070A() {
+    cxHspClosedSeq069B += 1;
+    cxHspClosedServer069B = null;
+    cxHspClosedFailed069B = false;
+    cxHspV2SongKnown070A = null;
+    cxHspV2SongFlash070A = new Map();
+    cxHspV2Panel070A = null;
+    cxHspV2Pop070A = null;
+    cxHspV2MusicOpen070A = false;
+    const filters = [["all", "Todas"], ["tables", "Mesas"], ["bar", "Barra"], ["new", "Pedido nuevo"]];
+    return `
+      <div class="hsp-operations-grid-031d hsp-v2-grid-070a" id="hspV2Grid070A">
+        <div class="hsp-v2-left-070a" id="hspV2Left070A">
+          <section class="hsp-box-024r hsp-v2-live-070a">
+            <div class="hsp-v2-head-070a">
+              <div><div class="client-eyebrow">En curso</div><h2 id="hspV2Title070A">Mesas y barra abiertas (0) · Total abierto ${h(cxHspMoney024R(0))}</h2></div>
+              <button class="hsp-btn-024r green hsp-v2-newbar-070a" type="button" data-hsp-v2-form aria-expanded="${cxHspV2FormOpen070A ? "true" : "false"}" aria-controls="hspV2Form070A">${cxHspV2FormOpen070A ? "Ocultar formulario" : "+ Cuenta de barra"}</button>
+            </div>
+            <div class="hsp-v2-tools-070a">
+              <div class="hsp-v2-filters-070a" role="group" aria-label="Filtrar mesas y barra">
+                ${filters.map(([key, label]) => `<button class="hsp-v2-filter-070a${key === "new" ? " new" : ""}" type="button" data-hsp-v2-filter="${key}" aria-pressed="${key === cxHspV2Filter070A ? "true" : "false"}">${h(label)} <b>0</b></button>`).join("")}
+              </div>
+              <input class="hsp-v2-search-070a" type="search" data-hsp-v2-search placeholder="Buscar mesa o cuenta…" aria-label="Buscar mesa o cuenta" value="${h(cxHspV2Search070A)}" />
+            </div>
+            <div id="hspV2Form070A" class="hsp-v2-form-070a"${cxHspV2FormOpen070A ? "" : " hidden"}>
+              <div class="hsp-bar-create-031d">
+                <label><span>Nombre de la cuenta</span><input id="hspBarCustomer031D" placeholder="Ej: Juan / Barra 2" /></label>
+                <label><span>Artículo solicitado</span><input id="hspBarProductSearch031F" list="hspBarInventoryList031F" autocomplete="off" placeholder="Escribe: águila, cerveza..." /></label>
+                <label><span>Cantidad</span><input id="hspBarQuantity031F" type="number" min="1" step="1" value="1" /></label>
+                <label><span>Destino</span><select id="hspBarDestination031F">
+                  <option value="bar">Cuenta personal de barra</option>
+                  <option value="table">Agregar a una mesa</option>
+                </select></label>
+                <label id="hspBarTableWrap031F" hidden><span>Mesa destino</span><select id="hspBarTargetTable031F">
+                  <option value="">Seleccionar mesa</option>
+                  ${cxHspManualTableOptions030D().map((table) => `<option value="${h(table)}">${h(table)}</option>`).join("")}
+                </select></label>
+                <button class="hsp-btn-024r green" type="button" data-hsp-bar-create>Crear cuenta</button>
+              </div>
+            </div>
+            <datalist id="hspBarInventoryList031F">${cxHspBarInventoryDatalist031F()}</datalist>
+            <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
+            <div id="hspV2Lists070A" class="hsp-v2-lists-070a"></div>
+          </section>
+          <details class="hsp-box-024r hsp-closed-fold-069a" id="hspClosedFold069A"${cxHspClosedOpen069A ? " open" : ""}>
+            <summary>
+              <span>
+                <span class="client-eyebrow">Para el cierre de jornada</span>
+                <h2 id="hspClosedTitle069A">${h(cxHspClosedTitle069A())}</h2>
+              </span>
+            </summary>
+            <div id="hspClosedStrip034B" class="hsp-closed-list-069a"></div>
+          </details>
+        </div>
+        <section class="hsp-box-024r hsp-song-queue-031c hsp-v2-music-070a" id="hspV2Music070A" aria-label="Solicitudes musicales">
+          <div class="hsp-song-queue-head-031c">
+            <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
+            <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
+            <button class="hsp-v2-x-070a hsp-v2-music-x-070a" type="button" data-hsp-v2-music-close aria-label="Cerrar música">✕</button>
+          </div>
+          <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
+          <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>
+        </section>
+        <button class="hsp-v2-music-btn-070a" type="button" data-hsp-v2-music aria-expanded="false" aria-controls="hspV2Music070A"><span aria-hidden="true">🎵</span> Música (<b id="hspV2MusicCount070A">0</b>)</button>
+      </div>`;
+  }
+
+  function cxHspV2Styles070A() {
+    if (document.getElementById("hspBarmanStyles070A")) return;
+    const style = document.createElement("style");
+    style.id = "hspBarmanStyles070A";
+    style.textContent = `
+      .hsp-operations-grid-031d.hsp-v2-grid-070a{grid-template-columns:minmax(0,1fr) clamp(260px,21vw,330px);align-items:start}
+      .hsp-v2-left-070a{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-content:start;min-width:0}
+      .hsp-v2-grid-070a .hsp-v2-music-070a{position:sticky;top:12px;display:flex;flex-direction:column;gap:9px;max-height:calc(100vh - 64px);min-height:0;min-width:0;box-sizing:border-box}
+      .hsp-v2-grid-070a .hsp-v2-music-070a .hsp-song-list-031c{display:block;flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto}
+      .hsp-v2-music-070a .hsp-song-queue-head-031c{display:flex;align-items:center;gap:8px}
+      .hsp-v2-music-070a .hsp-song-queue-head-031c>div{flex:1;min-width:0}
+      .hsp-v2-music-070a.is-new-song-070a{border-color:#ef4444!important;box-shadow:0 0 0 2px #ef4444,0 0 24px rgba(239,68,68,.35)!important}
+      .hsp-song-item-048b.is-new-song-070a{box-shadow:inset 3px 0 0 #ef4444;background:rgba(239,68,68,.14)}
+      .hsp-v2-music-x-070a,.hsp-v2-music-btn-070a{display:none}
+      .hsp-v2-live-070a{container-type:inline-size;min-width:0}
+      .hsp-v2-head-070a{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+      .hsp-v2-head-070a h2{margin:2px 0 0;overflow-wrap:anywhere}
+      .hsp-v2-newbar-070a{min-height:44px;padding:8px 16px;font-weight:950}
+      .hsp-v2-tools-070a{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+      .hsp-v2-filters-070a{display:flex;flex-wrap:wrap;gap:8px}
+      .hsp-v2-filter-070a{min-height:44px;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.34);background:rgba(255,255,255,.07);color:var(--cx-text,#fff);font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+      .hsp-v2-filter-070a b{display:inline-block;min-width:20px;margin-left:4px;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.16);text-align:center}
+      .hsp-v2-filter-070a[aria-pressed="true"]{background:#f8fafc;color:#0b1020;border-color:#f8fafc}
+      .hsp-v2-filter-070a[aria-pressed="true"] b{background:#0b1020;color:#fff}
+      .hsp-v2-filter-070a.has-new b{background:#b91c1c;color:#fff}
+      .hsp-v2-filter-070a:focus-visible,.hsp-v2-search-070a:focus-visible,.hsp-v2-free-btn-070a:focus-visible,.hsp-v2-plus-070a:focus-visible,.hsp-v2-x-070a:focus-visible,.hsp-v2-music-btn-070a:focus-visible{outline:3px solid #fff;outline-offset:2px}
+      .hsp-v2-search-070a{box-sizing:border-box;min-height:44px;width:min(300px,100%);padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.34);background:rgba(3,7,18,.55);color:var(--cx-text,#fff);font:inherit;font-size:14px}
+      .hsp-v2-form-070a{margin-top:12px;padding:12px;border:1px dashed rgba(255,255,255,.3);border-radius:14px}
+      .hsp-v2-form-070a .hsp-bar-create-031d{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+      .hsp-v2-lists-070a{display:grid;gap:16px;margin-top:14px}
+      .hsp-v2-group-070a h3{margin:0 0 8px;font-size:13px;font-weight:1000;letter-spacing:.06em;text-transform:uppercase}
+      .hsp-v2-cards-070a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;gap:10px}
+      @container (min-width:420px){.hsp-v2-cards-070a{grid-template-columns:repeat(3,minmax(0,1fr))}}
+      @media(min-width:1181px){
+        @container (min-width:600px){.hsp-v2-cards-070a{grid-template-columns:repeat(4,minmax(0,1fr))}}
+        @container (min-width:860px){.hsp-v2-cards-070a{grid-template-columns:repeat(5,minmax(0,1fr))}}
+      }
+      @container (max-width:259px){.hsp-v2-cards-070a{grid-template-columns:minmax(0,1fr)}}
+      .hsp-v2-card-070a{position:relative;min-width:0;container-type:inline-size;border-radius:14px;border:2px solid #14b8a6;background:#141821;color:#fff}
+      .hsp-v2-card-070a.is-new{border-color:#ef4444;box-shadow:0 0 0 1px #ef4444,0 0 18px rgba(239,68,68,.28)}
+      .hsp-v2-card-070a.bar{border-color:#eab308;background:#1b1810}
+      .hsp-v2-open-070a{box-sizing:border-box;display:grid;grid-template-rows:auto auto 1fr auto;align-content:start;gap:6px;width:100%;height:100%;min-height:140px;margin:0;padding:12px;border:0;border-radius:12px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+      .hsp-v2-open-070a:hover{background:rgba(255,255,255,.05)}
+      .hsp-v2-open-070a:focus-visible{outline:3px solid #fff;outline-offset:-3px}
+      .hsp-v2-name-070a{min-width:0;font-size:15px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .hsp-v2-badge-070a{justify-self:start;padding:3px 8px;border-radius:999px;background:#0f766e;color:#fff;font-size:11px;font-weight:950;letter-spacing:.05em}
+      .hsp-v2-card-070a.is-new .hsp-v2-badge-070a{background:#b91c1c}
+      .hsp-v2-card-070a.bar .hsp-v2-badge-070a{background:#854d0e}
+      .hsp-v2-total-070a{align-self:center;min-width:0;font-size:clamp(17px,12cqi,26px);font-weight:950;line-height:1.1;overflow-wrap:anywhere}
+      .hsp-v2-meta-070a{min-width:0;padding-right:50px;color:#d1d5db;font-size:12px;font-weight:800;line-height:1.35}
+      .hsp-v2-meta-070a b{font-variant-numeric:tabular-nums}
+      .hsp-v2-plus-070a{position:absolute;right:8px;bottom:8px;width:44px;height:44px;border:0;border-radius:12px;background:#15803d;color:#fff;font:inherit;font-size:26px;font-weight:950;line-height:1;cursor:pointer}
+      .hsp-v2-plus-070a:hover{background:#166534}
+      .hsp-v2-free-row-070a{display:flex;flex-wrap:wrap;gap:8px}
+      .hsp-v2-free-btn-070a{min-height:44px;padding:8px 14px;border-radius:12px;border:1px dashed rgba(255,255,255,.5);background:transparent;color:var(--cx-text,#fff);font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+      .hsp-v2-free-btn-070a:hover{border-style:solid;background:rgba(255,255,255,.07)}
+      .hsp-v2-panel-070a{position:fixed;top:12px;z-index:60;display:flex;flex-direction:column;box-sizing:border-box;max-height:calc(100vh - 24px);background:#10131a;color:#fff;border:1px solid rgba(255,255,255,.24);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden}
+      .hsp-v2-panel-head-070a{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.14)}
+      .hsp-v2-panel-head-070a h2{margin:2px 0 0;font-size:22px;overflow-wrap:anywhere}
+      .hsp-v2-x-070a{flex:none;width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:18px;font-weight:950;cursor:pointer}
+      .hsp-v2-panel-070a>.hsp-msg-024r{margin:10px 14px 0}
+      .hsp-v2-panel-body-070a{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px 16px}
+      .hsp-v2-panel-body-070a>article{margin:0;box-shadow:none}
+      .hsp-v2-pop-070a{position:fixed;z-index:80;display:grid;gap:8px;box-sizing:border-box;width:min(330px,calc(100vw - 24px));padding:12px;border-radius:14px;border:2px solid #16a34a;background:#10131a;color:#fff;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+      .hsp-v2-pop-title-070a{font-size:14px;font-weight:800}
+      .hsp-v2-pop-row-070a{display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:8px}
+      .hsp-v2-pop-row-070a label{display:grid;gap:4px;min-width:0;font-size:11px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;color:#d1d5db}
+      .hsp-v2-pop-row-070a input{box-sizing:border-box;width:100%;min-height:44px;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.34);background:#05070c;color:#fff;font:inherit;font-size:15px;text-transform:none;letter-spacing:0}
+      .hsp-v2-pop-msg-070a{min-height:0;color:#fca5a5;font-size:12px;font-weight:800}
+      .hsp-v2-pop-msg-070a:empty{display:none}
+      .hsp-v2-pop-actions-070a{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .hsp-v2-pop-actions-070a .hsp-btn-024r{min-height:44px}
+      .hsp-v2-toast-070a{position:fixed;left:50%;bottom:24px;z-index:90;max-width:calc(100vw - 32px);padding:12px 18px;border-radius:12px;background:#065f46;color:#fff;font-size:15px;font-weight:900;box-shadow:0 12px 30px rgba(0,0,0,.45);transform:translate(-50%,20px);opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+      .hsp-v2-toast-070a.show{opacity:1;transform:translate(-50%,0)}
+      .hsp-v2-toast-070a.error{background:#991b1b}
+      @media(max-width:1180px){
+        .hsp-operations-grid-031d.hsp-v2-grid-070a{grid-template-columns:minmax(0,1fr)}
+        .hsp-v2-grid-070a .hsp-v2-music-070a{display:none;position:fixed;top:12px;right:12px;bottom:84px;width:min(400px,calc(100vw - 24px));max-height:none;z-index:70;background:#12151c}
+        .hsp-v2-grid-070a.is-music-open-070a .hsp-v2-music-070a{display:flex}
+        .hsp-v2-music-x-070a{display:inline-block}
+        .hsp-v2-music-btn-070a{display:inline-flex;align-items:center;gap:6px;position:fixed;right:16px;bottom:16px;z-index:75;min-height:52px;padding:10px 18px;border-radius:999px;border:2px solid #f8fafc;background:#1e1b4b;color:#fff;font:inherit;font-size:16px;font-weight:950;box-shadow:0 10px 28px rgba(0,0,0,.5);cursor:pointer}
+        .hsp-v2-music-btn-070a.is-new-song-070a{border-color:#ef4444;background:#7f1d1d}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !document.getElementById("hspV2Grid070A")) return;
+    const pop = document.getElementById("hspV2Pop070A");
+    if (pop && !pop.contains(target) && !target.closest("[data-hsp-v2-plus]")) cxHspV2ClosePop070A();
+
+    const plus = target.closest("[data-hsp-v2-plus]");
+    if (plus) {
+      const [kind, ...rest] = String(plus.getAttribute("data-hsp-v2-plus") || "").split(":");
+      const key = rest.join(":");
+      if (cxHspV2Pop070A && cxHspV2Pop070A.kind === kind && cxHspV2Pop070A.key === key) cxHspV2ClosePop070A();
+      else cxHspV2OpenPop070A(kind, key);
+      return;
+    }
+    const open = target.closest("[data-hsp-v2-open]");
+    if (open) {
+      const [kind, ...rest] = String(open.getAttribute("data-hsp-v2-open") || "").split(":");
+      cxHspV2OpenPanel070A(kind, rest.join(":"));
+      return;
+    }
+    if (target.closest("[data-hsp-v2-panel-close]")) {
+      cxHspV2ClosePanel070A();
+      return;
+    }
+    if (target.closest("[data-hsp-v2-pop-add]")) {
+      void cxHspV2PopAdd070A();
+      return;
+    }
+    if (target.closest("[data-hsp-v2-pop-cancel]")) {
+      cxHspV2ClosePop070A(true);
+      return;
+    }
+    const filter = target.closest("[data-hsp-v2-filter]");
+    if (filter) {
+      cxHspV2Filter070A = filter.getAttribute("data-hsp-v2-filter") || "all";
+      cxHspPaintV2070A();
+      return;
+    }
+    const form = target.closest("[data-hsp-v2-form]");
+    if (form) {
+      cxHspV2FormOpen070A = !cxHspV2FormOpen070A;
+      const box = document.getElementById("hspV2Form070A");
+      if (box) box.hidden = !cxHspV2FormOpen070A;
+      form.setAttribute("aria-expanded", cxHspV2FormOpen070A ? "true" : "false");
+      form.textContent = cxHspV2FormOpen070A ? "Ocultar formulario" : "+ Cuenta de barra";
+      if (cxHspV2FormOpen070A) document.getElementById("hspBarCustomer031D")?.focus();
+      return;
+    }
+    if (target.closest("[data-hsp-v2-music]")) {
+      cxHspV2SetMusicOpen070A(!cxHspV2MusicOpen070A);
+      return;
+    }
+    if (target.closest("[data-hsp-v2-music-close]")) {
+      cxHspV2SetMusicOpen070A(false);
+      return;
+    }
+  });
+
+  // Tocar la lista de música da por vista la canción nueva.
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !cxHspV2SongFlash070A.size) return;
+    if (!target.closest("#hspV2Music070A,[data-hsp-v2-music]")) return;
+    cxHspV2SongFlash070A.clear();
+    cxHspV2SongSync070A();
+  }, true);
+
+  document.addEventListener("input", (event) => {
+    const search = event.target instanceof Element ? event.target.closest("[data-hsp-v2-search]") : null;
+    if (!search) return;
+    cxHspV2Search070A = search.value || "";
+    cxHspPaintV2070A();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!document.getElementById("hspV2Grid070A")) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.key === "Enter" && target?.closest("[data-hsp-v2-pop-search],[data-hsp-v2-pop-qty]")) {
+      event.preventDefault();
+      void cxHspV2PopAdd070A();
+      return;
+    }
+    if (event.key !== "Escape") return;
+    if (cxHspV2Pop070A) {
+      event.preventDefault();
+      cxHspV2ClosePop070A(true);
+    } else if (cxHspV2MusicOpen070A) {
+      event.preventDefault();
+      cxHspV2SetMusicOpen070A(false);
+    } else if (cxHspV2Panel070A && !document.getElementById("hspClosureModal024U")) {
+      event.preventDefault();
+      cxHspV2ClosePanel070A();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    cxHspV2PlacePanel070A();
+    cxHspV2PlacePop070A();
+  });
+  window.addEventListener("scroll", () => cxHspV2PlacePop070A(), { passive: true, capture: true });
+  /* CLONEXA_070A_BARMAN_V2_END */
 
   function cxHspRenderOrdersBoard024R(summary = {}) {
     const groups = {
@@ -25098,7 +25804,11 @@ function inventoryCreatePayload() {
     }
 
     const barmanLayout069A = cxHspBarmanLayoutOn069A();
-    if (barmanLayout069A) cxHspBarmanStyles069A();
+    if (barmanLayout069A) {
+      cxHspBarmanStyles069A();
+      cxHspV2Styles070A();
+      cxHspTableBoardStyles034B();
+    }
 
     $("app").innerHTML = `
       <main class="client-shell">
@@ -25143,8 +25853,8 @@ function inventoryCreatePayload() {
 
               </div>
 
-              <div class="hsp-operations-grid-031d${barmanLayout069A ? " hsp-barman-grid-069a" : ""}">
-                ${barmanLayout069A ? `<div class="hsp-barman-left-069a">` : ""}
+              ${barmanLayout069A ? cxHspV2Operations070A() : `
+              <div class="hsp-operations-grid-031d">
                 <section class="hsp-box-024r hsp-bar-workspace-031d">
                   <div class="hsp-bar-head-031d">
                     <div>
@@ -25171,16 +25881,13 @@ function inventoryCreatePayload() {
                   <div id="hspBarAccounts031D" class="hsp-bar-cards-031d"></div>
                   <div id="hspFormMsg024R" class="hsp-msg-024r"></div>
                 </section>
-                ${barmanLayout069A ? `${cxHspBarmanBoard069A()}</div>` : ""}
 
                 <section class="hsp-box-024r hsp-song-queue-031c">
                   <div class="hsp-song-queue-head-031c">
                     <div><div class="client-eyebrow">Música por mesa</div><h2>Solicitudes musicales</h2></div>
                     <span class="hsp-pill-024r music" id="hspSongCount031C">0</span>
                   </div>
-                  ${barmanLayout069A ? `
-                  <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
-                  <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>` : `${cxHspSongByTableOn048B() ? `
+                  ${cxHspSongByTableOn048B() ? `
                   <div class="hsp-song-bytable-head-048b">PEDIDO MUSICAL POR MESA</div>
                   <div id="hspSongRequests031C" class="hsp-song-list-031c hsp-song-bytable-048b"></div>` : `
                   <input class="hsp-song-search-031h" type="search" data-hsp-song-search placeholder="Buscar canción o mesa..." value="${h(cxHspSongSearch031H)}" />
@@ -25194,9 +25901,9 @@ function inventoryCreatePayload() {
                       <button class="hsp-song-bulk-btn-031t all" type="button" data-hsp-song-archive-bulk="all">Todo</button>
                     </div>
                   </div>
-                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>`}`}
+                  <div id="hspSongRequests031C" class="hsp-song-list-031c"></div>`}
                 </section>
-              </div>
+              </div>`}
 
               ${barmanLayout069A ? "" : cxHspOrdersBoardSection034D()}
             </section>

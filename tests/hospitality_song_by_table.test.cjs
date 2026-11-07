@@ -20,7 +20,7 @@ const NAMES = [
   'cxIsHospitalityQrCode024S', 'cxHspActiveSongRequests031T', 'cxHspSongRequestCard031C',
   'cxHspSongByTableOn048B', 'cxHspSongTableKey048B', 'cxHspSongGroups048B', 'cxHspSongGroupedHtml048D',
   'cxHspCopyText048B', 'cxHspCopyFallback048B', 'cxHspSongToast048B',
-  'cxHspBarmanLayoutOn069A', 'cxHspCopyAndArchiveSong048B', 'cxHspRenderSongRequests031C', 'cxHspPaintSongQueue031K',
+  'cxHspBarmanLayoutOn069A', 'cxHspCopyAndArchiveSong048B', 'cxHspRenderSongRequests031C', 'cxHspPaintSongQueue031K', 'cxHspV2SongSync070A',
 ];
 
 const song = (id, table, name, minute) => ({

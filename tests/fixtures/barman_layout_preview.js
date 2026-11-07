@@ -99,7 +99,7 @@
     out.closed_note = q(".hsp-closed-note-069b")?.textContent || "";
     const r = (el) => { const b = rect(el); return b ? { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height) } : null; };
     out.page_overflow = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
-    out.switch_class = grid.classList.contains("hsp-barman-grid-069a");
+    out.switch_class = grid.classList.contains("hsp-barman-grid-069a") || grid.classList.contains("hsp-v2-grid-070a");
     Object.assign(out, { queue: r(queue), bar: r(bar), tables: r(tables), fold: r(fold), grid: r(grid), list: r(list), shell: r(q("#hspOrdersRoot024R")) });
     out.list_scrolls = list.scrollHeight > list.clientHeight + 1;
     out.list_overflow_y = getComputedStyle(list).overflowY;
