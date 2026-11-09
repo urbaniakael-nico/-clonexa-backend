@@ -143,7 +143,8 @@ for (let i = 0; i < items.length; i++) {
   props.push(key);
   if (!media) {
     const buf = await this.helpers.getBinaryDataBuffer(i, 'data');
-    media = { b64: buf.toString('base64'), file_name: meta.file_name || 'archivo', mimetype: meta.mimetype || 'application/octet-stream' };
+    const mt = meta.mimetype || it.binary.data.mimeType || 'application/octet-stream';
+    media = { b64: buf.toString('base64'), file_name: meta.file_name || 'archivo', mimetype: mt, mediatype: String(mt).startsWith('image/') ? 'image' : 'document' };
   }
 }
 const isMail = b.channel === 'email';
@@ -178,23 +179,26 @@ def send_flow(secret_cred, evo_cred) -> dict:
         node("Descargar", "httpRequest", 4.2, [660, 400], {"url": "={{ $json.url }}", "authentication": "genericCredentialType",
                                                           "genericAuthType": "httpHeaderAuth",
                                                           "options": {"response": {"response": {"responseFormat": "file", "outputPropertyName": "data"}}}},
-             {"httpHeaderAuth": secret_cred}),
+             {"httpHeaderAuth": secret_cred}, onError="continueRegularOutput"),
         node("Juntar", "code", 2, [880, 300], {"jsCode": JUNTAR}),
         node("Canal", "switch", 3, [1100, 300], switch(["wa_text", "wa_doc", "mail_att", "mail"])),
         http_json("WhatsApp texto", [1340, 100], f"{evo}/sendText/{INSTANCE}",
                   "={{ JSON.stringify({ number: $json.to_text, text: $json.text }) }}", "httpHeaderAuth", evo_cred),
-        http_json("WhatsApp documento", [1340, 250], f"{evo}/sendMedia/{INSTANCE}",
-                  "={{ JSON.stringify({ number: $json.to_text, mediatype: 'document', mimetype: $json.media.mimetype, fileName: $json.media.file_name, caption: $json.text, media: $json.media.b64 }) }}",
+        http_json("WhatsApp imagen o documento", [1340, 250], f"{evo}/sendMedia/{INSTANCE}",
+                  "={{ JSON.stringify({ number: $json.to_text, mediatype: $json.media.mediatype, mimetype: $json.media.mimetype, fileName: $json.media.file_name, caption: $json.text, media: $json.media.b64 }) }}",
                   "httpHeaderAuth", evo_cred),
-        node("Correo con adjuntos", "gmail", 2.1, [1340, 400], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "text",
+        node("Fallo la imagen", "if", 2, [1560, 200], cond_true("={{ !!$json.error }}")),
+        http_json("WhatsApp texto (respaldo)", [1780, 120], f"{evo}/sendText/{INSTANCE}",
+                  "={{ JSON.stringify({ number: $('Juntar').item.json.to_text, text: $('Juntar').item.json.text }) }}", "httpHeaderAuth", evo_cred),
+        node("Correo con adjuntos", "gmail", 2.1, [1340, 400], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "={{ $json.html ? 'html' : 'text' }}",
                                                                "message": "={{ $json.text }}",
                                                                "options": {"appendAttribution": False,
                                                                            "attachmentsUi": {"attachmentsBinary": [{"property": "={{ $json.att_props }}"}]}}},
              {"gmailOAuth2": GMAIL}, onError="continueRegularOutput"),
-        node("Correo", "gmail", 2.1, [1340, 550], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "text",
+        node("Correo", "gmail", 2.1, [1340, 550], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "={{ $json.html ? 'html' : 'text' }}",
                                                   "message": "={{ $json.text }}", "options": {"appendAttribution": False}},
              {"gmailOAuth2": GMAIL}, onError="continueRegularOutput"),
-        node("Resultado", "code", 2, [1580, 300], {"jsCode": RESULTADO}),
+        node("Resultado", "code", 2, [2000, 300], {"jsCode": RESULTADO}),
         node("Responder", "respondToWebhook", 1.1, [1800, 300], {"respondWith": "json",
                                                                 "responseBody": "={{ JSON.stringify({ ok: $json.ok, error: $json.error }) }}", "options": {}}),
         node("Ultimo intento fallo", "if", 2, [2020, 300], cond_true("={{ $json.last === true }}")),
@@ -204,8 +208,9 @@ def send_flow(secret_cred, evo_cred) -> dict:
                                                         "options": {"appendAttribution": False}}, {"gmailOAuth2": GMAIL}),
     ]
     conns = links([("Desde Clonexa", "Adjuntos"), ("Adjuntos", "Hay adjuntos"), ("Hay adjuntos", "Juntar", 0), ("Hay adjuntos", "Descargar", 1),
-                   ("Descargar", "Juntar"), ("Canal", "WhatsApp texto", 0), ("Canal", "WhatsApp documento", 1), ("Canal", "Correo con adjuntos", 2),
-                   ("Canal", "Correo", 3), ("Juntar", "Canal"), ("WhatsApp texto", "Resultado"), ("WhatsApp documento", "Resultado"),
+                   ("Descargar", "Juntar"), ("Canal", "WhatsApp texto", 0), ("Canal", "WhatsApp imagen o documento", 1), ("Canal", "Correo con adjuntos", 2),
+                   ("Canal", "Correo", 3), ("Juntar", "Canal"), ("WhatsApp texto", "Resultado"), ("WhatsApp imagen o documento", "Fallo la imagen"), ("Fallo la imagen", "WhatsApp texto (respaldo)", 0),
+                   ("Fallo la imagen", "Resultado", 1), ("WhatsApp texto (respaldo)", "Resultado"),
                    ("Correo con adjuntos", "Resultado"), ("Correo", "Resultado"), ("Resultado", "Responder"), ("Responder", "Ultimo intento fallo"),
                    ("Ultimo intento fallo", "Avisar falla", 0)])
     return {"name": SEND_NAME, "nodes": nodes, "connections": conns, "settings": SETTINGS}

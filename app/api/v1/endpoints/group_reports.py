@@ -10,7 +10,7 @@ Cualquier otro rol: 403. Otra empresa: 403. Sin sesion: 401. Interruptor apagado
 Maquina a maquina (n8n): sin la cabecera secreta X-Clonexa-Secret correcta -> 401, siempre.
 - POST /inbound/{company_id}/classify              que hacer con un mensaje / correo que llego
 - POST /inbound/{company_id}/received              la foto ya esta en Drive
-- GET  /files/{token}                              PDF / Excel del aviso (enlace firmado de 2 h + cabecera)
+- GET  /files/{token}                              PDF / Excel / tarjeta PNG del aviso (enlace firmado de 2 h + cabecera)
 """
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ async def get_file(token: str, ok: bool = Depends(machine), db: AsyncSession = D
     import os
 
     data = svc.unsign(os.getenv(svc.ENV_SECRET) or "", token)
-    if not data or data.get("k") not in ("daily_pdf", "weekly_pdf", "weekly_xlsx"):
+    if not data or data.get("k") not in ("daily_pdf", "weekly_pdf", "weekly_xlsx", "card_png"):
         raise HTTPException(status_code=404, detail="Enlace vencido o no válido.")
     try:
         cid = str(UUID(str(data.get("c"))))
@@ -127,5 +127,9 @@ async def get_file(token: str, ok: bool = Depends(machine), db: AsyncSession = D
         raise HTTPException(status_code=404, detail="Enlace vencido o no válido.") from None
     if not await svc.is_on(db, cid):
         raise HTTPException(status_code=404, detail=OFF)
-    content, name, mime = await svc.render_file(db, cid, {"kind": data["k"], "from": data["f"], "to": data["t"]})
+    try:
+        content, name, mime = await svc.render_file(db, cid, {"kind": data["k"], "from": data.get("f"), "to": data.get("t"),
+                                                             "d": data.get("d"), "i": data.get("i")})
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Enlace vencido o no válido.") from None
     return Response(content, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})

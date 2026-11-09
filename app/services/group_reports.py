@@ -125,6 +125,36 @@ def day_en(d: date) -> str:
     return f"{DAY_EN[d.weekday()]} {d.month:02d}/{d.day:02d}"
 
 
+DAY_FULL_ES = ("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
+PARTICLES = {"de", "del", "la", "las", "los", "y", "e", "da", "das", "do", "dos", "van", "von"}
+HTML_MARK = "<!--html-->"
+LONG_SHIFT_MIN = 12 * 60
+RULE = "━━━━━━━━━━"
+
+
+def day_full(d: date) -> str:
+    return f"{DAY_FULL_ES[d.weekday()]} {d.day:02d}/{d.month:02d}"
+
+
+def clean_name(raw: Any) -> str:
+    """Nombre para mostrar: sin comillas ni comillas invertidas, sin espacios de mas y con mayusculas
+    de nombre propio ("de", "del", "la"... en minuscula). No cambia la base."""
+    s = re.sub(r"[\"`´“”«»]", "", str(raw or ""))
+    s = re.sub(r"(?<![A-Za-zÀ-ÿ])'|'(?![A-Za-zÀ-ÿ])", "", s)
+    words = []
+    for i, word in enumerate(s.split()):
+        low = word.lower()
+        if i and low in PARTICLES:
+            words.append(low)
+            continue
+        words.append("-".join("'".join(q[:1].upper() + q[1:].lower() for q in part.split("'")) for part in word.split("-")))
+    return " ".join(words) or "—"
+
+
+def numbered(items: list[str]) -> str:
+    return "\n".join(f"{i}. {x}" for i, x in enumerate(items, 1))
+
+
 def digits(value: Any) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
@@ -266,42 +296,72 @@ def last_saturday(day: date) -> date:
     return day - timedelta(days=((day.weekday() - 5) % 7) or 7)
 
 
-def header(company: str, op_name: str, slot_name: Optional[str], day: date, at: Optional[datetime], tz_name: Any) -> str:
-    parts = [company or "Clonexa", op_name] + ([slot_name] if slot_name else []) + [day_es(day)]
-    if at is not None:
-        parts.append(f"{ws.local_clock(at, tz_name)} {us_time.abbr(tz_name, at)}")
-    return " · ".join(parts)
+def cut_title(company: str, op_name: str, slot_name: Optional[str], kind: str) -> str:
+    parts = [company or "Clonexa", op_name] + ([slot_name] if slot_name else []) + ["Entrada" if kind == "checkin" else "Salida"]
+    return "*" + " · ".join(parts) + "*"
 
 
-def names(items: list[str]) -> str:
-    return ", ".join(items) if items else "—"
+def cut_when(day: date, at: datetime, tz_name: Any) -> str:
+    return f"{day_es(day)} · {ws.local_clock(at, tz_name)} {us_time.abbr(tz_name, at)}"
 
 
-def checkin_text(head: str, connected: list[tuple[str, bool]], missing: list[str]) -> str:
-    shown = [f"⏸ {n}" if paused else n for n, paused in connected]
-    return "\n".join([head, "Entrada / Check-in",
-                      f"✅ Conectados / Connected ({len(connected)}): {names(shown)}",
-                      f"❌ No conectados / Not connected ({len(missing)}): {names(missing)}"])
+def checkin_text(title: str, when: str, connected: list[tuple[str, bool]], missing: list[str]) -> str:
+    """Pie de foto (y respaldo en texto) del corte de entrada: los que faltan en lista; los conectados solo el numero."""
+    lines = [title, when, ""]
+    if missing:
+        lines += [f"❌ *Sin conectar / Not connected ({len(missing)}):*", numbered(missing), ""]
+    else:
+        lines += ["🎉 *Todos conectados / Everyone is clocked in*", ""]
+    lines.append(f"✅ Conectados / Connected: {len(connected)} de {len(connected) + len(missing)}")
+    paused = sum(1 for _, p in connected if p)
+    if paused:
+        lines.append(f"⏸️ En pausa / On break: {paused}")
+    return "\n".join(lines)
 
 
-def checkout_text(head: str, done: list[str], still: list[tuple[str, int]]) -> str:
-    return "\n".join([head, "Salida / Check-out",
-                      f"✅ Ya cerraron / Clocked out ({len(done)}): {names(done)}",
-                      f"⚠️ Siguen conectados / Still clocked in ({len(still)}): {names([f'{n} ({hm(m)})' for n, m in still])}"])
+def checkout_text(title: str, when: str, done: list[str], still: list[tuple[str, int]]) -> str:
+    lines = [title, when, ""]
+    if still:
+        lines += [f"⚠️ *Siguen conectados / Still clocked in ({len(still)}):*",
+                  numbered([f"{n} · {hm(m)}{' 🔴' if m > LONG_SHIFT_MIN else ''}" for n, m in still]), ""]
+    else:
+        lines += ["🎉 *Todos cerraron / Everyone clocked out*", ""]
+    lines.append(f"✅ Ya cerraron / Clocked out: {len(done)} de {len(done) + len(still)}")
+    return "\n".join(lines)
+
+
+def cut_message(kind: str, company: str, op: dict, slot_name: Optional[str], day: date, win: dict, lists: dict) -> tuple[str, dict]:
+    """(pie de foto, adjunto de la tarjeta). La tarjeta guarda sus datos: un reintento dibuja lo mismo."""
+    at = win["checkin_at"] if kind == "checkin" else win["checkout_at"]
+    abbr = us_time.abbr(op["tz"], at)
+    title, when = cut_title(company, op["name"], slot_name, kind), cut_when(day, at, op["tz"])
+    if kind == "checkin":
+        caption = checkin_text(title, when, lists["connected"], lists["missing"])
+        sub = f"{day_full(day)} · Entrada {ws.local_clock(win['start'], op['tz'])} {abbr} · Corte {ws.local_clock(at, op['tz'])}"
+    else:
+        caption = checkout_text(title, when, lists["done"], lists["still"])
+        sub = f"{day_full(day)} · Salida {ws.local_clock(win['end'], op['tz'])} {abbr} · Corte {ws.local_clock(at, op['tz'])}"
+    operation = op["name"] + (f" · {slot_name}" if slot_name else "")
+    card = {"type": kind, "company": company or "VOLTAGE", "operation": operation, "subtitle": sub,
+            "connected": [[n, bool(p)] for n, p in lists["connected"]], "missing": list(lists["missing"]),
+            "done": list(lists["done"]), "still": [[n, int(m), hm(m)] for n, m in lists["still"]]}
+    slug = re.sub(r"[^a-z0-9]+", "_", op["name"].lower()).strip("_") or "operacion"
+    return caption, {"kind": "card_png", "mimetype": "image/png", "card": card,
+                     "file_name": f"corte_{'entrada' if kind == 'checkin' else 'salida'}_{slug}_{day.isoformat()}.png"}
 
 
 def timesheet_text(kind: str, company: str, op_name: str, day: date, email: str) -> str:
-    mail_es = f"al correo de Clonexa ({email})" if email else "al correo de Clonexa"
-    mail_en = f"the Clonexa email ({email})" if email else "the Clonexa email"
-    head = f"{company or 'Clonexa'} · {op_name} · {day_es(day)}"
+    """Corto y amable, con 📸: una linea en espanol y una en ingles."""
+    mail = email or "el correo de Clonexa"
+    mail_en = email or "the Clonexa email"
     if kind == "ts_weekly":
-        return "\n".join([head, f"📋 Recuerden enviar la foto del timesheet de la semana a este WhatsApp o {mail_es}.",
-                          f"📋 Please send this week's timesheet photo to this WhatsApp or to {mail_en}."])
+        return (f"📸 Hola equipo {op_name}: recuerden enviar la foto del timesheet de la semana a este WhatsApp o a {mail}. ¡Gracias!\n"
+                f"📸 Hi {op_name} team: please send this week's timesheet photo here or to {mail_en}. Thanks!")
     if kind == "ts_followup":
-        return "\n".join([head, f"⏰ Aún no recibimos el timesheet del {day_es(day)}. Envíen la foto a este WhatsApp o {mail_es}.",
-                          f"⏰ We haven't received the timesheet for {day_en(day)} yet. Please send the photo to this WhatsApp or to {mail_en}."])
-    return "\n".join([head, f"📋 Recuerda enviar la foto del timesheet de hoy a este WhatsApp o {mail_es}.",
-                      f"📋 Please send today's timesheet photo to this WhatsApp or to {mail_en}."])
+        return (f"📸 Aún no llega el timesheet del {day_es(day)} ({op_name}). ¿Lo envían por aquí o a {mail}? ¡Gracias!\n"
+                f"📸 We haven't received the {day_en(day)} timesheet ({op_name}) yet. Please send it here or to {mail_en}. Thanks!")
+    return (f"📸 Hola, recuerda enviar la foto del timesheet de hoy ({op_name}) a este WhatsApp o a {mail}. ¡Gracias!\n"
+            f"📸 Hi, please send today's timesheet photo ({op_name}) here or to {mail_en}. Thanks!")
 
 
 AUTOREPLY_TEXT = ("Este número solo envía reportes de VOLTAGE. Para tu turno usa el bot de Telegram.\n"
@@ -421,7 +481,7 @@ async def people(db: AsyncSession, company_id: Any, location_ids: list[str]) -> 
         role = str(r["role"] or "").strip().lower()
         if role in EXCLUDED_ROLES:
             continue
-        out.append({"id": r["id"], "name": " ".join(str(r["name"]).split()) or "—", "location_id": r["location_id"], "slot": int(r["slot"] or 1)})
+        out.append({"id": r["id"], "name": clean_name(r["name"]), "location_id": r["location_id"], "slot": int(r["slot"] or 1)})
     out.sort(key=lambda p: p["name"].lower())
     return out
 
@@ -431,8 +491,21 @@ def _shifts_by_person(data: dict) -> dict[str, list[dict]]:
     for s in data.get("shifts") or []:
         out.setdefault(s["employee_id"], []).append({"start": s["start"], "end": s.get("end"), "paused": False})
     for s in data.get("open_shifts") or []:
-        out.setdefault(s["employee_id"], []).append({"start": s["start"], "end": None, "paused": bool(s.get("pause_open"))})
+        pause = s.get("pause_open") or {}
+        out.setdefault(s["employee_id"], []).append({"start": s["start"], "end": None, "paused": bool(pause),
+                                                     "breaks": list(s.get("breaks") or []), "pause_since": pause.get("occurred_at")})
     return out
+
+
+def in_progress_minutes(item: dict, now: datetime) -> int:
+    """Minutos trabajados de un turno abierto hasta ahora (sin sus pausas)."""
+    total = (now - item["start"]).total_seconds()
+    for a, b in item.get("breaks") or []:
+        if a and b:
+            total -= (b - a).total_seconds()
+    if item.get("pause_since"):
+        total -= max(0.0, (now - item["pause_since"]).total_seconds())
+    return max(0, int(total // 60))
 
 
 def started_on(items: list[dict], day: date, tz_name: Any, until: datetime) -> list[dict]:
@@ -515,14 +588,20 @@ async def claim(db: AsyncSession, cid: str, key: str, kind: str, *, location_id:
 
 
 def _deliveries(targets: list[dict], body: str, *, subject: Optional[str] = None, attachments: Optional[list] = None,
-                email_body: Optional[str] = None) -> list[dict]:
+                email_body: Optional[str] = None, wa_attachments: Optional[list] = None) -> list[dict]:
     out = []
     for r in targets:
         prefix = TEST_PREFIX if r.get("test") else ""
         if r["channel"] == "email":
-            out.append({**r, "subject": prefix + (subject or "Clonexa"), "body": prefix + (email_body or body), "attachments": attachments or []})
+            mail = email_body or body
+            if mail.startswith(HTML_MARK):
+                banner = '<p style="background:#fef3c7;padding:6px 10px;border-radius:6px"><b>[PRUEBA]</b></p>' if prefix else ""
+                mail = HTML_MARK + banner + mail[len(HTML_MARK):]
+            else:
+                mail = prefix + mail
+            out.append({**r, "subject": prefix + (subject or "Clonexa"), "body": mail, "attachments": attachments or []})
         else:
-            out.append({**r, "body": prefix + body, "attachments": []})
+            out.append({**r, "body": prefix + body, "attachments": list(wa_attachments or [])})
     return out
 
 
@@ -539,71 +618,122 @@ def _op_rows(snap: dict, op_name: str) -> list[dict]:
     return [r for r in snap.get("rows") or [] if ((r.get("us") or {}).get("place") or "") == op_name]
 
 
+def _esc(value: Any) -> str:
+    import html
+
+    return html.escape(str(value if value is not None else ""))
+
+
+def _html(title: str, sub: str, blocks: list[str], foot: str) -> str:
+    return (HTML_MARK + '<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;max-width:680px">'
+            f'<h2 style="margin:0 0 4px">{_esc(title)}</h2><p style="margin:0 0 16px;color:#475569">{_esc(sub)}</p>'
+            + "".join(blocks) + f'<p style="color:#475569;margin-top:18px">{_esc(foot)}</p></div>')
+
+
+def _table(head: list[str], rows: list[list[Any]], highlight: Optional[list[bool]] = None) -> str:
+    th = "".join(f'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #cbd5e1">{_esc(h)}</th>' for h in head)
+    body = ""
+    for i, row in enumerate(rows):
+        bg = ' style="background:#fef3c7"' if highlight and highlight[i] else ""
+        body += f"<tr{bg}>" + "".join(f'<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">{_esc(c)}</td>' for c in row) + "</tr>"
+    return f'<table style="border-collapse:collapse;width:100%;font-size:14px;margin:8px 0 18px"><tr>{th}</tr>{body}</table>'
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many
+
+
 async def owners_daily(db: AsyncSession, cid: str, company: str, day: date, ops: list[dict], now: datetime) -> dict:
     snap = await _snapshot(db, cid, day, day)
     data = await _load(db, cid, now)
     shifts = _shifts_by_person(data)
     persons = await people(db, cid, [o["id"] for o in ops])
-    lines = [f"{company or 'Clonexa'} · Resumen del día / Daily summary · {day_es(day)}"]
-    total_people, total_min = 0, 0
+    name = company or "Clonexa"
+    lines = [f"📊 *{name} · Resumen del día*", f"{day_full(day)} · Daily summary"]
+    table = []
+    total_people = total_min = total_open = total_acc = 0
     for op in ops:
         rows = _op_rows(snap, op["name"])
         worked = {str(r["employee_id"]) for r in rows}
-        open_ids = set()
+        open_items: dict[str, dict] = {}
         for p in [p for p in persons if p["location_id"] == op["id"]]:
-            for s in shifts.get(p["id"]) or []:
-                if s["end"] is None:
-                    open_ids.add(p["id"])
-                if s["start"].astimezone(ws.zone(op["tz"])).date() == day:
+            for item in shifts.get(p["id"]) or []:
+                if item["end"] is None:
+                    open_items[p["id"]] = item
+                if item["start"].astimezone(ws.zone(op["tz"])).date() == day:
                     worked.add(p["id"])
+        worked |= set(open_items)
         held = [u for u in snap.get("unverified_shifts") or [] if (u.get("place") or "") == op["name"]]
         minutes = sum(int((r.get("us") or {}).get("payable_minutes") or 0) for r in rows)
-        total_people += len(worked)
-        total_min += minutes
-        line = (f"📍 {op['name']} ({us_time.abbr(op['tz'], now)}): {len(worked)} personas / people · {hm(minutes)}"
-                f" · {len(open_ids)} turnos abiertos / open shifts")
+        acc = sum(in_progress_minutes(item, now) for item in open_items.values())
+        n_open = len(open_items)
+        total_people, total_min, total_open, total_acc = total_people + len(worked), total_min + minutes, total_open + n_open, total_acc + acc
+        abbr = us_time.abbr(op["tz"], now)
+        lines += ["", f"📍 *{op['name']} ({abbr})*", f"👥 {len(worked)} personas · ⏱️ {hm(minutes)} cerradas"]
+        if n_open:
+            lines.append(f"🔄 {n_open} en curso ({hm(acc)} acumuladas)")
+            lines.append(f"⚠️ {n_open} {_plural(n_open, 'turno sigue abierto', 'turnos siguen abiertos')}")
         if held:
-            line += f" · {len(held)} por confirmar / to confirm"
-        lines.append(line)
-    lines.append(f"Total: {total_people} personas / people · {hm(total_min)}")
-    lines.append("📧 La planilla en PDF va al correo / The PDF timesheet was sent by email.")
-    body = "\n".join(lines)
-    return {"body": body, "subject": f"{company or 'Clonexa'} · Planilla del día / Daily timesheet · {day.isoformat()}",
+            lines.append(f"🕓 {len(held)} por confirmar")
+        table.append([f"{op['name']} ({abbr})", len(worked), hm(minutes), n_open, hm(acc), len(held)])
+    lines += ["", RULE, f"*Total:* {total_people} personas · {hm(total_min)} cerradas"
+              + (f" · 🔄 {total_open} en curso ({hm(total_acc)})" if total_open else ""),
+              "📎 Planilla en PDF en tu correo / PDF timesheet sent by email"]
+    html = _html(f"{name} · Resumen del día", f"{day_full(day)} · Daily summary",
+                 [_table(["Operación", "Personas", "Horas cerradas", "En curso", "Acumuladas en curso", "Por confirmar"],
+                         table + [["Total", total_people, hm(total_min), total_open, hm(total_acc), ""]],
+                         [bool(r[3]) for r in table] + [False])],
+                 "La planilla del día (entrada, salida, pausas y horas por persona) va en el PDF adjunto. / The daily timesheet is attached as PDF.")
+    return {"body": "\n".join(lines), "html": html, "subject": f"{name} · Planilla del día / Daily timesheet · {day.isoformat()}",
             "attachments": [{"kind": "daily_pdf", "from": day.isoformat(), "to": day.isoformat(),
                              "file_name": f"planilla_{day.isoformat()}.pdf", "mimetype": "application/pdf"}]}
+
+
+def _week_line(r: dict) -> tuple[str, bool]:
+    us = r["us"]
+    reg, ot = int(us.get("regular_minutes") or 0), int(us.get("overtime_minutes") or 0)
+    who = clean_name(r.get("employee_name"))
+    if ot > 0:
+        return f"{who} · {hm(reg + ot)} ({hm(reg)} + {hm(ot)} extra) ⚠️", True
+    return f"{who} · {hm(reg)}", False
 
 
 async def weekly_totals(db: AsyncSession, cid: str, company: str, sunday: date, ops: list[dict]) -> dict:
     saturday = sunday + timedelta(days=6)
     snap = await _snapshot(db, cid, sunday, saturday)
     span = f"{sunday.day:02d}/{sunday.month:02d} – {saturday.day:02d}/{saturday.month:02d}"
-    owner = [f"{company or 'Clonexa'} · Totales de la semana / Weekly totals · {span}"]
+    name = company or "Clonexa"
+    owner = [f"📊 *{name} · Totales de la semana*", f"{span} · Weekly totals"]
     groups: dict[str, str] = {}
-    overtime: list[str] = []
+    blocks: list[str] = []
+    all_reg = all_ot = all_people = 0
     for op in ops:
-        rows = sorted(_op_rows(snap, op["name"]), key=lambda r: str(r.get("employee_name") or "").lower())
+        rows = sorted(_op_rows(snap, op["name"]), key=lambda r: clean_name(r.get("employee_name")).lower())
         reg = sum(int(r["us"].get("regular_minutes") or 0) for r in rows)
         ot = sum(int(r["us"].get("overtime_minutes") or 0) for r in rows)
-        owner.append(f"📍 {op['name']}: {len(rows)} personas / people · {hm(reg + ot)} (regulares / regular {hm(reg)} · extra / overtime {hm(ot)})")
-        lines = [f"{company or 'Clonexa'} · {op['name']} · Horas de la semana / Weekly hours · {span}"]
-        for r in rows:
-            us = r["us"]
-            lines.append(f"• {str(r.get('employee_name') or '').strip()}: {hm(us.get('payable_minutes'))} "
-                         f"(reg {hm(us.get('regular_minutes'))} · extra {hm(us.get('overtime_minutes'))})")
-            if int(us.get("overtime_minutes") or 0) > 0:
-                overtime.append(f"{str(r.get('employee_name') or '').strip()} {hm(us.get('overtime_minutes'))}")
-        if not rows:
-            lines.append("Sin horas registradas / No hours recorded")
-        groups[op["id"]] = "\n".join(lines)
-    owner.append(f"⏱ Con horas extra / With overtime: {', '.join(overtime) if overtime else '—'}")
-    owner.append("📧 PDF y Excel van al correo / PDF and Excel were sent by email.")
+        all_reg, all_ot, all_people = all_reg + reg, all_ot + ot, all_people + len(rows)
+        items = [_week_line(r) for r in rows]
+        listing = numbered([t for t, _ in items]) if items else "Sin horas registradas / No hours recorded"
+        owner += ["", f"📍 *{op['name']}* · {len(rows)} personas · {hm(reg + ot)}", listing]
+        extra = sum(1 for _, flag in items if flag)
+        groups[op["id"]] = "\n".join([f"🗓️ *{name} · {op['name']} · Horas de la semana*", f"{span} · Weekly hours", "", listing]
+                                     + (["", "⚠️ = con horas extra (más de 40 h) / overtime (over 40 h)"] if extra else []))
+        blocks.append(f'<h3 style="margin:14px 0 4px">{_esc(op["name"])} · {len(rows)} personas · {_esc(hm(reg + ot))}</h3>'
+                      + _table(["#", "Persona", "Total", "Regulares", "Extra"],
+                               [[i, clean_name(r.get("employee_name")), hm(r["us"].get("payable_minutes")), hm(r["us"].get("regular_minutes")),
+                                 hm(r["us"].get("overtime_minutes"))] for i, r in enumerate(rows, 1)],
+                               [int(r["us"].get("overtime_minutes") or 0) > 0 for r in rows]))
+    owner += ["", RULE, f"*Total:* {all_people} personas · {hm(all_reg + all_ot)} ({hm(all_reg)} + {hm(all_ot)} extra)",
+              "📎 PDF y Excel en tu correo / PDF and Excel sent by email"]
+    html = _html(f"{name} · Totales de la semana", f"{span} · Weekly totals (domingo a sábado, FLSA: extra sobre 40 h)", blocks,
+                 f"Total: {all_people} personas · {hm(all_reg + all_ot)} ({hm(all_reg)} regulares + {hm(all_ot)} extra). PDF y Excel adjuntos.")
     attachments = [{"kind": "weekly_pdf", "from": sunday.isoformat(), "to": saturday.isoformat(),
                     "file_name": f"semana_{sunday.isoformat()}_{saturday.isoformat()}.pdf", "mimetype": "application/pdf"},
                    {"kind": "weekly_xlsx", "from": sunday.isoformat(), "to": saturday.isoformat(),
                     "file_name": f"semana_{sunday.isoformat()}_{saturday.isoformat()}.xlsx",
                     "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}]
-    return {"owner": "\n".join(owner), "groups": groups, "attachments": attachments,
-            "subject": f"{company or 'Clonexa'} · Totales de la semana / Weekly totals · {sunday.isoformat()} – {saturday.isoformat()}"}
+    return {"owner": "\n".join(owner), "html": html, "groups": groups, "attachments": attachments,
+            "subject": f"{name} · Totales de la semana / Weekly totals · {sunday.isoformat()} – {saturday.isoformat()}"}
 
 
 def build_xlsx(snap: dict, company: str) -> bytes:
@@ -623,7 +753,7 @@ def build_xlsx(snap: dict, company: str) -> bytes:
     rows = sorted(snap.get("rows") or [], key=lambda r: (str((r.get("us") or {}).get("place") or "~"), str(r.get("employee_name") or "").lower()))
     for r in rows:
         us = r.get("us") or {}
-        sheet.append([us.get("place") or "Sin lugar asignado", str(r.get("employee_name") or "").strip(), r.get("employee_role") or "", us.get("days_worked") or 0,
+        sheet.append([us.get("place") or "Sin lugar asignado", clean_name(r.get("employee_name")), r.get("employee_role") or "", us.get("days_worked") or 0,
                       hm(us.get("payable_minutes")), hm(us.get("regular_minutes")), hm(us.get("overtime_minutes")), hm(us.get("pause_minutes")),
                       int(us.get("payable_minutes") or 0), int(us.get("regular_minutes") or 0), int(us.get("overtime_minutes") or 0)])
     for col, width in zip("ABCDEFGHIJK", (18, 32, 14, 6, 14, 14, 16, 12, 10, 10, 10)):
@@ -635,6 +765,20 @@ def build_xlsx(snap: dict, company: str) -> bytes:
 
 async def render_file(db: AsyncSession, cid: str, spec: dict) -> tuple[bytes, str, str]:
     from app.services import us_payroll_export
+
+    if spec.get("kind") == "card_png":
+        from app.services import group_reports_card
+
+        row = (await db.execute(text("""
+            SELECT attachments FROM wa_report_deliveries WHERE company_id = CAST(:c AS uuid) AND id = :d
+        """), {"c": cid, "d": int(spec.get("d") or 0)})).first()
+        items = ws._json(row[0], []) if row else []
+        index = int(spec.get("i") or 0)
+        att = items[index] if 0 <= index < len(items) else None
+        if not att or att.get("kind") != "card_png":
+            raise LookupError("Tarjeta no encontrada")
+        png, _layout = group_reports_card.render(att["card"])
+        return png, att.get("file_name") or "corte.png", "image/png"
 
     start, end = date.fromisoformat(spec["from"]), date.fromisoformat(spec["to"])
     snap = await _snapshot(db, cid, start, end)
@@ -704,10 +848,9 @@ async def plan_company(db: AsyncSession, company_id: Any, now: Optional[datetime
                     if not kinds.get(kind) or not due(at, now) or await exists(db, cid, key):
                         continue
                     lists = cut_lists(kind, members, shifts, day, op["tz"], now)
-                    head = header(company, op["name"], slot_name, day, at, op["tz"])
-                    body = checkin_text(head, lists["connected"], lists["missing"]) if kind == "checkin" else checkout_text(head, lists["done"], lists["still"])
+                    caption, card = cut_message(kind, company, op, slot_name, day, win, lists)
                     if await claim(db, cid, key, kind, location_id=op["id"], day=day, slot=number,
-                                   deliveries=_deliveries(recipients(cfg, "group", op), body)):
+                                   deliveries=_deliveries(recipients(cfg, "group", op), caption, wa_attachments=[card])):
                         stats[kind] += 1
             if op_exit is None:
                 continue
@@ -752,7 +895,8 @@ async def plan_company(db: AsyncSession, company_id: Any, now: Optional[datetime
                 continue
             s = await owners_daily(db, cid, company, day, ops, now)
             if await claim(db, cid, key, "owners_daily", location_id=None, day=day, slot=0,
-                           deliveries=_deliveries(recipients(cfg, "owners"), s["body"], subject=s["subject"], attachments=s["attachments"])):
+                           deliveries=_deliveries(recipients(cfg, "owners"), s["body"], subject=s["subject"], attachments=s["attachments"],
+                                                  email_body=s["html"])):
                 stats["owners_daily"] += 1
 
     # Totales de la semana (domingo a sabado), lunes 8:00 ET
@@ -766,7 +910,7 @@ async def plan_company(db: AsyncSession, company_id: Any, now: Optional[datetime
             key = f"weekly_totals:{sunday.isoformat()}"
             if due(at, now, WEEKLY_WINDOW) and not await exists(db, cid, key):
                 w = await weekly_totals(db, cid, company, sunday, ops)
-                deliveries = _deliveries(recipients(cfg, "owners"), w["owner"], subject=w["subject"], attachments=w["attachments"])
+                deliveries = _deliveries(recipients(cfg, "owners"), w["owner"], subject=w["subject"], attachments=w["attachments"], email_body=w["html"])
                 for op in ops:
                     deliveries += _deliveries(recipients(cfg, "group", op), w["groups"][op["id"]])
                 if await claim(db, cid, key, "weekly_totals", location_id=None, day=sunday, slot=0, deliveries=deliveries):
@@ -800,21 +944,21 @@ async def send_test(db: AsyncSession, company_id: Any, kind: str, location_id: O
         persons = [p for p in await people(db, cid, [op["id"]]) if int(ws.slot_of(week["slots"], p["slot"]).get("slot") or 1) == int(slot.get("slot") or 1)]
         shifts = _shifts_by_person(await _load(db, cid, now))
         win = slot_window(slot, day, op["tz"], int(cfg["checkin_after_min"]), int(cfg["checkout_after_min"]), True)
-        at = win["checkin_at"] if kind == "checkin" else win["checkout_at"]
         lists = cut_lists(kind, persons, shifts, day, op["tz"], now)
-        head = header(company, op["name"], slot.get("name") if len(week["slots"]) > 1 else None, day, at, op["tz"])
-        body = checkin_text(head, lists["connected"], lists["missing"]) if kind == "checkin" else checkout_text(head, lists["done"], lists["still"])
-        deliveries = _deliveries(recipients(cfg, "group", op, force_test=True), body)
+        caption, card = cut_message(kind, company, op, slot.get("name") if len(week["slots"]) > 1 else None, day, win, lists)
+        deliveries = _deliveries(recipients(cfg, "group", op, force_test=True), caption, wa_attachments=[card])
     elif kind in ("ts_daily", "ts_weekly", "ts_followup"):
         who = "supervisor" if kind == "ts_daily" else "group"
         deliveries = _deliveries(recipients(cfg, who, op, force_test=True), timesheet_text(kind, company, op["name"], day, cfg.get("clonexa_email") or ""))
     elif kind == "owners_daily":
         s = await owners_daily(db, cid, company, day, ops, now)
-        deliveries = _deliveries(recipients(cfg, "owners", force_test=True), s["body"], subject=s["subject"], attachments=s["attachments"])
+        deliveries = _deliveries(recipients(cfg, "owners", force_test=True), s["body"], subject=s["subject"], attachments=s["attachments"],
+                                 email_body=s["html"])
     else:
         saturday = last_saturday(now.astimezone(ws.zone(cfg["totals_tz"])).date())
         w = await weekly_totals(db, cid, company, saturday - timedelta(days=6), ops)
-        deliveries = _deliveries(recipients(cfg, "owners", force_test=True), w["owner"], subject=w["subject"], attachments=w["attachments"])
+        deliveries = _deliveries(recipients(cfg, "owners", force_test=True), w["owner"], subject=w["subject"], attachments=w["attachments"],
+                                 email_body=w["html"])
         for o in ops:
             deliveries += _deliveries(recipients(cfg, "group", o, force_test=True), w["groups"][o["id"]])
     nid = await claim(db, cid, f"test:{kind}:{uuid.uuid4().hex}", kind, location_id=op["id"] if kind not in ("owners_daily", "weekly_totals") else None,
@@ -854,16 +998,21 @@ def payload(row: dict, company: str, now: datetime) -> dict:
     secret = os.getenv(ENV_SECRET) or ""
     base = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_PUBLIC_URL") or "https://clonexa-backend-production.up.railway.app").rstrip("/")
     files = []
-    for a in ws._json(row.get("attachments"), []):
-        token = sign(secret, {"c": row["company_id"], "k": a.get("kind"), "f": a.get("from"), "t": a.get("to"),
-                              "exp": int((now + LINK_TTL).timestamp())})
+    for i, a in enumerate(ws._json(row.get("attachments"), [])):
+        if a.get("kind") == "card_png":
+            data = {"c": row["company_id"], "k": "card_png", "d": int(row["id"]), "i": i, "exp": int((now + LINK_TTL).timestamp())}
+        else:
+            data = {"c": row["company_id"], "k": a.get("kind"), "f": a.get("from"), "t": a.get("to"), "exp": int((now + LINK_TTL).timestamp())}
+        token = sign(secret, data)
         files.append({"url": f"{base}/api/v1/group-reports/files/{token}", "file_name": a.get("file_name"), "mimetype": a.get("mimetype")})
     is_mail = row["channel"] == "email"
+    body = str(row["body"] or "")
+    is_html = is_mail and body.startswith(HTML_MARK)
     return {"delivery_id": int(row["id"]), "notice_id": int(row["notice_id"]), "company": company, "kind": row["kind"],
             "kind_label": KINDS.get(row["kind"], row["kind"]), "test_mode": bool(row["test"]), "channel": row["channel"],
             "destination": row["destination"],
             "to": [t for t in str(row["target"]).split(",") if t] if is_mail else row["target"],
-            "subject": row.get("subject") or "", "text": row["body"], "attachments": files,
+            "subject": row.get("subject") or "", "text": body[len(HTML_MARK):] if is_html else body, "html": is_html, "attachments": files,
             "attempt": int(row.get("attempts") or 1), "max_attempts": MAX_ATTEMPTS}
 
 

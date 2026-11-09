@@ -147,6 +147,12 @@ async def _notices(db, cid: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def _delivery_id(db, cid: str, kind: str, op: str) -> int:
+    return int((await db.execute(text("""
+        SELECT id FROM wa_report_deliveries WHERE company_id = CAST(:c AS uuid) AND kind = :k AND body LIKE :b ORDER BY id LIMIT 1
+    """), {"c": cid, "k": kind, "b": f"%{op}%"})).scalar())
+
+
 def _bodies(rows, kind):
     return [r["body"] for r in rows if r["kind"] == kind]
 
@@ -163,13 +169,26 @@ async def test_cortes_por_franja_listas_textos_y_sin_duplicados(maker):
         assert stats["checkin"] == 2, "Virginia H1 (7:30 ET) y Alabama H1 (6:30 CT) caen a las 12:30 UTC"
         rows = await _notices(db, cid)
         va = next(b for b in _bodies(rows, "checkin") if "Virginia" in b)
-        assert va == ("[PRUEBA] VOLTAGE · Virginia · Horario 1 · Lun 09/11 · 7:30 a. m. ET\n"
-                      "Entrada / Check-in\n"
-                      "✅ Conectados / Connected (2): Ana Ruiz, ⏸ Beto Vega\n"
-                      "❌ No conectados / Not connected (1): Carlos Paz")
+        assert va == ("[PRUEBA] *VOLTAGE · Virginia · Horario 1 · Entrada*\n"
+                      "Lun 09/11 · 7:30 a. m. ET\n"
+                      "\n"
+                      "❌ *Sin conectar / Not connected (1):*\n"
+                      "1. Carlos Paz\n"
+                      "\n"
+                      "✅ Conectados / Connected: 2 de 3\n"
+                      "⏸️ En pausa / On break: 1"), va
+        card_row = next(r for r in rows if r["kind"] == "checkin" and "Virginia" in r["body"])
+        card = card_row["attachments"][0]
+        assert card["kind"] == "card_png" and card["mimetype"] == "image/png" and card_row["channel"] == "whatsapp"
+        assert card["card"]["connected"] == [["Ana Ruiz", False], ["Beto Vega", True]] and card["card"]["missing"] == ["Carlos Paz"]
+        assert card["card"]["subtitle"] == "Lunes 09/11 · Entrada 7:00 a. m. ET · Corte 7:30 a. m."
+        png, name, mime = await gr.render_file(db, cid, {"kind": "card_png", "d": await _delivery_id(db, cid, "checkin", "Virginia"), "i": 0})
+        assert png.startswith(b"\x89PNG") and mime == "image/png" and name.startswith("corte_entrada_virginia_2026-11-09")
+        with pytest.raises(LookupError):
+            await gr.render_file(db, cid, {"kind": "card_png", "d": 999999, "i": 0})
         assert "Diana" not in va and "Dueño" not in va and "Dora" not in va, "sin directores ni dueños; Dora es del Horario 2"
         al = next(b for b in _bodies(rows, "checkin") if "Alabama" in b)
-        assert "6:30 a. m. CT" in al and "Connected (1): Elena Gómez" in al and "Not connected (1): Felipe Soto" in al
+        assert "6:30 a. m. CT" in al and "Connected: 1 de 2" in al and "1. Felipe Soto" in al
 
         # reiniciar / redesplegar = volver a correr contra la misma base: nada se repite
         for minute in ("11-09T12:30", "11-09T12:31", "11-09T12:59"):
@@ -179,14 +198,17 @@ async def test_cortes_por_franja_listas_textos_y_sin_duplicados(maker):
         assert (await gr.plan_company(db, cid, T("11-09T14:30")))["checkin"] == 2, "Horario 2: 9:30 ET y 8:30 CT"
         rows = await _notices(db, cid)
         va2 = next(b for b in _bodies(rows, "checkin") if "Horario 2" in b and "Virginia" in b)
-        assert "9:30 a. m. ET" in va2 and "Connected (1): Dora Luz" in va2 and "Not connected (0): —" in va2
+        assert "9:30 a. m. ET" in va2 and "🎉 *Todos conectados / Everyone is clocked in*" in va2 and "Connected: 1 de 1" in va2
 
         assert (await gr.plan_company(db, cid, T("11-09T21:00")))["checkout"] == 2, "salida H1: 16:00 ET y 15:00 CT"
         out = next(b for b in _bodies(await _notices(db, cid), "checkout") if "Virginia" in b)
-        assert out == ("[PRUEBA] VOLTAGE · Virginia · Horario 1 · Lun 09/11 · 4:00 p. m. ET\n"
-                       "Salida / Check-out\n"
-                       "✅ Ya cerraron / Clocked out (1): Ana Ruiz\n"
-                       "⚠️ Siguen conectados / Still clocked in (1): Beto Vega (8 h 50 min)")
+        assert out == ("[PRUEBA] *VOLTAGE · Virginia · Horario 1 · Salida*\n"
+                       "Lun 09/11 · 4:00 p. m. ET\n"
+                       "\n"
+                       "⚠️ *Siguen conectados / Still clocked in (1):*\n"
+                       "1. Beto Vega · 8 h 50 min\n"
+                       "\n"
+                       "✅ Ya cerraron / Clocked out: 1 de 2"), out
         assert all(r["target"] in (OWN, MAIL) for r in await _notices(db, cid)), "modo prueba: todo a mi numero"
 
 
@@ -201,7 +223,7 @@ async def test_fin_de_semana_solo_con_horario_o_turno(maker):
         stats = await gr.plan_company(db, cid, T("11-14T12:31"))
         assert stats["checkin"] == 1, "alguien de Virginia H1 inicio turno el sabado: sale el corte"
         body = next(b for b in _bodies(await _notices(db, cid), "checkin") if "Sáb 14/11" in b)
-        assert "Connected (1): Carlos Paz" in body
+        assert "Connected: 1 de 3" in body and "*VOLTAGE · Virginia · Horario 1 · Entrada*" in body
         # Saturday con horario programado en Alabama H2 (dias 0-5)
         await ws.save_week(db, cid, ids["al"], MONDAY, [H1_AL, {**H2_AL, "days": [0, 1, 2, 3, 4, 5]}], actor="Dueña", actor_user_id=None)
         assert (await gr.plan_company(db, cid, T("11-14T14:30")))["checkin"] == 1, "sabado programado: sale aunque nadie haya entrado"
@@ -219,19 +241,20 @@ async def test_recordatorios_de_timesheet_y_el_de_las_9_solo_si_no_llego(maker):
         rows = await _notices(db, cid)
         noel = next(r for r in rows if r["kind"] == "ts_daily")
         assert noel["target"] == NOEL and noel["channel"] == "whatsapp" and not noel["body"].startswith("[PRUEBA]")
-        assert "Recuerda enviar la foto del timesheet de hoy" in noel["body"] and "Please send today's timesheet photo" in noel["body"]
+        assert noel["body"].count("\n") == 1 and noel["body"].startswith("📸 Hola, recuerda enviar la foto del timesheet de hoy (Alabama)")
+        assert "📸 Hi, please send today's timesheet photo (Alabama)" in noel["body"] and "clonexa@example.test" in noel["body"]
         # martes 9:00 CT (15:00 UTC): no llego la foto -> un solo recordatorio mas
         assert (await gr.plan_company(db, cid, T("11-10T14:59")))["ts_followup"] == 0
         assert (await gr.plan_company(db, cid, T("11-10T15:00")))["ts_followup"] == 1
         assert (await gr.plan_company(db, cid, T("11-10T15:20")))["ts_followup"] == 0, "uno solo"
         follow = next(r for r in await _notices(db, cid) if r["kind"] == "ts_followup")
-        assert follow["target"] == NOEL and "Aún no recibimos el timesheet del Lun 09/11" in follow["body"]
+        assert follow["target"] == NOEL and "📸 Aún no llega el timesheet del Lun 09/11 (Alabama)" in follow["body"]
 
         # viernes: grupo de Virginia; la foto llega -> sabado 9:00 ET no hay recordatorio
         stats = await gr.plan_company(db, cid, T("11-13T23:30"))
         assert stats["ts_weekly"] == 1 and stats["ts_daily"] == 1
         weekly = next(r for r in await _notices(db, cid) if r["kind"] == "ts_weekly")
-        assert weekly["target"] == GROUP_VA and "timesheet de la semana" in weekly["body"]
+        assert weekly["target"] == GROUP_VA and "📸 Hola equipo Virginia: recuerden enviar la foto del timesheet de la semana" in weekly["body"]
         await gr.received(db, cid, {"location_id": ids["va"], "source": "whatsapp", "sender": GROUP_VA, "file_name": "ts.jpg",
                                     "drive_url": "https://drive.google.com/file/d/x"}, now=T("11-13T23:50"))
         assert (await gr.plan_company(db, cid, T("11-14T14:00")))["ts_followup"] == 0, "sabado 9:00 ET: la foto de Virginia ya llego"
@@ -253,10 +276,16 @@ async def test_resumen_diario_a_duenos(maker):
         assert [(r["channel"], r["target"]) for r in rows] == [("whatsapp", OWNER_A), ("whatsapp", OWNER_J),
                                                                ("email", "adriana@example.test,javier@example.test")]
         body = rows[0]["body"]
-        assert "📍 Virginia (ET): 3 personas / people · 17 h 29 min · 1 turnos abiertos / open shifts" in body, body
-        assert "📍 Alabama (CT): 2 personas / people · 8 h 34 min · 1 turnos abiertos / open shifts" in body, body
+        assert body.startswith("📊 *VOLTAGE · Resumen del día*\nLunes 09/11 · Daily summary\n\n"), body
+        assert ("📍 *Virginia (ET)*\n👥 3 personas · ⏱️ 17 h 29 min cerradas\n🔄 1 en curso (10 min acumuladas)\n"
+                "⚠️ 1 turno sigue abierto") in body, body
+        assert "📍 *Alabama (CT)*\n👥 2 personas · ⏱️ 8 h 34 min cerradas\n🔄 1 en curso (9 h 30 min acumuladas)" in body, body
+        assert "⏱️ 0 min" not in body and "*Total:* 5 personas · 26 h 03 min cerradas · 🔄 2 en curso (9 h 40 min)" in body, body
         mail = rows[2]
         assert mail["subject"].startswith("VOLTAGE · Planilla del día") and json.loads(json.dumps(mail["attachments"]))[0]["kind"] == "daily_pdf"
+        assert mail["body"].startswith(gr.HTML_MARK) and "<table" in mail["body"] and "Horas cerradas" in mail["body"] and "9 h 40 min" in mail["body"]
+        sent = gr.payload({**mail, "id": 1, "notice_id": 1, "attempts": 1, "company_id": cid}, "VOLTAGE", T("11-09T23:31"))
+        assert sent["html"] is True and sent["text"].startswith("<div") and not sent["text"].startswith(gr.HTML_MARK)
         content, name, mime = await gr.render_file(db, cid, {"kind": "daily_pdf", "from": "2026-11-09", "to": "2026-11-09"})
         assert content.startswith(b"%PDF") and mime == "application/pdf"
 
@@ -276,15 +305,18 @@ async def test_totales_del_lunes_regulares_y_extra_por_persona(maker):
         assert (await gr.plan_company(db, cid, T("11-16T13:30")))["weekly_totals"] == 0
         rows = [r for r in await _notices(db, cid) if r["kind"] == "weekly_totals"]
         groups = {r["target"]: r["body"] for r in rows if r["target"] in (GROUP_VA, GROUP_AL)}
-        assert "• Felipe Soto: 44 h (reg 40 h · extra 4 h)" in groups[GROUP_AL]
-        assert "• Ana Ruiz: 8 h (reg 8 h · extra 0 min)" in groups[GROUP_VA]
+        assert "1. Felipe Soto · 44 h (40 h + 4 h extra) ⚠️" in groups[GROUP_AL], groups[GROUP_AL]
+        assert "1. Ana Ruiz · 8 h" in groups[GROUP_VA] and "⚠️" not in groups[GROUP_VA]
+        assert groups[GROUP_AL].startswith("🗓️ *VOLTAGE · Alabama · Horas de la semana*")
         assert "08/11 – 14/11" in groups[GROUP_AL], "semana anterior, domingo a sabado"
         for b in groups.values():
             assert "$" not in b and "USD" not in b, "a los grupos solo horas"
         owner = next(r for r in rows if r["target"] == OWNER_A)["body"]
-        assert "Con horas extra / With overtime: Felipe Soto 4 h" in owner
+        assert "📍 *Alabama* · 1 personas · 44 h\n1. Felipe Soto · 44 h (40 h + 4 h extra) ⚠️" in owner, owner
+        assert "*Total:* 2 personas · 52 h (48 h + 4 h extra)" in owner
         mail = next(r for r in rows if r["channel"] == "email")
         assert [a["kind"] for a in mail["attachments"]] == ["weekly_pdf", "weekly_xlsx"]
+        assert mail["body"].startswith(gr.HTML_MARK) and "<table" in mail["body"] and "Felipe Soto" in mail["body"]
         xlsx, name, _ = await gr.render_file(db, cid, {"kind": "weekly_xlsx", "from": "2026-11-08", "to": "2026-11-14"})
         from openpyxl import load_workbook
         import io
@@ -308,7 +340,7 @@ async def test_modo_prueba_nada_sale_a_destinos_reales_y_envio_con_reintentos(ma
         rows = await _notices(db, cid)
         real = {GROUP_VA, GROUP_AL, NOEL, OWNER_A, OWNER_J, "adriana@example.test", "javier@example.test"}
         assert rows and not any(r["target"] in real or any(x in r["target"] for x in real) for r in rows), "nada a grupos, Noel ni dueños"
-        assert all(r["body"].startswith("[PRUEBA] ") for r in rows)
+        assert all(r["body"].startswith("[PRUEBA] ") or (r["body"].startswith(gr.HTML_MARK) and "<b>[PRUEBA]</b>" in r["body"]) for r in rows)
         assert all(r["subject"].startswith("[PRUEBA] ") for r in rows if r["channel"] == "email")
 
         sent, gaps = [], []
