@@ -297,26 +297,32 @@ async def test_totales_del_lunes_regulares_y_extra_por_persona(maker):
         cid = ids["company"]
         felipe = await seed.person(db, cid, "Felipe Soto", None, ids["al"])
         ana = await seed.person(db, cid, "Ana Ruiz", None, ids["va"])
-        for d in ("10", "11", "12", "13"):  # 11 h x 4 = 44 h: 40 regulares + 4 extra
+        gabo = await seed.person(db, cid, "Gabo Mena", None, ids["al"])
+        hugo = await seed.person(db, cid, "Hugo Paz", None, ids["al"])
+        iris = await seed.person(db, cid, "Iris Luna", None, ids["al"])
+        for d in ("10", "11", "12", "13"):  # Felipe 44 h (4 extra), Gabo 46 h (6), Hugo 42 h (2), Iris 41 h (1)
             await seed.shift(db, cid, felipe, f"11-{d}T12:00", f"11-{d}T23:00")
+            await seed.shift(db, cid, gabo, f"11-{d}T12:00", f"11-{d}T23:30")
+            await seed.shift(db, cid, hugo, f"11-{d}T12:00", f"11-{d}T22:30")
+            await seed.shift(db, cid, iris, f"11-{d}T12:00", f"11-{d}T22:15")
         await seed.shift(db, cid, ana, "11-10T12:00", "11-10T20:00")
         assert (await gr.plan_company(db, cid, T("11-16T12:59")))["weekly_totals"] == 0
         assert (await gr.plan_company(db, cid, T("11-16T13:00")))["weekly_totals"] == 1, "lunes 8:00 ET"
         assert (await gr.plan_company(db, cid, T("11-16T13:30")))["weekly_totals"] == 0
         rows = [r for r in await _notices(db, cid) if r["kind"] == "weekly_totals"]
-        groups = {r["target"]: r["body"] for r in rows if r["target"] in (GROUP_VA, GROUP_AL)}
-        assert "1. Felipe Soto · 44 h (40 h + 4 h extra) ⚠️" in groups[GROUP_AL], groups[GROUP_AL]
-        assert "1. Ana Ruiz · 8 h" in groups[GROUP_VA] and "⚠️" not in groups[GROUP_VA]
-        assert groups[GROUP_AL].startswith("🗓️ *VOLTAGE · Alabama · Horas de la semana*")
-        assert "08/11 – 14/11" in groups[GROUP_AL], "semana anterior, domingo a sabado"
-        for b in groups.values():
-            assert "$" not in b and "USD" not in b, "a los grupos solo horas"
+        assert not [r for r in rows if r["target"] in (GROUP_VA, GROUP_AL)], "074A: los totales nunca van a los grupos"
+        assert [(r["channel"], r["target"]) for r in rows] == [("whatsapp", OWNER_A), ("whatsapp", OWNER_J),
+                                                               ("email", "adriana@example.test,javier@example.test")]
         owner = next(r for r in rows if r["target"] == OWNER_A)["body"]
-        assert "📍 *Alabama* · 1 personas · 44 h\n1. Felipe Soto · 44 h (40 h + 4 h extra) ⚠️" in owner, owner
-        assert "*Total:* 2 personas · 52 h (48 h + 4 h extra)" in owner
+        assert owner == ("📊 *VOLTAGE · Semana 08/11 – 14/11*\n"
+                         "📍 Virginia: 1 persona · 8 h (0 h extra)\n"
+                         "📍 Alabama: 4 personas · 173 h (13 h extra)\n"
+                         "⚠️ Más horas extra: Gabo Mena 6 h, Felipe Soto 4 h, Hugo Paz 2 h\n"
+                         "📎 Detalle por persona en PDF y Excel en tu correo / Details by person in your email"), owner
+        assert "Iris" not in owner and "1." not in owner, "sin lista por persona: solo el top 3"
         mail = next(r for r in rows if r["channel"] == "email")
         assert [a["kind"] for a in mail["attachments"]] == ["weekly_pdf", "weekly_xlsx"]
-        assert mail["body"].startswith(gr.HTML_MARK) and "<table" in mail["body"] and "Felipe Soto" in mail["body"]
+        assert mail["body"].startswith(gr.HTML_MARK) and "<table" in mail["body"] and all(n in mail["body"] for n in ("Felipe Soto", "Iris Luna", "Ana Ruiz"))
         xlsx, name, _ = await gr.render_file(db, cid, {"kind": "weekly_xlsx", "from": "2026-11-08", "to": "2026-11-14"})
         from openpyxl import load_workbook
         import io
@@ -552,3 +558,34 @@ def test_telegram_ya_saliste_a_los_30_min_con_el_interruptor(monkeypatch):
     monkeypatch.setattr(bot_punch_gps, "bot_token", fake_token)
     asyncio.run(ws.run_all(SimpleNamespace(rollback=lambda: None)))
     assert seen == {"on": 30, "off": 15}
+
+
+# ------------------------------------------------------------ 074A: a los grupos nunca horas
+def test_mensaje_semanal_numeros_grandes_y_sin_extras():
+    assert gr.hours_round(1240 * 60 + 20) == "1.240 h" and gr.hours_round(52 * 60 - 10) == "52 h" and gr.hours_round(0) == "0 h"
+
+
+@pytest.mark.asyncio
+async def test_grupos_solo_cortes_y_timesheet_en_dia_y_semana_completos(maker):
+    async with maker() as db:
+        ids = await _company(db, test_mode=False)
+        await _people(db, ids)
+        cid = ids["company"]
+        minutes = [T(f"11-{d}T{h}") for d in ("09", "10", "13", "14", "16") for h in ("12:30", "13:00", "14:30", "15:00", "21:00", "23:30")]
+        for now in minutes:
+            await gr.plan_company(db, cid, now)
+        for kind in gr.KINDS:
+            await gr.send_test(db, cid, kind, now=T("11-16T13:10"))
+        rows = await _notices(db, cid)
+        to_groups = {r["kind"] for r in rows if r["target"] in (GROUP_VA, GROUP_AL) or r["destination"].startswith("Grupo")}
+        assert to_groups and to_groups <= set(gr.GROUP_KINDS), to_groups
+        assert {"weekly_totals", "owners_daily", "ts_daily"}.isdisjoint(to_groups)
+        for r in rows:
+            if r["target"] in (GROUP_VA, GROUP_AL) or r["destination"].startswith("Grupo"):
+                assert "acumuladas" not in r["body"] and "extra" not in r["body"] and "cerradas" not in r["body"], r["body"]
+        # candado: aunque alguien arme un envio a grupo de otro tipo, no se crea
+        group = gr.recipients(await gr.get_config(db, cid), "group", (await gr.operations(db, cid, await gr.get_config(db, cid)))[0])
+        nid = await gr.claim(db, cid, "candado:prueba", "owners_daily", location_id=None, day=MONDAY, slot=0,
+                             deliveries=gr._deliveries(group, "📊 horas"))
+        n = (await db.execute(text("SELECT count(*) FROM wa_report_deliveries WHERE notice_id = :n"), {"n": nid})).scalar()
+        assert n == 0

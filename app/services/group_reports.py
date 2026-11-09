@@ -76,6 +76,8 @@ KINDS = {
     "weekly_totals": "Totales de la semana",
 }
 EXTRA_KINDS = {"received": "Timesheet recibido"}
+# 074A: lo UNICO que puede llegar a un grupo de WhatsApp. Totales y resumenes nunca van a grupos.
+GROUP_KINDS = frozenset({"checkin", "checkout", "ts_weekly", "ts_followup"})
 DAY_ES = ("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom")
 DAY_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 TIMEZONES = ("America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Bogota")
@@ -537,7 +539,7 @@ def recipients(cfg: dict, who: str, op: Optional[dict] = None, *, force_test: bo
     test = force_test or cfg.get("test_mode") is not False
     out: list[dict] = []
     if who == "group" and op:
-        out.append({"channel": "whatsapp", "destination": f"Grupo {op['name']}", "target": op.get("group_jid") or ""})
+        out.append({"channel": "whatsapp", "destination": f"Grupo {op['name']}", "target": op.get("group_jid") or "", "audience": "group"})
     elif who == "supervisor":
         sup = cfg.get("supervisor") or {}
         out.append({"channel": "whatsapp", "destination": f"Supervisor {sup.get('name') or ''}".strip(), "target": sup.get("phone") or ""})
@@ -562,6 +564,10 @@ async def exists(db: AsyncSession, cid: str, key: str) -> bool:
                                   {"c": cid, "k": key})).first())
 
 
+def is_group_delivery(d: dict) -> bool:
+    return d.get("audience") == "group" or str(d.get("target") or "").endswith("@g.us")
+
+
 async def claim(db: AsyncSession, cid: str, key: str, kind: str, *, location_id: Optional[str], day: Optional[date], slot: int,
                 deliveries: list[dict], test: bool = False) -> Optional[int]:
     """Crea el aviso y sus envios en UNA transaccion. None si ya existia (otra copia o antes del reinicio)."""
@@ -573,12 +579,14 @@ async def claim(db: AsyncSession, cid: str, key: str, kind: str, *, location_id:
     if nid is None:
         await db.rollback()
         return None
+    # 074A: candado final. Un envio a grupo de un tipo que no es corte ni timesheet no se crea nunca.
+    deliveries = [d for d in deliveries if not is_group_delivery(d) or kind in GROUP_KINDS]
     for d in deliveries:
         missing = not d.get("target")
         await db.execute(text("""
             INSERT INTO wa_report_deliveries (notice_id, company_id, kind, channel, destination, target, subject, body, attachments, test,
-                                              status, last_error)
-            VALUES (:n, CAST(:c AS uuid), :kind, :ch, :dest, :tg, :subj, :body, CAST(:att AS jsonb), :t, :st, :err)
+                                              status, last_error, next_attempt_at)
+            VALUES (:n, CAST(:c AS uuid), :kind, :ch, :dest, :tg, :subj, :body, CAST(:att AS jsonb), :t, :st, :err, to_timestamp(0))
         """), {"n": nid, "c": cid, "kind": kind, "ch": d["channel"], "dest": str(d.get("destination") or "")[:200], "tg": str(d.get("target") or "")[:400],
                "subj": (str(d["subject"])[:300] if d.get("subject") else None), "body": d.get("body") or "", "att": json.dumps(d.get("attachments") or []),
                "t": bool(d.get("test")), "st": d.get("status") or ("skipped" if missing else "pending"),
@@ -689,42 +697,38 @@ async def owners_daily(db: AsyncSession, cid: str, company: str, day: date, ops:
                              "file_name": f"planilla_{day.isoformat()}.pdf", "mimetype": "application/pdf"}]}
 
 
-def _week_line(r: dict) -> tuple[str, bool]:
-    us = r["us"]
-    reg, ot = int(us.get("regular_minutes") or 0), int(us.get("overtime_minutes") or 0)
-    who = clean_name(r.get("employee_name"))
-    if ot > 0:
-        return f"{who} · {hm(reg + ot)} ({hm(reg)} + {hm(ot)} extra) ⚠️", True
-    return f"{who} · {hm(reg)}", False
+def hours_round(minutes: Any) -> str:
+    """1.240 h: horas enteras con punto de miles (mensaje corto de la semana)."""
+    return f"{int(round(int(minutes or 0) / 60)):,}".replace(",", ".") + " h"
 
 
 async def weekly_totals(db: AsyncSession, cid: str, company: str, sunday: date, ops: list[dict]) -> dict:
+    """074A: a los dueños UN mensaje corto (por operacion: personas, horas y extra; top 3 de extras);
+    el detalle por persona va solo en el correo (tabla, PDF y Excel). Nada para los grupos."""
     saturday = sunday + timedelta(days=6)
     snap = await _snapshot(db, cid, sunday, saturday)
     span = f"{sunday.day:02d}/{sunday.month:02d} – {saturday.day:02d}/{saturday.month:02d}"
     name = company or "Clonexa"
-    owner = [f"📊 *{name} · Totales de la semana*", f"{span} · Weekly totals"]
-    groups: dict[str, str] = {}
+    owner = [f"📊 *{name} · Semana {span}*"]
     blocks: list[str] = []
     all_reg = all_ot = all_people = 0
+    extras: list[tuple[int, str]] = []
     for op in ops:
         rows = sorted(_op_rows(snap, op["name"]), key=lambda r: clean_name(r.get("employee_name")).lower())
         reg = sum(int(r["us"].get("regular_minutes") or 0) for r in rows)
         ot = sum(int(r["us"].get("overtime_minutes") or 0) for r in rows)
         all_reg, all_ot, all_people = all_reg + reg, all_ot + ot, all_people + len(rows)
-        items = [_week_line(r) for r in rows]
-        listing = numbered([t for t, _ in items]) if items else "Sin horas registradas / No hours recorded"
-        owner += ["", f"📍 *{op['name']}* · {len(rows)} personas · {hm(reg + ot)}", listing]
-        extra = sum(1 for _, flag in items if flag)
-        groups[op["id"]] = "\n".join([f"🗓️ *{name} · {op['name']} · Horas de la semana*", f"{span} · Weekly hours", "", listing]
-                                     + (["", "⚠️ = con horas extra (más de 40 h) / overtime (over 40 h)"] if extra else []))
+        owner.append(f"📍 {op['name']}: {len(rows)} {_plural(len(rows), 'persona', 'personas')} · {hours_round(reg + ot)} ({hours_round(ot)} extra)")
+        extras += [(int(r["us"].get("overtime_minutes") or 0), clean_name(r.get("employee_name"))) for r in rows
+                   if int(r["us"].get("overtime_minutes") or 0) > 0]
         blocks.append(f'<h3 style="margin:14px 0 4px">{_esc(op["name"])} · {len(rows)} personas · {_esc(hm(reg + ot))}</h3>'
                       + _table(["#", "Persona", "Total", "Regulares", "Extra"],
                                [[i, clean_name(r.get("employee_name")), hm(r["us"].get("payable_minutes")), hm(r["us"].get("regular_minutes")),
                                  hm(r["us"].get("overtime_minutes"))] for i, r in enumerate(rows, 1)],
                                [int(r["us"].get("overtime_minutes") or 0) > 0 for r in rows]))
-    owner += ["", RULE, f"*Total:* {all_people} personas · {hm(all_reg + all_ot)} ({hm(all_reg)} + {hm(all_ot)} extra)",
-              "📎 PDF y Excel en tu correo / PDF and Excel sent by email"]
+    top = sorted(extras, key=lambda x: (-x[0], x[1].lower()))[:3]
+    owner.append("⚠️ Más horas extra: " + ", ".join(f"{n} {hm(m)}" for m, n in top) if top else "✅ Sin horas extra / No overtime")
+    owner.append("📎 Detalle por persona en PDF y Excel en tu correo / Details by person in your email")
     html = _html(f"{name} · Totales de la semana", f"{span} · Weekly totals (domingo a sábado, FLSA: extra sobre 40 h)", blocks,
                  f"Total: {all_people} personas · {hm(all_reg + all_ot)} ({hm(all_reg)} regulares + {hm(all_ot)} extra). PDF y Excel adjuntos.")
     attachments = [{"kind": "weekly_pdf", "from": sunday.isoformat(), "to": saturday.isoformat(),
@@ -732,7 +736,7 @@ async def weekly_totals(db: AsyncSession, cid: str, company: str, sunday: date, 
                    {"kind": "weekly_xlsx", "from": sunday.isoformat(), "to": saturday.isoformat(),
                     "file_name": f"semana_{sunday.isoformat()}_{saturday.isoformat()}.xlsx",
                     "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}]
-    return {"owner": "\n".join(owner), "html": html, "groups": groups, "attachments": attachments,
+    return {"owner": "\n".join(owner), "html": html, "attachments": attachments,
             "subject": f"{name} · Totales de la semana / Weekly totals · {sunday.isoformat()} – {saturday.isoformat()}"}
 
 
@@ -911,8 +915,6 @@ async def plan_company(db: AsyncSession, company_id: Any, now: Optional[datetime
             if due(at, now, WEEKLY_WINDOW) and not await exists(db, cid, key):
                 w = await weekly_totals(db, cid, company, sunday, ops)
                 deliveries = _deliveries(recipients(cfg, "owners"), w["owner"], subject=w["subject"], attachments=w["attachments"], email_body=w["html"])
-                for op in ops:
-                    deliveries += _deliveries(recipients(cfg, "group", op), w["groups"][op["id"]])
                 if await claim(db, cid, key, "weekly_totals", location_id=None, day=sunday, slot=0, deliveries=deliveries):
                     stats["weekly_totals"] += 1
     return stats
@@ -959,8 +961,6 @@ async def send_test(db: AsyncSession, company_id: Any, kind: str, location_id: O
         w = await weekly_totals(db, cid, company, saturday - timedelta(days=6), ops)
         deliveries = _deliveries(recipients(cfg, "owners", force_test=True), w["owner"], subject=w["subject"], attachments=w["attachments"],
                                  email_body=w["html"])
-        for o in ops:
-            deliveries += _deliveries(recipients(cfg, "group", o, force_test=True), w["groups"][o["id"]])
     nid = await claim(db, cid, f"test:{kind}:{uuid.uuid4().hex}", kind, location_id=op["id"] if kind not in ("owners_daily", "weekly_totals") else None,
                       day=day, slot=0, deliveries=deliveries, test=True)
     return {"notice_id": nid, "deliveries": len(deliveries)}
