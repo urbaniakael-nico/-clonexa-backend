@@ -288,5 +288,5 @@ test('client.js: work_schedule.js solo con el interruptor; CRM Campo recibe los 
   assert.match(CLIENT, /\.\.\.\(schedule \? \{ sectionExtra: .*rowExtra: .*\} : \{\}\)/);
   assert.match(CLIENT, /workSchedule: cxWorkScheduleOn071A\(\)/);
   assert.match(CRM, /function extra\(name, item\) \{\n    return ctx && typeof ctx\[name\] === "function"/, 'sin ganchos, CRM Campo no cambia');
-  assert.match(readFileSync(`${WEB}client.html`, 'utf8'), /client\.js\?v=[^"]*_071A"/);
+  assert.match(readFileSync(`${WEB}client.html`, 'utf8'), /client\.js\?v=[^"]*_071A_[^"]*"/, 'el navegador pide el client.js nuevo');
 });
