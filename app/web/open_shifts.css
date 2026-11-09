@@ -26,3 +26,19 @@
 .cxos-error { margin: 0; font-weight: 700; }
 .cxos-saved { margin: 0; font-weight: 600; }
 .cxos-root button:focus-visible, .cxos-root input:focus-visible, .cxos-root textarea:focus-visible { outline: 3px solid var(--cx-primary); outline-offset: 2px; }
+
+/* 071A: modo horario (interruptor work_schedule). El rojo de Fuera de horario (--cxos-late,
+   --cxos-on-late) lo define work_schedule.css, que solo se carga con el interruptor. */
+.cxos-row.is-late { border-left: 4px solid var(--cxos-late, var(--cx-primary)); }
+.cxos-chip { display: inline-block; margin-left: 4px; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--cxos-line); }
+.cxos-chip.is-late, .cxos-badge.is-late { background: var(--cxos-late, transparent); border-color: var(--cxos-late, var(--cx-primary)); color: var(--cxos-on-late, var(--cx-text)); }
+.cxos-chip.is-soft { font-weight: 600; }
+.cxos-form select {
+  font: inherit; min-height: 44px; padding: 8px 10px; border-radius: 10px; width: 100%;
+  border: 1px solid var(--cxos-line); background: var(--cx-bg); color: var(--cx-text);
+}
+.cxos-confirm p { margin: 0; }
+.cxos-check { display: flex !important; gap: 8px; align-items: center; font-weight: 600; }
+.cxos-check input { min-height: 0; width: 20px; height: 20px; }
+.cxos-danger:not([disabled]) { background: var(--cxos-late, var(--cx-primary)); border-color: var(--cxos-late, var(--cx-primary)); color: var(--cxos-on-late, var(--cx-text)); }
+.cxos-root select:focus-visible { outline: 3px solid var(--cx-primary); outline-offset: 2px; }

@@ -24,7 +24,7 @@
   // wl: null = interruptor work_locations apagado: no se muestra nada de lugares y el
   // formulario conserva Descuento 2 (todo exactamente como antes).
   const model = { punch: null, employees: [], filter: "all", query: "", menu: "", modal: null, notice: "", error: "", busy: false, loaded: false, pins: null,
-    wl: null, wlFilter: "all", selected: new Set() };
+    wl: null, wlFilter: "all", selected: new Set(), ws: null };
   let ctx = null;
   let bound = false;
 
@@ -312,6 +312,32 @@
       .concat(locs.map((l) => `<option value="${h(l.id)}" ${l.id === selected ? "selected" : ""}>${h(l.name)}${l.is_active ? "" : " (desactivado)"}</option>`)).join("");
   }
 
+  // 071A: "Horario" de la persona (interruptor work_schedule). Solo aparece cuando su operación tiene
+  // más de un horario; por defecto Horario 1. ws: null = interruptor apagado, nada cambia.
+  function wsSlotsOf(e) {
+    if (!model.ws || !model.wl || !e || !e.id) return [];
+    return arr(model.ws.locations && model.ws.locations[wlPlaceId(model.wl, e) || ""]);
+  }
+
+  function wsSlotOf(e) { return Number((model.ws && model.ws.slots && model.ws.slots[String(e.id)]) || 1); }
+
+  function scheduleSelect(e) {
+    const slots = wsSlotsOf(e);
+    if (slots.length < 2) return "";
+    const current = wsSlotOf(e);
+    return `<label class="wf-field"><span>Horario</span><select name="schedule_slot" ${model.ws.can_edit ? "" : "disabled"}>${slots.map((s) => `<option value="${h(s.slot)}" ${Number(s.slot) === current ? "selected" : ""}>${h(s.name)}</option>`).join("")}</select></label>`;
+  }
+
+  async function loadSchedule() {
+    if (!ctx.workSchedule || typeof ctx.authApi !== "function") { model.ws = null; return; }
+    try {
+      const data = await ctx.authApi(`/work-schedule/companies/${encodeURIComponent(ctx.companyId)}/employees`);
+      model.ws = { slots: (data && data.slots) || {}, locations: (data && data.locations) || {}, can_edit: Boolean(data && data.can_edit) };
+    } catch (_) {
+      model.ws = null;
+    }
+  }
+
   function placeSelect(e) {
     const current = e && e.id ? wlPlaceId(model.wl, e) : null;
     const disabled = model.wl.can_assign ? "" : "disabled";
@@ -436,6 +462,7 @@
         ${field("deduction_1", "Descuento 1", 'type="number" step="0.01" min="0"')}
         ${model.wl ? placeSelect(e) : field("deduction_2", "Descuento 2", 'type="number" step="0.01" min="0"')}
         <label class="wf-field"><span>Estado</span><select name="status">${Object.entries(STATUS).map(([v, l]) => `<option value="${v}" ${statusOf(e) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        ${scheduleSelect(e)}
       </div></fieldset>
       ${e.id && model.punch ? `<fieldset class="wf-fieldset" data-wf2-punch="${h(e.id)}">${punchBox(e)}</fieldset>` : ""}
       <div class="wf-modal-actions"><button class="wf-btn-primary" type="submit" ${model.busy ? "disabled" : ""}>Guardar</button>
@@ -614,6 +641,7 @@
     loadPins().then(() => { if (model.loaded) draw(); });
     loadPunch().then(() => { if (model.loaded && !model.modal) draw(); });
     const places = loadPlaces();
+    const schedule = loadSchedule(); // 071A
     try {
       const data = await ctx.personalApi(`/employees?company_id=${encodeURIComponent(ctx.companyId)}&include_archived=true`);
       model.employees = arr(data);
@@ -622,6 +650,7 @@
       model.error = error.message || "No se pudo cargar personal.";
     }
     await places;
+    await schedule;
     const ids = new Set(model.employees.map((e) => String(e.id)));
     model.selected = new Set([...model.selected].filter((id) => ids.has(id)));
     model.loaded = true;
@@ -735,6 +764,8 @@
     const original = model.modal.employee || {};
     const placeEl = model.wl && form.elements.work_location_id;
     const place = placeEl && !placeEl.disabled ? placeEl.value : null;
+    const slotEl = model.ws && form.elements.schedule_slot; // 071A
+    const slot = slotEl && !slotEl.disabled ? Number(slotEl.value) : null;
     model.busy = true;
     draw();
     try {
@@ -749,8 +780,16 @@
           try { await assignPlace([String(savedId)], place, "personal_form"); } catch (error) { placeError = errorText(error); }
         }
       }
+      let slotError = "";
+      if (slot && savedId && slot !== wsSlotOf(original)) {
+        try {
+          await ctx.authApi(`/work-schedule/companies/${encodeURIComponent(ctx.companyId)}/employees/${encodeURIComponent(String(savedId))}`,
+            { method: "PUT", body: JSON.stringify({ slot }) });
+        } catch (error) { slotError = errorText(error); }
+      }
       model.modal = null;
-      model.notice = (id ? "Empleado guardado." : "Empleado agregado.") + (placeError ? ` El lugar no se pudo guardar: ${placeError}` : "");
+      model.notice = (id ? "Empleado guardado." : "Empleado agregado.") + (placeError ? ` El lugar no se pudo guardar: ${placeError}` : "")
+        + (slotError ? ` El horario no se pudo guardar: ${slotError}` : "");
       await load();
     } catch (error) {
       if (model.modal) model.modal.error = errorText(error);
@@ -939,6 +978,7 @@
     model.wl = null;
     model.wlFilter = "all";
     model.selected = new Set();
+    model.ws = null;
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
       document.addEventListener("change", onChange);
@@ -952,5 +992,5 @@
   }
 
   window.CxWorkforceV2 = { mount, view, model, statusOf, stats, visible, csvText, payloadOf, roleLabel, roleEnabled, pair, contrast, FIELDS, CSV_HEAD,
-    wlPlaceId, wlPlaceName, wlFilters, wlMatch, keepDeduction2, assignLabel, WL_NONE };
+    wlPlaceId, wlPlaceName, wlFilters, wlMatch, keepDeduction2, assignLabel, WL_NONE, scheduleSelect, wsSlotsOf };
 })();

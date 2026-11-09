@@ -30,6 +30,7 @@ for _module_name, _prefix, _tags in [
     ("employee_roles", "/employee-roles", ["employee_roles"]),
     ("work_locations", "/work-locations", ["work_locations"]),
     ("open_shifts", "/open-shifts", ["open_shifts"]),
+    ("work_schedule", "/work-schedule", ["work_schedule"]),
     ("gps", "/gps", ["gps"]),
     ("inventory", "/inventory", ["inventory"]),
     ("materials", "/materials", ["materials"]),

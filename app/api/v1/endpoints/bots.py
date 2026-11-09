@@ -2078,6 +2078,8 @@ async def _process_gps_stop_button_059D(db: AsyncSession, *, bot: Any, token: st
 PUNCH_GPS_060: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_punch_gps", default=False)
 # 068A: Finalizar sin bucles (interruptor bot_finish_summary, VOLTAGE).
 FINISH_SUMMARY_068A: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("bot_finish_summary", default=False)
+# 071A: aviso de salida segun el horario de la semana (interruptor work_schedule, VOLTAGE).
+WORK_SCHEDULE_071A: "contextvars.ContextVar[bool]" = __import__("contextvars").ContextVar("work_schedule", default=False)
 BOT_TEXTS["es"]["punch_shift_started_060"] = "✅ Ubicación recibida.\nInicio de turno registrado."
 BOT_TEXTS["en"]["punch_shift_started_060"] = "✅ Location received.\nShift started."
 BOT_TEXTS["fr"]["punch_shift_started_060"] = "✅ Position reçue.\nDébut de service enregistré."
@@ -3217,6 +3219,72 @@ async def _summary_gate_068A(db: AsyncSession, *, bot: Any, token: str, update: 
         await _send_telegram_message(token, chat_id, reply, reply_markup=_remove_reply_keyboard())
     return TelegramBotPollItem(update_id=update.get("update_id"), ok=True, action="end_shift_summary_missing", message=reply, event_created=False,
                                telegram_user_id=telegram_user_id, telegram_username=username)
+
+
+async def _work_schedule_gate_071A(db: AsyncSession, *, bot: Any, token: str, update: dict[str, Any], telegram_user_id: str,
+                                   username: str | None, chat_id: str | None, text_value: str, language: str,
+                                   send_replies: bool) -> "tuple[TelegramBotPollItem | None, str]":
+    """Aviso de salida (071A). [Finalizar ahora] sigue el flujo normal de Finalizar (ubicacion y
+    resumen, con la hora real). [Sigo trabajando] pide el motivo; el siguiente texto normal es el
+    motivo, se guarda y se vuelve a preguntar en 2 h. Devuelve (respuesta, texto a seguir procesando)."""
+    from app.services import work_schedule as ws
+
+    base = {"update_id": update.get("update_id"), "telegram_user_id": telegram_user_id, "telegram_username": username}
+    lang = language if language in ws.TEXTS else "es"
+    if text_value == ws.CALLBACK_FINISH:
+        employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+        if employee is not None:
+            await ws.answer(db, bot.company_id, employee.id, "finish")
+            await _clear_pending_071A(db, bot.company_id, telegram_user_id)
+        return None, "clx:cmd:salida"
+    if text_value == ws.CALLBACK_WORKING:
+        employee = await _find_employee_by_telegram(db, bot.company_id, telegram_user_id, username)
+        if employee is None or not await ws.answer(db, bot.company_id, employee.id, "reason"):
+            return None, "/start"  # sin turno abierto: el menu de siempre
+        await db.execute(text("""
+            INSERT INTO company_telegram_pending_actions (company_id, telegram_user_id, telegram_username, employee_id, action, payload_json, expires_at, updated_at)
+            VALUES (CAST(:c AS uuid), :t, :u, CAST(:e AS uuid), :a, CAST(:p AS jsonb), now() + interval '2 hours', now())
+            ON CONFLICT (company_id, telegram_user_id, action)
+            DO UPDATE SET employee_id = EXCLUDED.employee_id, payload_json = EXCLUDED.payload_json, expires_at = EXCLUDED.expires_at, updated_at = now()
+        """), {"c": str(bot.company_id), "t": telegram_user_id, "u": username, "e": str(employee.id), "a": ws.PENDING_ACTION,
+               "p": json.dumps({"chat_id": chat_id, "language": lang})})
+        await db.commit()
+        if send_replies:
+            await _send_telegram_message(token, chat_id, ws.tr(lang, "why"))
+        return TelegramBotPollItem(action="work_schedule_reason_requested", message=ws.tr(lang, "why"), employee_id=employee.id,
+                                   employee_name=employee.full_name, **base), text_value
+    is_button = isinstance(update.get("callback_query"), dict)
+    if not text_value or is_button or text_value.startswith(("/", "clx:")):
+        return None, text_value
+    pending = (await db.execute(text("""
+        SELECT employee_id::text FROM company_telegram_pending_actions
+        WHERE company_id = CAST(:c AS uuid) AND telegram_user_id = :t AND action = :a AND (expires_at IS NULL OR expires_at > now())
+    """), {"c": str(bot.company_id), "t": telegram_user_id, "a": ws.PENDING_ACTION})).first()
+    if pending is None:
+        return None, text_value
+    if await _get_pending_end_shift_summary(db, company_id=bot.company_id, telegram_user_id=telegram_user_id) is not None:
+        await _clear_pending_071A(db, bot.company_id, telegram_user_id)  # esta finalizando: el texto es su resumen
+        return None, text_value
+    if len(" ".join(text_value.split())) < ws.REASON_MIN:
+        if send_replies:
+            await _send_telegram_message(token, chat_id, ws.tr(lang, "why"))
+        return TelegramBotPollItem(action="work_schedule_reason_requested", message=ws.tr(lang, "why"), **base), text_value
+    saved = await ws.save_reason(db, bot.company_id, pending[0], text_value)
+    await _clear_pending_071A(db, bot.company_id, telegram_user_id)
+    if saved is None:  # el turno ya se cerro
+        return None, text_value
+    if send_replies:
+        await _send_telegram_message(token, chat_id, ws.tr(lang, "thanks"))
+    return TelegramBotPollItem(action="work_schedule_reason_saved", message=ws.tr(lang, "thanks"), employee_id=UUID(pending[0]), **base), text_value
+
+
+async def _clear_pending_071A(db: AsyncSession, company_id: Any, telegram_user_id: str) -> None:
+    from app.services import work_schedule as ws
+
+    await db.execute(text("""
+        DELETE FROM company_telegram_pending_actions WHERE company_id = CAST(:c AS uuid) AND telegram_user_id = :t AND action = :a
+    """), {"c": str(company_id), "t": telegram_user_id, "a": ws.PENDING_ACTION})
+    await db.commit()
 
 
 async def notify_no_summary_close_068A(db: AsyncSession, *, company_id: UUID, token: str, done: dict[str, Any]) -> None:
@@ -5361,9 +5429,13 @@ async def _process_telegram_update(
     from app.services import bot_finish_summary
 
     finish = FINISH_SUMMARY_068A.set(await bot_finish_summary.is_on(db, bot.company_id))  # 068A
+    from app.services import work_schedule
+
+    schedule = WORK_SCHEDULE_071A.set(await work_schedule.is_on(db, bot.company_id))  # 071A
     try:
         return await _process_telegram_update_052C(db, bot=bot, token=token, update=update, send_replies=send_replies)
     finally:
+        WORK_SCHEDULE_071A.reset(schedule)
         FINISH_SUMMARY_068A.reset(finish)
         PUNCH_GPS_060.reset(punch)
         GPS_STOP_059C.reset(gps_stop)
@@ -5466,6 +5538,13 @@ async def _process_telegram_update_052C(
                                            chat_id=chat_id, text_value=text_value, language=language, send_replies=send_replies)
         if waiting is not None:
             return waiting
+
+    if WORK_SCHEDULE_071A.get() and telegram_user_id and not isinstance(message.get("location"), dict):  # 071A
+        handled, text_value = await _work_schedule_gate_071A(db, bot=bot, token=token, update=update, telegram_user_id=telegram_user_id,
+                                                             username=username, chat_id=chat_id, text_value=text_value, language=language,
+                                                             send_replies=send_replies)
+        if handled is not None:
+            return handled
 
     if isinstance(message.get("location"), dict):
         return await _process_telegram_location(

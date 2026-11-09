@@ -339,7 +339,7 @@ def clean_note(value: Any) -> str:
 async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body: Any, *, actor: str,
                       actor_user_id: str | None, now_utc: datetime | None = None,
                       min_hours: float = 0.0, leader: dict[str, Any] | None = None,
-                      origin: dict[str, Any] | None = None) -> dict[str, Any]:
+                      origin: dict[str, Any] | None = None, audit: dict[str, Any] | None = None) -> dict[str, Any]:
     """Cierra un turno abierto con la hora real de salida y la nota. Nunca abre ni cambia
     otro turno; si el turno ya se cerro (por el bot) responde que ya no esta abierto.
     Con `min_hours` (el limite del aviso de la empresa) un turno mas nuevo no se cierra:
@@ -348,7 +348,9 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
     si el turno va por debajo de leader["max_hours"]; lleva origen cerrado_por_lider y la
     ubicacion del equipo del lider (leader["latitude"], leader["longitude"]).
     Con `origin` (068A, cierre sin resumen del bot) cambian canal, etiqueta y fuente, y lleva
-    su ubicacion y datos extra; misma auditoria."""
+    su ubicacion y datos extra; misma auditoria.
+    Con `audit` (071A, interruptor work_schedule) el cierre guarda ademas motivo, detalle, horario
+    usado y por donde se cerro (portal / lider). Sin `audit`, todo exactamente igual que antes."""
     now_utc = now_utc or datetime.now(timezone.utc)
     channel, label, source = "portal_manual_close", "Turno cerrado por supervisor", "portal"
     if origin:
@@ -392,6 +394,9 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
                                      "horizontal_accuracy": leader.get("accuracy"), "device": "leader"}
     if origin:
         payload.update(origin.get("payload") or {})
+    if audit:
+        payload.update({"reason_code": audit.get("reason_code"), "reason_detail": audit.get("reason_detail"),
+                        "schedule": audit.get("schedule"), "closed_via": audit.get("closed_via")})
     point = leader or origin or {}
     event_id = (await db.execute(text("""
         INSERT INTO workforce_attendance_events (
@@ -416,12 +421,23 @@ async def close_shift(db: AsyncSession, company_id: Any, employee_id: Any, body:
             UPDATE gps_tracking_sessions SET status = 'closed', ended_at = :at, updated_at = now()
              WHERE company_id = CAST(:c AS uuid) AND employee_id = CAST(:e AS uuid) AND status = 'active'
         """), {"c": cid, "e": eid, "at": end_at})
-    await db.execute(text("""
-        INSERT INTO shift_manual_closes (company_id, employee_id, employee_name, original_status, shift_started_at, end_at, note,
-                                         closed_by, closed_by_user_id, closed_at, attendance_event_id)
-        VALUES (CAST(:c AS uuid), CAST(:e AS uuid), :n, :st, :s, :at, :note, :by, CAST(:uid AS uuid), :now, CAST(:ev AS uuid))
-    """), {"c": cid, "e": eid, "n": str(row["employee_name"])[:200], "st": row["status"], "s": started, "at": end_at, "note": note,
-           "by": str(actor or "")[:200] or None, "uid": actor_user_id, "now": now_utc, "ev": event_id})
+    close_args = {"c": cid, "e": eid, "n": str(row["employee_name"])[:200], "st": row["status"], "s": started, "at": end_at, "note": note,
+                  "by": str(actor or "")[:200] or None, "uid": actor_user_id, "now": now_utc, "ev": event_id}
+    if audit:  # 071A: columnas de 025e_work_schedule
+        await db.execute(text("""
+            INSERT INTO shift_manual_closes (company_id, employee_id, employee_name, original_status, shift_started_at, end_at, note,
+                                             closed_by, closed_by_user_id, closed_at, attendance_event_id,
+                                             reason_code, reason_detail, schedule_json, closed_via)
+            VALUES (CAST(:c AS uuid), CAST(:e AS uuid), :n, :st, :s, :at, :note, :by, CAST(:uid AS uuid), :now, CAST(:ev AS uuid),
+                    :rc, :rd, CAST(:sj AS jsonb), :via)
+        """), {**close_args, "rc": audit.get("reason_code"), "rd": audit.get("reason_detail") or None,
+               "sj": json.dumps(audit.get("schedule")) if audit.get("schedule") is not None else None, "via": audit.get("closed_via")})
+    else:
+        await db.execute(text("""
+            INSERT INTO shift_manual_closes (company_id, employee_id, employee_name, original_status, shift_started_at, end_at, note,
+                                             closed_by, closed_by_user_id, closed_at, attendance_event_id)
+            VALUES (CAST(:c AS uuid), CAST(:e AS uuid), :n, :st, :s, :at, :note, :by, CAST(:uid AS uuid), :now, CAST(:ev AS uuid))
+        """), close_args)
     await db.commit()
     return {"employee_id": eid, "employee_name": row["employee_name"], "shift_started_at": iso(started), "end_at": iso(end_at),
             "original_status": row["status"], "note": note, "closed_by": actor, "attendance_event_id": event_id}

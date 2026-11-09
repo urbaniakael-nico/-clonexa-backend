@@ -413,11 +413,11 @@ test('Consola: la pestaña carga el líder y escribe con el contrato del servido
   assert.doesNotMatch(FICHA.slice(FICHA.indexOf('function leaderZone'), FICHA.indexOf('function picker')), /mailto|send_email|sendEmail/);
 });
 
-test('El panel solo llama a sus rutas, al ingreso y a su salida; sus únicas escrituras son PIN y finalizar', () => {
+test('El panel solo llama a sus rutas, al ingreso y a su salida; sus únicas escrituras son PIN, finalizar y (071A) cerrar Fuera de horario', () => {
   const calls = [...new Set([...PANEL.matchAll(/fetch\((.+?), \{/g)].map((m) => m[1].trim()))];
   assert.deepEqual(calls.sort(), ['`${API}/auth/logout`', '`${API}/companies/${encodeURIComponent(CID)}/mini-panel-login`', 'panelUrl(path)'].sort());
-  assert.deepEqual([...PANEL.matchAll(/read\("(\w+)"\)/g)].map((m) => m[1]).sort(), ['crm', 'inicio']);
-  assert.deepEqual([...PANEL.matchAll(/send\(["`]([^"`]+)["`]/g)].map((m) => m[1]).sort(), ['crm/${encodeURIComponent(f.id)}/finalizar', 'pin/marcar', 'pin/verificar']);
+  assert.deepEqual([...PANEL.matchAll(/read\("(\w+)"\)/g)].map((m) => m[1]).sort(), ['crm', 'horario', 'inicio']);
+  assert.deepEqual([...PANEL.matchAll(/send\(["`]([^"`]+)["`]/g)].map((m) => m[1]).sort(), ['crm/${encodeURIComponent(c.id)}/cerrar', 'crm/${encodeURIComponent(f.id)}/finalizar', 'pin/marcar', 'pin/verificar']);
   assert.doesNotMatch(PANEL, /localStorage\.setItem\([^)]*pin|sessionStorage\.setItem\([^)]*pin/i, 'el PIN no se guarda en el navegador');
 });
 

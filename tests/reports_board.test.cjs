@@ -152,7 +152,7 @@ test('CSS sin colores fijos; client.js solo entra con el interruptor y Reportes 
   assert.doesNotMatch(CSS.replace(/\/\*[\s\S]*?\*\//g, ''), /#[0-9a-fA-F]{3,8}\b|rgb\(/);
   assert.match(CLIENT, /settings\.reports_board === true/);
   assert.match(CLIENT, /async function cxReportsV2Try053C\(\) \{\n    if \(await cxReportsBoardTry064A\(\)\) return true;/);
-  assert.match(CLIENT, /reports_board\.js\?v=067A/);
+  assert.match(CLIENT, /reports_board\.js\?v=071A/);
 });
 
 // ---------------------------------------------------------------- Administrar lugares

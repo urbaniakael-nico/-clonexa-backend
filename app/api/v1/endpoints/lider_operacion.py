@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -179,6 +179,31 @@ async def post_finish(company_id: UUID, employee_id: UUID, body: DeviceLocation,
     leader_info = await _leader_of(who, db, company_id)
     try:
         return await lider_pin.finish(db, company_id, who["place"], leader_info, employee_id, body)
+    except lider_pin.Denied as exc:
+        raise _denied(exc) from None
+
+
+@router.get("/companies/{company_id}/horario")
+async def get_horario(company_id: UUID, week: Optional[str] = Query(None), who: dict = Depends(_mine), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """071A: horario de la semana de SU operacion, solo lectura."""
+    from app.services import work_schedule
+
+    try:
+        data = await svc.horario(db, company_id, who["place"], week)
+    except work_schedule.Invalid as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from None
+    if data is None:
+        raise HTTPException(status_code=404, detail="El horario de la semana no está activo para esta empresa.")
+    return data
+
+
+@router.post("/companies/{company_id}/crm/{employee_id}/cerrar")
+async def post_close(company_id: UUID, employee_id: UUID, body: dict = Body(...), who: dict = Depends(_mine),
+                     db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """071A: cerrar un turno Fuera de horario con la salida programada o la hora actual."""
+    leader_info = await _leader_of(who, db, company_id)
+    try:
+        return await lider_pin.close_out_of_schedule(db, company_id, who["place"], leader_info, employee_id, body)
     except lider_pin.Denied as exc:
         raise _denied(exc) from None
 

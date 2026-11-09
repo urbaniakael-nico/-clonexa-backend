@@ -231,6 +231,13 @@ async def live_state(db: AsyncSession, company_id: Any, now: datetime, rule: dic
             state[eid] = now_chip("on_break", minutes=us_time._mins(pause_at, us_time.minute(now)), since=since)
         else:
             state[eid] = now_chip("working", minutes=totals["payable"], since=since)
+    if data["open_shifts"]:  # 071A: chip Fuera de horario (interruptor work_schedule)
+        from app.services import work_schedule
+
+        if await work_schedule.is_on(db, company_id):
+            for eid, flag in (await work_schedule.flags(db, company_id, now)).items():
+                if flag.get("out_of_schedule") and eid in state:
+                    state[eid]["out_of_schedule"] = True
     for eid in held:
         state.setdefault(eid, now_chip("to_confirm"))
     for eid, c in closed_today.items():

@@ -34,7 +34,7 @@
   const NO_LOCATION = "Activa la ubicación de este equipo";
   const MARK = { in: "Entrada", pause: "Pausa", resume: "Retomar", out: "Salida" };
 
-  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "", pin: null, finish: null, crmNote: null, theme: "dark" };
+  const st = { tab: "inicio", person: "", depth: 1, confirmExit: false, boardReady: false, busy: false, notice: "", home: null, crm: null, crmStale: false, query: "", chip: "all", updated: "", pin: null, finish: null, crmNote: null, theme: "dark", close: null, schedule: null };
   let homeTimer = null;
   let pinTimer = null;
   let crmTimer = null;
@@ -263,6 +263,7 @@
     const state = STATE_LABEL[p.state] ? p.state : "no_shift";
     const label = state === "no_shift" && p.end ? `${T("Terminó")} ${p.end.t} ${p.end.a}` : T(STATE_LABEL[state]);
     const time = state === "working" || state === "on_break" ? hm(p.minutes) : state === "to_confirm" ? (p.minutes ? `+${limitHours || 15} h` : "!") : "—";
+    if (p.out_of_schedule && state !== "no_shift") return { cls: `is-${state} is-late`, text: T("Fuera de horario"), time }; // 071A
     return { cls: `is-${state}`, text: label, time };
   }
   function clock(zone) {
@@ -378,9 +379,13 @@
         ${detailRow("Pausas", pauses ? `<ul class="lo-pauses">${pauses}</ul>` : h(T("Sin pausas")))}
         ${shift.out ? detailRow("Salida", h(markWhen(shift.out))) : ""}
         ${detailRow("Tiempo", h(chip.time))}
+        ${p.scheduled_end ? detailRow("Salida programada", h(p.scheduled_end)) : ""}
+        ${p.slot_name ? detailRow("Horario", h(p.slot_name)) : ""}
+        ${p.schedule_reason ? detailRow("Sigue trabajando", h(p.schedule_reason)) : ""}
         ${detailRow("Origen", h(originWord(p.origin)))}
       </dl>${note}
-      ${p.can_finish ? `<div class="lo-sheet-foot"><button type="button" class="lo-finish-link" data-lo-finish="${h(p.id)}">${h(T("Finalizar turno"))}</button></div>` : ""}`;
+      ${p.can_close ? `<div class="lo-sheet-foot"><button type="button" class="lo-close-btn" data-lo-close="${h(p.id)}">${h(T("Cerrar turno"))}</button></div>` : ""}
+      ${p.can_finish && !p.can_close ? `<div class="lo-sheet-foot"><button type="button" class="lo-finish-link" data-lo-finish="${h(p.id)}">${h(T("Finalizar turno"))}</button></div>` : ""}`;
   }
 
   function detailView() {
@@ -400,7 +405,7 @@
 
   // El refresco de 30 s actualiza el detalle, nunca una confirmación a medias.
   function drawDetailBody() {
-    if (!st.person || st.finish) return;
+    if (!st.person || st.finish || st.close) return;
     const p = personOf(st.person);
     const box = document.querySelector("[data-lo-detail-body]");
     if (!p || !box) { draw(); return; }
@@ -415,7 +420,7 @@
     return `<div class="lo-chips" role="group">${STATES.map(([k, l]) => `<button type="button" class="lo-chip is-${k} ${st.chip === k ? "is-on" : ""}" data-lo-chip="${k}" aria-pressed="${st.chip === k}"><span class="lo-dot" aria-hidden="true"></span><span>${h(T(l))}</span> <b>${num(counts[k])}</b></button>`).join("")}</div>
       ${st.crmStale ? `<p class="lo-error" role="alert">${h(T("No se pudo actualizar. Revisa la conexión."))}</p>` : ""}
       ${note ? `<p class="${note.ok ? "lo-ok" : "lo-error"}" role="${note.ok ? "status" : "alert"}" data-no-i18n>${h(note.text)}</p>` : ""}
-      <div class="lo-crm-top"><h2 data-no-i18n>${h(num(counts.total) === 1 ? T("1 persona") : T("{n} personas", { n: num(counts.total) }))} · A-Z</h2><button type="button" class="lo-pdf" data-lo-pdf="list" ${st.busy ? "disabled" : ""}>${h(T("PDF lista"))}</button></div>
+      <div class="lo-crm-top"><h2 data-no-i18n>${h(num(counts.total) === 1 ? T("1 persona") : T("{n} personas", { n: num(counts.total) }))} · A-Z</h2><span class="lo-crm-actions">${crm.work_schedule ? `<button type="button" class="lo-pdf" data-lo-horario>${h(T("Horario de la semana"))}</button>` : ""}<button type="button" class="lo-pdf" data-lo-pdf="list" ${st.busy ? "disabled" : ""}>${h(T("PDF lista"))}</button></span></div>
       ${list.length ? `<ul class="lo-people">${list.map((p) => personRow(p, crm.limit_hours)).join("")}</ul>` : `<p class="lo-card">${h(T("Ninguna persona coincide."))}</p>`}`;
   }
 
@@ -439,6 +444,101 @@
         ? `<button type="button" class="is-danger" data-lo-finish-yes ${f.confirmed && !f.busy ? "" : "disabled"}>${h(T(f.busy ? "Guardando…" : "Sí, finalizar"))}</button>`
         : `<button type="button" class="lo-next" data-lo-finish-next>${h(T("Continuar"))}</button>`}</div>
     </div></div>`;
+  }
+
+  // ------------------------------------------------------------ 071A: cerrar turno Fuera de horario
+  const REASONS = [["olvido", "Olvidó finalizar"], ["salida_real", "Salida real confirmada"], ["otro", "Otro"]];
+
+  function closeDialog() {
+    const c = st.close;
+    const op = operation();
+    const now = `<span data-lo-clock="${h(op.timezone)}">${h(clock(op.timezone))}</span> ${h(op.abbr)}`;
+    const cancel = `<button type="button" data-lo-close-no ${c.busy ? "disabled" : ""}>${h(T("Cancelar"))}</button>`;
+    const err = c.error ? `<p class="lo-error" role="alert" data-no-i18n>${h(c.error)}</p>` : "";
+    if (c.step === 2) {
+      const when = c.choice === "scheduled" ? `${h(T("Salida programada"))}: ${h(c.scheduled)}` : `${h(T("Hora actual"))}: ${now}`;
+      const reason = (REASONS.find(([k]) => k === c.reason) || ["", ""])[1];
+      return `<div class="lo-modal"><div class="lo-dialog" role="alertdialog" aria-modal="true" aria-labelledby="loCloseTitle">
+        <h2 id="loCloseTitle" data-no-i18n>${h(T("¿Cerrar el turno de {name}?", { name: c.name }))}</h2>
+        <p data-no-i18n>${when}<br>${h(T("Motivo"))}: ${h(T(reason))}${c.detail ? ` · ${h(c.detail)}` : ""}</p>
+        <label class="lo-check"><input type="checkbox" data-lo-close-confirm ${c.confirmed ? "checked" : ""} ${c.busy ? "disabled" : ""}><span>${h(T("Confirmo la hora de salida y el motivo"))}</span></label>${err}
+        <div class="lo-dialog-actions">${cancel}<button type="button" class="is-danger" data-lo-close-yes ${c.confirmed && !c.busy ? "" : "disabled"}>${h(T(c.busy ? "Guardando…" : "Sí, cerrar turno"))}</button></div>
+      </div></div>`;
+    }
+    const radio = (value, label, enabled) => `<label class="lo-radio ${enabled ? "" : "is-off"}"><input type="radio" name="lo-close-choice" value="${value}" ${c.choice === value ? "checked" : ""} ${enabled ? "" : "disabled"}><span data-no-i18n>${label}</span></label>`;
+    return `<div class="lo-modal"><div class="lo-dialog" role="alertdialog" aria-modal="true" aria-labelledby="loCloseTitle">
+      <h2 id="loCloseTitle" data-no-i18n>${h(T("Cerrar el turno de {name}", { name: c.name }))}</h2>
+      <p>${h(T("Elige la hora de salida: no se puede escribir otra."))}</p>
+      <fieldset class="lo-close-set"><legend>${h(T("Hora de salida"))}</legend>
+        ${radio("scheduled", `${h(T("Salida programada"))}${c.scheduled ? ` · ${h(c.scheduled)}` : ""}`, Boolean(c.scheduled))}
+        ${radio("now", `${h(T("Hora actual"))} · ${now}`, true)}</fieldset>
+      <label class="lo-field"><span>${h(T("Motivo (obligatorio)"))}</span><select data-lo-close-reason><option value="">${h(T("Elige el motivo"))}</option>${REASONS.map(([k, l]) => `<option value="${k}" ${c.reason === k ? "selected" : ""}>${h(T(l))}</option>`).join("")}</select></label>
+      <label class="lo-field"><span>${h(T("Detalle (obligatorio si el motivo es Otro)"))}</span><textarea data-lo-close-detail rows="2" maxlength="500">${h(c.detail || "")}</textarea></label>${err}
+      <div class="lo-dialog-actions">${cancel}<button type="button" class="lo-next" data-lo-close-next>${h(T("Continuar"))}</button></div>
+    </div></div>`;
+  }
+
+  // Lo elegido en el primer paso. Mismas reglas del servidor.
+  function closeStep1(values) {
+    const c = st.close;
+    c.choice = values.choice || c.choice;
+    c.reason = values.reason || "";
+    c.detail = String(values.detail || "").replace(/\s+/g, " ").trim();
+    if (c.choice !== "scheduled" && c.choice !== "now") return T("Elige la salida programada o la hora actual.");
+    if (c.choice === "scheduled" && !c.scheduled) return T("Elige la salida programada o la hora actual.");
+    if (!REASONS.some(([k]) => k === c.reason)) return T("Elige el motivo del cierre.");
+    if (c.reason === "otro" && c.detail.length < 5) return T("Escribe el detalle del motivo (mínimo 5 caracteres).");
+    return "";
+  }
+
+  function readStep1() {
+    const picked = document.querySelector('input[name="lo-close-choice"]:checked');
+    const reason = document.querySelector("[data-lo-close-reason]");
+    const detail = document.querySelector("[data-lo-close-detail]");
+    return { choice: picked ? picked.value : "", reason: reason ? reason.value : "", detail: detail ? detail.value : "" };
+  }
+
+  async function closeNow() {
+    const c = st.close;
+    if (!c || c.busy || c.step !== 2 || !c.confirmed) return; // sin los dos pasos no llega al servidor
+    c.busy = true;
+    c.error = "";
+    draw();
+    try {
+      const data = await send(`crm/${encodeURIComponent(c.id)}/cerrar`, { choice: c.choice, reason_code: c.reason, reason_detail: c.detail, confirmed: true });
+      if (!data) return;
+      st.close = null;
+      st.crmNote = { ok: true, text: T("Turno de {name} cerrado a las {time}.", { name: data.name, time: data.at }) };
+      closeDetail();
+      return;
+    } catch (error) { c.error = serverText(error.message); }
+    c.busy = false;
+    c.step = 1;
+    draw();
+    loadCrm();
+  }
+
+  function scheduleView() {
+    const sc = st.schedule;
+    const body = !sc.data ? `<p role="status">${h(sc.error || T("Cargando…"))}</p>`
+      : !sc.data.configured ? `<p>${h(T("Esta operación aún no tiene horario."))}</p>`
+        : arr(sc.data.slots).map((slot) => `<section class="lo-sched"><h3 data-no-i18n>${h(slot.name)}</h3>
+          ${slot.lunch_start ? `<p class="lo-sched-note">${h(T("Almuerzo de referencia"))}: <span data-no-i18n>${h(slot.lunch_start)} – ${h(slot.lunch_end)}</span></p>` : ""}
+          <dl class="lo-rows">${arr(slot.days_view).map((d) => `<div class="lo-row ${d.special ? "is-special" : ""}"><dt>${h(T(d.name))} <span data-no-i18n>${h(String(d.date).slice(8, 10))}</span></dt><dd data-no-i18n>${h(d.off ? T("Libre") : d.label)}</dd></div>`).join("")}</dl></section>`).join("");
+    return `<div class="lo-modal"><section class="lo-sheet" role="dialog" aria-modal="true" aria-labelledby="loSchedTitle">
+      <header class="lo-sheet-head"><div><h2 id="loSchedTitle">${h(T("Horario de la semana"))}</h2>${sc.data ? `<p data-no-i18n>${h(sc.data.week_start)} – ${h(sc.data.week_end)} · ${h(operation().abbr)}</p>` : ""}</div><button type="button" class="lo-link" data-lo-horario-close>${h(T("Cerrar"))}</button></header>
+      ${body}<p class="lo-sched-note">${h(T("El almuerzo es solo de referencia: se descuenta únicamente la pausa que la persona marca."))}</p></section></div>`;
+  }
+
+  async function openSchedule() {
+    st.schedule = { data: null, error: "" };
+    draw();
+    try {
+      const data = await read("horario");
+      if (!data) return;
+      if (st.schedule) st.schedule.data = data;
+    } catch (error) { if (st.schedule) st.schedule.error = serverText(error.message); }
+    draw();
   }
 
   // ------------------------------------------------------------ marcar con PIN
@@ -568,7 +668,7 @@
 
   function panelView() {
     const body = st.tab === "crm" ? crmView() : st.tab === "pin" ? pinView() : st.tab === "reportes" ? `<main class="lo-main lo-reports"><div id="loBoardHost"></div></main>` : homeView();
-    return `${header()}${body}${nav()}${st.tab === "crm" && st.person ? detailView() : ""}${st.finish ? finishDialog() : ""}${st.confirmExit ? exitDialog() : ""}`;
+    return `${header()}${body}${nav()}${st.tab === "crm" && st.person ? detailView() : ""}${st.finish ? finishDialog() : ""}${st.close ? closeDialog() : ""}${st.schedule ? scheduleView() : ""}${st.confirmExit ? exitDialog() : ""}`;
   }
 
   // ------------------------------------------------------------ dibujo
@@ -620,6 +720,8 @@
     if (token() && st.tab === "reportes") mountBoard();
     if (st.confirmExit) { const no = document.querySelector("[data-lo-exit-no]"); if (no) no.focus(); }
     else if (st.finish) { const no = document.querySelector("[data-lo-finish-no]"); if (no) no.focus(); }
+    else if (st.close) { const no = document.querySelector("[data-lo-close-no]"); if (no) no.focus(); }
+    else if (st.schedule) { const x = document.querySelector("[data-lo-horario-close]"); if (x) x.focus(); }
     else if (st.tab === "crm" && st.person) { const close = document.querySelector("[data-lo-detail-close]"); if (close) close.focus(); }
   }
 
@@ -700,6 +802,20 @@
     if (t.closest("[data-lo-finish-no]")) { st.finish = null; draw(); return; }
     if (t.closest("[data-lo-finish-next]")) { if (st.finish) { st.finish.step = 2; st.finish.confirmed = false; draw(); } return; }
     if (t.closest("[data-lo-finish-yes]")) { finishNow(); return; }
+    if ((v = attr("data-lo-close"))) { // 071A
+      const person = personOf(v);
+      if (person && person.can_close) {
+        st.crmNote = null;
+        st.close = { id: person.id, name: person.name, scheduled: person.scheduled_end || "", step: 1, choice: person.scheduled_end ? "scheduled" : "now", reason: "", detail: "", confirmed: false, busy: false, error: "" };
+        draw();
+      }
+      return;
+    }
+    if (t.closest("[data-lo-close-no]")) { st.close = null; draw(); return; }
+    if (t.closest("[data-lo-close-next]") && st.close) { const e = closeStep1(readStep1()); st.close.error = e; if (!e) { st.close.step = 2; st.close.confirmed = false; } draw(); return; }
+    if (t.closest("[data-lo-close-yes]")) { closeNow(); return; }
+    if (t.closest("[data-lo-horario]")) { openSchedule(); return; }
+    if (t.closest("[data-lo-horario-close]")) { st.schedule = null; draw(); return; }
     if ((v = attr("data-lo-key"))) { pressKey(v); return; }
     if ((v = attr("data-lo-punch"))) { punch(v); return; }
     if (t.closest("[data-lo-pin-back]")) { backToKeypad(); return; }
@@ -709,6 +825,11 @@
   function onInput(event) {
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-search")) { st.query = event.target.value; drawCrmBody(); }
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-summary")) { pinState().summary = event.target.value; touchPin(); }
+    if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-close-confirm") && st.close) {
+      st.close.confirmed = Boolean(event.target.checked);
+      const yes = document.querySelector("[data-lo-close-yes]");
+      if (yes) yes.disabled = !st.close.confirmed;
+    }
     if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-lo-confirm") && st.finish) {
       st.finish.confirmed = Boolean(event.target.checked);
       const yes = document.querySelector("[data-lo-finish-yes]");
@@ -750,7 +871,9 @@
   function onKey(event) {
     if (event.key === "Escape" && st.confirmExit) { st.confirmExit = false; draw(); return; }
     if (event.key === "Escape" && st.finish && !st.finish.busy) { st.finish = null; draw(); return; }
-    if (event.key === "Escape" && st.tab === "crm" && st.person && !st.finish) { closeDetail(); return; }
+    if (event.key === "Escape" && st.close && !st.close.busy) { st.close = null; draw(); return; }
+    if (event.key === "Escape" && st.schedule) { st.schedule = null; draw(); return; }
+    if (event.key === "Escape" && st.tab === "crm" && st.person && !st.finish && !st.close) { closeDetail(); return; }
     if (st.tab !== "pin" || st.confirmExit || (st.pin && st.pin.person)) return;
     if (/^\d$/.test(event.key)) pressKey(event.key);
     else if (event.key === "Backspace") pressKey("del");
@@ -792,6 +915,6 @@
   }
 
   window.CxLiderOperacion = { st, filterPeople, stateChip, homeView, crmList, loginView, serverText, savedLang, nav, TOKEN_KEY, clockTimer: () => clockTimer, go, onPop, enterHistory, exitDialog,
-    pinView, pinState, pressKey, punch, checkPin, resetPin, touchPin, backToKeypad, finishDialog, finishNow, stateChip, personRow, detailBody, detailView, openDetail, themeButton, toggleTheme, savedTheme, IDLE_MS };
+    pinView, pinState, pressKey, punch, checkPin, resetPin, touchPin, backToKeypad, finishDialog, finishNow, closeDialog, closeStep1, closeNow, scheduleView, openSchedule, stateChip, personRow, detailBody, detailView, openDetail, themeButton, toggleTheme, savedTheme, IDLE_MS };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

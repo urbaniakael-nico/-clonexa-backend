@@ -362,3 +362,57 @@ async def finish(db: AsyncSession, company_id: Any, place: dict, leader: dict, e
     at = clock_text(place, now)
     return {"ok": True, "name": closed["employee_name"], "at": at, "original_status": closed["original_status"],
             "notified": await _notify(db, company_id, person["telegram_user_id"], at)}
+
+
+# ------------------------------------------------------------------ 071A: cerrar un turno Fuera de horario
+CLOSE_CHOICES = ("scheduled", "now")
+
+
+async def close_out_of_schedule(db: AsyncSession, company_id: Any, place: dict, leader: dict, employee_id: Any, body: Any,
+                                now: Optional[datetime] = None) -> dict:
+    """Solo con work_schedule y solo un turno Fuera de horario de SU operacion. La hora la decide el
+    servidor: la salida programada de su horario o la hora actual; el lider nunca escribe otra."""
+    from app.services import work_schedule
+
+    now = now or datetime.now(timezone.utc)
+    if not await work_schedule.is_on(db, company_id):
+        raise Denied(404, "El horario de la semana no está activo para esta empresa.")
+    body = body if isinstance(body, dict) else {}
+    if body.get("confirmed") is not True:
+        raise Denied(422, "Confirma el cierre dos veces antes de guardarlo.")
+    choice = str(body.get("choice") or "")
+    if choice not in CLOSE_CHOICES:
+        raise Denied(422, "Elige la salida programada o la hora actual.")
+    try:
+        code, detail, note = work_schedule.close_reason(body)
+    except work_schedule.Invalid as exc:
+        raise Denied(422, exc.message) from None
+    person = await _employee(db, company_id, employee_id)
+    if not person or person["work_location_id"] != place["id"]:
+        raise Denied(403, f"Esa persona no es de {place['name']}.")
+    ctx = await work_schedule.shift_context(db, company_id, person["id"], now)
+    if ctx is None:
+        raise Denied(409, "Esa persona no tiene un turno abierto.")
+    if not ctx["out_of_schedule"]:
+        raise Denied(409, "Solo se cierran desde aquí los turnos Fuera de horario.")
+    sch = ctx.get("schedule") or {}
+    if choice == "scheduled":
+        if not sch.get("end") or sch["end"] > now:
+            raise Denied(409, "Su salida programada aún no llega: usa la hora actual.")
+        end_at = sch["end"]
+    else:
+        end_at = now
+    origin = {"channel": open_shift_alert.LEADER_CHANNEL, "label": "Turno cerrado por el líder", "source": open_shift_alert.LEADER_CHANNEL,
+              "payload": {"closed_by_leader": True, "leader_choice": choice}}
+    audit = {"reason_code": code, "reason_detail": detail, "schedule": {**work_schedule.schedule_audit(ctx), "choice": choice},
+             "closed_via": "lider"}
+    try:
+        closed = await open_shift_alert.close_shift(db, company_id, person["id"], {"end_at": end_at.isoformat(), "note": note}, actor=leader["name"],
+                                                    actor_user_id=leader["user_id"], now_utc=now, origin=origin, audit=audit)
+    except open_shift_alert.Invalid as exc:
+        await db.rollback()
+        raise Denied(409, exc.message) from None
+    await _clear_bot_pending(db, company_id, person["id"])
+    await db.commit()
+    return {"ok": True, "name": closed["employee_name"], "at": clock_text(place, end_at), "choice": choice, "reason": note,
+            "notified": await work_schedule.notify_closed(db, company_id, person["id"], end_at, place["timezone"], leader["name"])}

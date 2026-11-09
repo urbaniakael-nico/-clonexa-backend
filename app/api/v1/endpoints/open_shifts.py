@@ -8,6 +8,11 @@ no en la pantalla). Sin el interruptor: 404, y CRM Campo y Personal siguen igual
 - POST "/employees/{employee_id}/close" cerrar con hora real de salida y nota obligatoria;
                                         un turno que no pasa el limite: 400, no se cierra
 - GET  "/closes"                        auditoria de cierres manuales
+071A (interruptor work_schedule, hoy solo VOLTAGE): GET lista TODOS los turnos abiertos con su
+salida programada, la hora por defecto y si estan Fuera de horario; POST cierra cualquier turno
+abierto con motivo obligatorio (Olvidó finalizar / Salida real confirmada / Otro + detalle) y
+confirmed=true (la doble confirmacion de la pantalla), guarda el horario usado y avisa por el bot.
+Sin el interruptor, todo exactamente igual que antes.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.services import open_shift_alert as svc
 from app.services import work_locations
+from app.services import work_schedule
 
 router = APIRouter()
 OFF = "Aviso de turno abierto no está activo para esta empresa."
@@ -49,6 +55,8 @@ async def actor(company_id: UUID, request: Request, authorization: Optional[str]
 @router.get("/companies/{company_id}")
 async def get_open_shifts(company_id: UUID, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     hours = await svc.alert_hours(db, company_id)
+    if await work_schedule.is_on(db, company_id):  # 071A
+        return await _schedule_list(db, company_id, who, hours)
     shifts = [svc.shift_out(s) for s in await svc.open_shifts(db, company_id, older_than_hours=hours)]
     return {"ok": True, "alert_hours": hours, "can_close": who["role"] in svc.CLOSE_ROLES,
             "shifts": shifts, "long_open": len(shifts)}
@@ -59,6 +67,8 @@ async def post_close(company_id: UUID, employee_id: UUID, body: dict = Body(...)
                      db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     if who["role"] not in svc.CLOSE_ROLES:
         raise HTTPException(status_code=403, detail="Solo supervisor, dirección o dueño pueden cerrar un turno.")
+    if await work_schedule.is_on(db, company_id):  # 071A
+        return await _schedule_close(db, company_id, employee_id, body, who)
     min_hours = await svc.alert_hours(db, company_id)
     try:
         result = await svc.close_shift(db, company_id, employee_id, body, actor=who["name"], actor_user_id=who["user_id"],
@@ -75,3 +85,55 @@ async def post_close(company_id: UUID, employee_id: UUID, body: dict = Body(...)
 @router.get("/companies/{company_id}/closes")
 async def get_closes(company_id: UUID, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     return {"ok": True, "closes": await svc.recent_closes(db, company_id)}
+
+
+# ------------------------------------------------------------------ 071A: horario de la semana
+async def _schedule_list(db: AsyncSession, company_id: UUID, who: dict, hours: float) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    marks = await work_schedule.flags(db, company_id, now)
+    shifts = []
+    for s in await svc.open_shifts(db, company_id, now_utc=now):
+        flag = marks.get(s["employee_id"]) or {}
+        end_at = work_schedule.aware(_parse(flag.get("scheduled_end_at")))
+        shifts.append({**svc.shift_out(s), "scheduled_end_at": flag.get("scheduled_end_at"), "slot_name": flag.get("slot_name"),
+                       "default_end_at": work_schedule.iso(work_schedule.default_end(end_at, now)),
+                       "out_of_schedule": bool(flag.get("out_of_schedule")), "reason": flag.get("reason"),
+                       "over_limit": s["hours_open"] >= hours})
+    return {"ok": True, "alert_hours": hours, "can_close": who["role"] in svc.CLOSE_ROLES, "schedule_mode": True,
+            "reasons": [{"code": k, "label": v} for k, v in work_schedule.REASONS.items()],
+            "shifts": shifts, "long_open": sum(1 for s in shifts if s["over_limit"]),
+            "out_of_schedule": sum(1 for s in shifts if s["out_of_schedule"])}
+
+
+def _parse(value: Any):
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+    except ValueError:
+        return None
+
+
+async def _schedule_close(db: AsyncSession, company_id: UUID, employee_id: UUID, body: dict, who: dict) -> dict[str, Any]:
+    body = body if isinstance(body, dict) else {}
+    if body.get("confirmed") is not True:
+        raise HTTPException(status_code=422, detail="Confirma el cierre dos veces antes de guardarlo.")
+    try:
+        code, detail, note = work_schedule.close_reason(body)
+    except work_schedule.Invalid as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from None
+    ctx = await work_schedule.shift_context(db, company_id, employee_id)
+    if ctx is None:
+        raise HTTPException(status_code=422, detail="Esa persona no tiene un turno abierto.")
+    audit = {"reason_code": code, "reason_detail": detail, "schedule": work_schedule.schedule_audit(ctx), "closed_via": "portal"}
+    try:
+        result = await svc.close_shift(db, company_id, employee_id, {"end_at": body.get("end_at"), "note": note}, actor=who["name"],
+                                       actor_user_id=who["user_id"], audit=audit)
+    except svc.Invalid as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=exc.message) from None
+    end_at = work_schedule.aware(_parse(result["end_at"]))
+    notified = await work_schedule.notify_closed(db, company_id, employee_id, end_at, ctx["shift"]["tz"], who["name"])
+    return {"ok": True, "closed": {**result, "reason_code": code}, "notified": notified}

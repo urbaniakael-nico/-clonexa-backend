@@ -34899,11 +34899,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxWorkforceV2Css051B";
           link.rel = "stylesheet";
-          link.href = "/client-static/workforce_v2.css?v=067A";
+          link.href = "/client-static/workforce_v2.css?v=071A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/workforce_v2.js?v=067A";
+        script.src = "/client-static/workforce_v2.js?v=071A";
         script.onload = () => resolve();
         script.onerror = () => { cxWorkforceV2Loading051B = null; reject(new Error("workforce_v2")); };
         document.head.appendChild(script);
@@ -34935,6 +34935,7 @@ function inventoryCreatePayload() {
       configured: () => cxEmployeeRolesConfigured051A(),
       host: () => document.getElementById("cxWorkforceV2Host051B"),
       workLocations: cxWorkLocationsOn059A(), // 059A: lugares solo con el interruptor
+      workSchedule: cxWorkScheduleOn071A(), // 071A: selector Horario solo con work_schedule
       authApi: api,
     });
     cxOpenShiftsAttach060C("cxWorkforceV2Host051B"); // 060C: solo con open_shift_alert
@@ -34962,11 +34963,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxCrmPlacesCss059A";
           link.rel = "stylesheet";
-          link.href = "/client-static/crm_places.css?v=059B";
+          link.href = "/client-static/crm_places.css?v=071A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/crm_places.js?v=059B";
+        script.src = "/client-static/crm_places.js?v=071A";
         script.onload = () => resolve();
         script.onerror = () => { cxCrmPlacesLoading059A = null; reject(new Error("crm_places")); };
         document.head.appendChild(script);
@@ -35030,6 +35031,7 @@ function inventoryCreatePayload() {
           </section>
         </div>
       </main>`;
+    const schedule = await cxWorkScheduleAttach071A(); // 071A: solo con work_schedule
     const mounted = await window.CxCrmPlaces.mount({
       companyId: state.companyId,
       api,
@@ -35037,11 +35039,64 @@ function inventoryCreatePayload() {
       top: cxCrmPlacesTop059A,
       detail: cxCrmPlacesDetail059A,
       afterDetail: () => crmStartRealtimeTimers018B(),
+      ...(schedule ? { sectionExtra: (g) => window.CxWorkSchedule.sectionExtra(g), rowExtra: (r) => window.CxWorkSchedule.rowExtra(r) } : {}),
     });
     if (mounted) cxOpenShiftsAttach060C("cxCrmPlacesHost059A"); // 060C: solo con open_shift_alert
     return mounted;
   }
   /* CLONEXA_059A_WORK_LOCATIONS_END */
+
+  /* CLONEXA_071A_WORK_SCHEDULE_START: Horario de la semana por operacion (interruptor
+     work_schedule en settings del modulo workforce, apagado por defecto; hoy solo VOLTAGE).
+     Agrega "Horario de la semana" al frente de cada operacion de CRM Campo y el chip
+     Fuera de horario. Sin el interruptor o si su archivo no carga: CRM Campo sigue igual. */
+  function cxWorkScheduleOn071A() {
+    const item = activeClientModules().find((m) => m.code === "workforce");
+    const raw = (item && item.raw) || {};
+    const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
+    return settings.work_schedule === true;
+  }
+
+  let cxWorkScheduleLoading071A = null;
+  function cxWorkScheduleLoad071A() {
+    if (window.CxWorkSchedule) return Promise.resolve();
+    if (!cxWorkScheduleLoading071A) {
+      cxWorkScheduleLoading071A = new Promise((resolve, reject) => {
+        if (!document.getElementById("cxWorkScheduleCss071A")) {
+          const link = document.createElement("link");
+          link.id = "cxWorkScheduleCss071A";
+          link.rel = "stylesheet";
+          link.href = "/client-static/work_schedule.css?v=071A";
+          document.head.appendChild(link);
+        }
+        const script = document.createElement("script");
+        script.src = "/client-static/work_schedule.js?v=071A";
+        script.onload = () => resolve();
+        script.onerror = () => { cxWorkScheduleLoading071A = null; reject(new Error("work_schedule")); };
+        document.head.appendChild(script);
+      });
+    }
+    return cxWorkScheduleLoading071A;
+  }
+
+  async function cxWorkScheduleAttach071A() {
+    if (!cxWorkScheduleOn071A()) return false;
+    try { await cxWorkScheduleLoad071A(); } catch (_) { return false; }
+    if (!window.CxWorkSchedule || typeof window.CxWorkSchedule.attach !== "function") return false;
+    const board = () => (window.CxCrmPlaces && window.CxCrmPlaces.model && window.CxCrmPlaces.model.data) || null;
+    window.CxWorkSchedule.attach({
+      companyId: state.companyId,
+      api,
+      board,
+      canEdit: () => Boolean(board() && board().can_edit_schedule),
+      onSaved: () => {
+        if (window.CxCrmPlaces && typeof window.CxCrmPlaces.reload === "function") window.CxCrmPlaces.reload();
+        if (window.CxOpenShifts && window.CxOpenShifts.model && !window.CxOpenShifts.model.open) cxOpenShiftsAttach060C("cxCrmPlacesHost059A");
+      },
+    });
+    return true;
+  }
+  /* CLONEXA_071A_WORK_SCHEDULE_END */
 
   /* CLONEXA_060C_OPEN_SHIFTS_START: Turnos abiertos y "Cerrar turno" (interruptor
      open_shift_alert en settings del modulo workforce, apagado por defecto; hoy solo
@@ -35063,11 +35118,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxOpenShiftsCss060C";
           link.rel = "stylesheet";
-          link.href = "/client-static/open_shifts.css?v=060D";
+          link.href = "/client-static/open_shifts.css?v=071A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/open_shifts.js?v=060D";
+        script.src = "/client-static/open_shifts.js?v=071A";
         script.onload = () => resolve();
         script.onerror = () => { cxOpenShiftsLoading060C = null; reject(new Error("open_shifts")); };
         document.head.appendChild(script);
@@ -44201,11 +44256,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReportsBoardCss064A";
           link.rel = "stylesheet";
-          link.href = "/client-static/reports_board.css?v=067A";
+          link.href = "/client-static/reports_board.css?v=071A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/reports_board.js?v=067A";
+        script.src = "/client-static/reports_board.js?v=071A";
         script.onload = () => resolve();
         script.onerror = () => { cxReportsBoardLoading064A = null; reject(new Error("reports_board")); };
         document.head.appendChild(script);

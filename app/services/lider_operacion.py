@@ -31,9 +31,10 @@ CRM_DAYS = 7  # de cuantos dias atras sale la "ultima marca" de CRM Campo
 WEEK_DAYS = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
 GEO_LABEL = {"inside": "En perímetro", "outside": "Fuera de perímetro", "unconfigured": "Sin perímetro", "none": "Sin ubicación", "adjusted": "Ajuste manual"}
 
-_READ_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(inicio|crm|reportes|crm/lista\.pdf|reportes/export\.pdf)/?$")
-# Sus unicas escrituras: marcar con PIN y finalizar ahora un turno de su operacion (lider_pin).
-_WRITE_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(pin/verificar|pin/marcar|crm/[^/]+/finalizar)/?$")
+_READ_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(inicio|crm|reportes|horario|crm/lista\.pdf|reportes/export\.pdf)/?$")
+# Sus unicas escrituras: marcar con PIN, finalizar ahora un turno de su operacion y (071A, con
+# work_schedule) cerrar un turno Fuera de horario con la salida programada o la hora actual (lider_pin).
+_WRITE_ROUTE = re.compile(r"^/api/v1/lider-operacion/companies/[^/]+/(pin/verificar|pin/marcar|crm/[^/]+/finalizar|crm/[^/]+/cerrar)/?$")
 _LOGOUT = "/api/v1/auth/logout"
 
 
@@ -237,8 +238,35 @@ async def crm(db: AsyncSession, company_id: Any, place: dict, now: Optional[date
     today = _local(place, now).date()
     _, op = await _board(db, company_id, place, today - timedelta(days=CRM_DAYS - 1), today, now)
     people = op.get("people") or []
-    return {"ok": True, "operation": _operation_out(place, now), "counts": count_states(people), "people": [crm_person(p) for p in people],
-            "limit_hours": await reports_board._policy_hours(db, company_id)}
+    out = {"ok": True, "operation": _operation_out(place, now), "counts": count_states(people), "people": [crm_person(p) for p in people],
+           "limit_hours": await reports_board._policy_hours(db, company_id)}
+    from app.services import work_schedule
+
+    if await work_schedule.is_on(db, company_id):  # 071A
+        marks = await work_schedule.flags(db, company_id, now)
+        for person in out["people"]:
+            flag = marks.get(person["id"]) or {}
+            person["out_of_schedule"] = bool(flag.get("out_of_schedule")) and person["state"] in ("working", "on_break", "to_confirm")
+            person["scheduled_end"] = flag.get("scheduled_end_label")
+            person["slot_name"] = flag.get("slot_name")
+            person["schedule_reason"] = flag.get("reason")
+            person["can_close"] = person["out_of_schedule"]
+        out["work_schedule"] = True
+        out["out_of_schedule"] = sum(1 for p in out["people"] if p.get("out_of_schedule"))
+    return out
+
+
+async def horario(db: AsyncSession, company_id: Any, place: dict, week: Any = None, now: Optional[datetime] = None) -> Optional[dict]:
+    """071A: el horario de la semana de SU operacion, solo lectura. None con el interruptor apagado."""
+    from app.services import work_schedule
+
+    if not await work_schedule.is_on(db, company_id):
+        return None
+    now = now or datetime.now(timezone.utc)
+    start = work_schedule.parse_week(week, _local(place, now).date())
+    data = await work_schedule.week(db, company_id, place["id"], start)
+    out = work_schedule.week_out(data, {"id": place["id"], "name": place["name"], "timezone": place["timezone"]})
+    return {"ok": True, **out, "can_edit": False}
 
 
 async def attendance_pdf(db: AsyncSession, company_id: Any, user: Any, place: dict, lang: str = "es", now: Optional[datetime] = None) -> bytes:

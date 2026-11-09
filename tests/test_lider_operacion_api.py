@@ -55,9 +55,11 @@ def test_la_lista_blanca_es_exacta():
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/reportes"),
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/crm/lista.pdf"),
         ("GET", f"/api/v1/lider-operacion/companies/{CID}/reportes/export.pdf"),
+        ("GET", f"/api/v1/lider-operacion/companies/{CID}/horario"),  # 071A: solo lectura
         ("POST", f"/api/v1/lider-operacion/companies/{CID}/pin/verificar"),
         ("POST", f"/api/v1/lider-operacion/companies/{CID}/pin/marcar"),
         ("POST", f"/api/v1/lider-operacion/companies/{CID}/crm/{CID}/finalizar"),
+        ("POST", f"/api/v1/lider-operacion/companies/{CID}/crm/{CID}/cerrar"),  # 071A: Fuera de horario
         ("POST", "/api/v1/auth/logout"),
     }
 

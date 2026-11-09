@@ -102,4 +102,10 @@ async def get_history(company_id: UUID, employee_id: UUID, who: dict = Depends(a
 
 @router.get("/companies/{company_id}/board")
 async def get_board(company_id: UUID, who: dict = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
-    return await svc.board(db, company_id)
+    from app.services import work_schedule
+
+    data = await svc.board(db, company_id)
+    if await work_schedule.is_on(db, company_id):  # 071A: horario de hoy y Fuera de horario
+        data = await work_schedule.decorate_board(db, company_id, data)
+        data["can_edit_schedule"] = who["role"] in work_schedule.OWNER_ROLES
+    return data

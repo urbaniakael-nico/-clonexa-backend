@@ -316,6 +316,8 @@
   // ------------------------------------------------------------ vistas
   function chipOf(now) {
     const n = now || {};
+    // 071A (work_schedule): turno abierto que no respondio el aviso de salida del bot.
+    if (n.out_of_schedule && (n.state === "working" || n.state === "on_break" || n.state === "to_confirm")) return { cls: "is-late", text: n.minutes ? `${T("Fuera de horario")} ${hm(n.minutes)}` : T("Fuera de horario") };
     if (n.state === "working") return { cls: "is-working", text: `${T("Trabajando")} ${hm(n.minutes)}` };
     if (n.state === "on_break") return { cls: "is-break", text: `${T("En pausa")} ${hm(n.minutes)}` };
     if (n.state === "to_confirm") return { cls: "is-confirm", text: T("Por confirmar") };

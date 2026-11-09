@@ -269,9 +269,10 @@ async def loop() -> None:
     base (UPDATE ... RETURNING / INSERT ... ON CONFLICT DO NOTHING), asi que aunque
     corrieran dos copias (despliegue solapado) nadie recibe dos mensajes."""
     from app.core.database import AsyncSessionLocal
-    from app.services import bot_finish_summary, bot_processing_alert, open_shift_alert
+    from app.services import bot_finish_summary, bot_processing_alert, open_shift_alert, work_schedule
 
     last_alert = 0.0
+    last_schedule = 0.0
     while True:
         try:
             async with AsyncSessionLocal() as db:
@@ -281,6 +282,13 @@ async def loop() -> None:
                     await open_shift_alert.run_all(db)
         except Exception as exc:  # nunca tumba el servidor
             log.warning("Recordatorios del bot no pudieron correr: %s", type(exc).__name__)
+        if time.monotonic() - last_schedule >= work_schedule.LOOP_SECONDS:  # 071A: aviso de salida segun el horario
+            last_schedule = time.monotonic()
+            try:
+                async with AsyncSessionLocal() as db:
+                    await work_schedule.run_all(db)
+            except Exception as exc:
+                log.warning("Aviso de salida del horario no pudo correr: %s", type(exc).__name__)
         try:  # 068A: aparte, para que un recordatorio que falla no atrase los cierres
             async with AsyncSessionLocal() as db:
                 await bot_finish_summary.run_all(db)

@@ -7,6 +7,9 @@
 // Datos: GET /open-shifts/companies/{id}; cerrar: POST .../employees/{id}/close con
 // la hora real de salida (en la hora del LUGAR de la persona) y una nota obligatoria.
 // Nunca cierra solo: solo cuando el supervisor / direccion / dueno lo confirma.
+// 071A (interruptor work_schedule; el servidor manda schedule_mode): TODOS los turnos abiertos, con
+// chip rojo "Fuera de horario", salida programada y Cerrar turno con hora por defecto (la programada
+// si ya paso, si no la actual), motivo obligatorio y doble confirmacion.
 (() => {
   "use strict";
 
@@ -16,7 +19,7 @@
   const REFRESH_MS = 60000;
   const STATUS = { working: "Trabajando", on_break: "En pausa" };
 
-  const model = { data: null, open: null, error: "", saved: "", busy: false };
+  const model = { data: null, open: null, error: "", saved: "", busy: false, confirm: null };
   let ctx = null;
   let bound = false;
   let refresh = null;
@@ -104,8 +107,105 @@
     </li>`;
   }
 
+  // ------------------------------------------------------------ 071A: modo horario
+  const DETAIL_MIN = 5;
+  const REASONS = [["olvido", "Olvidó finalizar"], ["salida_real", "Salida real confirmada"], ["otro", "Otro"]];
+
+  function reasonsOf(data) {
+    const list = arr(data && data.reasons).map((r) => [r.code, r.label]);
+    return list.length ? list : REASONS;
+  }
+
+  // Lo mismo que valida el servidor en modo horario: hora, motivo y detalle para "Otro".
+  function validateSchedule(form, shift, now) {
+    const base = validate({ end_local: form.end_local, note: "motivo" }, shift, now);
+    if (!base.ok) return base;
+    const code = String(form.reason_code || "");
+    if (!REASONS.some(([k]) => k === code)) return { ok: false, field: "reason_code", message: "Elige el motivo del cierre." };
+    const detail = String(form.reason_detail || "").replace(/\s+/g, " ").trim();
+    if (code === "otro" && detail.length < DETAIL_MIN) return { ok: false, field: "reason_detail", message: `Escribe el detalle del motivo (mínimo ${DETAIL_MIN} caracteres).` };
+    return { ok: true, body: { end_at: base.body.end_at, reason_code: code, reason_detail: detail, confirmed: true } };
+  }
+
+  function scheduleForm(s, data) {
+    const place = s.work_location_name || "Sin lugar asignado";
+    const end = s.default_end_at || new Date().toISOString();
+    const options = reasonsOf(data).map(([k, l]) => `<option value="${h(k)}">${h(l)}</option>`).join("");
+    return `<form class="cxos-form" data-cxos-form="${h(s.employee_id)}">
+        <label>Hora de salida <small>(hora de ${h(place)}${s.scheduled_end_at ? " · por defecto la salida programada" : " · por defecto la hora actual"})</small>
+          <input type="datetime-local" name="end_local" required value="${h(utcToZonedInput(end, s.timezone))}">
+        </label>
+        <label>Motivo (obligatorio)
+          <select name="reason_code" required><option value="">Elige el motivo</option>${options}</select>
+        </label>
+        <label>Detalle <small>(obligatorio si el motivo es Otro)</small>
+          <textarea name="reason_detail" rows="2" maxlength="500" placeholder="Ej: el supervisor confirmó que salió a las 5 pm"></textarea>
+        </label>
+        ${model.error ? `<p class="cxos-error" role="alert">${h(model.error)}</p>` : ""}
+        <div class="cxos-actions">
+          <button type="submit" class="client-btn" ${model.busy ? "disabled" : ""}>Continuar</button>
+          <button type="button" class="client-btn" data-cxos-cancel>Cancelar</button>
+        </div>
+      </form>`;
+  }
+
+  function confirmBox(s) {
+    const c = model.confirm;
+    const reason = (REASONS.find(([k]) => k === c.body.reason_code) || ["", ""])[1];
+    return `<div class="cxos-form cxos-confirm" role="alertdialog" aria-labelledby="cxosConfirm-${h(s.employee_id)}">
+        <p id="cxosConfirm-${h(s.employee_id)}"><b>¿Cerrar el turno de ${h(s.employee_name || "la persona")}?</b><br>
+          Salida: <b>${h(localLabel(c.body.end_at, s.timezone))}</b> (hora de ${h(s.work_location_name || "su lugar")}) · Motivo: <b>${h(reason)}</b>${c.body.reason_detail ? ` · ${h(c.body.reason_detail)}` : ""}</p>
+        <label class="cxos-check"><input type="checkbox" data-cxos-check ${c.checked ? "checked" : ""}> Confirmo que esta es la hora de salida y queda en la auditoría</label>
+        ${model.error ? `<p class="cxos-error" role="alert">${h(model.error)}</p>` : ""}
+        <div class="cxos-actions">
+          <button type="button" class="client-btn cxos-danger" data-cxos-yes ${c.checked && !model.busy ? "" : "disabled"}>${model.busy ? "Guardando…" : "Sí, cerrar turno"}</button>
+          <button type="button" class="client-btn" data-cxos-cancel>Cancelar</button>
+        </div>
+      </div>`;
+  }
+
+  function scheduleRow(s, data) {
+    const place = s.work_location_name || "Sin lugar asignado";
+    const open = model.open === s.employee_id;
+    const chips = [
+      s.out_of_schedule ? '<span class="cxos-chip is-late">Fuera de horario</span>' : "",
+      s.over_limit ? `<span class="cxos-chip">Más de ${h(String(limitOf(data)))} h</span>` : "",
+      s.slot_name ? `<span class="cxos-chip is-soft">${h(s.slot_name)}</span>` : "",
+    ].join("");
+    const body = open ? (model.confirm && model.confirm.id === s.employee_id ? confirmBox(s) : scheduleForm(s, data)) : "";
+    return `<li class="cxos-row ${s.out_of_schedule ? "is-late" : ""} ${s.over_limit ? "is-long" : ""}" data-cxos-row="${h(s.employee_id)}">
+      <div class="cxos-main">
+        <strong>${h(s.employee_name || "Colaborador")} ${chips}</strong>
+        <span>${h(place)} · ${h(STATUS[s.status] || s.status)}</span>
+        <span>Inicio ${h(localLabel(s.shift_started_at, s.timezone))} · <b>${h(hoursLabel(s.hours_open))}</b> abierto${s.scheduled_end_at ? ` · Salida programada ${h(localLabel(s.scheduled_end_at, s.timezone))}` : ""}</span>
+        ${s.reason ? `<span>Sigue trabajando: ${h(s.reason)}</span>` : ""}
+      </div>
+      ${data.can_close && !open ? `<button type="button" class="client-btn" data-cxos-open="${h(s.employee_id)}">Cerrar turno</button>` : ""}
+      ${body}
+    </li>`;
+  }
+
+  // Los Fuera de horario primero, luego los mas viejos.
+  function scheduleShifts(data) {
+    return arr(data && data.shifts).slice().sort((a, b) => (Number(Boolean(b.out_of_schedule)) - Number(Boolean(a.out_of_schedule)))
+      || String(a.shift_started_at).localeCompare(String(b.shift_started_at)));
+  }
+
+  function scheduleView(data) {
+    const shifts = scheduleShifts(data);
+    const saved = model.saved ? `<p class="cxos-saved" role="status">${h(model.saved)}</p>` : "";
+    if (!shifts.length) return saved ? `<section class="cxos-root">${saved}</section>` : "";
+    const late = shifts.filter((s) => s.out_of_schedule).length;
+    return `<section class="cxos-root" aria-label="Turnos abiertos">
+      <div class="cxos-head"><h3>Turnos abiertos (${shifts.length})</h3>${late ? `<span class="cxos-badge is-late">Fuera de horario: ${late}</span>` : ""}</div>
+      ${saved}
+      <ul class="cxos-list">${shifts.map((s) => scheduleRow(s, data)).join("")}</ul>
+    </section>`;
+  }
+
   function view(data) {
     if (!data) return "";
+    if (data.schedule_mode) return scheduleView(data);
     const shifts = longShifts(data);
     const saved = model.saved ? `<p class="cxos-saved" role="status">${h(model.saved)}</p>` : "";
     if (!shifts.length) return saved ? `<section class="cxos-root">${saved}</section>` : "";
@@ -135,14 +235,43 @@
     }
   }
 
-  function shiftOf(id) { return longShifts(model.data).find((s) => s.employee_id === id) || null; }
+  function shiftOf(id) {
+    const list = model.data && model.data.schedule_mode ? arr(model.data.shifts) : longShifts(model.data);
+    return list.find((s) => s.employee_id === id) || null;
+  }
 
   async function onClick(event) {
     const t = event.target;
     if (!t || typeof t.closest !== "function" || !host() || !host().contains(t)) return;
     const open = t.closest("[data-cxos-open]");
-    if (open) { model.open = open.getAttribute("data-cxos-open"); model.error = ""; model.saved = ""; draw(); return; }
-    if (t.closest("[data-cxos-cancel]")) { model.open = null; model.error = ""; draw(); }
+    if (open) { model.open = open.getAttribute("data-cxos-open"); model.error = ""; model.saved = ""; model.confirm = null; draw(); return; }
+    if (t.closest("[data-cxos-cancel]")) { model.open = null; model.error = ""; model.confirm = null; draw(); return; }
+    if (t.closest("[data-cxos-check]") && model.confirm) { model.confirm.checked = Boolean(t.checked); draw(); return; }
+    if (t.closest("[data-cxos-yes]") && model.confirm && model.confirm.checked) { await closeConfirmed(); }
+  }
+
+  async function closeConfirmed() {
+    const c = model.confirm;
+    const shift = c && shiftOf(c.id);
+    if (!shift || model.busy) return;
+    model.busy = true;
+    draw();
+    try {
+      const done = await ctx.api(`/open-shifts/companies/${encodeURIComponent(ctx.companyId)}/employees/${encodeURIComponent(c.id)}/close`,
+        { method: "POST", body: JSON.stringify(c.body) });
+      model.open = null;
+      model.confirm = null;
+      model.error = "";
+      model.saved = `Turno de ${shift.employee_name || "la persona"} cerrado a las ${localLabel(c.body.end_at, shift.timezone)}. Quedó en la auditoría${done && done.notified ? " y se le avisó por el bot" : ""}.`;
+      await load();
+    } catch (error) {
+      const raw = String((error && error.message) || "");
+      const m = /"detail"\s*:\s*"([^"]+)"/.exec(raw);
+      model.error = m ? m[1] : "No se pudo cerrar el turno. Intenta de nuevo.";
+    } finally {
+      model.busy = false;
+      draw();
+    }
   }
 
   async function submit(id, form) {
@@ -172,7 +301,19 @@
     const f = event.target;
     if (!f || typeof f.getAttribute !== "function" || !f.getAttribute("data-cxos-form")) return;
     event.preventDefault();
-    submit(f.getAttribute("data-cxos-form"), { end_local: f.elements.end_local.value, note: f.elements.note.value });
+    const id = f.getAttribute("data-cxos-form");
+    if (model.data && model.data.schedule_mode) {  // 071A: primer paso; el segundo confirma
+      const shift = shiftOf(id);
+      if (!shift) return;
+      const check = validateSchedule({ end_local: f.elements.end_local.value, reason_code: f.elements.reason_code.value,
+        reason_detail: f.elements.reason_detail.value }, shift);
+      if (!check.ok) { model.error = check.message; draw(); return; }
+      model.error = "";
+      model.confirm = { id, body: check.body, checked: false };
+      draw();
+      return;
+    }
+    submit(id, { end_local: f.elements.end_local.value, note: f.elements.note.value });
   }
 
   function stop() { if (refresh) clearInterval(refresh); refresh = null; }
@@ -184,6 +325,7 @@
     model.open = null;
     model.error = "";
     model.saved = "";
+    model.confirm = null;
     if (!bound && typeof document.addEventListener === "function") {
       document.addEventListener("click", onClick);
       document.addEventListener("submit", onSubmit);
@@ -195,5 +337,6 @@
     return ok;
   }
 
-  window.CxOpenShifts = { mount, view, longShifts, model, validate, zonedToUtcIso, utcToZonedInput, localLabel, hoursLabel, tzOffsetMinutes, submit };
+  window.CxOpenShifts = { mount, view, longShifts, model, validate, validateSchedule, scheduleShifts, zonedToUtcIso, utcToZonedInput, localLabel, hoursLabel, tzOffsetMinutes, submit,
+    _ctx: (c) => { ctx = c; }, onClick, onSubmit };
 })();

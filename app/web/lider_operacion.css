@@ -213,3 +213,20 @@ html[data-lo-theme="light"] .lo-body { background: #eef3fa; }
 @media (min-width: 1100px) {
   .lo-people { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* 071A: Fuera de horario, Cerrar turno y Horario de la semana (interruptor work_schedule) */
+.lo-person.is-late { border-color: var(--lo-red); }
+.lo-person.is-late .lo-st, .lo-state.is-late { color: var(--lo-red); font-weight: 800; }
+.lo-crm-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.lo-close-btn { min-height: 44px; padding: 8px 14px; border-radius: 10px; border: 2px solid var(--lo-red); background: transparent; color: inherit; font: inherit; font-weight: 700; }
+.lo-close-set { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; }
+.lo-close-set legend { font-weight: 700; margin-bottom: 4px; }
+.lo-radio { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.lo-radio.is-off { opacity: .55; }
+.lo-radio input { width: 20px; height: 20px; }
+.lo-field { display: grid; gap: 4px; font-weight: 600; }
+.lo-field select, .lo-field textarea { font: inherit; min-height: 44px; padding: 8px 10px; border-radius: 10px; width: 100%; box-sizing: border-box;
+  border: 1px solid currentColor; background: transparent; color: inherit; }
+.lo-sched h3 { margin: 12px 0 4px; }
+.lo-sched-note { font-size: 14px; margin: 4px 0; }
+.lo-row.is-special dt { font-weight: 800; }

@@ -146,8 +146,8 @@ test('client.js: solo con el interruptor, arriba de CRM Campo por lugar y de Per
   assert.match(CLIENT, /async function cxOpenShiftsAttach060C\(anchorId\) \{\n    if \(!cxOpenShiftsOn060C\(\)\) return false;/);
   assert.match(CLIENT, /if \(mounted\) cxOpenShiftsAttach060C\("cxCrmPlacesHost059A"\);/);
   assert.match(CLIENT, /authApi: api,\n    \}\);\n    cxOpenShiftsAttach060C\("cxWorkforceV2Host051B"\);/);
-  assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=060D/);
-  assert.match(CLIENT, /\/client-static\/open_shifts\.css\?v=060D/);
+  assert.match(CLIENT, /\/client-static\/open_shifts\.js\?v=071A/);
+  assert.match(CLIENT, /\/client-static\/open_shifts\.css\?v=071A/);
   assert.match(readFileSync('app/web/client.html', 'utf8'), /client\.js\?v=[^"]*_060C_060D[^"]*"/, 'el navegador pide el client.js nuevo');
 });
 

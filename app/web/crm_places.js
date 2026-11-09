@@ -143,10 +143,15 @@
     return `<li><button type="button" class="cxp-row" data-cxp-open="${h(row.employee_id)}" aria-label="${h(row.employee_name)}: ${h(statusLabel(row))}. Ver detalle">
       <span class="cxp-dot s-${s}" aria-hidden="true"></span>
       <span class="cxp-who"><span class="cxp-name">${h(row.employee_name || "Empleado")}</span><span class="cxp-role">${h(row.employee_role || "")}</span></span>
-      <span class="cxp-chip s-${s}">${h(statusLabel(row))}</span>
+      <span class="cxp-chip s-${s}">${h(statusLabel(row))}</span>${extra("rowExtra", row)}
       <span class="cxp-time" ${s === "no_shift" ? "" : timerAttrs(row)}>${s === "no_shift" ? "—" : hm(row.core.shift_effective_seconds)}</span>
       ${gps ? `<small class="cxp-gps g-${h(row.gps_place || "none")}">${h(gps)}</small>` : ""}
     </button></li>`;
+  }
+
+  // 071A: ganchos opcionales (horario de la semana). Sin ellos, nada cambia.
+  function extra(name, item) {
+    return ctx && typeof ctx[name] === "function" ? String(ctx[name](item, model.data) || "") : "";
   }
 
   function sectionView(group) {
@@ -159,7 +164,7 @@
       <header class="cxp-sec-head">
         <h3 id="cxpSec-${h(group.key)}">${h(group.name)}${group.code ? ` <span class="cxp-code">${h(group.code)}</span>` : ""}${group.is_active === false ? ' <span class="cxp-code">desactivado</span>' : ""}</h3>
         ${group.timezone ? `<div class="cxp-clock"><span>Hora local</span> <strong data-cxp-clock="${h(group.timezone)}">${h(localTime(group.timezone))}</strong></div>` : ""}
-      </header>
+      </header>${extra("sectionExtra", group)}
       <p class="cxp-sup">${sup.length ? `${sup.length === 1 ? "Supervisor" : "Supervisores"}: ${h(sup.join(", "))}` : group.key === NONE ? "Personas sin lugar de trabajo: asígnalas en Personal." : "Sin supervisor asignado"}</p>
       <div class="cxp-kpis">${kpi("Activos", c.working)}${kpi("En pausa", c.on_break)}${gpsOn ? kpi("En perímetro", c.in_perimeter) : ""}${kpi("Sin turno", c.no_shift)}</div>
       ${people.length ? `<ul class="cxp-list">${people.map(rowView).join("")}</ul>`
@@ -318,6 +323,8 @@
     return true;
   }
 
-  window.CxCrmPlaces = { mount, view, model, sortPeople, searchPeople, countsOf, buttons, shownGroups, validFilter, localTime, tzOffsetMinutes, hm,
+  async function reload() { if (!ctx || !host()) return false; const ok = await load(); draw(); return ok; }
+
+  window.CxCrmPlaces = { mount, view, model, reload, sortPeople, searchPeople, countsOf, buttons, shownGroups, validFilter, localTime, tzOffsetMinutes, hm,
     statusOf, statusLabel, readChoice, saveChoice, storageKey, pair, contrast, GPS, ALL, NONE };
 })();
