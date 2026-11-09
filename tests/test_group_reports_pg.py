@@ -325,6 +325,7 @@ async def test_modo_prueba_nada_sale_a_destinos_reales_y_envio_con_reintentos(ma
         assert n == len(rows) == len(sent)
         assert all(3.0 <= g <= 6.0 for g in gaps) and len(gaps) == n - 1, "3 a 6 s entre mensajes"
         mail = next(d for d in sent if d["channel"] == "email" and d["kind"] == "owners_daily")
+        assert mail["attempt"] == 1 and mail["max_attempts"] == 3
         assert mail["to"] == [MAIL] and mail["attachments"][0]["url"].split("/files/")[1]
         token = mail["attachments"][0]["url"].split("/files/")[1]
         assert gr.unsign("secreto-de-prueba", token, clock["now"])["k"] == "daily_pdf"
@@ -475,8 +476,8 @@ def test_configuracion_se_valida_en_el_servidor():
         gr.clean_config({"owners": [{"email": "malo"}]}, locs)
     with pytest.raises(gr.Invalid):
         gr.clean_config({"totals_tz": "Mars/Base"}, locs)
-    cfg = gr.clean_config({"own_number": "+1 (346) 824-4098", "test_mode": None}, locs)
-    assert cfg["own_number"] == "13468244098" and cfg["test_mode"] is True, "modo prueba encendido salvo que se apague explicitamente"
+    cfg = gr.clean_config({"own_number": "+1 (555) 000-1234", "test_mode": None}, locs)
+    assert cfg["own_number"] == "15550001234" and cfg["test_mode"] is True, "modo prueba encendido salvo que se apague explicitamente"
     assert gr.clean_config({"test_mode": False}, locs)["test_mode"] is False
     assert gr.last_saturday(date(2026, 11, 16)) == date(2026, 11, 14)
     assert gr.last_saturday(date(2026, 11, 14)) == date(2026, 11, 7), "un sabado: la semana anterior completa"

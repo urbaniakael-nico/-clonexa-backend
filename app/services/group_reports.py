@@ -863,7 +863,8 @@ def payload(row: dict, company: str, now: datetime) -> dict:
             "kind_label": KINDS.get(row["kind"], row["kind"]), "test_mode": bool(row["test"]), "channel": row["channel"],
             "destination": row["destination"],
             "to": [t for t in str(row["target"]).split(",") if t] if is_mail else row["target"],
-            "subject": row.get("subject") or "", "text": row["body"], "attachments": files}
+            "subject": row.get("subject") or "", "text": row["body"], "attachments": files,
+            "attempt": int(row.get("attempts") or 1), "max_attempts": MAX_ATTEMPTS}
 
 
 async def post(data: dict) -> tuple[bool, Optional[str]]:

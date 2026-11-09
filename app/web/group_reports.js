@@ -71,7 +71,7 @@
         <p class="gr-hint">${c.test_mode ? "Encendido: nada sale a grupos, supervisor ni dueños." : "Apagado: los avisos salen a los destinatarios reales."}</p>
       </div>
       <div class="gr-card"><h2>Número y correo de envío</h2>
-        <div class="gr-grid"><label>Mi número (WhatsApp de envío)<input data-gr-field="own_number" inputmode="tel" value="${h(c.own_number)}" placeholder="13468244098"></label>
+        <div class="gr-grid"><label>Mi número (WhatsApp de envío)<input data-gr-field="own_number" inputmode="tel" value="${h(c.own_number)}" placeholder="1XXXXXXXXXX (con código de país)"></label>
         <label>Correo de Clonexa<input data-gr-field="clonexa_email" type="email" value="${h(c.clonexa_email)}"></label></div></div>
       <div class="gr-card"><h2>Grupos por operación</h2>
         ${((model.data.locations) || []).map((l) => {

@@ -25,7 +25,7 @@ const DATA = {
   kinds: [{ key: 'checkin', label: 'Corte de entrada' }, { key: 'checkout', label: 'Corte de salida' }, { key: 'owners_daily', label: 'Resumen del día a dueños' }],
   locations: [{ id: 'va', name: 'Virginia', timezone: 'America/New_York' }, { id: 'al', name: 'Alabama', timezone: 'America/Chicago' }],
   config: {
-    test_mode: true, own_number: '13468244098', clonexa_email: 'clonexa@example.test',
+    test_mode: true, own_number: '15550000000', clonexa_email: 'clonexa@example.test',
     operations: [{ location_id: 'al', group_jid: '120363000000000002@g.us', group_name: 'VOLTAGE Alabama' }],
     supervisor: { name: 'Noel Dubon', phone: '17030000001', email: '', location_id: 'al' },
     owners: [{ name: 'Adriana', phone: '17030000002', email: 'a@example.test' }],
