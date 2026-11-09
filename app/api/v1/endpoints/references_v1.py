@@ -1657,6 +1657,17 @@ async def v2_add_movements(company_id: str, payload: dict[str, Any], actor: str 
     await ensure_storage(db)
     await require_references_module(db, company_id)
     items = payload.get("items") if isinstance(payload.get("items"), list) else [payload]
+    from app.services import reference_lifecycle
+
+    if payload.get("confirm_new_sizes") is not True and await reference_lifecycle.is_on(db, company_id):
+        # Solo con reference_lifecycle (Velvet): una talla que la referencia no tiene se avisa antes de guardar.
+        try:
+            unknown = await rv2.unknown_sizes(db, company_id, items)
+        except rv2.Invalid as error:
+            raise _v2_bad(error) from None
+        if unknown:
+            names = ", ".join(f"{u['name']} no tiene talla {u['size']}" for u in unknown)
+            raise HTTPException(status_code=409, detail={"code": "talla_sin_referencia", "message": f"{names}. Confirma para guardarlo como talla sin referencia.", "sizes": unknown})
     try:
         saved = await rv2.add_movements(db, company_id, items, actor)
     except rv2.Invalid as error:

@@ -1,7 +1,7 @@
 // reference_lifecycle (interruptor): pantallas de Referencias v2 y Producción v2.
-// - Doble confirmación antes de corregir; historial visible; cerrar talla con motivo obligatorio (Entrega o Cierre de ciclo).
+// - Doble confirmación antes de corregir; historial visible.
+// - Terminar ciclo (076A): una casilla y su botón por talla; nada se cierra ni se oculta; Editar por tarjeta.
 // - Buscar por nombre viejo y nuevo trae la misma referencia una sola vez.
-// - Referencia cerrada: sale de Activas y va a Cerradas.
 // - Sin el interruptor no aparece nada nuevo.
 const { readFileSync } = require('node:fs');
 const { test } = require('node:test');
@@ -44,7 +44,7 @@ test('sin el interruptor no aparece nada nuevo', () => {
   const R = setup();
   R.model.life = null;
   const html = R.groupModalView();
-  assert.doesNotMatch(html, /Corregir producido|Cerrar talla|Cambiar nombre|antes:/);
+  assert.doesNotMatch(html, /Corregir producción|Terminar ciclo|Cerrar talla|Cambiar nombre|Editar|antes:/);
   assert.doesNotMatch(R.groupCard(GROUP, 'Activas'), /antes:/);
   assert.deepEqual(R.groupColumns([GROUP], { gender: 'todas' }).cerradas.length, 0);
 });
@@ -63,7 +63,8 @@ test('buscar por el nombre viejo y el nuevo trae la misma referencia una sola ve
 test('corregir producido: 0 es válido, errores por casilla y confirmación con casilla', () => {
   const R = setup();
   const m = R.model;
-  assert.match(R.groupModalView(), /Corregir producido/);
+  R.lifeClick(click({ 'data-rv-lf-edit': GROUP.key }));
+  assert.match(R.groupModalView(), /Corregir producción terminada/, 'dentro de Editar');
   const start = { 'data-rv-lf-start': 'correct', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' };
   R.lifeClick(click(start));
   assert.equal(m.lifeFlow.kind, 'correct');
@@ -94,23 +95,79 @@ test('valor inválido: texto y negativos no pasan; 0 sí', () => {
   for (const ok of ['0', ' 0 ', '28']) assert.equal(R.wholeNumber(ok), true, ok);
 });
 
-test('cada talla: tres filas en el mismo orden y Reiniciar y Archivar dentro de Más', () => {
+test('cada talla: tres filas en el mismo orden y, al frente, UNA casilla con Terminar ciclo', () => {
   const R = setup();
   const html = R.groupModalView();
   const order = (s) => ['rv-tl-row1', 'rv-tl-nums', 'rv-tl-acts'].map((c) => s.indexOf(c));
   for (const piece of html.split('data-rv-tl="').slice(1)) {
     const at = order(piece);
     assert.ok(at[0] > -1 && at[0] < at[1] && at[1] < at[2], 'fila 1, fila 2, fila 3');
-    assert.match(piece, /<summary[^>]*>Más<\/summary>[\s\S]*Reiniciar ciclo[\s\S]*Archivar/);
-    assert.match(piece, /Corregir producido[\s\S]*Cerrar talla[\s\S]*Más/);
+    assert.match(piece, /Recibido[\s\S]*Producido[\s\S]*Pendiente/);
+    assert.equal((piece.match(/data-rv-fc=/g) || []).length, 1, 'una casilla numérica');
+    assert.match(piece, />Terminar ciclo</);
+    assert.doesNotMatch(piece, /Cerrar talla|Reabrir|Talla cerrada|Más</);
   }
+  assert.doesNotMatch(html, /Cerrar talla|Reabrir|Talla cerrada|Cerrada ·|Tallas cerradas|Referencia cerrada/);
 });
 
-test('sin prendas cerradas, por prenda y mano de obra dicen —', () => {
+test('terminar ciclo: valida la cantidad, confirma con talla y prendas y suma a Producido', () => {
   const R = setup();
-  R.model.lifeAccount[GROUP.key] = { totals: { closed_qty: 0, minutes_per_garment: null, labor_per_garment: null }, closed_sizes: 0, total_sizes: 2, time: { total_seconds: 72600, people: [], unclosed: [] }, sizes: [] };
+  const m = R.model;
+  const go = { 'data-rv-lf-finish': `${GROUP.key}|s`, 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' };
+  for (const bad of ['', '0', '-2', '1.5', 'abc']) {
+    m.finishDraft[`${GROUP.key}|s`] = bad;
+    R.lifeClick(click(go));
+    assert.equal(m.lifeFlow.kind, 'finishinput', bad);
+    assert.match(R.groupModalView(), /data-rv-lf-err="finish"[^>]*>Escribe cuántas prendas/);
+  }
+  m.finishDraft[`${GROUP.key}|s`] = '52';
+  R.lifeClick(click(go));
+  assert.equal(m.lifeFlow.kind, 'finish');
   const html = R.groupModalView();
-  assert.match(html, /Por prenda <b>—<\/b>/);
+  assert.match(html, /¿Terminar ciclo de S con 52 prendas\?/);
+  assert.match(html, /Producido 28 → 80 · Pendiente 16 → 0\. La talla sigue activa\./);
+  assert.match(html, /supera la meta \(44\)/);
+  assert.match(html, /data-rv-lf-next="finishgo"[^>]*>Sí, terminar ciclo/);
+});
+
+test('historial de la talla: "Ciclo terminado · 52 prendas · quién · fecha" junto a las correcciones', () => {
+  const R = setup(STATE({ cycles: [{ size: 'S', quantity: 52, actor: 'Admin V2', reason_label: 'Entrega', at: '2026-11-09T14:33:29Z' }],
+    corrections: [{ size: 'S', before: 28, after: 0, actor: 'Admin V2', reason: 'error de registro', at: '2026-11-05T18:29:30Z' }] }));
+  const html = R.groupModalView();
+  assert.match(html, /Ciclo terminado · 52 prendas · Admin V2 · /);
+  assert.match(html, /Corregido 28 → 0 por Admin V2 · error de registro/);
+  assert.ok(html.indexOf('Ciclo terminado') < html.indexOf('Corregido 28'), 'lo más reciente arriba');
+});
+
+test('Editar (uno por tarjeta): cambiar nombre, corregir, reiniciar ciclo y archivar por talla', () => {
+  const R = setup();
+  let html = R.groupModalView();
+  assert.equal((html.match(/data-rv-lf-edit=/g) || []).length, 1, 'un solo botón Editar');
+  assert.doesNotMatch(html, /Reiniciar ciclo|Archivar|Cambiar nombre/, 'cerrado hasta tocar Editar');
+  R.lifeClick(click({ 'data-rv-lf-edit': GROUP.key }));
+  html = R.groupModalView();
+  assert.match(html, /Cambiar nombre/);
+  for (const [size, id] of [['S', 's1'], ['M', 'm1']]) {
+    assert.match(html, new RegExp(`data-rv-lf-start="correct"[^>]*data-rv-lf-size="${size}"[^>]*>Corregir producción terminada`));
+    assert.match(html, new RegExp(`data-rv-reset="${id}">Reiniciar ciclo`));
+    assert.match(html, new RegExp(`data-rv-archive="${id}" data-rv-archive-label="Choco nuevo talla ${size}">Archivar`));
+  }
+  R.lifeClick(click({ 'data-rv-lf-edit': GROUP.key }));
+  assert.doesNotMatch(R.groupModalView(), /Reiniciar ciclo/, 'Editar se cierra');
+});
+
+test('total de la referencia: Meta, Recibido, Producido, Pendiente, tiempo y por prenda con Producido; sin producido "—"', () => {
+  const R = setup();
+  R.model.lifeAccount[GROUP.key] = { totals: { produced: 28, minutes_per_garment: 43.2, labor_per_garment: null }, total_sizes: 2, time: { total_seconds: 72600, people: [], unclosed: [] }, sizes: [] };
+  let html = R.groupModalView();
+  assert.match(html, /Meta <b>58<\/b><\/li><li>Recibido <b>58<\/b><\/li><li>Producido <b>28<\/b><\/li><li>Pendiente <b>30<\/b>/);
+  assert.match(html, /Tiempo del equipo <b>20 h 10 min/);
+  assert.match(html, /Horas por prenda <b>0 h 43 min/);
+  assert.match(html, /Mano de obra por prenda <b>Pendiente/);
+  assert.doesNotMatch(html, /Prendas cerradas|Tallas cerradas/);
+  R.model.lifeAccount[GROUP.key] = { totals: { produced: 0, minutes_per_garment: null, labor_per_garment: null }, total_sizes: 2, time: { total_seconds: 72600, people: [], unclosed: [] }, sizes: [] };
+  html = R.groupModalView();
+  assert.match(html, /Horas por prenda <b>—<\/b>/);
   assert.match(html, /Mano de obra por prenda <b>—<\/b>/);
 });
 
@@ -125,95 +182,26 @@ test('el historial de correcciones se ve en la talla', () => {
   assert.match(R.groupModalView(), /Corregido 28 → 0 por Dueña · se metió por error/);
 });
 
-test('cerrar talla: cantidad final y motivo obligatorios, solo Entrega o Cierre de ciclo, detalle opcional y confirmación', () => {
-  const R = setup();
-  const m = R.model;
-  assert.match(R.groupModalView(), /Cerrar talla/);
-  R.lifeClick(click({ 'data-rv-lf-start': 'close', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
-  assert.equal(m.lifeFlow.value, '28', 'propone lo producido');
-  const form = R.groupModalView();
-  assert.match(form, /Cantidad final</);
-  assert.match(form, /Motivo<select/);
-  assert.match(form, /Detalle \(opcional\)/);
-  assert.deepEqual([...form.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)</g)].map((x) => [x[1], x[2]]), [['entrega', 'Entrega'], ['cierre_ciclo', 'Cierre de ciclo']]);
-  assert.doesNotMatch(form, /Merma|Defecto|Devolución|Otro/);
-  assert.doesNotMatch(form, /Bombón/);
-
-  m.lifeFlow.value = '';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.lifeFlow.errors.value, /cantidad final/);
-  assert.match(m.lifeFlow.errors.code, /motivo/);
-  assert.equal(m.lifeFlow.step, 1);
-
-  m.lifeFlow.value = '40';
-  m.lifeFlow.code = 'merma';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.match(m.lifeFlow.errors.code, /motivo/, 'un motivo retirado no pasa');
-
-  m.lifeFlow.code = 'entrega';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.equal(m.lifeFlow.step, 2, 'el detalle es opcional');
-  const confirm = R.groupModalView();
-  assert.match(confirm, /¿Cerrar la talla S con 40 prendas\?/);
-  assert.match(confirm, /Motivo: Entrega/);
-});
-
-test('cerrar talla: 0 es una cantidad final válida', () => {
-  const R = setup();
-  const m = R.model;
-  R.lifeClick(click({ 'data-rv-lf-start': 'close', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
-  m.lifeFlow.value = '0';
-  m.lifeFlow.code = 'cierre_ciclo';
-  m.lifeFlow.note = 'fin de temporada';
-  R.lifeClick(click({ 'data-rv-lf-next': 'close2' }));
-  assert.equal(m.lifeFlow.step, 2);
-  const confirm = R.groupModalView();
-  assert.match(confirm, /¿Cerrar la talla S con 0 prendas\?/);
-  assert.match(confirm, /Motivo: Cierre de ciclo · fin de temporada/);
-});
-
-test('tarjeta: dice Cerrada · Entrega o Cerrada · Cierre de ciclo; un cierre sin motivo dice solo Cerrada', () => {
-  const closes = (o) => STATE({ closes: [{ size: 'S', closed_qty: 40, actor: 'Dueña', at: '2026-11-05T12:00:00Z', ...o }] });
-  const chip = (html) => html.match(/rv-chip is-lime is-closed-why">([^<]+)</)[1];
-  for (const [state, text] of [
-    [closes({ reason_code: 'entrega', reason_label: 'Entrega' }), 'Cerrada · Entrega'],
-    [closes({ reason_code: 'cierre_ciclo', reason_label: 'Cierre de ciclo' }), 'Cerrada · Cierre de ciclo'],
-    [closes({}), 'Cerrada'],
-  ]) {
-    const R = setup(state);
-    assert.equal(chip(R.groupCard(GROUP, 'Activas')), text, 'en la tarjeta');
-    assert.equal(chip(R.groupModalView()), text, 'en el editor');
-  }
-});
-
-test('talla cerrada: muestra su cuenta, no el interruptor del bot, y reabrir pide doble confirmación', () => {
-  const R = setup(STATE({ closes: [{ size: 'S', closed_qty: 40, actor: 'Dueña', at: '2026-11-05T12:00:00Z', reason_code: 'entrega', reason_label: 'Entrega' }] }));
-  const m = R.model;
-  m.lifeAccount[GROUP.key] = { totals: { closed_qty: 40 }, closed_sizes: 1, total_sizes: 2, time: { total_seconds: 7200, people: [{ name: 'KRIS', total_seconds: 7200 }], unclosed: [] },
-    sizes: [{ size: 'S', closed: true, closed_qty: 40, meta: 44, diff_meta: -4, received: 44, diff_received: -4, days: 6, seconds: 7200, minutes_per_garment: 3, labor_per_garment: null, reason_label: 'Entrega' }] };
-  const html = R.groupModalView();
-  assert.match(html, /Talla cerrada/);
-  assert.match(html, /Horas repartidas por cantidad/);
-  assert.match(html, /Mano de obra por prenda <b>Pendiente/);
-  assert.match(html, /Motivo <b>Entrega/);
-  assert.doesNotMatch(html, /data-rv-gm-bot="s1"/);
-  assert.match(html, /data-rv-gm-bot="m1"/);
-  R.lifeClick(click({ 'data-rv-lf-start': 'reopen', 'data-rv-lf-key': GROUP.key, 'data-rv-lf-size': 'S' }));
-  R.lifeClick(click({ 'data-rv-lf-next': 'reopen2' }));
-  assert.match(m.lifeFlow.errors.reason, /motivo/);
-  m.lifeFlow.reason = 'faltó contar';
-  R.lifeClick(click({ 'data-rv-lf-next': 'reopen2' }));
-  assert.match(R.groupModalView(), /data-rv-lf-next="reopengo" disabled/);
-});
-
-test('referencia cerrada: sale de Activas y va a Cerradas', () => {
-  const R = setup(STATE({ status: 'closed', closes: [{ size: 'S', closed_qty: 40, actor: 'D', at: 'x' }, { size: 'M', closed_qty: 14, actor: 'D', at: 'x' }] }));
+test('nada se cierra: un cierre viejo no oculta la talla, no quita el bot ni crea "Cerradas"', () => {
+  const R = setup(STATE({ status: 'closed', closes: [{ size: 'S', closed_qty: 40, actor: 'D', at: 'x', reason_label: 'Entrega' }, { size: 'M', closed_qty: 14, actor: 'D', at: 'x' }] }));
   const cols = R.groupColumns([GROUP], { gender: 'todas' });
-  assert.equal(cols.activas.length, 0);
-  assert.equal(cols.visibles.length, 0);
-  assert.equal(cols.cerradas.length, 1);
-  assert.match(R.groupModalView(), /Referencia cerrada/);
-  assert.match(R.groupCard(GROUP, 'Cerradas'), /Cerrada/);
+  assert.equal(cols.activas.length, 1);
+  assert.equal(cols.visibles.length, 1);
+  assert.equal(cols.cerradas.length, 0);
+  const html = R.groupModalView();
+  assert.match(html, /data-rv-gm-bot="s1"/, 'el interruptor Bot sigue');
+  assert.doesNotMatch(html + R.groupCard(GROUP, 'Activas'), /Cerrada|Referencia cerrada|Reabrir/);
+  R.model.groups = [GROUP];
+  assert.doesNotMatch(R.view(), /<h2[^>]*>Cerradas/);
+});
+
+test('cortes: una talla que la referencia no tiene se detecta antes de guardar y el resumen dice lo que se guarda', () => {
+  const R = setup();
+  R.model.rows = [{ id: 's1', name: 'Choco nuevo', size: 'S', color: '' }, { id: 'm1', name: 'Choco nuevo', size: 'M', color: '' }];
+  R.model.cut.refId = 's1';
+  const items = [{ kind: 'ingreso', size: 'S', quantity: 3 }, { kind: 'ingreso', size: 'L', quantity: 5 }, { kind: 'novedad', section: 'corte', quantity: 1 }, { kind: 'despliegue', size: 'XL', quantity: 1 }];
+  assert.deepEqual(JSON.parse(JSON.stringify(R.cutMissingSizes(items))), ['L', 'XL']);
+  assert.equal(R.cutSummary(items), 'S 3 · L 5 · Corte 1 · Bombón 1');
 });
 
 test('cambiar nombre: confirma con los dos nombres y dice que conserva todo', () => {

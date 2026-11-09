@@ -1,4 +1,4 @@
-"""Corregir producido, renombrar y cerrar por talla (interruptor reference_lifecycle).
+"""Corregir producido, renombrar y terminar ciclo por talla (interruptor reference_lifecycle).
 
 Solo el dueno o admin de ESA empresa (o Admin V2), validado en el servidor; con el interruptor
 apagado responde 404. Todo filtra por company_id.
@@ -76,6 +76,14 @@ async def rename(company_id: UUID, payload: dict[str, Any], who: str = Depends(a
 async def close_size(company_id: UUID, payload: dict[str, Any], who: str = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     try:
         return await svc.close_size(db, str(company_id), payload, who)
+    except svc.LifecycleError as error:
+        raise _bad(error) from None
+
+
+@router.post("/companies/{company_id}/finish-cycle")
+async def finish_cycle(company_id: UUID, payload: dict[str, Any], who: str = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    try:
+        return await svc.finish_cycle(db, str(company_id), payload, who)
     except svc.LifecycleError as error:
         raise _bad(error) from None
 

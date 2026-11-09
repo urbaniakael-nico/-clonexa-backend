@@ -492,3 +492,15 @@
   .rv-gmline.is-life .rv-life-fields { grid-template-columns: minmax(0, 1fr); }
   .rv-tl-row1 { grid-template-columns: 36px 60px minmax(0, 1fr) 66px; gap: 6px; }
 }
+
+/* Terminar ciclo (076A, solo con reference_lifecycle): una casilla y su botón; Editar por tarjeta. */
+.rv-finish { align-items: flex-end; }
+.rv-finish-qty { flex: 0 1 120px; min-width: 0; }
+.rv-finish-qty input { width: 100%; min-width: 0; }
+.rv-finish.is-bad input { border-color: var(--rv-danger); }
+.rv-finish .rv-life-err { flex-basis: 100%; }
+.rv-edit-panel { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--rv-line); border-radius: var(--rv-r); background: var(--rv-plate); min-width: 0; }
+.rv-edit-acts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.rv-edit-sizes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rv-edit-sizes li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.rv-save-hint { margin-top: 6px; }

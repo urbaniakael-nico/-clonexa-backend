@@ -38,14 +38,13 @@ const RUNNER = `(() => {
         labels: [...l.querySelectorAll('.rv-tl-nums small')].map((s) => s.textContent),
         order: rect(l.querySelector('.rv-tl-row1')).b <= rect(l.querySelector('.rv-tl-nums')).t + 1 && rect(l.querySelector('.rv-tl-nums')).b <= rect(l.querySelector('.rv-tl-acts')).t + 1,
         buttons: [...l.querySelectorAll('.rv-tl-acts > button, .rv-tl-acts summary')].map((b) => b.textContent.trim()),
-        hidden: [...l.querySelectorAll('.rv-more-items button')].filter((b) => !b.checkVisibility()).map((b) => b.textContent.trim()), cut: l.classList.contains('is-cut') });
+        inputs: l.querySelectorAll('.rv-tl-acts input[type="number"]').length, cut: l.classList.contains('is-cut') });
     });
-    const details = $(LINE + ' details'); details.open = true;
-    out.more_open = [...details.querySelectorAll('.rv-more-items button')].filter((b) => b.checkVisibility()).map((b) => b.textContent.trim());
-    details.open = false;
     out.totals = $('.rv-life-totals').textContent.replace(/\\s+/g, ' ');
+    $('[data-rv-lf-edit]').click();
+    out.edit = [...document.querySelectorAll('.rv-edit-panel button')].map((b) => b.textContent.trim());
 
-    $(LINE + ' [data-rv-lf-start="correct"]').click();
+    $('.rv-edit-panel [data-rv-lf-start="correct"][data-rv-lf-size="10"]').click();
     let value = $('[data-rv-lf="value"]'), why = $('[data-rv-lf="reason"]');
     const a = rect(value), b = rect(why);
     out.fields = { separate: a.b <= b.t || b.b <= a.t || a.r <= b.l || b.r <= a.l, stacked: a.b <= b.t, side: a.r <= b.l,
@@ -131,14 +130,14 @@ test('corregir producido con clics reales a 390 y 1280 px', { skip: !CHROME && '
       assert.equal(l.color, r.lines[0].color, `${w} ${l.size}: Color en el mismo lugar`);
     }
     for (const l of full.filter((x) => x.size === '10')) {
-      assert.deepEqual(l.buttons, ['Corregir producido', 'Cerrar talla', 'Más'], `${w}: fila 3`);
-      assert.deepEqual(l.hidden, ['Reiniciar ciclo', 'Archivar'], `${w}: dentro de Más`);
+      assert.deepEqual(l.buttons, ['Terminar ciclo'], `${w}: fila 3`);
+      assert.equal(l.inputs, 1, `${w}: una casilla`);
     }
-    assert.deepEqual(r.more_open, ['Reiniciar ciclo', 'Archivar'], `${w}: Más los muestra`);
+    for (const b of ['Cambiar nombre', 'Corregir producción terminada', 'Reiniciar ciclo', 'Archivar']) assert.ok(r.edit.includes(b), `${w}: Editar tiene ${b}: ${r.edit}`);
 
-    // Sin prendas cerradas.
-    assert.match(r.totals, /Por prenda —/, `${w}`);
-    assert.match(r.totals, /Mano de obra por prenda —/, `${w}`);
+    // El total usa Producido.
+    assert.match(r.totals, /Producido \d+/, `${w}`);
+    assert.match(r.totals, /Horas por prenda/, `${w}`);
 
     // Dos casillas separadas con su etiqueta; una debajo de otra en celular.
     assert.equal(r.fields.separate, true, `${w}: casillas encimadas`);

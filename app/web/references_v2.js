@@ -49,7 +49,7 @@
     logOpen: {}, modal: "", lastOpen: "", draft: null, modalBalance: null,
     groups: [], gdraft: null,
     op: { key: "", view: "", data: null, loading: false, editing: "", draft: { name: "", hours: "", minutes: "", size: "" }, edit: null },
-    life: null, lifeFlow: null, lifeAccount: {},
+    life: null, lifeFlow: null, lifeAccount: {}, lifeEdit: "", finishDraft: {},
   };
   let ctx = null;
   let bound = false;
@@ -301,7 +301,8 @@
         <div class="rv-deploy"><label class="rv-field">Cantidad<input type="number" min="0" inputmode="numeric" data-rv-dep="quantity" value="${h(cut.deploy.quantity)}" placeholder="0"></label>
           <label class="rv-field">Talla<select data-rv-dep="size"><option value="">—</option>${sizes.map((s) => `<option ${cut.deploy.size === s.size ? "selected" : ""}>${h(s.size)}</option>`).join("")}</select></label>
           <label class="rv-field">Fecha de envío<input type="date" data-rv-dep="date" value="${h(cut.deploy.date)}"></label>
-          <button type="button" class="client-btn rv-btn is-primary" data-rv-cut-save ${model.busy || !group ? "disabled" : ""}>Guardar registro</button></div></section></div>
+          <button type="button" class="client-btn rv-btn is-primary" data-rv-cut-save ${model.busy || !group ? "disabled" : ""}>Guardar registro</button></div>
+          ${model.life && group ? `<p class="client-muted rv-step-sub rv-save-hint">Guardar registro guarda la recepción, las novedades y el envío a Bombón de una vez.</p>` : ""}</section></div>
       <aside class="rv-cuts-side">
         <section class="client-panel rv-panel"><h2 class="client-eyebrow rv-step is-cyan">Balance</h2>${group ? `<p class="client-muted rv-step-sub is-flat">${h(group.name)}${group.color ? ` · ${h(group.color)}` : ""}</p>` : ""}${b ? `
           <div class="rv-kpis"><div class="is-k-recv"><b>${h(b.received)}</b><small>Recibido</small></div><div class="is-k-nov"><b>${h(b.novelty)}</b><small>Con novedad</small></div>
@@ -355,8 +356,7 @@
       <p class="client-muted rv-more" data-rv-more hidden></p></section>`;
     return `<section class="client-panel rv-panel rv-bar"><input class="rv-search" type="search" data-rv-search value="${h(model.search)}" placeholder="Buscar por nombre, prenda, talla, color o SKU…" aria-label="Buscar">
         ${genderSwitch("data-rv-fgender", model.filterGender, true)}<button type="button" class="rv-btn" data-rv-export>Exportar CSV</button></section>
-      <div class="rv-cols">${col("Activas", "is-lime", cols.activas)}${col("Visibles para bot", "is-cyan", cols.visibles)}${col("No visibles", "is-violet", cols.noVisibles)}</div>
-      ${model.life ? `<section class="client-panel rv-panel rv-closed"><h2 class="client-eyebrow rv-col-head">Cerradas<b>${cols.cerradas.length}</b></h2><div class="rv-closed-list">${cols.cerradas.map((g) => groupCard(g, "Cerradas")).join("") || `<p class="client-muted rv-muted">Aún no hay referencias cerradas.</p>`}</div></section>` : ""}`;
+      <div class="rv-cols">${col("Activas", "is-lime", cols.activas)}${col("Visibles para bot", "is-cyan", cols.visibles)}${col("No visibles", "is-violet", cols.noVisibles)}</div>`;
   }
 
   function siblings(r) {
@@ -410,10 +410,10 @@
       const before = (lifeOf(g.key) || {}).former_names;
       return fold([g.name, g.color, gar && gar.label, ...arr(g.lines).map((l) => l.size), ...arr(before)].join(" ")).includes(q);
     });
-    const isClosed = (g) => (lifeOf(g.key) || {}).status === "closed";
-    const open = keep.filter((g) => !isClosed(g));
+    // Terminar ciclo (076A): ninguna referencia se cierra ni sale de las columnas.
+    const open = keep;
     const only = (pred) => open.map((g) => ({ ...g, lines: arr(g.lines).filter(pred) })).filter((g) => g.lines.length);
-    return { activas: open, visibles: only((l) => l.reference_id && l.bot_active), noVisibles: only((l) => l.reference_id && !l.bot_active), cerradas: keep.filter(isClosed) };
+    return { activas: open, visibles: only((l) => l.reference_id && l.bot_active), noVisibles: only((l) => l.reference_id && !l.bot_active), cerradas: [] };
   }
 
   const pctText = (p) => (p === null || p === undefined ? "—" : `${String(p).replace(".", ",")}&nbsp;%`);
@@ -457,7 +457,8 @@
   // ------------------------------------------------------------ reference_lifecycle
   const CLOSE_REASONS = { entrega: "Entrega", cierre_ciclo: "Cierre de ciclo" };
   const closedChip = (c) => `<i class="rv-chip is-lime is-closed-why">${h(c.reason_label ? `Cerrada · ${c.reason_label}` : "Cerrada")}</i>`;
-  function closedSize(key, size) { return arr((lifeOf(key) || {}).closes).find((c) => fold(c.size).trim() === fold(size).trim()) || null; }
+  // Las tallas ya no se cierran (076A, Terminar ciclo): nunca hay talla cerrada en pantalla.
+  function closedSize() { return null; }
   function formerNote(key) {
     const before = arr((lifeOf(key) || {}).former_names);
     return before.length ? `<small class="rv-former">antes: ${h(before.join(", "))}</small>` : "";
@@ -479,7 +480,7 @@
   function correctFlow(g, l) {
     const f = flowFor("correct", g.key, l.size);
     if (!f) return "";
-    if (f.step === 1) return `<div class="rv-life-flow"><b>Corregir producido · talla ${h(l.size)}</b><p class="client-muted">Producido actual: <b>${h(l.produced)}</b></p>
+    if (f.step === 1) return `<div class="rv-life-flow"><b>Corregir producción terminada · talla ${h(l.size)}</b><p class="client-muted">Producido actual: <b>${h(l.produced)}</b></p>
       <div class="rv-life-fields">${flowField(f, "value", "Nuevo valor", 'type="number" min="0" step="1" inputmode="numeric"')}${flowField(f, "reason", "Motivo (obligatorio)", 'maxlength="300"')}</div>${flowActions("correct2", "Continuar")}</div>`;
     const value = num(f.value);
     const over = num(l.received) > 0 && value > num(l.received);
@@ -498,6 +499,16 @@
     return `<div class="rv-life-flow"><b>¿Cerrar la talla ${h(l.size)} con ${h(num(f.value))} prendas?</b><p class="client-muted">Meta ${h(l.meta)} · Recibido ${h(l.received)} · Diferencia ${h(num(f.value) - num(l.received))}. El bot deja de ofrecer esta talla.</p><p class="client-muted">Motivo: ${h(CLOSE_REASONS[f.code] || "")}${String(f.note).trim() ? ` · ${h(String(f.note).trim())}` : ""}</p>${flowActions("closego", "Sí, cerrar talla")}</div>`;
   }
 
+  // Terminar ciclo: el número se SUMA a Producido; confirma con la talla y la cantidad.
+  function finishFlow(g, l) {
+    const f = flowFor("finish", g.key, l.size);
+    if (!f) return "";
+    const qty = num(f.value);
+    const over = qty > num(l.pending) ? `<p class="client-muted">Producido quedará en ${h(num(l.produced) + qty)}; supera la meta (${h(l.meta)}).</p>` : "";
+    return `<div class="rv-life-flow"><b>¿Terminar ciclo de ${h(l.size)} con ${h(qty)} prendas?</b><p class="client-muted">Producido ${h(l.produced)} → ${h(num(l.produced) + qty)} · Pendiente ${h(l.pending)} → ${h(Math.max(num(l.pending) - qty, 0))}. La talla sigue activa.</p>${over}${flowActions("finishgo", "Sí, terminar ciclo")}</div>`;
+  }
+  const finishKey = (g, l) => `${g.key}|${fold(l.size).trim()}`;
+
   function reopenFlow(g, size, label) {
     const f = flowFor("reopen", g.key, size);
     if (!f) return "";
@@ -506,7 +517,7 @@
       <label class="rv-life-check"><input type="checkbox" data-rv-lf="checked" ${f.checked ? "checked" : ""}> Confirmo reabrir ${h(label)}</label>${flowActions("reopengo", "Reabrir", !f.checked)}</div>`;
   }
 
-  // Por prenda se calcula con prendas CERRADAS: sin ninguna, "—"; sin valor hora, "Pendiente".
+  // Por prenda se calcula con lo PRODUCIDO: sin producido, "—"; sin valor hora, "Pendiente".
   const perGarmentLabor = (value, closed) => (num(closed) <= 0 ? "—" : value === null || value === undefined ? "Pendiente" : money(value));
   const perGarmentTime = (value, closed) => (num(closed) <= 0 || value === null || value === undefined ? "—" : lifeHm(value));
 
@@ -521,21 +532,40 @@
   }
 
   // Botones de la fila 3 y, debajo, el flujo abierto y el historial de la talla.
-  function lifeLine(g, l) {
-    if (!model.life) return "";
-    const closed = closedSize(g.key, l.size);
-    const history = arr(lifeOf(g.key).corrections).filter((c) => fold(c.size).trim() === fold(l.size).trim());
-    const list = history.length ? `<ul class="rv-life-history">${history.map((c) => `<li>Corregido ${h(c.before)} → ${h(c.after)} por ${h(c.actor)} · ${h(c.reason)} <small>${h(lifeStamp(c.at))}</small></li>`).join("")}</ul>` : "";
-    const panel = `${l.reference_id ? correctFlow(g, l) : ""}${closed ? reopenFlow(g, l.size, `talla ${l.size}`) : closeFlow(g, l)}`;
-    const summary = closed ? `<p class="rv-life-closed"><i class="rv-chip is-lime">Talla cerrada</i> ${h(closed.closed_qty)} prendas · ${h(closed.actor)} · ${h(lifeStamp(closed.at))}</p>${sizeAccount(g, l)}` : "";
-    return `${summary || panel || list ? `<div class="rv-life">${summary}${panel}${list}</div>` : ""}`;
+  // Historial de la talla: ciclos terminados y correcciones, lo más reciente arriba.
+  function sizeHistory(g, l) {
+    const same = (x) => fold(x.size).trim() === fold(l.size).trim();
+    const st = lifeOf(g.key) || {};
+    const items = [
+      ...arr(st.cycles).filter(same).map((c) => ({ at: c.at, html: `Ciclo terminado · ${h(c.quantity)} prendas · ${h(c.actor)} · ${h(lifeStamp(c.at))}${c.reason_label ? ` <small>${h(c.reason_label)}</small>` : ""}` })),
+      ...arr(st.corrections).filter(same).map((c) => ({ at: c.at, html: `Corregido ${h(c.before)} → ${h(c.after)} por ${h(c.actor)} · ${h(c.reason)} <small>${h(lifeStamp(c.at))}</small>` })),
+    ].sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    return items.length ? `<ul class="rv-life-history">${items.map((x) => `<li>${x.html}</li>`).join("")}</ul>` : "";
   }
 
+  function lifeLine(g, l) {
+    if (!model.life) return "";
+    const panel = l.reference_id ? `${correctFlow(g, l)}${finishFlow(g, l)}` : "";
+    const list = sizeHistory(g, l);
+    return `${panel || list ? `<div class="rv-life">${panel}${list}</div>` : ""}`;
+  }
+
+  // Fila 3: UNA casilla numérica y "Terminar ciclo" (o crear la talla si es solo corte).
   function lineButtons(g, l) {
-    const closed = closedSize(g.key, l.size);
-    const more = l.reference_id && !closed ? `<details class="rv-more-menu"><summary class="rv-btn is-small">Más</summary><span class="rv-more-items"><button type="button" class="rv-btn is-small" data-rv-reset="${h(l.reference_id)}">Reiniciar ciclo</button><button type="button" class="rv-btn is-small" data-rv-archive="${h(l.reference_id)}">Archivar</button></span></details>` : "";
-    return `<div class="rv-tl-acts">${l.reference_id ? startBtn("correct", g, l.size, "Corregir producido") : `<button type="button" class="rv-btn is-small" data-rv-gaddsize="${h(l.size)}" data-rv-anchor="${h(l.anchor_id || "")}" data-rv-gname="${h(g.name)}">Crear referencia en talla ${h(l.size)}</button>`}
-      ${closed ? startBtn("reopen", g, l.size, "Reabrir talla") : startBtn("close", g, l.size, "Cerrar talla")}${more}</div>`;
+    if (!l.reference_id) return `<div class="rv-tl-acts"><button type="button" class="rv-btn is-small" data-rv-gaddsize="${h(l.size)}" data-rv-anchor="${h(l.anchor_id || "")}" data-rv-gname="${h(g.name)}">Crear referencia en talla ${h(l.size)}</button></div>`;
+    const k = finishKey(g, l);
+    const err = model.lifeFlow && model.lifeFlow.kind === "finishinput" && model.lifeFlow.key === g.key && fold(model.lifeFlow.size).trim() === fold(l.size).trim() ? model.lifeFlow.error : "";
+    return `<div class="rv-tl-acts rv-finish ${err ? "is-bad" : ""}"><label class="rv-field rv-finish-qty">Prendas<input type="number" min="1" step="1" inputmode="numeric" data-rv-fc="${h(k)}" value="${h(model.finishDraft[k] || "")}" placeholder="0" aria-label="Prendas del ciclo talla ${h(l.size)}"></label>
+      <button type="button" class="client-btn rv-btn is-small is-primary" data-rv-lf-finish="${h(k)}" data-rv-lf-key="${h(g.key)}" data-rv-lf-size="${h(l.size)}" ${model.busy ? "disabled" : ""}>Terminar ciclo</button>
+      ${err ? `<small class="rv-life-err" role="alert" data-rv-lf-err="finish">${h(err)}</small>` : ""}</div>`;
+  }
+
+  // "Editar" (uno por tarjeta): cambiar nombre y, por talla, corregir, reiniciar ciclo y archivar.
+  function editPanel(g) {
+    if (model.lifeEdit !== g.key) return "";
+    const rows = arr(g.lines).filter((l) => l.reference_id).map((l) => `<li><b class="rv-gsize">${h(l.size)}</b><span class="rv-edit-acts">${startBtn("correct", g, l.size, "Corregir producción terminada")}
+      <button type="button" class="rv-btn is-small" data-rv-reset="${h(l.reference_id)}">Reiniciar ciclo</button><button type="button" class="rv-btn is-small" data-rv-archive="${h(l.reference_id)}" data-rv-archive-label="${h(`${g.name} talla ${l.size}`)}">Archivar</button></span></li>`).join("");
+    return `<div class="rv-edit-panel" role="group" aria-label="Editar ${h(g.name)}"><span class="rv-edit-acts">${startBtn("rename", g, "", "Cambiar nombre")}</span><ul class="rv-edit-sizes">${rows}</ul></div>`;
   }
 
   // Cada talla igual: fila 1 Talla · Meta · Color · Bot; fila 2 Recibido · Producido · Pendiente; fila 3 botones.
@@ -558,15 +588,14 @@
     const st = lifeOf(g.key);
     if (!st) return "";
     const f = flowFor("rename", g.key);
-    const rename = !f ? startBtn("rename", g, "", "Cambiar nombre")
+    const rename = !f ? `<button type="button" class="rv-btn is-small" data-rv-lf-edit="${h(g.key)}" aria-expanded="${model.lifeEdit === g.key}">Editar</button>${editPanel(g)}`
       : f.step === 1 ? `<div class="rv-life-flow"><b>Cambiar nombre</b>${flowField(f, "value", "Nombre nuevo", 'maxlength="120"')}${flowActions("rename2", "Continuar")}</div>`
         : `<div class="rv-life-flow"><b>¿Cambiar el nombre de ${h(g.name)} a ${h(f.value)}?</b><p class="client-muted">Se conserva todo: sesiones, cortes, producido y cierres.</p>${flowActions("renamego", "Sí, cambiar nombre")}</div>`;
     const requests = arr(st.requests).length ? `<div class="rv-life-requests"><b>El bot reportó más de lo recibido</b>${arr(st.requests).map((r) => `<p>${h(r.employee || "Colaborador")} reportó ${h(r.quantity)} en talla ${h(r.size)} (recibido ${h(r.received)}, producido ${h(r.produced)}).
       <span class="rv-life-acts"><button type="button" class="client-btn rv-btn is-small is-primary" data-rv-lf-req="${h(r.id)}" data-rv-lf-dec="approve" ${model.busy ? "disabled" : ""}>Aprobar</button><button type="button" class="rv-btn is-small" data-rv-lf-req="${h(r.id)}" data-rv-lf-dec="reject" ${model.busy ? "disabled" : ""}>Rechazar</button></span></p>`).join("")}</div>` : "";
     const renames = arr(st.renames).length ? `<ul class="rv-life-history">${arr(st.renames).map((x) => `<li>Nombre: ${h(x.old_name)} → ${h(x.new_name)} por ${h(x.actor)} <small>${h(lifeStamp(x.at))}</small></li>`).join("")}</ul>` : "";
-    const reopened = arr(st.reopened).length ? `<ul class="rv-life-history">${arr(st.reopened).map((x) => `<li>Reabierta ${h(x.size)} por ${h(x.actor)} · ${h(x.reason)} <small>${h(lifeStamp(x.at))}</small></li>`).join("")}</ul>` : "";
     const notice = model.notice ? `<p class="rv-life-ok" role="status">${h(model.notice)}</p>` : "";
-    return `<div class="rv-life rv-life-head">${notice}${formerNote(g.key)}${st.status === "closed" ? `<p class="rv-life-closed"><i class="rv-chip is-lime">Referencia cerrada</i></p>${flowFor("reopen", g.key, "") ? reopenFlow(g, "", "la referencia") : startBtn("reopen", g, "", "Reabrir la referencia")}` : ""}${rename}${requests}${renames}${reopened}</div>`;
+    return `<div class="rv-life rv-life-head">${notice}${formerNote(g.key)}${rename}${requests}${renames}</div>`;
   }
 
   function lifeTotals(g) {
@@ -575,9 +604,11 @@
     const t = acc.totals || {};
     const person = arr((acc.time || {}).people).map((p) => `<li><span>${h(p.name)}</span><b>${h(lifeHm(num(p.total_seconds) / 60))}</b></li>`).join("");
     const unclosed = arr((acc.time || {}).unclosed).length ? `<p class="rv-life-warn">Sin cerrar: ${arr((acc.time || {}).unclosed).length} sesión(es) no se suman hasta que se cierren o confirmen.</p>` : "";
+    const produced = t.produced !== undefined ? t.produced : g.produced;
     return `<div class="rv-life rv-life-totals"><b>Total de la referencia</b>
-      <ul class="rv-life-account"><li>Prendas cerradas <b>${h(num(t.closed_qty))}</b></li><li>Tallas cerradas <b>${h(acc.closed_sizes)} de ${h(acc.total_sizes)}</b></li><li>Tiempo del equipo <b>${h(lifeHm(num((acc.time || {}).total_seconds) / 60))}</b></li>
-      <li>Por prenda <b>${h(perGarmentTime(t.minutes_per_garment, t.closed_qty))}</b></li><li>Mano de obra por prenda <b>${h(perGarmentLabor(t.labor_per_garment, t.closed_qty))}</b></li></ul>
+      <ul class="rv-life-account"><li>Meta <b>${h(num(g.meta))}</b></li><li>Recibido <b>${h(num(g.received))}</b></li><li>Producido <b>${h(num(g.produced))}</b></li><li>Pendiente <b>${h(num(g.pending))}</b></li>
+      <li>Tiempo del equipo <b>${h(lifeHm(num((acc.time || {}).total_seconds) / 60))}</b></li>
+      <li>Horas por prenda <b>${h(perGarmentTime(t.minutes_per_garment, produced))}</b></li><li>Mano de obra por prenda <b>${h(perGarmentLabor(t.labor_per_garment, produced))}</b></li></ul>
       ${person ? `<ul class="rv-life-people">${person}</ul>` : ""}${unclosed}</div>`;
   }
 
@@ -603,6 +634,7 @@
       const key = el.getAttribute("data-rv-lf-key"), size = el.getAttribute("data-rv-lf-size") || "";
       const g = model.groups.find((x) => x.key === key);
       const line = g && arr(g.lines).find((l) => fold(l.size).trim() === fold(size).trim());
+      if (start !== "rename") model.lifeEdit = ""; // el paso se abre en su talla
       model.lifeFlow = { kind: start, key, size, step: 1, reason: "", code: "", note: "", checked: false, errors: {},
         value: start === "close" ? String(num(line && line.produced)) : start === "rename" ? (g ? g.name : "") : "" };
       model.error = ""; model.notice = "";
@@ -610,6 +642,19 @@
       return true;
     }
     if (t.closest("[data-rv-lf-cancel]")) { model.lifeFlow = null; model.error = ""; draw(); return true; }
+    const edit = pick("data-rv-lf-edit");
+    if (edit) { model.lifeEdit = model.lifeEdit === edit ? "" : edit; model.lifeFlow = null; model.error = ""; draw(); return true; }
+    const fin = pick("data-rv-lf-finish");
+    if (fin) {
+      const el = t.closest("[data-rv-lf-finish]");
+      const key = el.getAttribute("data-rv-lf-key"), size = el.getAttribute("data-rv-lf-size") || "";
+      const raw = String(model.finishDraft[fin] || "").trim();
+      model.error = ""; model.notice = "";
+      if (!wholeNumber(raw) || num(raw) <= 0) { model.lifeFlow = { kind: "finishinput", key, size, error: "Escribe cuántas prendas (número entero mayor que 0)" }; draw(); return true; }
+      model.lifeFlow = { kind: "finish", key, size, step: 2, value: String(num(raw)), errors: {} };
+      draw();
+      return true;
+    }
     const req = pick("data-rv-lf-req");
     if (req) {
       const decision = t.closest("[data-rv-lf-req]").getAttribute("data-rv-lf-dec");
@@ -647,6 +692,15 @@
     }
     if (next === "closego") {
       run(async () => { await lifePost("/close-size", { key: f.key, size: f.size, closed_qty: num(f.value), reason_code: f.code, reason_note: f.note, confirm: true }); await lifeAfter(f.key); }, `Talla ${f.size} cerrada.`);
+      return true;
+    }
+    if (next === "finishgo") {
+      const qty = num(f.value);
+      run(async () => {
+        await lifePost("/finish-cycle", { key: f.key, size: f.size, quantity: qty, confirm: true, expected_before: num(line && line.produced) });
+        delete model.finishDraft[`${f.key}|${fold(f.size).trim()}`];
+        await lifeAfter(f.key);
+      }, `Ciclo terminado: talla ${f.size} · ${qty} prendas.`);
       return true;
     }
     if (next === "reopen2") return String(f.reason).trim().length < 3 ? stop({ reason: "Escribe el motivo" }) : step(2);
@@ -1014,6 +1068,21 @@
     return items;
   }
 
+  // Tallas de ingresos y envíos que la referencia aún no tiene (la pantalla las marca "is-new").
+  function cutMissingSizes(items) {
+    const group = groups(model.rows).find((x) => x.rows.some((r) => r.id === model.cut.refId));
+    if (!group) return [];
+    const own = new Set(group.rows.flatMap((r) => sizesOf(r.size)).map((x) => fold(x).trim()));
+    return [...new Set(arr(items).filter((i) => i.kind !== "novedad" && i.size && !own.has(fold(i.size).trim())).map((i) => i.size))].sort(bySize);
+  }
+  function cutGroupName() { const g = groups(model.rows).find((x) => x.rows.some((r) => r.id === model.cut.refId)); return g ? g.name : "La referencia"; }
+  function cutSummary(items) {
+    const sec = (k) => (SECTIONS.find(([x]) => x === k) || [])[1] || k;
+    return arr(items).map((i) => (i.kind === "ingreso" ? `${i.size} ${i.quantity}` : i.kind === "novedad" ? `${sec(i.section)} ${i.quantity}` : `Bombón ${i.quantity}`)).join(" · ");
+  }
+  // Datos escritos en Información de cortes que aún no se guardan (con reference_lifecycle se avisa al salir).
+  function cutDirty() { return model.tab === "cortes" && cutItems().length > 0; }
+
   function onClick(event) {
     const t = event.target;
     if (!ctx || !t || !t.closest || !t.closest("[data-rv-root]")) return;
@@ -1021,6 +1090,7 @@
     const attr = (sel, a) => { const el = t.closest(`[${sel}]`); return el ? el.getAttribute(a || sel) : null; };
     let v;
     if ((v = attr("data-rv-tab"))) {
+      if (model.life && v !== model.tab && cutDirty() && !confirm(`Tienes datos sin guardar en Información de cortes (${cutSummary(cutItems())}). Presiona "Guardar registro" para guardarlos. ¿Salir sin guardar?`)) return;
       model.tab = v; model.notice = ""; model.error = "";
       if (v === "orden" && !model.op.key && model.groups.length) { model.op.key = model.groups[0].key; loadOp(); }
       draw(); return;
@@ -1168,7 +1238,22 @@
     if (t.closest("[data-rv-cut-save]")) {
       const items = cutItems();
       if (!items.length) { model.error = "No hay cantidades para guardar."; draw(); return; }
-      run(async () => { await post("/v2/movements", { items }); const id = model.cut.refId; model.cut = blankCut(); model.cut.refId = id; await loadBalance(); await reload(); }, "Registro guardado.");
+      const body = { items };
+      if (model.life) {
+        // Una talla que la referencia no tiene se avisa ANTES de guardar (el servidor también lo exige).
+        const missing = cutMissingSizes(items);
+        if (missing.length) {
+          if (!confirm(`${cutGroupName()} no tiene talla ${missing.join(", ")}. Se guardará como "talla sin referencia" y no sumará a ninguna talla hasta que la crees. ¿Guardar igual?`)) return;
+          body.confirm_new_sizes = true;
+        }
+      }
+      run(async () => {
+        try { await post("/v2/movements", body); } catch (error) {
+          if (!model.life || !/talla_sin_referencia/.test(String(error && error.message)) || !confirm(`${errorText(error)} ¿Guardar igual?`)) throw error;
+          await post("/v2/movements", { ...body, confirm_new_sizes: true });
+        }
+        const id = model.cut.refId; model.cut = blankCut(); model.cut.refId = id; await loadBalance(); await reload();
+      }, model.life ? `Registro guardado: ${cutSummary(items)}.` : "Registro guardado.");
       return;
     }
     if ((v = attr("data-rv-logday"))) {
@@ -1265,7 +1350,8 @@
       return;
     }
     if ((v = attr("data-rv-archive"))) {
-      if (!confirm("¿Archivar esta referencia? No se borrará físicamente.")) return;
+      const label = t.closest("[data-rv-archive]").getAttribute("data-rv-archive-label");
+      if (label ? !confirm(`¿Archivar ${label}? No se borra: queda archivada con su historial.`) : !confirm("¿Archivar esta referencia? No se borrará físicamente.")) return;
       run(async () => { await call(`/${encodeURIComponent(v)}`, { method: "DELETE" }); if (model.modal === v) { model.lastOpen = v; model.modal = ""; model.draft = null; } await reload(); }, "Referencia archivada.");
     }
   }
@@ -1288,6 +1374,7 @@
     if (t.getAttribute("data-rv-op-edit") === "size" && model.op.edit) { model.op.edit.size = t.value; return; }
     if (t.getAttribute("data-rv-m") && model.draft) { const k = t.getAttribute("data-rv-m"); model.draft[k] = t.type === "checkbox" ? !!t.checked : t.value; return; }
     if (t.hasAttribute("data-rv-cut-ref")) {
+      if (model.life && cutDirty() && !confirm(`Tienes datos sin guardar (${cutSummary(cutItems())}). ¿Cambiar de referencia sin guardar?`)) { t.value = model.cut.refId; return; }
       model.cut = { ...blankCut(), refId: t.value, date: model.cut.date };
       run(loadBalance);
       return;
@@ -1316,6 +1403,7 @@
     if ((v = t.getAttribute("data-rv-nov-qty"))) { model.cut.novelties[v] = { ...(model.cut.novelties[v] || {}), quantity: t.value }; return; }
     if ((v = t.getAttribute("data-rv-dep"))) { model.cut.deploy[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-m")) && model.draft) { model.draft[v] = t.type === "checkbox" ? !!t.checked : t.value; return; }
+    if ((v = t.getAttribute("data-rv-fc")) !== null) { model.finishDraft[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-lf")) && model.lifeFlow) {
       model.lifeFlow[v] = t.type === "checkbox" ? !!t.checked : t.value;
       if (t.type === "checkbox") draw(); // habilita el boton de aplicar
@@ -1356,7 +1444,7 @@
     draw();
   }
 
-  window.CxReferencesV2 = { lifeClick, lifeLine, lifeHead, closedSize, wholeNumber, mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
+  window.CxReferencesV2 = { cutMissingSizes, cutSummary, editPanel, finishFlow, sizeHistory, lifeTotals, lifeClick, lifeLine, lifeHead, closedSize, wholeNumber, mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
     sizeKey, bySize, byNameSize, groupLog, receivedBox, logView, openModal, closeModal, isDirty, modalView, draftOf,
     groupKey, groupColumns, groupCard, openGroupModal, groupDirty, groupModalView, cutsByDateView, opCalc, minutesFor, hm, money, setOp, opView };
 })();

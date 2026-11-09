@@ -19,7 +19,7 @@ A, B = str(uuid.uuid4()), str(uuid.uuid4())
 R = str(uuid.uuid4())
 PREFIX = f"/api/v1/reference-lifecycle/companies/{A}"
 ROUTES = [("get", f"{PREFIX}/state"), ("get", f"{PREFIX}/search?q=x"), ("get", f"{PREFIX}/account?key=x"), ("post", f"{PREFIX}/produced-correction"),
-          ("post", f"{PREFIX}/rename"), ("post", f"{PREFIX}/close-size"), ("post", f"{PREFIX}/reopen"), ("post", f"{PREFIX}/requests/{R}/approve")]
+          ("post", f"{PREFIX}/rename"), ("post", f"{PREFIX}/close-size"), ("post", f"{PREFIX}/finish-cycle"), ("post", f"{PREFIX}/reopen"), ("post", f"{PREFIX}/requests/{R}/approve")]
 
 
 class Db:

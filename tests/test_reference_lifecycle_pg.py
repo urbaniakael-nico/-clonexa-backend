@@ -3,7 +3,8 @@
 - Dreamy Jacket S: 28 -> 0 con doble confirmacion, sin borrar nada, con historial.
 - Producido > recibido: el portal pide confirmar; el bot avisa y no registra sin aprobacion.
 - Renombrar: una sola referencia por nombre viejo y nuevo, historial intacto, nombre duplicado rechazado.
-- Cerrar por talla: cuenta, motivo, referencia cerrada fuera de "en proceso" y del bot, reabrir.
+- Terminar ciclo: suma a producido, baja pendiente, historial, nada se oculta; cierres viejos -> ciclos
+  (Dreamy Jacket S activa con 52); un corte en una referencia recien creada se ve en todas partes.
 - Otra empresa sin el interruptor: nada cambia.
 """
 from __future__ import annotations
@@ -37,7 +38,7 @@ async def _all_setup(url):
     company_locale.CURRENT_TZ.set(ZoneInfo("UTC"))  # pgserver no trae la base de zonas horarias
     engine, maker = await _setup(url)
     async with engine.begin() as conn:
-        for stmt in _migration("025d_ref_lifecycle") + _migration("025d_ref_lifecycle"):  # idempotente
+        for stmt in _migration("025d_ref_lifecycle") + _migration("025d_ref_lifecycle") + _migration("025f_ref_cycles") + _migration("025f_ref_cycles"):  # idempotente
             await conn.execute(text(stmt))
         await conn.execute(text("""CREATE TABLE IF NOT EXISTS reference_work_sessions (id text PRIMARY KEY, company_id text NOT NULL, employee_id text NOT NULL,
             employee_name text NULL, telegram_user_id text NULL, reference_id text NULL, reference_name text NOT NULL, started_at timestamptz NOT NULL DEFAULT now(),
@@ -302,119 +303,172 @@ async def _rates(monkeypatch, value=10000 / 3600):
 
 
 @pytest.mark.asyncio
-async def test_cerrar_todas_las_tallas_cierra_la_referencia_y_reabrir_la_devuelve(pg_url, monkeypatch):
+async def test_terminar_ciclo_suma_a_producido_baja_pendiente_y_no_oculta_nada(pg_url, monkeypatch):
     engine, maker = await _all_setup(pg_url)
     _no_team(monkeypatch)
     await _rates(monkeypatch)
     async with maker() as db:
-        cid = await _company(db, f"close{uuid.uuid4().hex[:6]}")
+        cid = await _company(db, f"cyc{uuid.uuid4().hex[:6]}")
         await _on(db, cid)
         s, m = await _lote(db, cid)
         key = rv2.group_key("Lote")
         day = (date(2026, 10, 1), date(2026, 10, 31), date(2026, 10, 31))
+        assert await _produced(db, cid, s["id"]) == 40
 
-        ins = await production_v2.insights(db, cid, *day)
-        assert [lot["name"] for lot in ins["lots_in_process"]] == ["Lote"] and ins["lots_closed"] == [] and ins["lifecycle"] is True
-        lot = ins["lots_in_process"][0]
-        assert lot["total_seconds"] == 9 * 3600 and lot["period_seconds"] == 9 * 3600 and lot["people"][0]["name"] == "KRIS"
+        for bad in ({"quantity": 0}, {"quantity": "x"}, {"quantity": -3}, {"confirm": False}):
+            with pytest.raises(life.LifecycleError):
+                await life.finish_cycle(db, cid, {"key": key, "size": "S", "quantity": 4, "confirm": True, **bad}, WHO)
+        assert await _produced(db, cid, s["id"]) == 40, "sin cantidad valida ni confirmacion no cambia nada"
+        with pytest.raises(life.LifecycleError) as stale:
+            await life.finish_cycle(db, cid, {"key": key, "size": "S", "quantity": 4, "confirm": True, "expected_before": 39}, WHO)
+        assert stale.value.code == "valor_cambio"
 
-        # Motivo obligatorio: solo Entrega o Cierre de ciclo.
-        with pytest.raises(life.LifecycleError) as reason:
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "confirm": True}, WHO)
-        assert reason.value.code == "motivo_requerido"
-        for retired in ("merma", "defecto", "devolucion", "otro"):
-            with pytest.raises(life.LifecycleError) as old:
-                await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": retired, "reason_note": "detalle", "confirm": True}, WHO)
-            assert old.value.code == "motivo_requerido"
-        with pytest.raises(life.LifecycleError) as missing:
-            await life.close_size(db, cid, {"key": key, "size": "S", "reason_code": "entrega", "confirm": True}, WHO)  # sin cantidad
-        assert missing.value.code == "cantidad_invalida"
-        with pytest.raises(life.LifecycleError):
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega"}, WHO)  # sin confirmar
+        out = await life.finish_cycle(db, cid, {"key": key, "size": "S", "quantity": 4, "confirm": True, "expected_before": 40}, WHO)
+        assert out["produced"] == 44 and out["pending"] == 0 and out["quantity"] == 4
+        assert await _produced(db, cid, s["id"]) == 44, "se SUMA a lo producido"
+        line = next(x for g in await rv2.reference_groups(db, cid) if g["key"] == key for x in g["lines"] if x["size"] == "S")
+        assert line["produced"] == 44 and line["pending"] == 0
+        await life.finish_cycle(db, cid, {"key": key, "size": "M", "quantity": 6, "confirm": True}, WHO)
+        assert await _produced(db, cid, m["id"]) == 20
 
-        out = await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega", "confirm": True}, WHO)
-        assert out["reference_closed"] is False
-        assert (await life.state(db, cid))[key]["closes"][0]["reason_label"] == "Entrega"
-        assert await _bot_active(db, cid, s["id"]) is False, "el bot deja de ofrecer esa talla"
-        assert await _bot_active(db, cid, m["id"]) is True
-        assert [x["size"] for x in await bots.sizes_by_reference_id(db, cid, m["id"])] == ["M"]
-        with pytest.raises(life.LifecycleError) as again:
-            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 40, "reason_code": "entrega", "confirm": True}, WHO)
-        assert again.value.code == "ya_cerrada"
-        with pytest.raises(refs.HTTPException) as show:
-            await refs.update_reference(cid, s["id"], {"channel": "bot"}, db)
-        assert show.value.status_code == 409 and show.value.detail["code"] == "talla_cerrada"
-
-        # Sesion abierta: no se puede cerrar la ultima talla.
-        now = datetime(2026, 10, 30, 13, tzinfo=timezone.utc)
-        await _session(db, cid, "Lote", m["id"], now, None, emp="e2", person="TATA", status="active")
-        with pytest.raises(life.LifecycleError) as open_session:
-            await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "reason_code": "cierre_ciclo", "confirm": True}, WHO)
-        assert open_session.value.code == "sesiones_abiertas" and open_session.value.extra["people"] == ["TATA"]
-        await db.execute(text("UPDATE reference_work_sessions SET ended_at = :e, status = 'switched' WHERE company_id = :c AND ended_at IS NULL"), {"e": now + timedelta(hours=1), "c": cid})
-        await db.commit()
-
-        out = await life.close_size(db, cid, {"key": key, "size": "M", "closed_qty": 14, "reason_code": "cierre_ciclo", "confirm": True}, WHO)
-        assert out["reference_closed"] is True
-        assert await vbot._references(db, cid) == [], "el bot deja de ofrecerla"
-        assert (await life.state(db, cid))[key]["status"] == "closed"
-
-        ins = await production_v2.insights(db, cid, *day)
-        assert ins["lots_in_process"] == [] and [lot["name"] for lot in ins["lots_closed"]] == ["Lote"]
-        acc = ins["lots_closed"][0]["account"]
-        assert acc["status"] == "closed" and acc["totals"]["closed_qty"] == 54 and acc["totals"]["seconds"] == 10 * 3600
-        assert sum(x["seconds"] for x in acc["sizes"]) == acc["totals"]["seconds"] and sum(x["labor"] for x in acc["sizes"]) == acc["totals"]["labor"] == 100000.0
-        assert {x["size"]: x["diff_received"] for x in acc["sizes"]} == {"S": -4, "M": 0}
-        assert acc["allocation"] == "repartido por cantidad"
-        pdf = production_v2.build_pdf(ins, {"name": "Velvet"})
-        assert pdf[:4] == b"%PDF"
-
-        # Reabrir: doble confirmacion y motivo; todo vuelve y queda la auditoria.
-        with pytest.raises(life.LifecycleError):
-            await life.reopen(db, cid, {"key": key, "size": "S", "reason": "faltó contar", "confirm": True}, WHO)
-        with pytest.raises(life.LifecycleError):
-            await life.reopen(db, cid, {"key": key, "size": "S", "reason": "", "confirm": True, "confirm_final": True}, WHO)
-        await life.reopen(db, cid, {"key": key, "size": "S", "reason": "faltó contar", "confirm": True, "confirm_final": True}, WHO)
-        assert await _bot_active(db, cid, s["id"]) is True and await _bot_active(db, cid, m["id"]) is False
         st = (await life.state(db, cid))[key]
-        assert st["status"] == "open" and st["reopened"][0]["reason"] == "faltó contar" and st["reopened"][0]["actor"] == WHO
+        assert [(c["size"], c["quantity"], c["actor"]) for c in st["cycles"]] == [("M", 6, WHO), ("S", 4, WHO)], "historial de la talla"
+        assert st["status"] == "open" and st["closes"] == []
+        # Nada se cierra ni se oculta: el bot sigue igual y la referencia sigue en proceso.
+        assert await _bot_active(db, cid, s["id"]) is True and await _bot_active(db, cid, m["id"]) is True
+        assert [x["size"] for x in await bots.sizes_by_reference_id(db, cid, m["id"])] == ["M", "S"], "las dos tallas siguen en el bot"
+        assert await life.bot_close_guard(db, cid, {"id": s["id"]}, 0, EMP) is None
         ins = await production_v2.insights(db, cid, *day)
-        assert [lot["name"] for lot in ins["lots_in_process"]] == ["Lote"] and ins["lots_closed"] == []
+        assert ins["lifecycle"] is True and ins["lots_closed"] == [], "ninguna referencia queda cerrada"
 
-        await life.reopen(db, cid, {"key": key, "reason": "reabrir toda", "confirm": True, "confirm_final": True}, WHO)
-        assert await _bot_active(db, cid, m["id"]) is True and (await life.state(db, cid))[key]["closes"] == []
+        # Cerrar talla ya no existe.
+        with pytest.raises(life.LifecycleError) as gone:
+            await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 4, "reason_code": "entrega", "confirm": True}, WHO)
+        assert gone.value.code == "usa_terminar_ciclo" and gone.value.status == 410
+
+        # Total de la referencia con Producido: horas y mano de obra por prenda.
+        acc = await life.account(db, cid, key, ZoneInfo("UTC"))
+        t = acc["totals"]
+        assert (t["meta"], t["received"], t["produced"], t["pending"]) == (58, 58, 64, 0)
+        assert t["seconds"] == 9 * 3600 and t["minutes_per_garment"] == round(9 * 3600 / 64 / 60, 1)
+        assert t["labor_per_garment"] == round(90000 / 64, 2)
+        assert acc["status"] == "open" and acc["closed_sizes"] == 0
+
+        # Renombrar lleva el historial de ciclos.
+        await life.rename(db, cid, {"key": key, "new_name": "Lote Nuevo", "confirm": True}, WHO)
+        assert len((await life.state(db, cid))[rv2.group_key("Lote Nuevo")]["cycles"]) == 2
     await engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_guardia_del_bot_rechaza_una_talla_cerrada(pg_url):
-    engine, maker = await _all_setup(pg_url)
-    async with maker() as db:
-        cid = await _company(db, f"cl2{uuid.uuid4().hex[:6]}")
-        await _on(db, cid)
-        s, _ = await _lote(db, cid)
-        await life.close_size(db, cid, {"key": rv2.group_key("Lote"), "size": "S", "closed_qty": 44, "reason_code": "entrega", "confirm": True}, WHO)
-        assert "ya está cerrada" in await life.bot_close_guard(db, cid, {"id": s["id"]}, 1, EMP)
-    await engine.dispose()
+def test_cuenta_sin_producido_muestra_raya():
+    group = {"lines": [{"size": "S", "reference_id": "a", "meta": 10, "received": 10, "produced": 0}]}
+    acc = life.accounts(group, [], {"total_seconds": 3600}, {"status": "ok", "amount": 5000.0}, ZoneInfo("UTC"))
+    assert acc["totals"]["minutes_per_garment"] is None and acc["totals"]["labor_per_garment"] is None
+    assert acc["sizes"][0]["minutes_per_garment"] is None and acc["sizes"][0]["pending"] == 10
+
+
+async def _close_row(db, cid, key, size, rid, qty, actor, at, reopened=False, prev_bot=False, channel="system", reason="entrega"):
+    await db.execute(text("""INSERT INTO reference_size_closes (company_id, ref_key, size, reference_id, closed_qty, meta, received, reason_code, prev_bot_active, prev_channel, actor, closed_at,
+        reopened_at, reopened_by, reopen_reason) VALUES (:c, :k, :z, :r, :q, 0, 0, :why, :pb, :ch, :a, :at, :ro, :rb, :rr)"""),
+                     {"c": cid, "k": key, "z": size, "r": rid, "q": qty, "why": reason, "pb": prev_bot, "ch": channel, "a": actor, "at": at,
+                      "ro": at + timedelta(minutes=10) if reopened else None, "rb": "Admin V2" if reopened else None, "rr": "error de cierre" if reopened else None})
+    await db.commit()
 
 
 @pytest.mark.asyncio
-async def test_cerrar_talla_en_cero_con_motivo_y_detalle_opcional_y_cierre_viejo_conserva_su_etiqueta(pg_url):
+async def test_cierres_guardados_pasan_a_ciclos_y_dreamy_s_queda_activa_con_52(pg_url):
     engine, maker = await _all_setup(pg_url)
     async with maker() as db:
-        cid = await _company(db, f"cl3{uuid.uuid4().hex[:6]}")
+        cid = await _company(db, f"dreamy{uuid.uuid4().hex[:6]}")
         await _on(db, cid)
-        await _lote(db, cid)
-        key = rv2.group_key("Lote")
-        out = await life.close_size(db, cid, {"key": key, "size": "S", "closed_qty": 0, "reason_code": "cierre_ciclo", "reason_note": "fin de temporada", "confirm": True}, WHO)
-        assert out["closed_qty"] == 0
-        close = (await life.state(db, cid))[key]["closes"][0]
-        assert close["closed_qty"] == 0 and close["reason_code"] == "cierre_ciclo" and close["reason_label"] == "Cierre de ciclo"
-
-        # Un cierre hecho antes del cambio sigue mostrando su motivo.
-        await db.execute(text("UPDATE reference_size_closes SET reason_code = 'merma' WHERE company_id = :c"), {"c": cid})
+        s = await _ref(db, cid, "Dreamy Jacket", "S", 132)
+        m = await _ref(db, cid, "Dreamy Jacket", "M", 80)
+        await _cut(db, cid, s["id"], "S", 132)
+        await _cut(db, cid, m["id"], "M", 80)
+        await _closure(db, cid, s["id"], "Dreamy Jacket", "SM", 28)
+        await _closure(db, cid, m["id"], "Dreamy Jacket", "ML", 10)
+        await life.correct_produced(db, cid, fix(cid, s["id"], 0, expected_before=28), "Admin V2")
+        await db.execute(text("UPDATE product_references SET bot_active = false, channel = 'system' WHERE id = :i"), {"i": s["id"]})
         await db.commit()
-        assert (await life.state(db, cid))[key]["closes"][0]["reason_label"] == "Merma"
+        key = rv2.group_key("Dreamy Jacket")
+        at = datetime(2026, 11, 9, 14, 33, 29, tzinfo=timezone.utc)  # 9 nov 09:33 en Bogota
+        await _close_row(db, cid, key, "S", s["id"], 52, "Admin V2", at, reopened=True)
+        # Otra referencia con un cierre VIGENTE que apago el bot: queda activa y vuelve al bot.
+        x = await _ref(db, cid, "Otra", "L", 10)
+        await _close_row(db, cid, rv2.group_key("Otra"), "L", x["id"], 9, "Velvet Admin", at, prev_bot=True, channel="both", reason="cierre_ciclo")
+        await db.execute(text("UPDATE product_references SET bot_active = false, channel = 'system' WHERE id = :i"), {"i": x["id"]})
+        await db.commit()
+        assert await life.size_is_closed(db, cid, rv2.group_key("Otra"), "L") is True
+
+        await db.commit()  # sin transaccion abierta: la migracion necesita la tabla
+        async with engine.begin() as conn:  # la migracion, dos veces: no duplica nada
+            for stmt in _migration("025f_ref_cycles") + _migration("025f_ref_cycles"):
+                await conn.execute(text(stmt))
+
+        assert await _produced(db, cid, s["id"]) == 52
+        line = next(x for g in await rv2.reference_groups(db, cid) if g["key"] == key for x in g["lines"] if x["size"] == "S")
+        assert (line["produced"], line["pending"]) == (52, 80)
+        st = (await life.state(db, cid))[key]
+        assert st["status"] == "open" and st["closes"] == [] and st["reopened"] == []
+        assert [(c["size"], c["quantity"], c["actor"], c["reason_label"]) for c in st["cycles"]] == [("S", 52, "Admin V2", "Entrega")]
+        assert datetime.fromisoformat(st["cycles"][0]["at"]) == at
+        assert [(c["before"], c["after"], c["reason"]) for c in st["corrections"]] == [(28, 0, "se metió por error")], "la corrección se mantiene"
+        assert await _bot_active(db, cid, s["id"]) is False, "S estaba oculta del bot por su interruptor: se queda igual"
+
+        assert await life.size_is_closed(db, cid, rv2.group_key("Otra"), "L") is False
+        assert await _bot_active(db, cid, x["id"]) is True, "el cierre vigente habia apagado el bot: vuelve"
+        assert await _produced(db, cid, x["id"]) == 9
+        rows = (await db.execute(text("SELECT converted_at IS NOT NULL AS done, converted_cycle_id IS NOT NULL AS cyc, closed_qty, reopened_at IS NOT NULL AS ro FROM reference_size_closes WHERE company_id = :c ORDER BY closed_qty"),
+                                 {"c": cid})).mappings().all()
+        assert [(r["done"], r["cyc"], r["closed_qty"]) for r in rows] == [(True, True, 9), (True, True, 52)], "los originales quedan, marcados como convertidos"
+        n = (await db.execute(text("SELECT count(*) FROM reference_finished_cycles WHERE company_id = :c"), {"c": cid})).scalar()
+        assert n == 2
+        src = (await db.execute(text("SELECT source_channel, employee_name, closed_at FROM reference_production_closures WHERE company_id = :c AND quantity_finished = 52"), {"c": cid})).mappings().one()
+        assert src["source_channel"] == life.CYCLE_CHANNEL and src["employee_name"] == "Admin V2" and src["closed_at"] == at
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_corte_en_referencia_recien_creada_se_ve_en_balance_tarjeta_editor_y_produccion(pg_url, monkeypatch):
+    engine, maker = await _all_setup(pg_url)
+    _no_team(monkeypatch)
+    async with maker() as db:
+        cid = await _company(db, f"roj{uuid.uuid4().hex[:6]}")
+        await _on(db, cid)
+        out = await refs.v2_catalog_create(cid, {"name": "rojita medium", "color": "rojo", "gender": "mujer", "body_part": "superior", "garment_type": "chaqueta",
+                                                 "sizes": [{"size": "S", "quantity": 46}, {"size": "M", "quantity": 25}]}, actor=WHO, db=db)
+        s, m = (next(r for r in out["items"] if r["size"] == z) for z in ("S", "M"))
+        today = date.today().isoformat()
+        items = [{"reference_id": s["id"], "kind": "ingreso", "size": "S", "quantity": 40, "event_date": today},
+                 {"reference_id": m["id"], "kind": "ingreso", "size": "M", "quantity": 22, "event_date": today},
+                 {"reference_id": s["id"], "kind": "novedad", "section": "corte", "quantity": 2, "note": "manchadas", "event_date": today},
+                 {"reference_id": s["id"], "kind": "despliegue", "size": "S", "quantity": 1, "event_date": today}]
+        saved = await refs.v2_add_movements(cid, {"items": items}, actor=WHO, db=db)
+        assert saved["count"] == 4
+        bal = await rv2.balance(db, cid, s["id"])
+        assert (bal["received"], bal["novelty"], bal["deployed"], bal["available"]) == (62, 2, 1, 59)
+        assert {x["kind"] for x in bal["log"]} == {"ingreso", "novedad", "despliegue"} and not any(x["size_without_reference"] for x in bal["log"])
+        g = next(x for x in await rv2.reference_groups(db, cid) if x["key"] == rv2.group_key("rojita medium"))
+        assert {x["size"]: x["received"] for x in g["lines"]} == {"S": 40, "M": 22} and g["received"] == 62
+        assert g["cuts_by_date"][0]["total"] == 62 and {x["size"]: x["quantity"] for x in g["cuts_by_date"][0]["sizes"]} == {"S": 40, "M": 22}
+        ins = await production_v2.insights(db, cid, date.today(), date.today(), date.today())
+        assert any(lot["name"] == "rojita medium" for lot in ins["lots_in_process"])
+
+        # Talla que la referencia no tiene: aviso claro antes de guardar; con confirmacion se guarda.
+        with pytest.raises(refs.HTTPException) as warn:
+            await refs.v2_add_movements(cid, {"items": [{"reference_id": s["id"], "kind": "ingreso", "size": "L", "quantity": 5, "event_date": today}]}, actor=WHO, db=db)
+        assert warn.value.status_code == 409 and warn.value.detail["code"] == "talla_sin_referencia"
+        assert "rojita medium no tiene talla L" in warn.value.detail["message"]
+        assert (await rv2.balance(db, cid, s["id"]))["received"] == 62, "sin confirmar no se guarda"
+        await refs.v2_add_movements(cid, {"items": [{"reference_id": s["id"], "kind": "ingreso", "size": "L", "quantity": 5, "event_date": today}], "confirm_new_sizes": True}, actor=WHO, db=db)
+        assert (await rv2.balance(db, cid, s["id"]))["received"] == 67
+
+        # Otra empresa (sin reference_lifecycle): igual que siempre, sin aviso.
+        other = await _company(db, f"oth{uuid.uuid4().hex[:6]}")
+        await _on(db, other, on=False)
+        r = await _ref(db, other, "Blusa", "S", 5)
+        await refs.v2_add_movements(other, {"items": [{"reference_id": r["id"], "kind": "ingreso", "size": "XL", "quantity": 3, "event_date": today}]}, actor=WHO, db=db)
+        assert (await rv2.balance(db, other, r["id"]))["received"] == 3
     await engine.dispose()
 
 
@@ -446,4 +500,6 @@ def test_revision_id_cabe_en_alembic():
 
     module = importlib.import_module("migrations.versions.025d_ref_lifecycle")
     assert len(module.revision) <= 32 and module.down_revision == "025c_lider_v2"
+    cycles = importlib.import_module("migrations.versions.025f_ref_cycles")
+    assert len(cycles.revision) <= 32 and cycles.down_revision == "025e_work_schedule"
     assert _migration_024g()

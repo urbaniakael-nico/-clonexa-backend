@@ -72,6 +72,29 @@
       totals: { closed_qty: 18, minutes_per_garment: 245.5, labor_per_garment: 40900 },
       sizes: [{ size: "12", closed: true, closed_qty: 18, meta: 20, diff_meta: -2, received: 0, diff_received: 18, days: 12, seconds: 300000, minutes_per_garment: 245.5, labor_per_garment: 40900, reason_label: "Cierre de ciclo", reason_note: "Detalle largo del motivo del cierre de ciclo" }] };
   }
+  // Cortes con clics reales (?cuts=1): una referencia recién creada (rojita medium S/M) y un
+  // servidor de mentira que guarda los movimientos y devuelve balance y tarjeta con lo guardado.
+  const CUTS = P.get("cuts") === "1";
+  window.__cutPosts = [];
+  const cutMoves = [];
+  if (CUTS) {
+    rows.push({ id: "rs", name: "rojita medium", category: "Chaqueta", size: "S", color: "rojo", bot_active: true, channel: "bot", initial_quantity: 46 },
+      { id: "rm", name: "rojita medium", category: "Chaqueta", size: "M", color: "rojo", bot_active: true, channel: "bot", initial_quantity: 25 });
+    extras.rs = { gender: "mujer", body_part: "superior", garment_type: "chaqueta", classified: true };
+    extras.rm = { gender: "mujer", body_part: "superior", garment_type: "chaqueta", classified: true };
+  }
+  const rojita = () => {
+    const live = cutMoves.filter((m) => !m.voided_at);
+    const sum = (k, z) => live.filter((m) => m.kind === k && (!z || m.size === z)).reduce((a, m) => a + m.quantity, 0);
+    const days = {};
+    live.filter((m) => m.kind === "ingreso").forEach((m) => { const d = days[m.event_date] = days[m.event_date] || { date: m.event_date, sizes: {}, total: 0, last_at: null }; d.sizes[m.size] = (d.sizes[m.size] || 0) + m.quantity; d.total += m.quantity; });
+    const ln = (size, id, meta) => line(size, id, { meta, pending: meta, bot_active: true, color: "rojo", received: sum("ingreso", size) });
+    return { key: "rojitamedium", name: "rojita medium", color: "rojo", colors: ["rojo"], received: sum("ingreso"), produced: 0, meta: 71, pending: 71, percent: 0, solo_corte: [],
+      cuts_by_date: Object.values(days).map((d) => ({ ...d, sizes: Object.entries(d.sizes).map(([size, quantity]) => ({ size, quantity })) })), lines: [ln("S", "rs", 46), ln("M", "rm", 25)],
+      balance: { reference: { id: "rs", name: "rojita medium", color: "rojo" }, classified: true, catalog_sizes: ["S", "M", "L"], existing_sizes: ["M", "S"],
+        received: sum("ingreso"), novelty: sum("novedad"), deployed: sum("despliegue"), available: sum("ingreso") - sum("novedad") - sum("despliegue"),
+        received_by_date: Object.values(days).map((d) => ({ date: d.date, quantity: d.total })), log: cutMoves.map((m, i) => ({ id: `cm${i}`, ...m })) } };
+  };
   window.__lifePosts = [];
   let catalog = null;
   const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
@@ -104,6 +127,14 @@
     if (p.endsWith("/v2/catalog")) { catalog = catalog || await real("/client-static/garment_catalog.json").then((r) => r.json()); return json({ catalog, counts: { mujer: { parts: { inferior: 3, superior: 2 }, garments: { pantalon: 3 } } } }); }
     if (p.endsWith("/summary")) return json(summary);
     if (p.endsWith("/v2/board")) return json({ extras });
+    if (CUTS && p.endsWith("/v2/movements")) {
+      const body = JSON.parse((opts && opts.body) || "{}");
+      window.__cutPosts.push(body);
+      body.items.forEach((m) => cutMoves.push({ ...m, size: m.size || "", created_by: "Dueña" }));
+      return json({ ok: true, count: body.items.length });
+    }
+    if (CUTS && p.endsWith("/v2/groups")) return json({ groups: [...groups, rojita()] });
+    if (CUTS && /\/v2\/references\/r[sm]\/balance$/.test(p)) return json(rojita().balance);
     if (p.endsWith("/v2/groups")) return json({ groups });
     if (p.endsWith("/v2/op-order")) return json(opData);
     if (p.endsWith("/balance")) return json(balance);
@@ -118,14 +149,15 @@
     const m = R.model;
     m.tab = P.get("tab") || "catalogo";
     if (m.tab === "catalogo") { m.form.part = "inferior"; m.form.garment = "pantalon"; m.form.sizes = { 4: "30", 6: "20", 16: "1200" }; m.form.name = "PANT SET"; m.form.color = "Marfil"; }
-    if (m.tab === "cortes") { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
+    if (m.tab === "cortes" && !CUTS) { m.cut.refId = "p10"; m.cut.received = { 10: "30", 12: "20", 8: "6" }; m.logOpen = { "2026-09-16": true }; m.cut.novelties = { corte: { note: "Pieza mal cortada en talla 12", quantity: "1" } }; m.cut.deploy = { quantity: "1", size: "10", date: "2026-10-06" }; m.balance = balance; }
     if (m.tab === "estado" && P.get("modal") !== "0") R.openGroupModal(P.get("modal") || "pantset|marfil");
     if (m.tab === "orden") { m.op.key = groups[0].key; m.op.view = P.get("view") || ""; R.setOp(opData); }
     if (LIFE) {
       m.life = lifeState;
       m.lifeAccount[LIFE_KEY] = lifeAccount;
       const flow = { correct: { kind: "correct", step: 1, size: "10" }, correcterr: { kind: "correct", step: 1, size: "10", errors: { value: "Valor inválido", reason: "Escribe el motivo" } }, correct2: { kind: "correct", step: 2, size: "10" }, close: { kind: "close", step: 1, size: "10" },
-        close2: { kind: "close", step: 2, size: "10" }, rename: { kind: "rename", step: 1, size: "" }, rename2: { kind: "rename", step: 2, size: "" }, reopen: { kind: "reopen", step: 1, size: "12" } }[P.get("flow")];
+        close2: { kind: "close", step: 2, size: "10" }, finish: { kind: "finish", step: 2, size: "10" }, rename: { kind: "rename", step: 1, size: "" }, rename2: { kind: "rename", step: 2, size: "" }, reopen: { kind: "reopen", step: 1, size: "12" } }[P.get("flow")];
+      if (P.get("flow") === "edit") m.lifeEdit = LIFE_KEY;
       if (flow) m.lifeFlow = { key: LIFE_KEY, reason: "Se metió por error", code: "", note: "", checked: false, errors: {}, value: flow.kind === "rename" ? "PANT SET edición nueva" : "40", ...flow };
     }
     host.innerHTML = R.view();

@@ -234,6 +234,24 @@ async def add_movements(db: AsyncSession, company_id: str, items: list, actor: s
     return out
 
 
+async def unknown_sizes(db: AsyncSession, company_id: str, items: list) -> list[dict]:
+    """Tallas de ingresos y envios que la referencia (todas sus filas activas) no tiene. Asi la
+    pantalla avisa ANTES de guardar en vez de dejarlas como "talla sin referencia" sin decir nada."""
+    clean = [validate_movement(i) for i in items] if isinstance(items, list) else []
+    rows = [dict(r) for r in (await db.execute(text(f"SELECT {REF_COLS} FROM product_references WHERE company_id = :c"), {"c": company_id})).mappings().all()]
+    by_id = {r["id"]: r for r in rows}
+    out: list[dict] = []
+    for m in clean:
+        anchor = by_id.get(m["reference_id"])
+        if not anchor or not m["size"] or m["kind"] == "novedad":
+            continue
+        key = key_of(anchor)
+        sizes = {_fold(s).strip() for r in rows if key_of(r) == key and not r.get("archived") for s in sizes_of(r["size"])}
+        if _fold(m["size"]).strip() not in sizes and not any(x["name"] == anchor["name"] and x["size"] == m["size"] for x in out):
+            out.append({"name": anchor["name"], "size": m["size"], "color": anchor.get("color") or ""})
+    return out
+
+
 async def void_movement(db: AsyncSession, company_id: str, movement_id: str, reason: str, actor: str) -> bool:
     reason = str(reason or "").strip()
     if len(reason) < 3:

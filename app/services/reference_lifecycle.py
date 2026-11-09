@@ -4,8 +4,11 @@
   reference_production_closures hace que todas las pantallas cuadren, y queda el registro.
 - Renombrar: el nombre nuevo se escribe en toda la referencia y en sus copias (sesiones, cierres...),
   en una sola transaccion, con su historial. Por eso bot, reportes y PDF muestran el nombre actual.
-- Cerrar por talla: el estado "cerrada" se deriva de los cierres vigentes, nunca se guarda aparte.
-  Cerrar una talla apaga su bot_active; reabrir lo devuelve como estaba.
+- Terminar ciclo (076A, reemplaza "cerrar talla"): la cantidad se SUMA a lo producido (una fila
+  source_channel 'ciclo_terminado' en reference_production_closures) y queda en el historial de la
+  talla (reference_finished_cycles). Nada se cierra ni se oculta: la talla sigue activa y en el bot
+  segun su interruptor. Los cierres viejos se convirtieron en ciclos (migracion 025f) y quedan
+  marcados con converted_at; ya no cuentan como cierres.
 - Producido > recibido: el portal pide confirmar; el bot avisa y deja una solicitud para aprobar.
 
 El tiempo no se reparte por talla porque el bot registra la sesion por referencia, sin talla:
@@ -29,6 +32,7 @@ from app.services import references_v2 as rv2
 MODULE = "references"
 SWITCH = "reference_lifecycle"
 CORRECTION_CHANNEL = "correccion"
+CYCLE_CHANNEL = "ciclo_terminado"
 APPROVED_CHANNEL = "aprobado_portal"
 REASONS = {"entrega": "Entrega", "cierre_ciclo": "Cierre de ciclo"}
 # Solo para leer cierres viejos: ya no se pueden elegir.
@@ -36,9 +40,10 @@ REASON_LABELS = {**REASONS, "merma": "Merma", "defecto": "Defecto", "devolucion"
 MAX_QTY = rv2.MAX_QTY
 # Tablas con copia del nombre: (tabla, columna del nombre). Todas se filtran por empresa.
 NAME_COPIES = ("reference_work_sessions", "reference_production_closures", "reference_cycle_resets", "mini_panel_sales_records",
-               "reference_produced_corrections", "reference_produced_requests")
+               "reference_produced_corrections", "reference_produced_requests", "reference_finished_cycles")
 KEY_COPIES = (("reference_op_settings", "group_key"), ("reference_op_items", "group_key"), ("reference_size_closes", "ref_key"),
-              ("reference_produced_corrections", "ref_key"), ("reference_produced_requests", "ref_key"))
+              ("reference_produced_corrections", "ref_key"), ("reference_produced_requests", "ref_key"),
+              ("reference_finished_cycles", "ref_key"))
 
 
 class LifecycleError(Exception):
@@ -162,7 +167,7 @@ async def _line_numbers(db: AsyncSession, company_id: str, reference_id: str) ->
 
 async def size_is_closed(db: AsyncSession, company_id: str, key: str, size: Any) -> bool:
     return bool((await db.execute(text("""
-        SELECT 1 FROM reference_size_closes WHERE company_id = :c AND ref_key = :k AND lower(size) = lower(:z) AND reopened_at IS NULL LIMIT 1
+        SELECT 1 FROM reference_size_closes WHERE company_id = :c AND ref_key = :k AND lower(size) = lower(:z) AND reopened_at IS NULL AND converted_at IS NULL LIMIT 1
     """), {"c": company_id, "k": key, "z": str(size or "")})).first())
 
 
@@ -333,11 +338,16 @@ async def _open_sessions(db: AsyncSession, company_id: str, key: str) -> list[st
 async def _live_closes(db: AsyncSession, company_id: str, key: Optional[str] = None) -> list[dict]:
     return [dict(r) for r in (await db.execute(text("""
         SELECT id::text AS id, ref_key, size, reference_id, closed_qty, meta, received, reason_code, reason_note, prev_bot_active, prev_channel, actor, closed_at
-        FROM reference_size_closes WHERE company_id = :c AND reopened_at IS NULL AND (CAST(:k AS text) IS NULL OR ref_key = :k) ORDER BY closed_at
+        FROM reference_size_closes WHERE company_id = :c AND reopened_at IS NULL AND converted_at IS NULL AND (CAST(:k AS text) IS NULL OR ref_key = :k) ORDER BY closed_at
     """), {"c": company_id, "k": key})).mappings().all()]
 
 
 async def close_size(db: AsyncSession, company_id: str, payload: dict, actor: str) -> dict:
+    """Retirado (076A): una talla ya no se cierra; se usa Terminar ciclo."""
+    raise LifecycleError("usa_terminar_ciclo", "Las tallas ya no se cierran: usa Terminar ciclo.", 410)
+
+
+async def _close_size_retired(db: AsyncSession, company_id: str, payload: dict, actor: str) -> dict:
     key, size = _text(payload.get("key"), 200), _text(payload.get("size"), 60)
     if payload.get("confirm") is not True:
         raise LifecycleError("confirmacion", "Confirma el cierre de la talla.")
@@ -405,6 +415,41 @@ async def reopen(db: AsyncSession, company_id: str, payload: dict, actor: str) -
     return {"ok": True, "reopened": [c["size"] for c in targets]}
 
 
+# ---------------------------------------------------------------- terminar ciclo
+async def finish_cycle(db: AsyncSession, company_id: str, payload: dict, actor: str) -> dict:
+    """Suma la cantidad a lo producido de la talla y deja el ciclo en su historial. No cierra,
+    no oculta y no toca el bot. Una sola persona del taller lo marca."""
+    key, size = _text(payload.get("key"), 200), _text(payload.get("size"), 60)
+    qty = _int(payload.get("quantity"), "Prendas")
+    if qty <= 0:
+        raise LifecycleError("cantidad_invalida", "Prendas: escribe cuántas prendas terminó el ciclo.")
+    if payload.get("confirm") is not True:
+        raise LifecycleError("confirmacion", "Confirma terminar el ciclo.")
+    group = await _group(db, company_id, key)
+    line = _line(group, size)
+    if not line:
+        raise LifecycleError("no_encontrada", "Esa talla no existe en la referencia.", 404)
+    if not line.get("reference_id"):
+        raise LifecycleError("talla_sin_referencia", f"Crea la talla {line['size']} antes de terminar su ciclo.", 409)
+    before = int(line["produced"])
+    if payload.get("expected_before") is not None and _int(payload.get("expected_before"), "Producido") != before:
+        raise LifecycleError("valor_cambio", f"El producido cambió mientras escribías; ahora es {before}. Revisa e intenta de nuevo.", 409, produced=before)
+    closure_id = str(uuid.uuid4())
+    await db.execute(text("""
+        INSERT INTO reference_production_closures (id, company_id, employee_id, employee_name, telegram_user_id, reference_id, reference_name, size,
+            quantity_finished, notes, closed_at, source_channel, created_at)
+        VALUES (:id, :c, '', :who, '', :r, :n, :z, :q, 'Ciclo terminado', now(), :ch, now())
+    """), {"id": closure_id, "c": company_id, "who": actor[:200], "r": line["reference_id"], "n": group["name"], "z": line["size"], "q": qty, "ch": CYCLE_CHANNEL})
+    row = (await db.execute(text("""
+        INSERT INTO reference_finished_cycles (company_id, ref_key, reference_id, reference_name, size, quantity, actor, closure_id)
+        VALUES (:c, :k, :r, :n, :z, :q, :by, :cl) RETURNING id::text AS id, finished_at
+    """), {"c": company_id, "k": group["key"], "r": line["reference_id"], "n": group["name"], "z": line["size"], "q": qty, "by": actor[:200], "cl": closure_id})).mappings().first()
+    await db.commit()
+    meta = int(line["meta"])
+    return {"ok": True, "id": row["id"], "size": line["size"], "quantity": qty, "produced": before + qty, "pending": max(meta - before - qty, 0),
+            "actor": actor, "at": _iso(row["finished_at"])}
+
+
 async def guard_patch(db: AsyncSession, company_id: str, current: dict, new_name: str, new_bot_active: bool) -> None:
     """El PATCH de siempre no puede saltarse el historial de nombres ni reactivar en el bot una talla cerrada."""
     if new_name != current.get("name"):
@@ -437,45 +482,34 @@ def _local_day(value: Any, tz) -> Optional[date]:
 def accounts(group: dict, closes: list[dict], time_info: Optional[dict], labor: Optional[dict], tz) -> dict:
     """La cuenta de cada talla y el total (suma de las tallas). Funcion pura.
 
+    Desde Terminar ciclo (076A) todo se calcula con lo PRODUCIDO (nada se cierra): horas y mano de
+    obra por prenda = tiempo / producido; con producido 0, None ("—"). closes queda por compatibilidad.
     labor: {"status": ok|pendiente, "amount", "missing": [...]}; sin valor hora -> "Pendiente"."""
     lines = closable_lines(group)
     total_seconds = int((time_info or {}).get("total_seconds") or 0)
-    first = _local_day((time_info or {}).get("first"), tz)
-    live = {rv2._fold(c["size"]).strip(): c for c in closes}
-    qty_of = [int(live[rv2._fold(x["size"]).strip()]["closed_qty"]) if rv2._fold(x["size"]).strip() in live else int(x["produced"]) for x in lines]
+    qty_of = [max(int(x["produced"]), 0) for x in lines]
     secs = allocate(total_seconds, qty_of)
     labor_ok = bool(labor and labor.get("status") == "ok")
     amount = float(labor["amount"]) if labor_ok else 0.0
     cents = allocate(round(amount * 100), qty_of) if labor_ok else [0] * len(lines)
     rows = []
     for line, qty, seconds, money_cents in zip(lines, qty_of, secs, cents):
-        c = live.get(rv2._fold(line["size"]).strip())
-        closed_day = _local_day(c["closed_at"], tz) if c else None
         received, meta = int(line.get("received") or 0), int(line["meta"])
         rows.append({
             "size": line["size"], "reference_id": line.get("reference_id"), "meta": meta, "received": received, "produced": int(line["produced"]),
-            "closed": bool(c), "closed_qty": int(c["closed_qty"]) if c else None, "diff_meta": int(c["closed_qty"]) - meta if c else None,
-            "diff_received": int(c["closed_qty"]) - received if c else None, "reason_code": c["reason_code"] if c else None,
-            "reason_label": REASON_LABELS.get(c["reason_code"]) if c and c["reason_code"] else None, "reason_note": c["reason_note"] if c else None,
-            "closed_at": c["closed_at"].isoformat() if c and isinstance(c["closed_at"], datetime) else None, "closed_by": c["actor"] if c else None,
-            "days": (closed_day - first).days + 1 if closed_day and first else None, "seconds": seconds,
-            # Por prenda solo con prendas CERRADAS; una talla abierta no tiene cifra.
-            "minutes_per_garment": round(seconds / qty / 60, 1) if c and qty > 0 else None,
-            "labor": money_cents / 100 if labor_ok else None, "labor_per_garment": round(money_cents / 100 / qty, 2) if c and labor_ok and qty > 0 else None,
+            "pending": max(meta - int(line["produced"]), 0), "closed": False, "closed_qty": qty, "diff_meta": qty - meta, "diff_received": qty - received,
+            "reason_code": None, "reason_label": None, "reason_note": None, "closed_at": None, "closed_by": None, "days": None, "seconds": seconds,
+            "minutes_per_garment": round(seconds / qty / 60, 1) if qty > 0 else None,
+            "labor": money_cents / 100 if labor_ok else None, "labor_per_garment": round(money_cents / 100 / qty, 2) if labor_ok and qty > 0 else None,
         })
-    closed_total = sum(q for q, r in zip(qty_of, rows) if r["closed"])
-    garments = sum(qty_of)
-    closed_seconds = sum(r["seconds"] for r in rows if r["closed"])
-    closed_cents = sum(cent for cent, r in zip(cents, rows) if r["closed"])
-    is_closed = bool(lines) and all(r["closed"] for r in rows)
-    days = [r["days"] for r in rows if r["days"]]
+    produced = sum(qty_of)
     return {
-        "sizes": rows, "allocation": "repartido por cantidad", "status": "closed" if is_closed else "open", "closed_sizes": sum(1 for r in rows if r["closed"]), "total_sizes": len(rows),
+        "sizes": rows, "allocation": "repartido por cantidad", "status": "open", "closed_sizes": 0, "total_sizes": len(rows),
         "labor_status": labor.get("status") if labor else "pendiente", "labor_missing": (labor or {}).get("missing") or [],
-        "totals": {"closed_qty": closed_total, "garments": garments, "meta": sum(r["meta"] for r in rows), "received": sum(r["received"] for r in rows),
-                   "seconds": sum(r["seconds"] for r in rows), "labor": round(sum(cents) / 100, 2) if labor_ok else None, "days": max(days) if days else None,
-                   "minutes_per_garment": round(closed_seconds / closed_total / 60, 1) if closed_total > 0 else None,
-                   "labor_per_garment": round(closed_cents / 100 / closed_total, 2) if labor_ok and closed_total > 0 else None},
+        "totals": {"produced": produced, "closed_qty": produced, "garments": produced, "meta": sum(r["meta"] for r in rows), "received": sum(r["received"] for r in rows),
+                   "pending": sum(r["pending"] for r in rows), "seconds": sum(r["seconds"] for r in rows), "labor": round(sum(cents) / 100, 2) if labor_ok else None, "days": None,
+                   "minutes_per_garment": round(total_seconds / produced / 60, 1) if produced > 0 else None,
+                   "labor_per_garment": round(amount / produced, 2) if labor_ok and produced > 0 else None},
     }
 
 
@@ -539,7 +573,10 @@ async def state(db: AsyncSession, company_id: str, groups: Optional[list[dict]] 
     """), {"c": company_id})).mappings().all()]
     reopened = [dict(r) for r in (await db.execute(text("""
         SELECT ref_key, size, closed_qty, reopened_at, reopened_by, reopen_reason FROM reference_size_closes
-        WHERE company_id = :c AND reopened_at IS NOT NULL ORDER BY reopened_at DESC
+        WHERE company_id = :c AND reopened_at IS NOT NULL AND converted_at IS NULL ORDER BY reopened_at DESC
+    """), {"c": company_id})).mappings().all()]
+    cycles = [dict(r) for r in (await db.execute(text("""
+        SELECT ref_key, reference_id, size, quantity, actor, note, finished_at FROM reference_finished_cycles WHERE company_id = :c ORDER BY finished_at DESC, created_at DESC
     """), {"c": company_id})).mappings().all()]
     requests = [dict(r) for r in (await db.execute(text("""
         SELECT id::text AS id, ref_key, reference_id, size, quantity, received, produced, employee_name, created_at
@@ -558,6 +595,8 @@ async def state(db: AsyncSession, company_id: str, groups: Optional[list[dict]] 
             "closes": [{"size": c["size"], "closed_qty": c["closed_qty"], "reason_code": c["reason_code"], "reason_label": REASON_LABELS.get(c["reason_code"]), "actor": c["actor"], "at": _iso(c["closed_at"])} for c in own],
             "reopened": [{"size": r["size"], "closed_qty": r["closed_qty"], "reason": r["reopen_reason"], "actor": r["reopened_by"], "at": _iso(r["reopened_at"])}
                          for r in reopened if r["ref_key"] == k],
+            "cycles": [{"reference_id": c["reference_id"], "size": c["size"], "quantity": c["quantity"], "actor": c["actor"],
+                        "reason_label": REASON_LABELS.get(c["note"]) if c["note"] else None, "at": _iso(c["finished_at"])} for c in cycles if c["ref_key"] == k],
             "requests": [{"id": r["id"], "size": r["size"], "quantity": r["quantity"], "received": r["received"], "produced": r["produced"], "employee": r["employee_name"], "at": _iso(r["created_at"])}
                          for r in requests if r["ref_key"] == k],
             "status": "closed" if lines and all(any(_same_size(c["size"], x["size"]) for c in own) for x in lines) else "open",

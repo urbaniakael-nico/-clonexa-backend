@@ -174,34 +174,36 @@ def closes(*rows):
 
 def test_cuenta_por_talla_total_es_la_suma_y_se_reparte_por_cantidad():
     time_info = {"total_seconds": 54 * 3600 + 7, "first": "2026-10-15T12:00:00+00:00"}
-    acc = life.accounts(GROUP, closes(("S", 40, "merma"), ("M", 14, None)), time_info, {"status": "ok", "amount": 540000.5, "missing": []}, BOG)
+    # Terminar ciclo (076A): la cuenta usa lo PRODUCIDO; un cierre viejo ya no cambia nada.
+    acc = life.accounts(GROUP, closes(("S", 99, "merma")), time_info, {"status": "ok", "amount": 540000.5, "missing": []}, BOG)
     sizes = {s["size"]: s for s in acc["sizes"]}
-    assert acc["status"] == "closed" and acc["allocation"] == "repartido por cantidad"
-    assert sizes["S"]["seconds"] == 40 * 3600 + 5 or sizes["S"]["seconds"] == 40 * 3600 + 6
+    assert acc["status"] == "open" and acc["allocation"] == "repartido por cantidad" and acc["closed_sizes"] == 0
+    assert sizes["S"]["seconds"] in (40 * 3600 + 5, 40 * 3600 + 6)
     assert sum(s["seconds"] for s in acc["sizes"]) == acc["totals"]["seconds"] == time_info["total_seconds"], "no se pierde ni un segundo"
     assert acc["totals"]["labor"] == 540000.5 and round(sum(s["labor"] for s in acc["sizes"]), 2) == 540000.5
-    assert sizes["S"]["diff_received"] == -4 and sizes["S"]["diff_meta"] == -4 and sizes["S"]["reason_label"] == "Merma"
-    assert sizes["S"]["days"] == 6 and acc["totals"]["closed_qty"] == 54 and acc["totals"]["days"] == 6
+    assert sizes["S"]["pending"] == 4 and sizes["M"]["pending"] == 0
+    t = acc["totals"]
+    assert (t["meta"], t["received"], t["produced"], t["pending"]) == (58, 58, 54, 4)
 
 
 def test_sin_valor_hora_la_mano_de_obra_queda_pendiente():
-    acc = life.accounts(GROUP, closes(("S", 40, None)), {"total_seconds": 3600}, {"status": "pendiente", "amount": None, "missing": ["KRIS"]}, BOG)
+    acc = life.accounts(GROUP, [], {"total_seconds": 3600}, {"status": "pendiente", "amount": None, "missing": ["KRIS"]}, BOG)
     assert acc["status"] == "open" and acc["labor_status"] == "pendiente" and acc["labor_missing"] == ["KRIS"]
     assert acc["sizes"][0]["labor_per_garment"] is None and acc["totals"]["labor_per_garment"] is None
 
 
-def test_por_prenda_se_calcula_con_prendas_cerradas():
+def test_por_prenda_se_calcula_con_lo_producido():
     labor = {"status": "ok", "amount": 540000.0, "missing": []}
-    info = {"total_seconds": 72600, "first": "2026-10-15T12:00:00+00:00"}  # el caso Dreamy: 20 h 10 entre 1 h de producido daba cifras enganosas
-    none = life.accounts(GROUP, [], info, labor, BOG)
-    assert none["totals"]["minutes_per_garment"] is None and none["totals"]["labor_per_garment"] is None, "sin cerradas no hay cifra"
-    assert all(s["minutes_per_garment"] is None and s["labor_per_garment"] is None for s in none["sizes"])
-    partial = life.accounts(GROUP, closes(("S", 40, "merma")), info, labor, BOG)
-    sizes = {s["size"]: s for s in partial["sizes"]}
-    assert partial["totals"]["minutes_per_garment"] == sizes["S"]["minutes_per_garment"] == round(sizes["S"]["seconds"] / 40 / 60, 1)
-    assert partial["totals"]["labor_per_garment"] == sizes["S"]["labor_per_garment"]
-    assert sizes["M"]["minutes_per_garment"] is None, "una talla abierta no tiene cifra por prenda"
-    assert partial["totals"]["seconds"] == 72600, "el total de horas sigue siendo la suma de todas las tallas"
+    info = {"total_seconds": 72600, "first": "2026-10-15T12:00:00+00:00"}
+    acc = life.accounts(GROUP, [], info, labor, BOG)
+    sizes = {s["size"]: s for s in acc["sizes"]}
+    assert acc["totals"]["minutes_per_garment"] == round(72600 / 54 / 60, 1)
+    assert acc["totals"]["labor_per_garment"] == round(540000.0 / 54, 2)
+    assert sizes["S"]["minutes_per_garment"] == round(sizes["S"]["seconds"] / 40 / 60, 1)
+    zero = {"key": "z", "name": "Z", "lines": [dict(GROUP["lines"][0], produced=0)]}
+    none = life.accounts(zero, [], info, labor, BOG)
+    assert none["totals"]["minutes_per_garment"] is None and none["totals"]["labor_per_garment"] is None, "sin producido: —"
+    assert acc["totals"]["seconds"] == 72600
 
 
 def test_labor_of_usa_el_valor_de_cada_persona_y_avisa_si_falta():
