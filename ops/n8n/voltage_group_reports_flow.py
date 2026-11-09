@@ -149,7 +149,9 @@ for (let i = 0; i < items.length; i++) {
 }
 const isMail = b.channel === 'email';
 const route = isMail ? (props.length ? 'mail_att' : 'mail') : (media ? 'wa_doc' : 'wa_text');
-return [{ json: { ...b, route, to_text: Array.isArray(b.to) ? b.to.join(',') : String(b.to || ''), att_props: props.join(','), media }, binary }];
+const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const mail_html = b.html ? String(b.text || '') : '<div style="font-family:Arial,Helvetica,sans-serif;white-space:pre-wrap">' + esc(b.text) + '</div>';
+return [{ json: { ...b, route, to_text: Array.isArray(b.to) ? b.to.join(',') : String(b.to || ''), att_props: props.join(','), media, mail_html }, binary }];
 """
 ADJUNTOS = r"""
 const b = $input.first().json.body || {};
@@ -190,13 +192,13 @@ def send_flow(secret_cred, evo_cred) -> dict:
         node("Fallo la imagen", "if", 2, [1560, 200], cond_true("={{ !!$json.error }}")),
         http_json("WhatsApp texto (respaldo)", [1780, 120], f"{evo}/sendText/{INSTANCE}",
                   "={{ JSON.stringify({ number: $('Juntar').item.json.to_text, text: $('Juntar').item.json.text }) }}", "httpHeaderAuth", evo_cred),
-        node("Correo con adjuntos", "gmail", 2.1, [1340, 400], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "={{ $json.html ? 'html' : 'text' }}",
-                                                               "message": "={{ $json.text }}",
+        node("Correo con adjuntos", "gmail", 2.1, [1340, 400], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "html",
+                                                               "message": "={{ $json.mail_html }}",
                                                                "options": {"appendAttribution": False,
                                                                            "attachmentsUi": {"attachmentsBinary": [{"property": "={{ $json.att_props }}"}]}}},
              {"gmailOAuth2": GMAIL}, onError="continueRegularOutput"),
-        node("Correo", "gmail", 2.1, [1340, 550], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "={{ $json.html ? 'html' : 'text' }}",
-                                                  "message": "={{ $json.text }}", "options": {"appendAttribution": False}},
+        node("Correo", "gmail", 2.1, [1340, 550], {"sendTo": "={{ $json.to_text }}", "subject": "={{ $json.subject }}", "emailType": "html",
+                                                  "message": "={{ $json.mail_html }}", "options": {"appendAttribution": False}},
              {"gmailOAuth2": GMAIL}, onError="continueRegularOutput"),
         node("Resultado", "code", 2, [2000, 300], {"jsCode": RESULTADO}),
         node("Responder", "respondToWebhook", 1.1, [1800, 300], {"respondWith": "json",

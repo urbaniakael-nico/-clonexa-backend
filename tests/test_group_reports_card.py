@@ -122,4 +122,4 @@ def test_n8n_manda_imagen_y_si_falla_el_texto():
     assert "'image' : 'document'" in flow, "PNG como imagen con pie de foto"
     assert '"Fallo la imagen"' in flow and '"WhatsApp texto (respaldo)"' in flow, "si la imagen falla, llega el texto"
     assert re.search(r'node\("Descargar".*?onError="continueRegularOutput"', flow, re.S), "si no se pudo dibujar, se manda el texto"
-    assert "$json.html ? 'html' : 'text'" in flow, "correo a los dueños en HTML"
+    assert flow.count('"emailType": "html"') >= 2 and "mail_html" in flow and "b.html ? String(b.text" in flow, "correo a los dueños en HTML"
