@@ -86,6 +86,10 @@ async def _board(db: AsyncSession, company_id: UUID, who: dict, start: Optional[
     board = await svc.build(db, company_id, first, last, places=who["places"])
     board["scope"] = {"limited": who["places"] is not None, "supervisor_no_place": who["no_place"]}
     board["can_manage"] = who["role"] in svc.MANAGE_ROLES
+    # 072A: boton "Avisos WhatsApp" solo para dueño / admin y con whatsapp_group_reports.
+    from app.services import group_reports, work_schedule
+
+    board["group_reports"] = who["role"] in work_schedule.OWNER_ROLES and await group_reports.is_on(db, company_id)
     return board
 
 

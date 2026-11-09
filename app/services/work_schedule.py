@@ -38,6 +38,7 @@ KEY = "work_schedule"
 MODULE = "workforce"
 LOOP_SECONDS = 60
 PROMPT_AFTER_MINUTES = 15
+GROUP_REPORTS_PROMPT_MINUTES = 30  # 072A: con whatsapp_group_reports, igual que el corte de salida
 NO_REPLY_MINUTES = 30
 REASK_HOURS = 2
 STALE_HOURS = 3
@@ -520,9 +521,11 @@ async def _reask(db: AsyncSession, cid: str, row: dict, now: datetime) -> bool:
 
 
 async def run_company(db: AsyncSession, company_id: Any, *, send: Callable[..., Awaitable[None]],
-                      language_of: Callable[[str], Awaitable[str]], now: Optional[datetime] = None) -> dict:
+                      language_of: Callable[[str], Awaitable[str]], now: Optional[datetime] = None,
+                      prompt_after: int = PROMPT_AFTER_MINUTES) -> dict:
     """Una pasada del aviso de salida para UNA empresa. `send(chat_id, text, reply_markup=None)`.
-    Cada paso se reclama de forma atomica en la base: dos copias corriendo no duplican mensajes."""
+    Cada paso se reclama de forma atomica en la base: dos copias corriendo no duplican mensajes.
+    072A: con whatsapp_group_reports el aviso sale a los 30 min (igual que el corte de salida)."""
     from app.services import open_shift_alert
 
     now = now or datetime.now(timezone.utc)
@@ -534,7 +537,7 @@ async def run_company(db: AsyncSession, company_id: Any, *, send: Callable[..., 
         sch = await schedules.of_shift(shift)
         if not sch:
             continue
-        ask_at = sch["end"] + timedelta(minutes=PROMPT_AFTER_MINUTES)
+        ask_at = sch["end"] + timedelta(minutes=prompt_after)
         if now < ask_at:
             continue
         row = found.get((shift["employee_id"], shift["check_in_at"]))
@@ -605,7 +608,10 @@ async def run_all(db: AsyncSession) -> int:
                     return "es"
                 return lang if lang in TEXTS else "es"
 
-            stats = await run_company(db, cid, send=send, language_of=language_of)
+            from app.services import group_reports
+
+            prompt_after = GROUP_REPORTS_PROMPT_MINUTES if await group_reports.is_on(db, cid) else PROMPT_AFTER_MINUTES
+            stats = await run_company(db, cid, send=send, language_of=language_of, prompt_after=prompt_after)
             total += sum(stats.values())
         except Exception as exc:  # una empresa con datos raros no frena a las demas
             await db.rollback()

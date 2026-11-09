@@ -634,6 +634,17 @@ async def _clonexa_startup_bootstrap_bots() -> None:
         logging.getLogger("clonexa.bot_punch_gps").warning("No se pudo iniciar el ciclo del bot: %s", exc)
 
     try:
+        # 072A: avisos automaticos por WhatsApp (interruptor whatsapp_group_reports). Sin el
+        # interruptor encendido en ninguna empresa no consulta nada mas ni envia nada.
+        from app.services.group_reports import start_loop as start_group_reports_loop
+
+        start_group_reports_loop()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("clonexa.group_reports").warning("No se pudo iniciar el ciclo de avisos WhatsApp: %s", exc)
+
+    try:
         # Turnos: propuestas de cambio vencidas pasan al siguiente candidato (calculado desde la base).
         from app.services.shifts import start_expire_loop
 

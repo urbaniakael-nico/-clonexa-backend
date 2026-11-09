@@ -371,3 +371,28 @@ async def test_otra_empresa_sin_interruptor_sigue_igual(maker):
             assert exc.value.status_code in (401, 403), "sin sesion no entra"
         finally:
             admin._active_session = orig
+
+
+# ------------------------------------------------------------ 072A: con whatsapp_group_reports, a los 30 min
+async def test_aviso_a_los_30_min_con_avisos_whatsapp_uno_por_persona(maker):
+    cid, va, _al = await _setup(maker)
+    async with maker() as db:
+        await ws.save_week(db, cid, va, WEEK, [H1], actor="Dueña", actor_user_id=None)
+        ana = await _employee(db, cid, "Ana", tg="101", place=va)
+        dan = await _employee(db, cid, "Dan", tg="901", place=va)
+        for eid in (ana, dan):
+            await _open_shift(db, cid, eid, datetime(2026, 11, 9, 12, 0, tzinfo=UTC))
+        box = Outbox()
+
+        async def run(minutes):
+            return await ws.run_company(db, cid, send=box.send, language_of=box.language_of,
+                                        now=MONDAY_END_VA + timedelta(minutes=minutes), prompt_after=ws.GROUP_REPORTS_PROMPT_MINUTES)
+
+        await run(15)
+        await run(29)
+        assert box.sent == [], "con el corte de salida a los 30 min, el bot no pregunta antes"
+        await run(30)
+        assert box.to("101") == ["⏰ Tu turno terminó a las 5:00 p. m. ¿Ya saliste?"] and len(box.to("901")) == 1
+        await run(31)
+        await run(40)
+        assert len(box.sent) == 2, "un solo aviso por persona"

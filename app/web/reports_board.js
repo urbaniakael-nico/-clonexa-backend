@@ -340,6 +340,7 @@
         ${model.preset === "custom" ? `<label class="rb-date">${h(T("Desde"))}<input type="date" data-rb-from value="${h(r.from)}"></label><label class="rb-date">${h(T("Hasta"))}<input type="date" data-rb-to value="${h(r.to)}"></label>` : ""}
         ${readonly() ? (ctx && ctx.pdf ? `<div class="rb-exports"><button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>` : "") : `<div class="rb-exports"><button type="button" class="client-btn" data-rb-export="marks" ${busy}>${h(T("CSV marcaciones"))}</button>
           <button type="button" class="client-btn" data-rb-export="notes" ${busy}>${h(T("CSV notas"))}</button>
+          ${model.data && model.data.group_reports ? `<button type="button" class="client-btn" data-rb-avisos>${h(T("Avisos WhatsApp"))}</button>` : ""}
           <button type="button" class="rb-primary" data-rb-export="pdf" ${busy}>${h(T("Descargar PDF"))}</button></div>`}
       </div></header>`;
   }
@@ -544,6 +545,7 @@
     const attr = (a) => { const el = t.closest(`[${a}]`); return el ? el.getAttribute(a) : null; };
     let v;
     if (t.closest("[data-rb-back]")) { stopTimer(); ctx.back(); return; }
+    if (t.closest("[data-rb-avisos]")) { openGroupReports(); return; }
     if ((v = attr("data-rb-preset"))) {
       if (v === "custom") { const r = range(); model.from = r.from; model.to = r.to; }
       model.preset = v;
@@ -593,6 +595,33 @@
     setQuery("");
     const input = host.querySelector("[data-rb-search]");
     if (input) input.value = "";
+  }
+
+  // 072A: Avisos por WhatsApp (whatsapp_group_reports): su propio archivo, cargado al tocar el botón.
+  let groupReportsLoading = null;
+  function loadGroupReports() {
+    if (window.CxGroupReports) return Promise.resolve();
+    if (!groupReportsLoading) {
+      groupReportsLoading = new Promise((resolve, reject) => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "/client-static/group_reports.css?v=072A";
+        document.head.appendChild(link);
+        const script = document.createElement("script");
+        script.src = "/client-static/group_reports.js?v=072A";
+        script.onload = () => resolve();
+        script.onerror = () => { groupReportsLoading = null; reject(new Error("group_reports")); };
+        document.head.appendChild(script);
+      });
+    }
+    return groupReportsLoading;
+  }
+  async function openGroupReports() {
+    const board = ctx;
+    try { await loadGroupReports(); } catch (_) { model.error = T("No se pudo abrir Avisos WhatsApp."); draw(); return; }
+    stopTimer();
+    await window.CxGroupReports.mount({ companyId: board.companyId, apiBase: board.apiBase, token: board.token, host: board.host,
+      back: () => mount({ ...board, keep: true }) });
   }
 
   async function mount(context) {
