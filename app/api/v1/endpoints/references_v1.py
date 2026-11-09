@@ -1668,6 +1668,17 @@ async def v2_add_movements(company_id: str, payload: dict[str, Any], actor: str 
         if unknown:
             names = ", ".join(f"{u['name']} no tiene talla {u['size']}" for u in unknown)
             raise HTTPException(status_code=409, detail={"code": "talla_sin_referencia", "message": f"{names}. Confirma para guardarlo como talla sin referencia.", "sizes": unknown})
+    if payload.get("confirm_duplicate") is not True and await reference_lifecycle.is_on(db, company_id):
+        # Mismo talla, fecha y cantidad que la recepcion inicial: se pregunta antes de contar dos veces.
+        from app.services import reference_reception
+
+        try:
+            dup = await reference_reception.duplicates(db, company_id, items)
+        except rv2.Invalid as error:
+            raise _v2_bad(error) from None
+        if dup:
+            text_ = " · ".join(f"{d['size']} ya tiene recepción inicial de {d['quantity']} el {d['event_date']}" for d in dup)
+            raise HTTPException(status_code=409, detail={"code": "posible_duplicado", "message": f"{text_}. ¿Es un corte nuevo (sumar) o el mismo (no sumar)?", "items": dup})
     try:
         saved = await rv2.add_movements(db, company_id, items, actor)
     except rv2.Invalid as error:
@@ -1748,6 +1759,12 @@ async def v2_catalog_create(company_id: str, payload: dict[str, Any], actor: str
         }, db)
         await rv2.classify(db, company_id, row["id"], data)
         created.append(row)
+    from app.services import company_locale, reference_lifecycle, reference_reception
+
+    if await reference_lifecycle.is_on(db, company_id):
+        # Solo Velvet (reference_lifecycle): las cantidades son la meta Y la recepcion inicial; la bitacora registra la creacion.
+        await reference_reception.on_create(db, company_id, [{"id": r["id"], "name": data["name"], "size": line["size"], "initial_quantity": line["quantity"]}
+                                                             for r, line in zip(created, data["sizes"])], actor, company_locale.current_zone())
     return {"ok": True, "count": len(created), "items": created,
             "summary": {"garment": data["category"], "gender": data["gender"], "total": sum(line["quantity"] for line in data["sizes"])}}
 

@@ -38,7 +38,7 @@ async def _all_setup(url):
     company_locale.CURRENT_TZ.set(ZoneInfo("UTC"))  # pgserver no trae la base de zonas horarias
     engine, maker = await _setup(url)
     async with engine.begin() as conn:
-        for stmt in _migration("025d_ref_lifecycle") + _migration("025d_ref_lifecycle") + _migration("025f_ref_cycles") + _migration("025f_ref_cycles"):  # idempotente
+        for stmt in _migration("025d_ref_lifecycle") + _migration("025d_ref_lifecycle") + _migration("025f_ref_cycles") + _migration("025f_ref_cycles") + _migration("025g_ref_initial_cut"):  # idempotente
             await conn.execute(text(stmt))
         await conn.execute(text("""CREATE TABLE IF NOT EXISTS reference_work_sessions (id text PRIMARY KEY, company_id text NOT NULL, employee_id text NOT NULL,
             employee_name text NULL, telegram_user_id text NULL, reference_id text NULL, reference_name text NOT NULL, started_at timestamptz NOT NULL DEFAULT now(),
@@ -446,11 +446,12 @@ async def test_corte_en_referencia_recien_creada_se_ve_en_balance_tarjeta_editor
         saved = await refs.v2_add_movements(cid, {"items": items}, actor=WHO, db=db)
         assert saved["count"] == 4
         bal = await rv2.balance(db, cid, s["id"])
-        assert (bal["received"], bal["novelty"], bal["deployed"], bal["available"]) == (62, 2, 1, 59)
+        # 71 de la recepcion inicial (al crear, 077A) + 62 de este corte.
+        assert (bal["received"], bal["novelty"], bal["deployed"], bal["available"]) == (133, 2, 1, 130)
         assert {x["kind"] for x in bal["log"]} == {"ingreso", "novedad", "despliegue"} and not any(x["size_without_reference"] for x in bal["log"])
         g = next(x for x in await rv2.reference_groups(db, cid) if x["key"] == rv2.group_key("rojita medium"))
-        assert {x["size"]: x["received"] for x in g["lines"]} == {"S": 40, "M": 22} and g["received"] == 62
-        assert g["cuts_by_date"][0]["total"] == 62 and {x["size"]: x["quantity"] for x in g["cuts_by_date"][0]["sizes"]} == {"S": 40, "M": 22}
+        assert {x["size"]: x["received"] for x in g["lines"]} == {"S": 86, "M": 47} and g["received"] == 133
+        assert g["cuts_by_date"][0]["total"] == 133 and {x["size"]: x["quantity"] for x in g["cuts_by_date"][0]["sizes"]} == {"S": 86, "M": 47}
         ins = await production_v2.insights(db, cid, date.today(), date.today(), date.today())
         assert any(lot["name"] == "rojita medium" for lot in ins["lots_in_process"])
 
@@ -459,9 +460,9 @@ async def test_corte_en_referencia_recien_creada_se_ve_en_balance_tarjeta_editor
             await refs.v2_add_movements(cid, {"items": [{"reference_id": s["id"], "kind": "ingreso", "size": "L", "quantity": 5, "event_date": today}]}, actor=WHO, db=db)
         assert warn.value.status_code == 409 and warn.value.detail["code"] == "talla_sin_referencia"
         assert "rojita medium no tiene talla L" in warn.value.detail["message"]
-        assert (await rv2.balance(db, cid, s["id"]))["received"] == 62, "sin confirmar no se guarda"
+        assert (await rv2.balance(db, cid, s["id"]))["received"] == 133, "sin confirmar no se guarda"
         await refs.v2_add_movements(cid, {"items": [{"reference_id": s["id"], "kind": "ingreso", "size": "L", "quantity": 5, "event_date": today}], "confirm_new_sizes": True}, actor=WHO, db=db)
-        assert (await rv2.balance(db, cid, s["id"]))["received"] == 67
+        assert (await rv2.balance(db, cid, s["id"]))["received"] == 138
 
         # Otra empresa (sin reference_lifecycle): igual que siempre, sin aviso.
         other = await _company(db, f"oth{uuid.uuid4().hex[:6]}")

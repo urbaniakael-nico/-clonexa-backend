@@ -88,6 +88,22 @@ async def finish_cycle(company_id: UUID, payload: dict[str, Any], who: str = Dep
         raise _bad(error) from None
 
 
+@router.post("/companies/{company_id}/initial-reception-correction")
+async def initial_reception_correction(company_id: UUID, payload: dict[str, Any], who: str = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """Corrige la recepcion inicial de una talla con motivo y doble confirmacion (anula y registra la nueva)."""
+    from app.api.v1.endpoints.references_v1 import _v2_switch_on
+    from app.services import reference_reception
+    from app.services import references_v2 as rv2
+
+    try:
+        out = await reference_reception.correct_initial(db, str(company_id), payload, who)
+    except reference_reception.ReceptionError as error:
+        raise HTTPException(status_code=error.status, detail={"code": error.code, "message": error.message, **error.extra}) from None
+    if await _v2_switch_on(db, str(company_id)):  # como anular un corte: la meta sigue a los cortes
+        await rv2.sync_meta(db, str(company_id), who, "meta_cortes")
+    return out
+
+
 @router.post("/companies/{company_id}/reopen")
 async def reopen(company_id: UUID, payload: dict[str, Any], who: str = Depends(actor), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     try:

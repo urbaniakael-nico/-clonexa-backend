@@ -21106,11 +21106,11 @@ function inventoryCreatePayload() {
           const link = document.createElement("link");
           link.id = "cxReferencesV2Css050B";
           link.rel = "stylesheet";
-          link.href = "/client-static/references_v2.css?v=076A";
+          link.href = "/client-static/references_v2.css?v=077A";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/references_v2.js?v=076A";
+        script.src = "/client-static/references_v2.js?v=077A";
         script.onload = () => resolve();
         script.onerror = () => { cxReferencesV2Loading050B = null; reject(new Error("references_v2")); };
         document.head.appendChild(script);

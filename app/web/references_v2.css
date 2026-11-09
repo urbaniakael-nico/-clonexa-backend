@@ -504,3 +504,6 @@
 .rv-edit-sizes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .rv-edit-sizes li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
 .rv-save-hint { margin-top: 6px; }
+
+/* Recepción inicial y "Referencia creada" en la bitácora (077A, solo con reference_lifecycle). */
+.rv-fix-links { display: inline-flex; flex-wrap: wrap; gap: 6px; }

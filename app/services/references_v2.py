@@ -282,9 +282,9 @@ async def movements_for(db: AsyncSession, company_id: str, reference_ids: list[s
     if not reference_ids:
         return []
     rows = (await db.execute(text("""
-        SELECT id::text AS id, reference_id, kind, section, size, quantity, note, event_date, created_by, created_at,
-               voided_at, voided_by, void_reason
-        FROM reference_cut_movements WHERE company_id = :c AND reference_id = ANY(CAST(:ids AS text[]))
+        SELECT m.id::text AS id, m.reference_id, m.kind, m.section, m.size, m.quantity, m.note, m.event_date, m.created_by, m.created_at,
+               m.voided_at, m.voided_by, m.void_reason, to_jsonb(m) ->> 'origin' AS origin
+        FROM reference_cut_movements m WHERE m.company_id = :c AND m.reference_id = ANY(CAST(:ids AS text[]))
         ORDER BY event_date DESC, created_at DESC
     """), {"c": company_id, "ids": reference_ids})).mappings().all()
     return [dict(r) for r in rows]
@@ -309,7 +309,10 @@ async def balance(db: AsyncSession, company_id: str, reference_id: str) -> Optio
     for m in moves:
         if m["kind"] == "ingreso" and not m.get("voided_at"):
             received_by_date[m["event_date"]] = received_by_date.get(m["event_date"], 0) + m["quantity"]
-    return {"reference": ref, "group": group, **tally(moves), "per_size": per_size, "log": moves,
+    from app.services import reference_reception  # bitacora: "Referencia creada" y correcciones de la recepcion inicial
+
+    events = await reference_reception.events_for(db, company_id, key_of(ref))
+    return {"reference": ref, "group": group, **tally(moves), "per_size": per_size, "log": moves, "events": events,
             "existing_sizes": existing, "catalog_sizes": catalog_sizes, "classified": bool(classified),
             "received_by_date": [{"date": d, "quantity": q} for d, q in sorted(received_by_date.items())]}
 

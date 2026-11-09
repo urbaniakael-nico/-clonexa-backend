@@ -82,6 +82,10 @@
       { id: "rm", name: "rojita medium", category: "Chaqueta", size: "M", color: "rojo", bot_active: true, channel: "bot", initial_quantity: 25 });
     extras.rs = { gender: "mujer", body_part: "superior", garment_type: "chaqueta", classified: true };
     extras.rm = { gender: "mujer", body_part: "superior", garment_type: "chaqueta", classified: true };
+    // Al crearla (077A): la cantidad de cada talla es la recepción inicial, con la fecha de creación.
+    const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+    cutMoves.push({ reference_id: "rs", kind: "ingreso", size: "S", quantity: 46, event_date: day, created_by: "Velvet Admin", origin: "recepcion_inicial" },
+      { reference_id: "rm", kind: "ingreso", size: "M", quantity: 25, event_date: day, created_by: "Velvet Admin", origin: "recepcion_inicial" });
   }
   const rojita = () => {
     const live = cutMoves.filter((m) => !m.voided_at);
@@ -93,7 +97,7 @@
       cuts_by_date: Object.values(days).map((d) => ({ ...d, sizes: Object.entries(d.sizes).map(([size, quantity]) => ({ size, quantity })) })), lines: [ln("S", "rs", 46), ln("M", "rm", 25)],
       balance: { reference: { id: "rs", name: "rojita medium", color: "rojo" }, classified: true, catalog_sizes: ["S", "M", "L"], existing_sizes: ["M", "S"],
         received: sum("ingreso"), novelty: sum("novedad"), deployed: sum("despliegue"), available: sum("ingreso") - sum("novedad") - sum("despliegue"),
-        received_by_date: Object.values(days).map((d) => ({ date: d.date, quantity: d.total })), log: cutMoves.map((m, i) => ({ id: `cm${i}`, ...m })) } };
+        received_by_date: Object.values(days).map((d) => ({ date: d.date, quantity: d.total })), log: cutMoves.map((m, i) => ({ id: `cm${i}`, ...m })), events: [{ kind: "creada", actor: "Velvet Admin", at: new Date().toISOString(), detail: {} }] } };
   };
   window.__lifePosts = [];
   let catalog = null;

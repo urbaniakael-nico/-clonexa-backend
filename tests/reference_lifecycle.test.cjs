@@ -275,3 +275,45 @@ test('client.js pasa el interruptor y pide los archivos nuevos', () => {
   assert.match(CLIENT, /lifecycle: cxRefLifecycleOn068A\(code\)/);
   assert.match(CLIENT, /name === "production_v2" \? "068D" : "056J"/);
 });
+
+// ---------------------------------------------------------------- recepción inicial (077A)
+const INIT_BAL = () => ({ reference: { id: 's1', name: 'rojita medium' }, received: 71, novelty: 0, deployed: 0, available: 71, received_by_date: [{ date: '2026-11-09', quantity: 71 }],
+  log: [{ id: 'i1', kind: 'ingreso', size: 'S', quantity: 46, event_date: '2026-11-09', created_by: 'Velvet Admin', origin: 'recepcion_inicial' },
+    { id: 'i2', kind: 'ingreso', size: 'M', quantity: 25, event_date: '2026-11-09', created_by: 'Velvet Admin', origin: 'recepcion_inicial' }],
+  events: [{ kind: 'creada', actor: 'Velvet Admin', at: '2026-11-09T14:16:56Z', detail: {} }] });
+
+test('bitácora: "Referencia creada" y "Recepción inicial · S 46 · M 25" con fecha y quién', () => {
+  const R = setup();
+  const html = R.logView(INIT_BAL());
+  assert.match(html, /09\/11\/2026<\/b> · Recepción inicial · total 71/);
+  assert.match(html, /<b>Referencia creada<\/b> · [^<]+ · Velvet Admin/);
+  assert.match(html, /<b>Recepción inicial<\/b> · S 46 · M 25 · 09\/11\/2026 · Velvet Admin/);
+  assert.ok(html.indexOf('Referencia creada') < html.indexOf('<b>Recepción inicial'), 'primero la creación');
+  assert.match(html, /data-rv-rf-start="i1">Corregir S/);
+  R.model.life = null;
+  assert.doesNotMatch(R.logView(INIT_BAL()), /data-rv-rf-start/, 'sin el interruptor no hay corregir');
+});
+
+test('corte con la misma talla, fecha y cantidad que la recepción inicial se detecta; otro no', () => {
+  const R = setup();
+  R.model.balance = INIT_BAL();
+  const items = [{ kind: 'ingreso', size: 'S', quantity: 46, event_date: '2026-11-09' }, { kind: 'ingreso', size: 'M', quantity: 10, event_date: '2026-11-09' },
+    { kind: 'ingreso', size: 'S', quantity: 46, event_date: '2026-11-10' }];
+  assert.deepEqual(JSON.parse(JSON.stringify(R.cutDuplicates(items))).map((x) => [x.size, x.quantity, x.event_date]), [['S', 46, '2026-11-09']]);
+});
+
+test('corregir la recepción inicial: nuevo valor y motivo, luego confirmar con casilla', () => {
+  const R = setup();
+  const m = R.model;
+  m.balance = INIT_BAL();
+  m.recFix = { id: 'i1', step: 1, value: '', reason: '', checked: false, errors: {} };
+  let html = R.recFixView(m.balance.log[0]);
+  assert.match(html, /Corregir recepción inicial · talla S/);
+  assert.match(html, /Nuevo valor/); assert.match(html, /Motivo \(obligatorio\)/);
+  Object.assign(m.recFix, { step: 2, value: '40', reason: 'se contó mal' });
+  html = R.recFixView(m.balance.log[0]);
+  assert.match(html, /¿Cambiar la recepción inicial de S de 46 a 40\?/);
+  assert.match(html, /data-rv-rf-next="go" disabled/, 'sin la casilla no aplica');
+  m.recFix.checked = true;
+  assert.doesNotMatch(R.recFixView(m.balance.log[0]), /data-rv-rf-next="go" disabled/);
+});

@@ -45,7 +45,7 @@
   const model = {
     tab: "catalogo", gender: "mujer", botVisible: true, form: blankForm(), cut: blankCut(),
     catalog: null, counts: {}, rows: [], extras: {}, balance: null, search: "", filterGender: "mujer", open: "", editing: "",
-    notice: "", error: "", busy: false, voiding: "",
+    notice: "", error: "", busy: false, voiding: "", recFix: null,
     logOpen: {}, modal: "", lastOpen: "", draft: null, modalBalance: null,
     groups: [], gdraft: null,
     op: { key: "", view: "", data: null, loading: false, editing: "", draft: { name: "", hours: "", minutes: "", size: "" }, edit: null },
@@ -137,19 +137,28 @@
     return out.sort((a, b) => bySize(a.size, b.size));
   }
 
+  // Recepción inicial (077A): el ingreso que se crea con la referencia o la carga inicial automática.
+  const INITIAL = ["recepcion_inicial", "carga_inicial"];
+  const isInitial = (m) => m && m.kind === "ingreso" && INITIAL.includes(m.origin);
+  function localDay(at) {
+    try { return new Date(at).toLocaleDateString("en-CA", { timeZone: (typeof window !== "undefined" && window.CxLocale && window.CxLocale.timezone) || "America/Bogota" }); } catch (_) { return String(at || "").slice(0, 10); }
+  }
+
   // Bitacora: una entrada por fecha de corte (la mas reciente arriba). Solo cambia como se muestra.
-  function groupLog(log) {
+  // events (opcional): "Referencia creada" y correcciones de la recepción inicial, en su día.
+  function groupLog(log, events = []) {
     const days = new Map();
+    const day = (d) => { if (!days.has(d)) days.set(d, { date: d, ingresos: [], iniciales: [], novedades: [], envios: [], eventos: [] }); return days.get(d); };
     arr(log).forEach((m) => {
-      const d = String(m.event_date || "");
-      if (!days.has(d)) days.set(d, { date: d, ingresos: [], novedades: [], envios: [] });
-      const g = days.get(d);
-      (m.kind === "ingreso" ? g.ingresos : m.kind === "novedad" ? g.novedades : g.envios).push(m);
+      const g = day(String(m.event_date || ""));
+      (m.kind === "ingreso" ? (isInitial(m) ? g.iniciales : g.ingresos) : m.kind === "novedad" ? g.novedades : g.envios).push(m);
     });
+    arr(events).forEach((e) => day(localDay(e.at)).eventos.push(e));
     return [...days.values()].sort((a, b) => b.date.localeCompare(a.date)).map((g) => {
       g.ingresos.sort((a, b) => bySize(a.size, b.size));
       const live = (list) => list.filter((m) => !m.voided_at);
-      return { ...g, totalIngreso: live(g.ingresos).reduce((a, m) => a + num(m.quantity), 0),
+      g.iniciales.sort((a, b) => bySize(a.size, b.size));
+      return { ...g, totalInicial: live(g.iniciales).reduce((a, m) => a + num(m.quantity), 0), totalIngreso: live(g.ingresos).reduce((a, m) => a + num(m.quantity), 0),
         totalNovedad: live(g.novedades).reduce((a, m) => a + num(m.quantity), 0), totalEnvio: live(g.envios).reduce((a, m) => a + num(m.quantity), 0) };
     });
   }
@@ -329,17 +338,43 @@
     return `<button type="button" class="rv-link rv-void-link" data-rv-void="${h(key)}">Anular</button>`;
   }
 
+  const stampOf = (at) => { const loc = typeof window !== "undefined" ? window.CxLocale : null; const t = loc && typeof loc.dateTime === "function" ? loc.dateTime(at, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }) : ""; return t || dmy(at); };
+  function eventLine(e) {
+    if (e.kind === "creada") return `<div class="rv-day-row is-created"><span><b>Referencia creada</b> · ${h(stampOf(e.at))} · ${h(e.actor)}</span></div>`;
+    if (e.kind === "recepcion_corregida") { const x = e.detail || {}; return `<div class="rv-day-row"><span><b>Recepción inicial corregida</b> · talla ${h(x.size)} · ${h(x.before)} → ${h(x.after)} · ${h(e.actor)} · ${h(x.reason || "")}</span><small>${h(stampOf(e.at))}</small></div>`; }
+    return "";
+  }
+  // Corregir la recepción inicial de una talla: nuevo valor y motivo, luego confirmar con casilla.
+  function recFixView(m) {
+    const f = model.recFix;
+    if (!f || f.id !== m.id) return "";
+    if (f.step === 1) return `<div class="rv-life-flow"><b>Corregir recepción inicial · talla ${h(m.size)}</b><p class="client-muted">Recibido inicial actual: <b>${h(m.quantity)}</b></p>
+      <div class="rv-life-fields"><div class="rv-life-field ${f.errors.value ? "is-bad" : ""}"><label class="rv-field">Nuevo valor<input data-rv-rf="value" type="number" min="0" step="1" inputmode="numeric" value="${h(f.value)}"></label>${f.errors.value ? `<small class="rv-life-err" role="alert">${h(f.errors.value)}</small>` : ""}</div>
+      <div class="rv-life-field ${f.errors.reason ? "is-bad" : ""}"><label class="rv-field">Motivo (obligatorio)<input data-rv-rf="reason" maxlength="300" value="${h(f.reason)}"></label>${f.errors.reason ? `<small class="rv-life-err" role="alert">${h(f.errors.reason)}</small>` : ""}</div></div>
+      <div class="rv-life-acts"><button type="button" class="client-btn rv-btn is-small is-primary" data-rv-rf-next="2">Continuar</button><button type="button" class="rv-btn is-small" data-rv-rf-cancel>Cancelar</button></div></div>`;
+    return `<div class="rv-life-flow"><b>¿Cambiar la recepción inicial de ${h(m.size)} de ${h(m.quantity)} a ${h(num(f.value))}?</b><p class="client-muted">Motivo: ${h(f.reason)}. El registro original queda anulado en la bitácora.</p>
+      <label class="rv-life-check"><input type="checkbox" data-rv-rf="checked" ${f.checked ? "checked" : ""}> Confirmo la corrección</label>
+      <div class="rv-life-acts"><button type="button" class="client-btn rv-btn is-small is-primary" data-rv-rf-next="go" ${f.checked && !model.busy ? "" : "disabled"}>Aplicar corrección</button><button type="button" class="rv-btn is-small" data-rv-rf-cancel>Cancelar</button></div></div>`;
+  }
+
   function logView(b) {
-    const days = groupLog(b.log);
+    const days = groupLog(b.log, b.events);
     const sec = (k) => (SECTIONS.find(([x]) => x === k) || [])[1] || k;
     return `<ol class="rv-days rv-scroll">${days.map((d, i) => {
       const open = Object.prototype.hasOwnProperty.call(model.logOpen, d.date) ? model.logOpen[d.date] : i === 0;
-      const summary = d.ingresos.length ? `Ingreso de corte · total ${d.totalIngreso}` : d.novedades.length ? `Novedades · total ${d.totalNovedad}` : `Enviado a Bombón · total ${d.totalEnvio}`;
+      const liveInit = d.iniciales.filter((m) => !m.voided_at);
+      const summary = liveInit.length && !d.ingresos.length ? `Recepción inicial · total ${d.totalInicial}` : d.ingresos.length ? `Ingreso de corte · total ${d.totalIngreso + d.totalInicial}`
+        : d.novedades.length ? `Novedades · total ${d.totalNovedad}` : d.envios.length ? `Enviado a Bombón · total ${d.totalEnvio}` : d.eventos.some((e) => e.kind === "creada") ? "Referencia creada" : "Movimientos";
       const live = d.ingresos.filter((m) => !m.voided_at);
       const sizesTxt = live.map((m) => `${m.size}→${m.quantity}${m.size_without_reference ? "*" : ""}`).join(" · ");
       const orphanNote = live.some((m) => m.size_without_reference) ? `<small class="rv-muted">* talla sin referencia</small>` : "";
-      const voided = [...d.ingresos, ...d.novedades, ...d.envios].filter((m) => m.voided_at);
+      const voided = [...d.iniciales, ...d.ingresos, ...d.novedades, ...d.envios].filter((m) => m.voided_at);
+      const initTxt = liveInit.map((m) => `${h(m.size)} ${h(m.quantity)}`).join(" · ");
+      const fixBtns = model.life ? liveInit.map((m) => `<button type="button" class="rv-link" data-rv-rf-start="${h(m.id)}">Corregir ${h(m.size)}</button>`).join(" ") : "";
       const detail = `<div class="rv-day-detail">
+        ${d.eventos.filter((e) => e.kind === "creada").map(eventLine).join("")}
+        ${liveInit.length ? `<div class="rv-day-row is-initial"><span><b>Recepción inicial</b> · ${initTxt} · ${h(dmy(d.date))} · ${h(liveInit[0].created_by || "")}</span>${fixBtns ? `<span class="rv-fix-links">${fixBtns}</span>` : ""}</div>${liveInit.map(recFixView).join("")}` : ""}
+        ${d.eventos.filter((e) => e.kind !== "creada").map(eventLine).join("")}
         ${live.length ? `<div class="rv-day-row"><span><b>Tallas</b> ${h(sizesTxt)}${orphanNote}</span>${voidControl(`in:${d.date}`, live.map((m) => m.id), `los ingresos de las tallas ${live.map((m) => m.size).join(", ")} del ${dmy(d.date)}`)}</div>` : ""}
         ${d.novedades.filter((m) => !m.voided_at).map((m) => `<div class="rv-day-row is-red"><span><b>${h(sec(m.section))}</b> · ${h(m.quantity)}${m.note ? ` · ${h(m.note)}` : ""}</span>${voidControl(m.id, [m.id], `la novedad de ${sec(m.section)}`)}</div>`).join("")}
         ${d.envios.filter((m) => !m.voided_at).map((m) => `<div class="rv-day-row is-violet"><span><b>Enviado a Bombón</b> · ${m.size ? `talla ${h(m.size)} · ` : ""}${h(m.quantity)}${m.note ? ` · ${h(m.note)}` : ""}</span>${voidControl(m.id, [m.id], "el envío a Bombón")}</div>`).join("")}
@@ -1075,6 +1110,13 @@
     const own = new Set(group.rows.flatMap((r) => sizesOf(r.size)).map((x) => fold(x).trim()));
     return [...new Set(arr(items).filter((i) => i.kind !== "novedad" && i.size && !own.has(fold(i.size).trim())).map((i) => i.size))].sort(bySize);
   }
+  function cutDuplicates(items) {
+    const log = arr(model.balance && model.balance.log).filter((m) => isInitial(m) && !m.voided_at);
+    return arr(items).filter((i) => i.kind === "ingreso").map((i) => {
+      const m = log.find((x) => fold(x.size).trim() === fold(i.size).trim() && String(x.event_date).slice(0, 10) === String(i.event_date) && num(x.quantity) === num(i.quantity));
+      return m ? { item: i, size: i.size, quantity: num(i.quantity), event_date: String(i.event_date) } : null;
+    }).filter(Boolean);
+  }
   function cutGroupName() { const g = groups(model.rows).find((x) => x.rows.some((r) => r.id === model.cut.refId)); return g ? g.name : "La referencia"; }
   function cutSummary(items) {
     const sec = (k) => (SECTIONS.find(([x]) => x === k) || [])[1] || k;
@@ -1247,17 +1289,33 @@
           body.confirm_new_sizes = true;
         }
       }
+      if (model.life) {
+        // Misma talla, fecha y cantidad que la recepción inicial: ¿corte nuevo (sumar) o el mismo (no sumar)?
+        const dups = cutDuplicates(body.items);
+        if (dups.length) {
+          const when = (d) => (d === today() ? "hoy" : `el ${dmy(d)}`);
+          const add = confirm(`${dups.map((x) => `${x.size} ya tiene recepción inicial de ${x.quantity} ${when(x.event_date)}`).join(" · ")}. ¿Es un corte nuevo?\n\nAceptar = corte nuevo (sumar) · Cancelar = es el mismo (no sumar)`);
+          if (add) body.confirm_duplicate = true;
+          else {
+            body.items = body.items.filter((i) => !dups.some((x) => x.item === i));
+            dups.forEach((x) => { delete model.cut.received[x.size]; });
+            if (!body.items.length) { model.notice = "No se sumó: era la misma recepción inicial."; model.error = ""; draw(); return; }
+          }
+        }
+      }
       run(async () => {
         try { await post("/v2/movements", body); } catch (error) {
-          if (!model.life || !/talla_sin_referencia/.test(String(error && error.message)) || !confirm(`${errorText(error)} ¿Guardar igual?`)) throw error;
-          await post("/v2/movements", { ...body, confirm_new_sizes: true });
+          const msg = String(error && error.message);
+          if (model.life && /talla_sin_referencia/.test(msg) && confirm(`${errorText(error)} ¿Guardar igual?`)) await post("/v2/movements", { ...body, confirm_new_sizes: true });
+          else if (model.life && /posible_duplicado/.test(msg) && confirm(`${errorText(error)}\n\nAceptar = corte nuevo (sumar)`)) await post("/v2/movements", { ...body, confirm_duplicate: true });
+          else throw error;
         }
         const id = model.cut.refId; model.cut = blankCut(); model.cut.refId = id; await loadBalance(); await reload();
       }, model.life ? `Registro guardado: ${cutSummary(items)}.` : "Registro guardado.");
       return;
     }
     if ((v = attr("data-rv-logday"))) {
-      const days = groupLog(model.balance && model.balance.log);
+      const days = groupLog(model.balance && model.balance.log, model.balance && model.balance.events);
       const isOpen = Object.prototype.hasOwnProperty.call(model.logOpen, v) ? model.logOpen[v] : days.length && days[0].date === v;
       model.logOpen[v] = !isOpen;
       draw();
@@ -1267,6 +1325,27 @@
       const ref = model.balance && model.balance.reference;
       if (!ref || !confirm(`¿Crear la referencia ${ref.name}${ref.color ? ` · ${ref.color}` : ""} en talla ${v}? Se crea con meta 0 y NO visible para el bot; los cortes ya recibidos de esa talla quedan con ella.`)) return;
       run(async () => { await post(`/v2/references/${encodeURIComponent(ref.id)}/add-size`, { size: v }); await reload(); await loadBalance(); }, `Referencia creada en talla ${v} (no visible para el bot).`);
+      return;
+    }
+    if ((v = attr("data-rv-rf-start"))) { model.recFix = { id: v, step: 1, value: "", reason: "", checked: false, errors: {} }; model.error = ""; draw(); return; }
+    if (t.closest("[data-rv-rf-cancel]")) { model.recFix = null; draw(); return; }
+    if ((v = attr("data-rv-rf-next")) && model.recFix) {
+      const f = model.recFix;
+      const m = arr(model.balance && model.balance.log).find((x) => x.id === f.id);
+      if (!m) { model.recFix = null; draw(); return; }
+      if (v === "2") {
+        const errors = {};
+        if (!wholeNumber(f.value)) errors.value = "Valor inválido";
+        else if (num(f.value) === num(m.quantity)) errors.value = "Es igual a lo recibido";
+        if (String(f.reason).trim().length < 3) errors.reason = "Escribe el motivo";
+        f.errors = errors;
+        if (!Object.keys(errors).length) f.step = 2;
+        draw(); return;
+      }
+      run(async () => {
+        await lifePost("/initial-reception-correction", { movement_id: f.id, new_value: num(f.value), reason: String(f.reason).trim(), confirm: true, confirm_final: f.checked === true });
+        model.recFix = null; await loadBalance(); await reload();
+      }, "Recepción inicial corregida. Queda en la bitácora.");
       return;
     }
     if ((v = attr("data-rv-void"))) { model.voiding = v; draw(); return; }
@@ -1403,6 +1482,7 @@
     if ((v = t.getAttribute("data-rv-nov-qty"))) { model.cut.novelties[v] = { ...(model.cut.novelties[v] || {}), quantity: t.value }; return; }
     if ((v = t.getAttribute("data-rv-dep"))) { model.cut.deploy[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-m")) && model.draft) { model.draft[v] = t.type === "checkbox" ? !!t.checked : t.value; return; }
+    if ((v = t.getAttribute("data-rv-rf")) && model.recFix) { model.recFix[v] = t.type === "checkbox" ? !!t.checked : t.value; if (t.type === "checkbox") draw(); return; }
     if ((v = t.getAttribute("data-rv-fc")) !== null) { model.finishDraft[v] = t.value; return; }
     if ((v = t.getAttribute("data-rv-lf")) && model.lifeFlow) {
       model.lifeFlow[v] = t.type === "checkbox" ? !!t.checked : t.value;
@@ -1444,7 +1524,7 @@
     draw();
   }
 
-  window.CxReferencesV2 = { cutMissingSizes, cutSummary, editPanel, finishFlow, sizeHistory, lifeTotals, lifeClick, lifeLine, lifeHead, closedSize, wholeNumber, mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
+  window.CxReferencesV2 = { cutDuplicates, recFixView, localDay, cutMissingSizes, cutSummary, editPanel, finishFlow, sizeHistory, lifeTotals, lifeClick, lifeLine, lifeHead, closedSize, wholeNumber, mount, model, view, summaryText, sizesFor, garmentsOf, chosenSizes, columns, groups, groupSizes, nextChannel, rowPayload, cutItems, combined,
     sizeKey, bySize, byNameSize, groupLog, receivedBox, logView, openModal, closeModal, isDirty, modalView, draftOf,
     groupKey, groupColumns, groupCard, openGroupModal, groupDirty, groupModalView, cutsByDateView, opCalc, minutesFor, hm, money, setOp, opView };
 })();

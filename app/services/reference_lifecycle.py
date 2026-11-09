@@ -43,7 +43,7 @@ NAME_COPIES = ("reference_work_sessions", "reference_production_closures", "refe
                "reference_produced_corrections", "reference_produced_requests", "reference_finished_cycles")
 KEY_COPIES = (("reference_op_settings", "group_key"), ("reference_op_items", "group_key"), ("reference_size_closes", "ref_key"),
               ("reference_produced_corrections", "ref_key"), ("reference_produced_requests", "ref_key"),
-              ("reference_finished_cycles", "ref_key"))
+              ("reference_finished_cycles", "ref_key"), ("reference_events", "ref_key"))
 
 
 class LifecycleError(Exception):
