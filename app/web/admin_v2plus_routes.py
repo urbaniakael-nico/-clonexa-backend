@@ -149,6 +149,23 @@ async def admin_v2plus_nexa_js():
     return _file("admin_v2plus_nexa.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-mapa.js", include_in_schema=False)
+async def admin_v2plus_mapa_js():
+    return _file("admin_v2plus_mapa.js", "application/javascript")
+
+
+# Leaflet 1.9.4 (BSD-2), copia local sin cambios: la CSP de v2+ solo permite scripts propios.
+# SRI oficial: js sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo= · css sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=
+@router.get("/admin-v2plus-leaflet.js", include_in_schema=False)
+async def admin_v2plus_leaflet_js():
+    return _file("vendor/leaflet-1.9.4.js", "application/javascript")
+
+
+@router.get("/admin-v2plus-leaflet.css", include_in_schema=False)
+async def admin_v2plus_leaflet_css():
+    return _file("vendor/leaflet-1.9.4.css", "text/css")
+
+
 @router.get("/admin-v2plus-billing.js", include_in_schema=False)
 async def admin_v2plus_billing_js():
     return _file("admin_v2plus_billing.js", "application/javascript")

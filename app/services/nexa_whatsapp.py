@@ -494,6 +494,33 @@ def _keys(value: Any) -> str:
     return ",".join(sorted(str(k)[:30] for k in value)) if isinstance(value, dict) else type(value).__name__
 
 
+async def _link_prospect(db: AsyncSession, m: dict, contact: dict) -> Optional[dict]:
+    """Prospeccion: el negocio escribio PRIMERO con su codigo (boton del correo o la landing). Se liga al
+    prospecto, se registra el consentimiento y se avisa por Telegram. Nunca tumba el webhook."""
+    if m["type"] != "text" or not m["text"]:
+        return None
+    try:
+        from app.services import prospecting
+
+        p = await prospecting.link_whatsapp(db, m["text"], contact["id"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        log.warning("nexa_wa prospecto_no_ligado (%s)", type(exc).__name__)
+        return None
+    if not p:
+        return None
+    log.info("nexa_wa prospecto_ligado wa=%s codigo=%s", mask(m["wa_id"]), p["code"])
+    if p.get("primera_vez"):
+        try:
+            await _deliver_alert(f"🎯 {p['name']} ({prospecting.TYPE_LABEL.get(p['business_type'], p['business_type'])}, "
+                                 f"{p.get('zone_name') or 'sin zona'}) escribió por WhatsApp con su código {p['code']}. "
+                                 "Nexa le responde con la demo de la carta video.")
+        except Exception:  # noqa: BLE001
+            pass
+    return {"codigo": p["code"], "negocio": p["name"], "tipo": p["business_type"], "zona": p.get("zone_name") or "",
+            "estado": p["status"], "baja": p["status"] == "baja"}
+
+
 async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, send: Sender, fwd: Forwarder,
                            contacts: Optional[list] = None) -> None:
     m = parse_message(raw)
@@ -524,6 +551,7 @@ async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, 
     await db.commit()
     out["messages"] += 1
     log.info("nexa_wa guardado wa=%s tipo=%s contacto=%s meta_id=%s", wa, m["type"], contact["id"][:8], m["meta_id"])
+    prospect = await _link_prospect(db, m, contact)
     if contact["stage"] == "baja":
         out["skipped"] += 1
         log.info("nexa_wa no_responde wa=%s motivo=baja", wa)
@@ -555,6 +583,7 @@ async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, 
         "contacto": contact_public(contact),
         "historial": await history(db, contact["id"]),
         "primer_mensaje": not contact["consent_seen"],
+        "prospecto": prospect,
         "ahora": datetime.now(BOGOTA).isoformat(),
     }
     LAST_FORWARD_ERROR["detail"] = ""

@@ -3,3 +3,4 @@
 Dockerfile text eol=lf*.pdf binary
 *.mp4 binary
 *.webp binary
+app/web/vendor/** -text

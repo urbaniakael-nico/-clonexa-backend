@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.services import ip_geo
 from app.web.admin_v2_routes import _valid_session
 
 router = APIRouter()
@@ -156,6 +157,12 @@ async def _ensure_storage(db: AsyncSession) -> None:
     await db.execute(text("CREATE INDEX IF NOT EXISTS ix_landing_events_visitor ON landing_visit_events(visitor_id, created_at DESC);"))
     await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS region VARCHAR(120) NOT NULL DEFAULT '';"))
     await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS city VARCHAR(120) NOT NULL DEFAULT '';"))
+    # 025i: ubicacion aproximada por IP (DB-IP Lite), hash de la IP y prospecto de la visita.
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS ip_hash VARCHAR(64) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION NULL;"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION NULL;"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS geo_source VARCHAR(20) NOT NULL DEFAULT '';"))
+    await db.execute(text("ALTER TABLE landing_visit_events ADD COLUMN IF NOT EXISTS prospect_id UUID NULL;"))
     await db.commit()
 
 
@@ -203,6 +210,21 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
         "screen": _clean(event.screen, 80),
         "viewport": _clean(event.viewport, 80),
     })
+    # La IP completa NO se guarda: se ubica (ciudad aproximada) y se guarda recortada + hash.
+    geo = ip_geo.locate_and_mask(_client_ip(request))
+    country = _country_from_headers(request) or geo["country"]
+    region = _region_from_headers(request) or geo["region"]
+    city = _city_from_headers(request) or geo["city"]
+    prospect_id = None
+    if normalized.utm_medium.lower() == "prospeccion" and normalized.utm_content:
+        try:
+            from app.services import prospecting
+
+            found = await prospecting.mark_opened(db, normalized.utm_content, medium=normalized.utm_medium,
+                                                  campaign=normalized.utm_campaign)
+            prospect_id = found["id"] if found else None
+        except Exception:  # noqa: BLE001 - la visita se guarda igual
+            await db.rollback()
     headers = {
         "accept_language": request.headers.get("accept-language", ""),
         "origin": request.headers.get("origin", ""),
@@ -217,13 +239,14 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
                 event_type, landing_url, path, title, referrer, referrer_domain,
                 source, medium, campaign, term, content, visitor_id, session_id,
                 ip_address, country, region, city, user_agent, language, timezone, platform,
-                device, screen, viewport, headers_json, extra_json
+                device, screen, viewport, headers_json, extra_json, ip_hash, lat, lng, geo_source, prospect_id
             )
             VALUES (
                 :event_type, :landing_url, :path, :title, :referrer, :referrer_domain,
                 :source, :medium, :campaign, :term, :content, :visitor_id, :session_id,
                 :ip_address, :country, :region, :city, :user_agent, :language, :timezone, :platform,
-                :device, :screen, :viewport, CAST(:headers_json AS jsonb), CAST(:extra_json AS jsonb)
+                :device, :screen, :viewport, CAST(:headers_json AS jsonb), CAST(:extra_json AS jsonb),
+                :ip_hash, :lat, :lng, :geo_source, CAST(:prospect_id AS uuid)
             )
         """),
         {
@@ -240,10 +263,15 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
             "content": normalized.utm_content,
             "visitor_id": normalized.visitor_id,
             "session_id": normalized.session_id,
-            "ip_address": _client_ip(request),
-            "country": _country_from_headers(request),
-            "region": _region_from_headers(request),
-            "city": _city_from_headers(request),
+            "ip_address": geo["ip_address"],
+            "country": country,
+            "region": region,
+            "city": city,
+            "ip_hash": geo["ip_hash"],
+            "lat": geo["lat"],
+            "lng": geo["lng"],
+            "geo_source": geo["geo_source"],
+            "prospect_id": prospect_id,
             "user_agent": request.headers.get("user-agent", "")[:1200],
             "language": normalized.language,
             "timezone": normalized.timezone,
@@ -256,6 +284,28 @@ async def _store_event(db: AsyncSession, request: Request, event: LandingEventIn
         },
     )
     await db.commit()
+
+
+async def backfill_geo(db: AsyncSession, limit: int = 2000) -> int:
+    """Visitas viejas (antes de 025i) con la IP completa: se ubican y se recorta la IP. Idempotente:
+    se reconocen por ip_hash vacio. Las que no tienen IP quedan marcadas con '-'."""
+    rows = (await db.execute(text("""
+        SELECT id::text AS id, ip_address, country, region, city FROM landing_visit_events
+        WHERE ip_hash = '' ORDER BY created_at DESC LIMIT :l
+    """), {"l": limit})).mappings().all()
+    for r in rows:
+        geo = ip_geo.locate_and_mask(r["ip_address"] or "")
+        await db.execute(text("""
+            UPDATE landing_visit_events SET ip_address = :ip, ip_hash = :h,
+                country = COALESCE(NULLIF(country, ''), :country), region = COALESCE(NULLIF(region, ''), :region),
+                city = COALESCE(NULLIF(city, ''), :city), lat = COALESCE(lat, :lat), lng = COALESCE(lng, :lng),
+                geo_source = CASE WHEN :src <> '' THEN :src ELSE geo_source END
+            WHERE id = CAST(:id AS uuid)
+        """), {"id": r["id"], "ip": geo["ip_address"], "h": geo["ip_hash"] or "-", "country": geo["country"],
+               "region": geo["region"], "city": geo["city"], "lat": geo["lat"], "lng": geo["lng"], "src": geo["geo_source"]})
+    if rows:
+        await db.commit()
+    return len(rows)
 
 
 @router.post("/events", include_in_schema=False)
@@ -278,6 +328,7 @@ async def landing_analytics_summary(
 ) -> dict[str, Any]:
     _admin_required(request)
     await _ensure_storage(db)
+    await backfill_geo(db)
     day_window = int(days)
     row_limit = int(limit)
     filters = {

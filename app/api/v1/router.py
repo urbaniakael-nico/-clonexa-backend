@@ -77,6 +77,7 @@ for _module_name, _prefix, _tags in [
     ("social_metrics", "/social-metrics", ["social_metrics"]),
     ("nexa_content", "/nexa-content", ["nexa_content"]),
     ("nexa_whatsapp", "/nexa-wa", ["nexa_whatsapp"]),
+    ("prospecting", "/prospecting", ["prospecting"]),
     ("assemblies", "/assemblies", ["assemblies"]),
     ("shoplink", "/shoplink", ["shoplink"]),
     ("marketplace", "/marketplace", ["marketplace"]),

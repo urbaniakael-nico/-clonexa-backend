@@ -14,6 +14,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Ubicacion aproximada de visitas de la landing: DB-IP Lite City (CC BY 4.0, "IP Geolocation by DB-IP",
+# https://db-ip.com). Base offline en la imagen, nunca en Postgres. Si la descarga falla, el build sigue
+# y las visitas quedan sin ciudad (app/services/ip_geo.py).
+RUN mkdir -p /app/data/geo     && for m in "$(date -u +%Y-%m)" "$(date -u -d '-1 month' +%Y-%m)"; do          curl -fsSL "https://download.db-ip.com/free/dbip-city-lite-$m.mmdb.gz" -o /tmp/dbip.mmdb.gz && break;        done;     if [ -s /tmp/dbip.mmdb.gz ]; then gunzip -c /tmp/dbip.mmdb.gz > /app/data/geo/dbip-city-lite.mmdb && rm -f /tmp/dbip.mmdb.gz;     else echo "DB-IP no disponible: visitas sin ubicacion"; fi
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

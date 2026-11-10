@@ -226,10 +226,10 @@
 
   function landingView() {
     const L = model.landing;
-    const tabs = [["visitas", "Visitas"], ["redes", "Redes sociales"]];
+    const tabs = [["visitas", "Visitas"], ["redes", "Redes sociales"], ["mapa", "Mapa comercial"]];
     return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · LANDING</p><h1 class="vp-title">Landing</h1></div></header>${banner()}
       <nav class="vp-chips" role="tablist">${tabs.map(([k, l]) => `<button class="vp-chip ${L.tab === k ? "is-active" : ""}" type="button" role="tab" aria-selected="${L.tab === k}" data-vpx-landing-tab="${k}">${l}</button>`).join("")}</nav>
-      ${L.tab === "redes" ? socialPane() : visitsPane()}`;
+      ${L.tab === "redes" ? socialPane() : L.tab === "mapa" ? `<div class="vpm-host" data-vpm-host></div>` : visitsPane()}`;
   }
 
   function visitsPane() {
@@ -405,6 +405,10 @@
     const auditHost = model.modal && model.modal.type === "audit" && ctx.root().querySelector ? ctx.root().querySelector("[data-vpa-host]") : null;
     if (auditHost && window.CxConsoleAudit) window.CxConsoleAudit.mountInto(auditHost, {});
     ctx.root().querySelectorAll && ctx.root().querySelectorAll("[data-vpx-meter]").forEach((el) => { el.style.width = `${Number(el.getAttribute("data-vpx-meter")) || 0}%`; }); // CSSOM
+    // Mapa comercial (admin_v2plus_mapa.js): se monta en su contenedor; el mapa vive ahi y no se recrea con cada filtro.
+    if (model.view === "landing" && model.landing.tab === "mapa" && window.CxConsoleMapa && ctx.root().querySelector) {
+      window.CxConsoleMapa.mount(ctx.root().querySelector("[data-vpm-host]"));
+    }
   }
 
   // ------------------------------------------------------------ carga
