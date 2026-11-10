@@ -355,3 +355,19 @@ def render(spec: dict) -> list[tuple[bytes, list[dict]]]:
             point(c, i - 1, puntos[i - 2])
         out.append((c.finish(), c.layout))
     return out
+
+
+def to_jpeg(raw: bytes, quality: int = 92) -> bytes:
+    """Cualquier imagen -> JPEG RGB del mismo tamano (la transparencia queda sobre el fondo de marca)."""
+    im = Image.open(io.BytesIO(raw))
+    im.load()
+    if im.mode in ("RGBA", "LA", "P"):
+        im = im.convert("RGBA")
+        base = Image.new("RGB", im.size, BG)
+        base.paste(im, (0, 0), im)
+        im = base
+    else:
+        im = im.convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
+    return buf.getvalue()

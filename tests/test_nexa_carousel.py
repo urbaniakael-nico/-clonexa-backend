@@ -139,3 +139,25 @@ def test_ruta_con_guarda_visible():
 
     by_path = {r.path: r for r in app_main.app.routes if isinstance(r, APIRoute)}
     assert cc._route_has_auth(by_path["/api/v1/nexa-content/carousel"])
+
+
+def test_jpeg_convierte_y_exige_token(client, monkeypatch):
+    monkeypatch.setenv("NEXA_INGEST_TOKEN", TOKEN)
+    png, _ = nc.render(SPEC)[0]
+    assert client.post("/api/v1/nexa-content/jpeg", content=png).status_code == 401
+    h = {"X-Nexa-Token": TOKEN, "Content-Type": "image/png"}
+    r = client.post("/api/v1/nexa-content/jpeg", content=png, headers=h)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    im = Image.open(io.BytesIO(r.content))
+    assert im.format == "JPEG" and im.size == (1080, 1350) and im.mode == "RGB"
+    assert client.post("/api/v1/nexa-content/jpeg", content=b"no es imagen", headers=h).status_code == 400
+    assert client.post("/api/v1/nexa-content/jpeg", content=b"", headers=h).status_code == 400
+    assert cc_route("/api/v1/nexa-content/jpeg")
+
+
+def cc_route(path: str) -> bool:
+    from fastapi.routing import APIRoute
+    from app.services import console_catalog as cc
+
+    by_path = {r.path: r for r in app_main.app.routes if isinstance(r, APIRoute)}
+    return cc._route_has_auth(by_path[path])

@@ -5,13 +5,15 @@
   minuto por IP; sin la variable 503, token mal 401). No es una funcion de ninguna empresa: es el
   marketing de la propia Clonexa, sin company_id, y no guarda nada (ni Postgres ni disco): dibuja con
   Pillow y devuelve los PNG en base64 para que n8n los suba a Drive.
+- POST /jpeg: mismo token. Recibe los bytes de una imagen y devuelve JPEG (Instagram solo publica
+  JPEG por URL); lo usa el enlace temporal de n8n ("Nexa - Archivo temporal"). Tampoco guarda nada.
 """
 from __future__ import annotations
 
 import base64
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
@@ -60,6 +62,22 @@ class CarouselIn(BaseModel):
     puntos: list[Point] = Field(min_length=4, max_length=5)
     cierre: Closing
     nombre: Optional[str] = Field(default=None, max_length=120)
+
+
+MAX_IMAGE = 15_000_000
+
+
+@router.post("/jpeg", dependencies=[Depends(require_nexa_token)])
+async def to_jpeg(request: Request) -> Response:
+    """PNG (u otra imagen) -> JPEG calidad 92, mismo tamano. Instagram solo publica JPEG por URL."""
+    raw = await request.body()
+    if not raw or len(raw) > MAX_IMAGE:
+        raise HTTPException(status_code=413 if raw else 400, detail="image_size")
+    try:
+        data = await run_in_threadpool(nexa_carousel.to_jpeg, raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="not_an_image")
+    return Response(content=data, media_type="image/jpeg")
 
 
 @router.post("/carousel", dependencies=[Depends(require_nexa_token)])
