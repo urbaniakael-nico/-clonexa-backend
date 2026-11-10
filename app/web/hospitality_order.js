@@ -370,7 +370,7 @@
         font-family:Inter,Segoe UI,system-ui,sans-serif;
       }
       button,input,textarea{font:inherit}
-      .qr-shell{min-height:100vh;padding:16px;display:grid;gap:14px;max-width:1180px;margin:0 auto}
+      .qr-shell{min-height:100vh;padding:16px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;max-width:1180px;margin:0 auto}
       .qr-shell-locked{align-content:start;max-width:980px}
       .qr-hero,.qr-card,.qr-cart{
         background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),var(--qr-card);
@@ -449,7 +449,7 @@
       h1{margin:0;font-size:clamp(30px,8vw,58px);line-height:.95;letter-spacing:-.03em}
       .qr-muted{color:var(--qr-muted);font-weight:750;line-height:1.35}
       .qr-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
-      .qr-menu{display:grid;gap:12px}
+      .qr-menu{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0}
       .qr-menu-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,320px);gap:12px;align-items:end}
       .qr-menu-title{margin:0;font-size:22px;line-height:1.05}
       .qr-search{
@@ -463,7 +463,7 @@
         font-weight:900;
       }
       .qr-search::placeholder{color:rgba(255,255,255,.42)}
-      .qr-categories{display:flex;gap:8px;overflow:auto;padding:2px 2px 6px;scrollbar-width:thin}
+      .qr-categories{display:flex;gap:8px;overflow:auto;padding:2px 2px 6px;scrollbar-width:thin;min-width:0}
       .qr-category{
         border:1px solid var(--qr-line);
         border-radius:999px;
@@ -482,9 +482,9 @@
       }
       .qr-category small{opacity:.7;font-size:11px}
       .qr-menu-meta{color:var(--qr-muted);font-size:12px;font-weight:900}
-      .qr-products{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+      .qr-products{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:12px}.qr-products>*{min-width:0}
       .qr-card{padding:14px;display:grid;gap:12px;min-height:176px}
-      .qr-product-card{align-content:space-between;transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+      .qr-product-card{grid-template-columns:minmax(0,1fr);min-width:0;align-content:space-between;transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
       .qr-product-card.is-selected{border-color:color-mix(in srgb,var(--qr-primary) 72%,white);box-shadow:0 16px 44px color-mix(in srgb,var(--qr-primary) 18%,transparent)}
       .qr-product-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
       .qr-product-copy{min-width:0}
@@ -754,7 +754,7 @@
         .qr-hero h1{font-size:34px;line-height:1}
         .qr-hero .qr-muted{margin:8px 0 0;font-size:14px}
         .qr-logo{width:48px;height:48px;border-radius:14px}
-        .qr-layout,.qr-assembly,.qr-asm-split{grid-template-columns:1fr}
+        .qr-layout,.qr-assembly,.qr-asm-split{grid-template-columns:minmax(0,1fr)}
         .qr-menu-head{grid-template-columns:1fr}
         .qr-campaign,.qr-campaign-join,.qr-access-form,.qr-score-grid,.qr-assembly-grid,.qr-assembly-kpis{grid-template-columns:1fr}
         .qr-campaign{gap:9px;padding:12px;border-radius:18px}
@@ -778,7 +778,7 @@
         .qr-categories{margin-inline:-12px;padding:2px 12px 7px;scrollbar-width:none}
         .qr-categories::-webkit-scrollbar{display:none}
         .qr-category{min-height:44px;padding:10px 15px}
-        .qr-products{grid-template-columns:1fr;gap:10px}
+        .qr-products{grid-template-columns:minmax(0,1fr);gap:10px}
         .qr-card{min-height:0;border-radius:20px;padding:15px}
         .qr-product-card{gap:14px}
         .qr-product-name{font-size:18px}
@@ -2340,7 +2340,7 @@
     if (document.getElementById("cxMv057BStyles")) return;
     const style = document.createElement("style");
     style.id = "cxMv057BStyles";
-    style.textContent = ".qr-product-photo-057b{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;margin-bottom:10px;background:rgba(0,0,0,.25)}";
+    style.textContent = ".qr-product-photo-057b{display:block;width:100%;max-width:100%;min-width:0;aspect-ratio:4/3;object-fit:cover;border-radius:14px;margin-bottom:10px;background:rgba(0,0,0,.25)}";
     document.head.appendChild(style);
   }
 
@@ -2412,8 +2412,11 @@
   }
 
   function cxMvSync057B() {
-    if (state.cartaApp057C) { cxAppSync057C(); return; }
+    // Primero el estilo de las fotos: con la carta nueva encendida la pagina de mesa sigue detras y,
+    // sin este estilo, cada foto quedaba a su ancho natural (~800 px), el celular alejaba la pagina y
+    // la carta en video media ~1.875 px de alto en vez de la pantalla.
     if ((state.inventory || []).some((item) => item && item.photo_url)) cxMvStyles057B();
+    if (state.cartaApp057C) { cxAppSync057C(); return; }
     const Feed = window.CxMenuVideoFeed;
     const on = Boolean(Feed && state.cartaVideo057B && state.access?.unlocked && !state.loading && !isAssemblyMode() && (state.inventory || []).length);
     const switchBtn = on ? Feed.switchButton(() => cxMvSetMode057B(true)) : document.querySelector("[data-cxmv-switch]");
