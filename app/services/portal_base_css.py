@@ -48,7 +48,7 @@ TEMPLATE = r'''
 
       .client-layout {
         display: grid;
-        grid-template-columns: 232px 1fr;
+        grid-template-columns: 232px minmax(0, 1fr);
         gap: 18px;
         max-width: 1660px;
         margin: 0 auto;
@@ -136,7 +136,9 @@ TEMPLATE = r'''
 
       .client-main {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 16px;
+        min-width: 0;
       }
 
       .client-hero {
@@ -325,7 +327,7 @@ TEMPLATE = r'''
 
       @media (max-width: 900px) {
         .client-layout {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .client-sidebar {

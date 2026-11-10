@@ -129,7 +129,20 @@
       if (over > 2) out.push({ el: desc(el), card: desc(card).slice(0, 60), px: over });
     }
     const overlap = [];
-    const texts = [...main.querySelectorAll("label > span, label, small, .client-eyebrow")].filter((el) => visible(el) && el.children.length <= 1);
+    // Un texto dentro de un <details> cerrado o recortado por un contenedor con overflow no se ve:
+    // no cuenta como rotulo encimado.
+    const shown = (el) => {
+      const d = el.closest("details:not([open])");
+      if (d && !el.closest("summary")) return false;
+      const r = el.getBoundingClientRect();
+      for (let a = el.parentElement; a && a !== main; a = a.parentElement) {
+        if (getComputedStyle(a).overflow === "visible") continue;
+        const c = a.getBoundingClientRect();
+        if (r.top >= c.bottom - 1 || r.bottom <= c.top + 1 || r.left >= c.right - 1 || r.right <= c.left + 1) return false;
+      }
+      return true;
+    };
+    const texts = [...main.querySelectorAll("label > span, label, small, .client-eyebrow")].filter((el) => visible(el) && el.children.length <= 1 && shown(el));
     for (let i = 0; i < texts.length; i += 1) {
       for (let j = i + 1; j < texts.length; j += 1) {
         const a = texts[i], b = texts[j];
