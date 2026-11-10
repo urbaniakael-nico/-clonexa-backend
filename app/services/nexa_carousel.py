@@ -40,7 +40,7 @@ HANDLE = "@clonexaapp"
 _HERE = os.path.dirname(os.path.dirname(__file__))
 FONT_DIR = os.path.join(_HERE, "assets", "fonts")
 BRAND_DIR = os.path.join(_HERE, "assets", "brand")
-_WEIGHTS = {"regular": "Inter-Regular.ttf", "semibold": "Inter-SemiBold.ttf", "extrabold": "Inter-ExtraBold.ttf", "black": "Inter-Black.ttf"}
+_WEIGHTS = {"regular": "Inter-Regular.ttf", "semibold": "Inter-SemiBold.ttf", "bold": "Inter-Bold.ttf", "extrabold": "Inter-ExtraBold.ttf", "black": "Inter-Black.ttf"}
 
 
 @lru_cache(maxsize=64)
