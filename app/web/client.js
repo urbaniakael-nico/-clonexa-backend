@@ -810,7 +810,7 @@
 
       .client-layout {
         display: grid;
-        grid-template-columns: 232px 1fr;
+        grid-template-columns: 232px minmax(0, 1fr);
         gap: 18px;
         max-width: 1660px;
         margin: 0 auto;
@@ -898,7 +898,9 @@
 
       .client-main {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 16px;
+        min-width: 0;
       }
 
       .client-hero {
@@ -1087,7 +1089,7 @@
 
       @media (max-width: 900px) {
         .client-layout {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .client-sidebar {
@@ -23094,13 +23096,13 @@ function inventoryCreatePayload() {
       .hsp-operations-grid-031d{display:grid;grid-template-columns:minmax(0,1fr) minmax(290px,360px);gap:14px;align-items:start}
       .hsp-bar-workspace-031d{display:grid;gap:14px;min-width:0}
       .hsp-bar-head-031d{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}
-      .hsp-bar-create-031d{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(230px,1.25fr) 76px minmax(170px,.75fr) minmax(160px,.7fr) auto;gap:9px;align-items:end;width:100%}
+      .hsp-bar-create-031d{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:9px;align-items:end;width:100%;min-width:0;box-sizing:border-box}
       .hsp-bar-create-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase;letter-spacing:.08em}
       .hsp-bar-create-031d input,.hsp-bar-create-031d select,.hsp-bar-card-031d input,.hsp-bar-card-031d select{width:100%;min-width:0;box-sizing:border-box;background:rgba(3,7,18,.62);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:11px;padding:10px 11px;font-weight:900;outline:none}
       .hsp-bar-cards-031d{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
       .hsp-bar-card-031d{display:grid;gap:11px;padding:14px;border-radius:17px;background:linear-gradient(155deg,color-mix(in srgb,var(--hsp-primary) 12%,rgba(3,7,18,.70)),rgba(3,7,18,.46));border:1px solid color-mix(in srgb,var(--hsp-primary) 32%,var(--hsp-line));box-shadow:0 14px 34px rgba(0,0,0,.18)}
       .hsp-bar-card-head-031d{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.hsp-bar-card-head-031d h3{margin:0;font-size:19px}.hsp-bar-card-head-031d small{display:block;color:var(--hsp-muted);margin-top:3px;font-weight:800}
-      .hsp-bar-add-031d{display:grid;grid-template-columns:minmax(0,1fr) 72px auto;gap:7px;align-items:end}.hsp-bar-add-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-search-help-031f{color:var(--hsp-muted);font-size:10px;font-weight:800;text-transform:none;letter-spacing:0}
+      .hsp-bar-add-031d{display:flex;flex-wrap:wrap;gap:7px;align-items:flex-end;min-width:0}.hsp-bar-add-031d>label{flex:1 1 72px;min-width:0}.hsp-bar-add-031d>label:first-child{flex:999 1 150px}.hsp-bar-add-031d>label input{width:100%;min-width:0;box-sizing:border-box}.hsp-bar-add-031d>button{flex:1 0 auto}.hsp-bar-add-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-search-help-031f{color:var(--hsp-muted);font-size:10px;font-weight:800;text-transform:none;letter-spacing:0}
       .hsp-bar-items-031d{display:grid;border:1px solid rgba(255,255,255,.09);border-radius:13px;overflow:hidden}.hsp-bar-item-031d{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:10px;background:rgba(3,7,18,.28);border-top:1px solid rgba(255,255,255,.07);font-weight:850}.hsp-bar-item-031d:first-child{border-top:0}.hsp-bar-item-031d small{display:block;color:var(--hsp-muted);margin-top:2px}.hsp-bar-item-031d>span{min-width:0}.hsp-bar-item-031d>span:first-child{overflow:hidden;text-overflow:ellipsis}.hsp-bar-qty-031q{padding:5px 8px;border-radius:999px;background:color-mix(in srgb,var(--hsp-primary) 18%,rgba(3,7,18,.56));border:1px solid color-mix(in srgb,var(--hsp-primary) 38%,transparent);color:var(--cx-text,#fff);font-size:11px;white-space:nowrap}.hsp-bar-line-total-031q{white-space:nowrap;font-size:15px}
       .hsp-bar-total-031d{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:13px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);font-size:17px;font-weight:1000}
       .hsp-bar-close-031d{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}.hsp-bar-close-031d label{display:grid;gap:5px;color:var(--hsp-muted);font-size:10px;font-weight:950;text-transform:uppercase}.hsp-bar-change-031d{color:#86efac;font-size:11px;font-weight:900;min-height:16px}
@@ -23138,7 +23140,7 @@ function inventoryCreatePayload() {
       .hsp-line-field-024r label{font-size:10px;color:var(--hsp-muted);font-weight:950;text-transform:uppercase;letter-spacing:.08em}
       .hsp-item-select-024r{grid-column:auto}
       .hsp-actions-024r{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
-      .hsp-close-controls-030a{display:grid;grid-template-columns:minmax(150px,1fr) minmax(130px,.8fr) auto;gap:8px;align-items:end;width:100%}
+      .hsp-close-controls-030a{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:8px;align-items:end;width:100%;min-width:0;box-sizing:border-box}.hsp-close-controls-030a select,.hsp-close-controls-030a input{width:100%;min-width:0;box-sizing:border-box}
       .hsp-close-method-030a{display:grid;gap:5px;min-width:0}
       .hsp-close-method-030a span{color:var(--hsp-muted);font-size:10px;font-weight:1000;letter-spacing:.09em;text-transform:uppercase}
       .hsp-close-method-030a select,.hsp-close-method-030a input{width:100%;min-height:42px;box-sizing:border-box;background:rgba(3,7,18,.72);color:var(--cx-text,#fff);border:1px solid var(--hsp-line);border-radius:12px;padding:9px 11px;font-weight:950;outline:none}
@@ -33646,7 +33648,7 @@ function inventoryCreatePayload() {
             <section class="client-panel">
               <div class="client-eyebrow">Documento operativo</div>
               <h2>Crear cotizacion o ticket</h2>
-              <form id="tqtCreateForm028N" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+              <form id="tqtCreateForm028N" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:12px">
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Tipo documento</span><select id="tqtDocType028N" style="${fieldInput}"><option value="quote">Cotizacion</option><option value="ticket">Ticket / orden</option></select></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Contrato / aval</span><select id="tqtContractSelect028N" style="${fieldInput}"><option value="">Manual o sin contrato</option>${contractOptions}</select></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Cliente</span><input id="tqtClient028N" style="${fieldInput}" placeholder="Empresa o persona"></label>
@@ -33690,7 +33692,7 @@ function inventoryCreatePayload() {
                 </div>
                 <span class="client-badge">${h(documents.length)}</span>
               </div>
-              <div style="display:grid;grid-template-columns:minmax(0,1fr) 180px 180px auto;gap:10px;margin-bottom:14px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr));gap:10px;margin-bottom:14px">
                 <input id="tqtSearch028N" value="${h(search)}" style="${fieldInput}" placeholder="Buscar cliente, contrato, origen o destino">
                 <select id="tqtTypeFilter028N" style="${fieldInput}"><option value="all" ${typeFilter === "all" ? "selected" : ""}>Todos</option><option value="quote" ${typeFilter === "quote" ? "selected" : ""}>Cotizaciones</option><option value="ticket" ${typeFilter === "ticket" ? "selected" : ""}>Tickets</option></select>
                 <select id="tqtStatusFilter028N" style="${fieldInput}"><option value="all" ${statusFilter === "all" ? "selected" : ""}>Todos</option><option value="pending" ${statusFilter === "pending" ? "selected" : ""}>Pendientes</option><option value="approved" ${statusFilter === "approved" ? "selected" : ""}>Aprobadas</option><option value="scheduled" ${statusFilter === "scheduled" ? "selected" : ""}>Programadas</option><option value="completed" ${statusFilter === "completed" ? "selected" : ""}>Completadas</option><option value="billed" ${statusFilter === "billed" ? "selected" : ""}>Facturadas</option></select>
@@ -34034,7 +34036,7 @@ function inventoryCreatePayload() {
             <section class="client-panel">
               <div class="client-eyebrow">Consulta inteligente</div>
               <h2>Filtros de corte</h2>
-              <div style="display:grid;grid-template-columns:minmax(0,1fr) 160px 160px 190px 180px auto auto;gap:10px;align-items:end">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:10px;align-items:end">
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Buscar</span><input id="tpSearch028R" value="${h(search)}" style="${fieldInput}" placeholder="Cliente, contrato, ticket, ruta o referencia"></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Desde</span><input id="tpStart028R" type="date" value="${h(startDate)}" style="${fieldInput}"></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Hasta</span><input id="tpEnd028R" type="date" value="${h(endDate)}" style="${fieldInput}"></label>
@@ -34067,7 +34069,7 @@ function inventoryCreatePayload() {
                 </div>
                 <span class="client-badge" style="background:${mailSettings.provider_configured ? "rgba(16,245,137,.2)" : "rgba(248,113,113,.18)"};color:${mailSettings.provider_configured ? "#86efac" : "#fca5a5"}">${mailSettings.provider_configured ? "Correo activo" : "Proveedor pendiente"}</span>
               </div>
-              <form id="tpMailSettingsForm028R" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:end">
+              <form id="tpMailSettingsForm028R" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;align-items:end">
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Correo remitente verificado</span><input value="${h(mailSettings.from_email || "Pendiente en Railway")}" readonly style="${fieldInput};opacity:.72;cursor:not-allowed"></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Nombre visible</span><input id="tpMailSenderName028R" value="${h(mailSettings.sender_name || company.name || "CLONEXA")}" style="${fieldInput}" placeholder="Tesoreria de la empresa"></label>
                 <label style="${fieldWrap}"><span style="${fieldLabel}">Recibir respuestas en</span><input id="tpMailReplyTo028R" type="email" value="${h(mailSettings.reply_to_email || "")}" style="${fieldInput}" placeholder="tesoreria@empresa.com"></label>
@@ -34080,11 +34082,11 @@ function inventoryCreatePayload() {
             <section class="client-panel" id="tpOps028R">
               <div class="client-eyebrow">Operacion financiera</div>
               <h2>Recargas y cobros</h2>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:16px">
                 <form id="tpCreditForm028R" style="display:grid;gap:12px;border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:16px;background:rgba(255,255,255,.035)">
                   <h3 style="margin:0">Registrar recarga / credito</h3>
                   <label style="${fieldWrap}"><span style="${fieldLabel}">Empresa / contrato</span><select id="tpCreditContract028R" required style="${fieldInput}">${contractOptions}</select></label>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:10px">
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Valor a recargar</span><input id="tpCreditAmount028R" type="number" min="1" step="1" required style="${fieldInput}" placeholder="Ej: 2000000"></label>
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Metodo</span><select id="tpCreditMethod028R" style="${fieldInput}"><option value="transfer">Transferencia</option><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="online">Pago en linea</option><option value="other">Otro</option></select></label>
                   </div>
@@ -34097,11 +34099,11 @@ function inventoryCreatePayload() {
                 <form id="tpChargeForm028R" style="display:grid;gap:12px;border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:16px;background:rgba(255,255,255,.035)">
                   <h3 style="margin:0">Enviar cobro / factura</h3>
                   <label style="${fieldWrap}"><span style="${fieldLabel}">Ticket o contrato</span><select id="tpChargeTarget028R" required style="${fieldInput}">${chargeOptions}</select></label>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:10px">
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Valor a cobrar</span><input id="tpChargeAmount028R" type="number" min="1" step="1" required style="${fieldInput}" placeholder="Valor factura"></label>
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Vence</span><input id="tpChargeDue028R" type="date" value="${h(cxTransportPaymentsDefaultDue028R(7))}" style="${fieldInput}"></label>
                   </div>
-                  <div style="display:grid;grid-template-columns:1fr 170px;gap:10px">
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:10px">
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Destino cobro</span><input id="tpChargeRecipient028R" style="${fieldInput}" placeholder="WhatsApp o correo"></label>
                     <label style="${fieldWrap}"><span style="${fieldLabel}">Canal</span><select id="tpChargeChannel028R" style="${fieldInput}"><option value="whatsapp">WhatsApp</option><option value="email">Correo</option><option value="manual">Manual</option><option value="link">Link</option></select></label>
                   </div>
