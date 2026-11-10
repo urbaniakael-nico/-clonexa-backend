@@ -38,6 +38,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from app.services import nexa_ad  # noqa: E402  catalogo de escenas demo y emoji permitidos
+
 BASE = "https://main-production-54df.up.railway.app"
 API = BASE + "/api/v1"
 BACKEND = "https://clonexa-backend-production.up.railway.app"
@@ -248,7 +251,7 @@ const DIAS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábad
 const ddmm = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7);
 const ddmmyyyy = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
 const filas = values => (values || []).map((r, i) => { const o = { fila: i + 1 }; COLS.forEach((c, j) => o[c] = String((r || [])[j] == null ? '' : r[j]).trim()); o.iso = toIso(o.fecha); o.est = norm(o.estado); return o; }).filter(o => o.fila > 1 && o.iso);
-const kindOf = f => !f ? 'nada' : (String(f.mimeType || '').includes('folder') ? 'carpeta' : (String(f.mimeType || '').startsWith('video/') || /\.mp4$/i.test(f.name) ? 'video' : 'otro'));
+const kindOf = f => !f ? 'nada' : (String(f.mimeType || '').includes('folder') ? 'carpeta' : (String(f.mimeType || '').startsWith('video/') || /\.mp4$/i.test(f.name) ? 'video' : (String(f.mimeType || '').startsWith('image/') || /\.(png|jpe?g)$/i.test(f.name) ? 'imagen' : 'otro')));
 const elegir = (files, p) => { const base = String(p.archivo || '').split('/').pop().trim(); files = (files || []).filter(f => !f.trashed);
   return (base && files.find(f => f.name === base)) || (base && files.find(f => f.name.startsWith(p.iso) && f.name.includes(base))) || files.find(f => f.name.startsWith(p.iso)) || null; };
 const parseJson = v => { if (v && typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return {}; } };
@@ -398,10 +401,10 @@ const ig = (p.ig || '(sin texto de Instagram/Facebook)').slice(0, 2800);
 const aviso = kind === 'nada' ? '\n⚠️ No encontré el archivo en Drive (Nexa / Contenido): ' + esc(p.archivo || 'sin nombre') + '\n' : '';
 const msg = '👀 <b>Vista previa · ' + esc(dia) + '</b>' + (e.nota ? ' · ' + esc(e.nota) : '') + '\n<b>' + esc(p.tema) + '</b> · ' + esc(p.formato) + '\n' + aviso + '\n' +
   esc(ig) + (p.hashtags ? '\n\n' + esc(p.hashtags) : '') + '\n\n<i>Estado: ' + esc(p.estado || '—') + '. Si la apruebas se publica el ' + esc(dia) + ' a las 12:00.</i>';
-return [{ json: { ...p, kind, file_id: file ? file.id : '', file_name: file ? file.name : '', msg, caption: '🎬 ' + dia + ' · ' + p.tema } }];
+return [{ json: { ...p, kind, file_id: file ? file.id : '', file_name: file ? file.name : '', msg, caption: (kind === 'video' ? '🎬 ' : '🖼 ') + dia + ' · ' + p.tema } }];
 """)
     f.iff("¿Video?", "$json.kind === 'video'")
-    f.iff("¿Carpeta?", "$json.kind === 'carpeta'")
+    f.iff("¿Carpeta?", "['carpeta', 'imagen'].includes($json.kind)")
     f.http("Bajar video", "GET", "={{ 'https://www.googleapis.com/drive/v3/files/' + $json.file_id + '?alt=media' }}", C_DRIVE, fmt="file", timeout=300000)
     f.add("Enviar video", "n8n-nodes-base.telegram", {"operation": "sendVideo", "chatId": CHAT, "binaryData": True, "binaryPropertyName": "data",
                                                       "additionalFields": {"caption": "={{ $('Pieza').first().json.caption }}", "supports_streaming": True}},
@@ -409,6 +412,8 @@ return [{ json: { ...p, kind, file_id: file ? file.id : '', file_name: file ? fi
     f.http("Láminas", "GET", DRIVE_FILES, C_DRIVE, query={"q": "={{ \"'\" + $json.file_id + \"' in parents and trashed=false and mimeType contains 'image/'\" }}",
                                                        "fields": "files(id,name,mimeType)", "orderBy": "name", "pageSize": "50"})
     f.code("Láminas en orden", r"""
+const p = $('Pieza').first().json;
+if (p.kind === 'imagen') return [{ json: { id: p.file_id, x: 'jpg', name: p.file_name } }];
 const fs = ($json.files || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
 return fs.slice(0, 10).map(x => ({ json: { id: x.id, x: 'jpg', name: x.name } }));
 """)
@@ -481,7 +486,7 @@ return [{ json: { ...$('Elegir tema').first().json, saldo, necesita, ok: saldo >
     f.http("Generar video", "GET", BASE + "/webhook/nexa-generar", query={"k": gen_key, "tema": "={{ $json.tema }}"})
     f.tg("Avisar: generando", "={{ (() => { const t = $('¿Alcanza?').first().json; return '🎬 Generando el video con avatar sobre <b>' + t.tema.replace(/[<>&]/g, '') + '</b> (' + t.dia + ' ' + t.fecha.slice(8,10) + '/' + t.fecha.slice(5,7) + '). Te llega para revisar en unos minutos (aprobación en su página de revisión).'; })() }}")
     f.tg("Avisar: sin saldo", "={{ '⚠️ Saldo de HeyGen insuficiente para el video con avatar del ' + $json.dia + ' ' + $json.fecha.slice(8,10) + '/' + $json.fecha.slice(5,7) + '.\\nHay USD ' + $json.saldo.toFixed(2) + ' y se necesitan unos USD ' + $json.necesita.toFixed(2) + '.\\n¿Qué hago?' }}",
-         [[("🔄 Recargué, intentar de nuevo", "={{ 'nx:hr:' + $json.compacta }}")], [("🖼 Hacer carrusel", "={{ 'nx:hk:' + $json.compacta }}")],
+         [[("🔄 Recargué, intentar de nuevo", "={{ 'nx:hr:' + $json.compacta }}")], [("🖼 Hacer anuncio", "={{ 'nx:hk:' + $json.compacta }}")],
           [("🎞 Usar un video anterior", "={{ 'nx:hv:' + $json.compacta }}")]])
     # --- video anterior
     list_root(f, "Videos en Drive")
@@ -499,17 +504,21 @@ return [{ json: { ok: true, fila: t.fila, fecha: t.fecha, dia: t.dia, vals } }];
     # --- carrusel
     f.code("Pedido a Claude", r"""
 const t = $json;
-const formato = `{"tema": "tema en pocas palabras", "categoria": "rubro en máx 26 caracteres (ej: BARES Y DISCOTECAS)",
- "portada": {"titulo": "gancho, máx 42 caracteres", "resaltado": "remate del gancho que va en color, máx 32", "subtitulo": "máx 105 caracteres"},
- "puntos": [{"titulo": "problema concreto, máx 48", "hoy": "cómo pasa hoy, máx 105", "con_clonexa": "cómo lo resuelve Clonexa, máx 125"}],
- "cierre": {"titulo": "máx 38", "resaltado": "máx 28", "texto": "qué junta Clonexa para este negocio, máx 115"},
+const formato = `{"tema": "tema en pocas palabras", "escena": "uno de los ids de ESCENAS", "tag": "rubro en mayúsculas, máx 24 caracteres",
+ "titulo": "inicio del titular", "resaltado": "parte del titular que va en color", "remate": "opcional: cierre corto en blanco, o vacío",
+ "subtitulo": "máx 85 caracteres", "funciones": [{"emoji": "uno de EMOJI", "texto": "máx 22 caracteres"}],
  "gancho": "primera frase del post", "ig_fb": "texto de Instagram/Facebook", "linkedin": "texto de LinkedIn", "tiktok": "máx 120 caracteres", "hashtags": "5 hashtags, el último #clonexa"}`;
-const pedido = `Arma un carrusel de Instagram de 7 láminas sobre: ${t.tema}.` + (t.gancho ? ` Gancho sugerido: ${t.gancho}.` : '') + (t.modulo ? ` Módulos de Clonexa: ${t.modulo}.` : '') +
- ` Exactamente 5 puntos (problema -> HOY -> CON CLONEXA). Respeta los máximos de caracteres. Los textos de redes: empiezan con el gancho, sin hashtags (van aparte), sin enlaces; ` +
- `ig_fb con lista breve de los 5 puntos y cierra con "👉 Comenta DEMO y te escribo por privado.\nSígueme para más tips."; linkedin más profesional con una pregunta al final; nombra a Clonexa. Formato JSON:\n${formato}`;
+const pedido = `Arma un ANUNCIO VISUAL de una sola imagen para Instagram sobre: ${t.tema}.` + (t.gancho ? ` Gancho sugerido: ${t.gancho}.` : '') + (t.modulo ? ` Módulos de Clonexa: ${t.modulo}.` : '') +
+ `\nESCENAS (pantallas reales de empresas demo; elige la que mejor muestre el tema): ${JSON.stringify(__ESCENAS__)}` +
+ `\nEMOJI permitidos: ${__EMOJI__.join(' ')}` +
+ `\nReglas: el titular completo (titulo + resaltado + remate) tiene MÁXIMO 8 PALABRAS, directo y concreto (ej: titulo "Del QR de la mesa", resaltado "a la cocina."). ` +
+ `4 o 5 funciones cortas de Clonexa relacionadas con el tema, cada una con un emoji de la lista; no inventes cifras. ` +
+ `Textos de redes: empiezan con el gancho, sin hashtags (van aparte), sin enlaces; ig_fb breve con 3 a 5 viñetas y cierra con "👉 Comenta DEMO y te escribo por privado.\nSígueme para más tips."; linkedin más profesional con una pregunta al final; nombra a Clonexa. Formato JSON:\n${formato}`;
 return [{ json: { ...t, claude_body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 16000, output_config: { effort: 'low' }, system: __SYSTEM__, messages: [{ role: 'user', content: pedido }] }) } }];
-""".replace("__SYSTEM__", json.dumps(CLAUDE_SYSTEM, ensure_ascii=False)))
-    f.http("Claude: carrusel", "POST", "https://api.anthropic.com/v1/messages", C_ANTH, json_body="={{ $json.claude_body }}",
+""".replace("__SYSTEM__", json.dumps(CLAUDE_SYSTEM, ensure_ascii=False))
+       .replace("__ESCENAS__", json.dumps({k: v["rubro"] for k, v in nexa_ad.SCENES.items()}, ensure_ascii=False))
+       .replace("__EMOJI__", json.dumps(list(nexa_ad.EMOJI), ensure_ascii=False)))
+    f.http("Claude: anuncio", "POST", "https://api.anthropic.com/v1/messages", C_ANTH, json_body="={{ $json.claude_body }}",
            headers={"anthropic-version": "2023-06-01"}, timeout=180000)
     f.code("Leer Claude", r"""
 const r = $json;
@@ -523,44 +532,37 @@ const t = ((r.content || []).find(c => c.type === 'text') || {}).text || '';
 if (!t) throw new Error('Claude no devolvió texto (stop_reason: ' + (r.stop_reason || '?') + ')');
 let d; try { d = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch (e) { throw new Error('No pude leer el JSON de Claude: ' + t.slice(0, 200)); }
 const cut = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
-const puntos = (d.puntos || []).slice(0, 5).map(p => ({ titulo: cut(p.titulo, 90), hoy: cut(p.hoy, 220), con_clonexa: cut(p.con_clonexa, 220) })).filter(p => p.titulo && p.hoy && p.con_clonexa);
-if (puntos.length < 4) throw new Error('Claude devolvió ' + puntos.length + ' puntos (se necesitan 4 o 5)');
-const po = d.portada || {}, ci = d.cierre || {};
-const spec = { portada: { categoria: cut(d.categoria, 40), titulo: cut(po.titulo, 90) || cut(d.tema, 90), resaltado: cut(po.resaltado, 60), subtitulo: cut(po.subtitulo, 170) },
-  puntos, cierre: { titulo: cut(ci.titulo, 70) || 'Todo esto, en', resaltado: cut(ci.resaltado, 50) || 'un solo sistema', texto: cut(ci.texto, 180) } };
+const ESC = __ESC_IDS__;
+const escena = ESC.includes(d.escena) ? d.escena : ESC[0];
+// titular: maximo 8 palabras (se recorta primero el remate, luego el resaltado y al final el titulo)
+let ti = cut(d.titulo, 80).split(' ').filter(Boolean), re = cut(d.resaltado, 60).split(' ').filter(Boolean), rm = cut(d.remate, 40).split(' ').filter(Boolean);
+while (ti.length + re.length + rm.length > 8) { if (rm.length) rm.pop(); else if (re.length > 1) re.pop(); else ti.pop(); }
+const funciones = (d.funciones || []).slice(0, 5).map(x => ({ emoji: String(x.emoji || '✅').slice(0, 16), texto: cut(x.texto, 28) })).filter(x => x.texto);
+if (funciones.length < 4) throw new Error('Claude devolvió ' + funciones.length + ' funciones (se necesitan 4 o 5)');
+const spec = { escena, tag: cut(d.tag, 28).toUpperCase(), titulo: ti.join(' ') || cut(d.tema, 80), resaltado: re.join(' '), remate: rm.join(' '), subtitulo: cut(d.subtitulo, 110), funciones };
 const t0 = $('Elegir tema').first().json;
-const slug = String(d.tema || t0.tema).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-return [{ json: { ...t0, spec, carpeta: t0.fecha + ' plan-b-' + slug, tema_final: cut(d.tema, 90) || t0.tema, gancho_final: String(d.gancho || po.titulo || '').trim(),
+const slug = String(d.tema || t0.tema).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+return [{ json: { ...t0, spec, archivo: t0.fecha + ' anuncio-' + slug + '.png', tema_final: cut(d.tema, 90) || t0.tema, gancho_final: String(d.gancho || spec.titulo).trim(),
   ig: String(d.ig_fb || '').trim(), li: String(d.linkedin || '').trim(), tt: String(d.tiktok || '').trim(), hashtags: String(d.hashtags || '#clonexa').trim() } }];
-""")
-    f.http("Dibujar láminas", "POST", BACKEND + "/api/v1/nexa-content/carousel", backend_cred, json_body="={{ JSON.stringify($json.spec) }}", timeout=180000)
-    f.code("Revisar láminas", r"""
-if (!Array.isArray($json.slides) || !$json.slides.length) throw new Error('El backend no dibujó las láminas: ' + JSON.stringify($json).slice(0, 200));
-return [{ json: { slides: $json.slides } }];
-""")
-    f.http("Crear carpeta", "POST", DRIVE_FILES + "?fields=id,name", C_DRIVE,
-           json_body="={{ JSON.stringify({ name: $('Leer Claude').first().json.carpeta, mimeType: 'application/vnd.google-apps.folder', parents: ['" + ROOT + "'] }) }}")
-    f.code("Láminas a archivos", r"""
-if (!$json.id) throw new Error('No pude crear la carpeta en Drive: ' + JSON.stringify($json).slice(0, 200));
-const folder = $json.id; const out = [];
-for (const s of $('Revisar láminas').first().json.slides) {
-  const bin = await this.helpers.prepareBinaryData(Buffer.from(s.png_b64, 'base64'), s.name, 'image/png');
-  out.push({ json: { name: s.name, folder }, binary: { data: bin } });
-}
-return out;
-""")
+""".replace("__ESC_IDS__", json.dumps(list(nexa_ad.SCENES))))
+    f.http("Dibujar anuncio", "POST", BACKEND + "/api/v1/nexa-content/ad", backend_cred, json_body="={{ JSON.stringify($json.spec) }}", timeout=180000)
+    f.code("Anuncio a archivo", r"""
+if (!$json.png_b64) throw new Error('El backend no dibujó el anuncio: ' + JSON.stringify($json).slice(0, 250));
+const name = $('Leer Claude').first().json.archivo;
+const bin = await this.helpers.prepareBinaryData(Buffer.from($json.png_b64, 'base64'), name, 'image/png');
+return [{ json: { name, folder: '__ROOT__' }, binary: { data: bin } }];
+""".replace("__ROOT__", ROOT))
     f.http("Sesión de subida", "POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name", C_DRIVE,
            json_body="={{ JSON.stringify({ name: $json.name, parents: [$json.folder], mimeType: 'image/png' }) }}", full=True)
     f.code("Unir sesión y archivo", r"""
-const src = $('Láminas a archivos').all();
+const src = $('Anuncio a archivo').all();
 return $input.all().map((i, k) => { const loc = ((i.json.headers || {}).location) || ''; if (!loc) throw new Error('Drive no abrió la subida de ' + src[k].json.name); return { json: { loc, name: src[k].json.name }, binary: src[k].binary }; });
 """)
     f.http("Subir lámina", "PUT", "={{ $json.loc }}", C_DRIVE, binary_in="data", headers={"Content-Type": "image/png"})
     f.code("Fila del plan B", JS_COMMON + r"""
-const ok = $input.all().filter(i => i.json.id).length;
 const d = $('Leer Claude').first().json;
-if (ok < $('Láminas a archivos').all().length) throw new Error('Drive subió ' + ok + ' de ' + $('Láminas a archivos').all().length + ' láminas');
-const vals = ['Carrusel ' + ok + ' láminas (plan B)', d.modulo || 'Plan B', d.tema_final, d.gancho_final, d.ig, d.li, d.tt, d.hashtags, d.carpeta, 'Listo para aprobar'];
+if (!$input.all().some(i => i.json.id)) throw new Error('Drive no guardó el anuncio: ' + JSON.stringify($input.first().json).slice(0, 200));
+const vals = ['Anuncio (plan B)', d.modulo || 'Plan B', d.tema_final, d.gancho_final, d.ig, d.li, d.tt, d.hashtags, d.archivo, 'Listo para aprobar'];
 return [{ json: { fila: d.fila, fecha: d.fecha, dia: d.dia, vals, idea_fila: d.idea_fila } }];
 """)
     # escribir la fila (se usa en los dos caminos: plan B y video anterior)
@@ -592,7 +594,7 @@ return [{ json: { fila, idea_fila: idea, nota } }];
     f.chain("Videos en Drive", "Elegir video", "¿Hay video anterior?")
     f.link("¿Hay video anterior?", "¿Ya hay fila?", 0)
     f.link("¿Hay video anterior?", "Avisar: sin videos", 1)
-    f.chain("Pedido a Claude", "Claude: carrusel", "Leer Claude", "Dibujar láminas", "Revisar láminas", "Crear carpeta", "Láminas a archivos",
+    f.chain("Pedido a Claude", "Claude: anuncio", "Leer Claude", "Dibujar anuncio", "Anuncio a archivo",
             "Sesión de subida", "Unir sesión y archivo", "Subir lámina", "Fila del plan B", "¿Ya hay fila?")
     f.link("¿Ya hay fila?", "Actualizar fila", 0)
     f.link("¿Ya hay fila?", "Agregar fila", 1)
@@ -666,7 +668,7 @@ return [{ json: { nada: false, fecha, simular, ...p, kind: kindOf(file), file_id
     f.iff("¿Nada aprobado?", "$json.nada")
     f.iff("¿Primera vuelta?", "$json.primera")
     f.tg("Avisar: nada que publicar", "={{ '📭 Hoy (' + $json.fecha.slice(8,10) + '/' + $json.fecha.slice(5,7) + ') no hay ninguna pieza en estado Aprobado: no publiqué nada.' + ($json.simular ? ' (simulación)' : '') }}", html=False)
-    f.iff("¿Hay archivo?", "['video','carpeta'].includes($json.kind)")
+    f.iff("¿Hay archivo?", "['video','carpeta','imagen'].includes($json.kind)")
     f.tg("Avisar: falta archivo", "={{ '⚠️ La pieza aprobada de hoy («' + $json.tema + '», fila ' + $json.fila + ') no tiene archivo en Drive (Nexa / Contenido): ' + ($json.archivo || 'sin nombre') + '. No publiqué nada.' }}", html=False)
     f.iff("¿Es carrusel?", "$json.kind === 'carpeta'")
     f.http("Láminas", "GET", DRIVE_FILES, C_DRIVE, query={"q": "={{ \"'\" + $json.file_id + \"' in parents and trashed=false and mimeType contains 'image/'\" }}",
@@ -674,6 +676,7 @@ return [{ json: { nada: false, fecha, simular, ...p, kind: kindOf(file), file_id
     f.code("Archivos a firmar", r"""
 const p = $('Elegir pieza').last().json;
 if (p.kind === 'video') return [{ json: { id: p.file_id, x: 'raw', name: p.file_name } }];
+if (p.kind === 'imagen') return [{ json: { id: p.file_id, x: 'jpg', name: p.file_name } }];
 const fs = ($('Láminas').last().json.files || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true })).slice(0, 10);
 return fs.map(x => ({ json: { id: x.id, x: 'jpg', name: x.name } }));
 """)
@@ -700,13 +703,17 @@ const redes = video ? {
   facebook: { endpoint: 'POST graph-video.facebook.com/__PAGE__/videos', file_url: files[0].url },
   youtube: { endpoint: 'POST googleapis.com/upload/youtube/v3/videos (Short, público)', archivo: files[0].name },
   linkedin: { endpoint: 'POST api.linkedin.com/rest/videos + rest/posts (perfil personal)', archivo: files[0].name },
+} : files.length === 1 ? {
+  instagram: { endpoint: 'POST graph.facebook.com/__IG__/media (imagen) + media_publish', image_urls: files.map(x => x.url) },
+  facebook: { endpoint: 'POST graph.facebook.com/__PAGE__/photos (published=false) + /feed con attached_media', urls: files.map(x => x.url) },
+  linkedin: { endpoint: 'POST api.linkedin.com/rest/images + rest/posts con una imagen (perfil personal)', laminas: files.map(x => x.name) },
 } : {
   instagram: { endpoint: 'POST graph.facebook.com/__IG__/media x' + files.length + ' (is_carousel_item) + CAROUSEL + media_publish', image_urls: files.map(x => x.url) },
   facebook: { endpoint: 'POST graph.facebook.com/__PAGE__/photos (published=false) x' + files.length + ' + /feed con attached_media', urls: files.map(x => x.url) },
   linkedin: { endpoint: 'POST api.linkedin.com/rest/images x' + files.length + ' + rest/posts multiImage (perfil personal)', laminas: files.map(x => x.name) },
 };
 const omitidas = { tiktok: 'solo hay claves de sandbox de TikTok (falta la app aprobada para producción)' };
-if (!video) omitidas.youtube = 'YouTube Shorts necesita video; los carruseles no van a YouTube';
+if (!video) omitidas.youtube = 'YouTube Shorts necesita video; las imágenes no van a YouTube';
 return [{ json: { fila: p.fila, fecha: p.iso, tema: p.tema, formato: p.formato, kind: p.kind, video, files, textos: t, redes, omitidas, simular: p.simular, otras: p.otras } }];
 """.replace("__LANDING__", LANDING).replace("__IG__", IG_ID).replace("__PAGE__", PAGE_ID))
     f.iff("¿Simulación?", "$json.simular")
@@ -731,6 +738,9 @@ return [{ json: { ...j, msg: l.join('\n') } }];
     f.iff("IG: ¿video?", "$('Plan de envío').last().json.video")
     f.http("IG: crear Reel", "POST", f"https://graph.facebook.com/{IG_ID}/media", C_META,
            json_body="={{ JSON.stringify({ media_type: 'REELS', video_url: $('Plan de envío').last().json.files[0].url, caption: $('Plan de envío').last().json.textos.instagram, share_to_feed: true }) }}")
+    f.iff("IG: ¿una imagen?", "$('Plan de envío').last().json.files.length === 1")
+    f.http("IG: crear imagen", "POST", f"https://graph.facebook.com/{IG_ID}/media", C_META,
+           json_body="={{ JSON.stringify({ image_url: $('Plan de envío').last().json.files[0].url, caption: $('Plan de envío').last().json.textos.instagram }) }}")
     f.code("IG: hijos", "return $('Plan de envío').last().json.files.map(x => ({ json: { image_url: x.url } }));")
     f.http("IG: crear lámina", "POST", f"https://graph.facebook.com/{IG_ID}/media", C_META,
            json_body="={{ JSON.stringify({ image_url: $json.image_url, is_carousel_item: true }) }}")
@@ -847,7 +857,8 @@ if (v.video) {
   const pares = $('LI: pareja').all().map(i => i.json); const subidas = $('LI: subir imagen').all().map(i => i.json);
   const mal = pares.find(x => !x.image) || subidas.find(x => !(x.statusCode < 300));
   if (mal) return [{ json: { error: 'LinkedIn no aceptó una lámina: ' + JSON.stringify(mal).slice(0, 200) } }];
-  content = { multiImage: { images: pares.map((x, k) => ({ id: x.image, altText: v.tema + ' (' + (k + 1) + '/' + pares.length + ')' })) } };
+  content = pares.length === 1 ? { media: { id: pares[0].image, altText: v.tema } }
+    : { multiImage: { images: pares.map((x, k) => ({ id: x.image, altText: v.tema + ' (' + (k + 1) + '/' + pares.length + ')' })) } };
 }
 return [{ json: { body: JSON.stringify({ author: 'urn:li:person:' + sub, commentary: s, visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, content, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false }) } }];
 """, executeOnce=True)
@@ -894,7 +905,10 @@ return [{ json: { fila: v.fila, estado, enlaces: enlaces + (fallos ? (enlaces ? 
     f.link("Resumen de simulación", "Enviar simulación")
     f.link("¿Simulación?", "IG: ¿video?", 1)
     f.link("IG: ¿video?", "IG: crear Reel", 0)
-    f.link("IG: ¿video?", "IG: hijos", 1)
+    f.link("IG: ¿video?", "IG: ¿una imagen?", 1)
+    f.link("IG: ¿una imagen?", "IG: crear imagen", 0)
+    f.link("IG: ¿una imagen?", "IG: hijos", 1)
+    f.link("IG: crear imagen", "IG: contenedor")
     f.link("IG: crear Reel", "IG: contenedor")
     f.chain("IG: hijos", "IG: crear lámina", "IG: armar carrusel", "IG: ¿láminas ok?")
     f.link("IG: ¿láminas ok?", "IG: crear carrusel", 0)
@@ -960,7 +974,7 @@ return [{ json: { tipo, chat, autorizado: chat === '__CHAT__', cmd, arg: resto.j
 BOT_HELP = ("🤖 <b>Bot de Nexa</b> · comandos:\n\n"
             "/tema <i>idea</i> → anota un tema para próximos contenidos (ej: /tema cierre de caja en bares)\n"
             "/temas → ideas pendientes\n"
-            "/planb → arma ya un carrusel con la siguiente idea (queda para aprobar)\n"
+            "/planb → arma ya un anuncio visual con la siguiente idea (queda para aprobar)\n"
             "/reporte → cifras de las redes\n"
             "/saldo → saldo de HeyGen\n"
             "/pendiente → video con avatar esperando aprobación\n"
@@ -1015,7 +1029,7 @@ def patch_bot(bot: dict, mostrar_id: str, planb_id: str) -> dict:
     f.iff("¿Plan B con fecha?", "['hr','hk','hv'].includes($('Leer mensaje').first().json.accion)"); at("¿Plan B con fecha?", 1950, Y + 480)
     f.code("Armar plan B", "const j = $('Leer mensaje').first().json; return [{ json: { fecha: j.param, modo: j.accion === 'hv' ? 'video_anterior' : j.accion === 'hk' ? 'carrusel' : 'auto', avatar: j.accion === 'hr' } }];")
     at("Armar plan B", 2200, Y + 480)
-    f.tg("Avisar: armando", "={{ (() => { const a = $('Leer mensaje').first().json.accion; return a === 'hk' ? '🖼 Armo el carrusel (tarda 1 a 2 minutos)…' : a === 'hv' ? '🎞 Busco el video anterior…' : '🔄 Reviso el saldo de HeyGen otra vez…'; })() }}", html=False)
+    f.tg("Avisar: armando", "={{ (() => { const a = $('Leer mensaje').first().json.accion; return a === 'hk' ? '🖼 Armo el anuncio (tarda 1 a 2 minutos)…' : a === 'hv' ? '🎞 Busco el video anterior…' : '🔄 Reviso el saldo de HeyGen otra vez…'; })() }}", html=False)
     at("Avisar: armando", 2450, Y + 480)
     f.run("Plan B", planb_id, False); at("Plan B", 2700, Y + 480)
     f.iff("¿Texto nuevo?", "$('Leer mensaje').first().json.tipo === 'texto_nuevo'"); at("¿Texto nuevo?", 950, Y + 700)
@@ -1040,7 +1054,7 @@ return [{ json: { msg: p.length ? '💡 <b>Ideas pendientes</b> (' + p.length + 
     f.tg("Responder: ideas", "={{ $json.msg }}"); at("Responder: ideas", 2200, Y + 1160)
     f.iff("¿/planb?", "$('Leer mensaje').first().json.tipo === 'planb'"); at("¿/planb?", 1700, Y + 1320)
     f.code("Armar /planb", "return [{ json: { fecha: '0', modo: 'carrusel', tema: $('Leer mensaje').first().json.arg || '' } }];"); at("Armar /planb", 1950, Y + 1320)
-    f.tg("Avisar: /planb", "🖼 Armo un carrusel con la siguiente idea pendiente para el próximo lunes, miércoles o viernes libre (1 a 2 minutos)…", html=False)
+    f.tg("Avisar: /planb", "🖼 Armo un anuncio visual con la siguiente idea pendiente para el próximo lunes, miércoles o viernes libre (1 a 2 minutos)…", html=False)
     at("Avisar: /planb", 2200, Y + 1320)
     f.nodes[-1]["executeOnce"] = True
     # el plan B de /planb reutiliza el mismo nodo "Plan B"
@@ -1133,7 +1147,7 @@ return [{ json: { video_id: id, status: d.status || 'desconocido', video_url: d.
     sb["text"] = "={{ '⚠️ Saldo de HeyGen insuficiente para el video con avatar.\\nHay USD ' + Number($json.saldo).toFixed(2) + ' y se necesitan unos USD ' + Number($json.necesita).toFixed(2) + '.\\n¿Qué hago?' }}"
     sb["replyMarkup"] = "inlineKeyboard"
     sb["inlineKeyboard"] = {"rows": [{"row": {"buttons": [{"text": "🔄 Recargué, intentar de nuevo", "additionalFields": {"callback_data": "nx:hr:0"}}]}},
-                                     {"row": {"buttons": [{"text": "🖼 Hacer carrusel", "additionalFields": {"callback_data": "nx:hk:0"}}]}},
+                                     {"row": {"buttons": [{"text": "🖼 Hacer anuncio", "additionalFields": {"callback_data": "nx:hk:0"}}]}},
                                      {"row": {"buttons": [{"text": "🎞 Usar un video anterior", "additionalFields": {"callback_data": "nx:hv:0"}}]}}]}
     return {"nodes": nodes, "connections": old["connections"]}
 
