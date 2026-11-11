@@ -46,3 +46,6 @@ build/
 *.bak
 *.sqlite
 *.db
+
+# three@0.160.0 (Oficina 3D) trae su archivo en build/: se versiona tal cual
+!app/web/vendor/three-0.160.0/build/

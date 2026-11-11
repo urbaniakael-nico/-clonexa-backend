@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oficina Clonexa · Consola v2+</title>
+<link rel="icon" href="/assets/brand/favicon.ico?v=cx26a" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap">
+<link rel="stylesheet" href="/admin-v2plus/oficina/app.css">
+<script type="importmap">{"imports":{"three":"/admin-v2plus/oficina/vendor/three/build/three.module.js","three/addons/":"/admin-v2plus/oficina/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="load">Cargando la oficina…</div>
+<canvas id="c"></canvas>
+<div id="tags"></div>
+<div id="top" class="glass">
+  <a class="back" href="/admin-v2plus" id="btnBack">← Volver a la consola</a>
+  <div class="logo"><b>C</b>lonexa · Oficina</div>
+  <span class="tag" id="liveTag">Datos en vivo</span>
+  <div class="sp"></div>
+  <label>Fachada <select id="theme"><option value="negro">Negro elegante</option><option value="azul">Vidrio azul</option><option value="blanco">Blanco y madera</option></select></label>
+  <label>Acento <input type="color" id="accent" value="#f20b6d"></label>
+  <label class="lite"><input type="checkbox" id="lite"> Modo liviano</label>
+  <button id="btnEd" class="pri" type="button">👤 Personajes</button>
+  <button id="btnOut" type="button">🏢 Edificio</button>
+</div>
+<div id="help" class="glass">Arrastra para girar · rueda para acercar · toca un personaje o un piso · arrastra los pisos del ascensor para ordenarlos</div>
+<div id="elev" class="glass"><h3>ASCENSOR</h3><div id="floors"></div></div>
+<div id="info" class="glass"></div>
+<div id="legend" class="glass">
+  <span><i class="dot st-work"></i>Trabajando</span><span><i class="dot st-wait"></i>Esperando / café</span>
+  <span><i class="dot st-err"></i>Error</span><span><i class="dot st-train"></i>En entrenamiento</span>
+  <span><i class="dot st-nodata"></i>Sin datos</span><span><i class="dot st-rep"></i>Representante</span>
+</div>
+<div id="feed" class="glass"><h3>ACTIVIDAD EN VIVO</h3><div id="feedL"></div></div>
+<div id="ed"><div class="box glass">
+  <div class="edhead"><h2>Personajes</h2><button id="edClose" type="button">Cerrar ✕</button></div>
+  <p class="s">Edita cada personaje o carga el tuyo: una imagen como cara, una imagen completa (recorte PNG) o un modelo 3D (.glb). Los cambios se guardan solos.</p>
+  <div class="tabs"><button id="tabEd" class="on" type="button">✏️ Editor</button><button id="tabCast" type="button">📋 Elenco (quiénes y cuántos)</button></div>
+  <div id="paneEd" class="grid"><div class="list" id="edList"></div><form id="edForm"></form></div>
+  <div id="paneCast" class="hidden"></div>
+</div></div>
+<script type="module" src="/admin-v2plus/oficina/app.js"></script>
+</body>
+</html>

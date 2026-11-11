@@ -764,4 +764,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Conversaciones Nexa no pudo registrarse: %s", exc)
+try:
+    # Oficina 3D ("🏢 Ir a la oficina"): interno de Clonexa, solo Admin V2.
+    from app.web.oficina_routes import router as oficina_router
+    app.include_router(oficina_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Oficina no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

@@ -133,6 +133,7 @@ button, input, select { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .vp-nav-item:hover { color: var(--vp-text); background: rgba(255, 255, 255, .04); }
+a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .vp-nav-item.is-active {
   color: var(--vp-text);
   border-color: var(--vp-purple);
