@@ -8,18 +8,23 @@ API (GUARD: 401 sin sesion, antes de leer el cuerpo):
 - GET  /admin-v2/api/oficina/estado               todo en una respuesta (cache de n8n 30 s).
 - GET  /admin-v2/api/oficina/personajes           lo guardado en el editor (enlaces firmados).
 - PUT  /admin-v2/api/oficina/personajes           guardar un personaje {clave, company_id?, ...}.
-- POST /admin-v2/api/oficina/personajes/archivo   ?clave=&company_id=&tipo=cara|completa|modelo, cuerpo = el archivo.
-- DELETE /admin-v2/api/oficina/personajes/archivo  quitar ese archivo.
-- GET  /admin-v2/api/oficina/archivos/{ambito}/{id}.{ext}?e=&s=   archivo privado del bucket (firma 15 min).
+- POST/DELETE /admin-v2/api/oficina/personajes/archivo y GET /admin-v2/api/oficina/archivos/...: 410 desde la
+  fase 1.5 (sin imagenes ni modelos cargados; lo ya cargado queda en el bucket y en la base, sin usarse).
 - PUT  /admin-v2/api/oficina/pisos/orden          {company_ids: [...]} (de arriba hacia abajo).
-- PUT  /admin-v2/api/oficina/pisos/{company_id}   {plantilla?, privacidad?}.
-Las imagenes y modelos van al bucket clonexa-media (privados), nunca a Postgres.
+- PUT  /admin-v2/api/oficina/pisos/{company_id}   {plantilla?, privacidad?, estilo? (clasico|realista)}.
+- GET  /admin-v2/api/oficina/pisos/{company_id}/vivo?rev=   copia viva del bar (solo actividad, sin dinero;
+                                                   misma rev -> {"same": true}).
+- PUT  /admin-v2/api/oficina/pisos/{company_id}/distribucion  {items: {clave: [x, z, giro]}} (modo arquitecto).
+- DELETE /admin-v2/api/oficina/pisos/{company_id}/distribucion  acomodar automatico.
+- GET  /admin-v2/api/oficina/marca/{company_id}/logo  logo del Estudio de marca (o del panel inicial).
+Recursos del piso realista: GET /admin-v2plus/oficina/recursos/{archivo} (CC0, lista blanca en manifest.json,
+cache larga; ver docs/oficina/LICENCIAS.md).
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -31,9 +36,9 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.services import brand_media
 from app.services import oficina as of
 from app.services import oficina_data as od
+from app.services import oficina_vivo as ov
 from app.web import admin_v2_routes as v2
 from app.web.admin_v2plus_companies import GUARD, _audit, _json
 
@@ -46,6 +51,8 @@ ACTOR = "admin_v2"
 ASSETS = {
     "app.js": ("oficina/oficina_app.js", "application/javascript"),
     "app.css": ("oficina/oficina.css", "text/css"),
+    "real.js": ("oficina/oficina_real.js", "application/javascript"),
+    "real_reglas.js": ("oficina/oficina_real_rules.js", "application/javascript"),
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -56,7 +63,41 @@ THREE = {
     "examples/jsm/geometries/RoundedBoxGeometry.js",
     "examples/jsm/loaders/GLTFLoader.js",
     "examples/jsm/utils/BufferGeometryUtils.js",
+    "examples/jsm/libs/meshopt_decoder.module.js",
+    "examples/jsm/loaders/RGBELoader.js",
+    "examples/jsm/math/SimplexNoise.js",
+    "examples/jsm/postprocessing/EffectComposer.js",
+    "examples/jsm/postprocessing/GTAOPass.js",
+    "examples/jsm/postprocessing/MaskPass.js",
+    "examples/jsm/postprocessing/OutputPass.js",
+    "examples/jsm/postprocessing/Pass.js",
+    "examples/jsm/postprocessing/RenderPass.js",
+    "examples/jsm/postprocessing/ShaderPass.js",
+    "examples/jsm/postprocessing/UnrealBloomPass.js",
+    "examples/jsm/shaders/CopyShader.js",
+    "examples/jsm/shaders/GTAOShader.js",
+    "examples/jsm/shaders/LuminosityHighPassShader.js",
+    "examples/jsm/shaders/OutputShader.js",
+    "examples/jsm/shaders/PoissonDenoiseShader.js",
+    "examples/jsm/utils/SkeletonUtils.js",
 }
+RES_DIR = WEB / "oficina" / "recursos"
+RES_TYPES = {"glb": "model/gltf-binary", "webp": "image/webp", "hdr": "application/octet-stream"}
+LONG_CACHE = "private, max-age=31536000, immutable"
+FLOOR_BUDGET = 25 * 1024 * 1024
+
+
+def manifest() -> dict:
+    """Lista blanca de recursos (archivo -> bytes y huella), escrita por ops/oficina/preparar_recursos.py."""
+    try:
+        return json.loads((RES_DIR / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"files": {}, "templates": {}, "sources": {}}
+
+
+def floor_bytes(template: str) -> int:
+    m = manifest()
+    return sum(int(m["files"][f]["bytes"]) for f in m.get("templates", {}).get(template, []) if f in m["files"])
 
 
 def importmap_hash(html: str) -> str:
@@ -69,7 +110,8 @@ def importmap_hash(html: str) -> str:
 def page_csp(html: str) -> str:
     return "; ".join([
         "default-src 'self'",
-        f"script-src 'self' '{importmap_hash(html)}'",
+        # wasm-unsafe-eval: el decodificador meshopt de los modelos comprimidos es WebAssembly (no habilita eval de JS)
+        f"script-src 'self' '{importmap_hash(html)}' 'wasm-unsafe-eval'",
         "style-src 'self' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         # blob: para las texturas que trae un modelo .glb (GLTFLoader las abre como blob:)
@@ -109,6 +151,20 @@ async def oficina_three(path: str, request: Request, db: AsyncSession = Depends(
     return FileResponse(WEB / THREE_DIR / path, media_type="application/javascript", headers={"Cache-Control": "private, max-age=86400"})
 
 
+@router.get("/admin-v2plus/oficina/recursos/{path:path}", include_in_schema=False)
+async def oficina_recurso(path: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await _require(request, db)
+    m = manifest()
+    if path == "manifest.json":
+        return v2._no_store(Response(json.dumps({"files": m.get("files", {}), "templates": m.get("templates", {})}),
+                                     media_type="application/json"))
+    meta = m.get("files", {}).get(path)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return FileResponse(RES_DIR / path, media_type=RES_TYPES.get(path.rsplit(".", 1)[-1], "application/octet-stream"),
+                        headers={"Cache-Control": LONG_CACHE, "ETag": f'"{meta["sha"]}"', "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/admin-v2plus/oficina/{name}", include_in_schema=False)
 async def oficina_asset(name: str, request: Request, db: AsyncSession = Depends(get_db)):
     await _require(request, db)
@@ -126,6 +182,7 @@ DB_TTL = 10.0
 def reset_cache() -> None:
     _DB_CACHE.update(at=0.0, data=None)
     of.N8N.reset()
+    _LIVE.clear()
 
 
 def _now() -> datetime:
@@ -202,8 +259,7 @@ def _rejected(error: of.Rejected) -> HTTPException:
 @router.get(f"{API}/personajes", include_in_schema=False, dependencies=GUARD)
 async def personajes(db: AsyncSession = Depends(get_db)):
     return _json({"ok": True, "items": await od.characters(od.Reader(db)),
-                  "limits": {"image_mb": of.IMAGE_MAX // (1024 * 1024), "model_mb": of.MODEL_MAX // (1024 * 1024)},
-                  "storage": brand_media.configured()})
+                  "options": {"cuerpo": list(of.BODIES), "peinado": list(of.HAIRSTYLES), "accesorio": list(of.ACCESSORIES)}})
 
 
 @router.put(f"{API}/personajes", include_in_schema=False, dependencies=GUARD)
@@ -228,117 +284,26 @@ async def guardar_personaje(request: Request, db: AsyncSession = Depends(get_db)
     return _json({"ok": True, "item": od.character_out(row)})
 
 
-COLUMN = {"cara": "cara_key", "completa": "completa_key", "modelo": "modelo_key"}
+GONE = "La oficina ya no carga imágenes ni modelos: los personajes se arman en el editor (cuerpo, peinado, ropa y accesorios)."
 
 
-def _put(key: str, data: bytes, content_type: str) -> None:
-    store = brand_media.backend()
-    if isinstance(store, brand_media.S3Backend):
-        store.put(key, data, content_type=content_type, private=True)
-    else:
-        store.put(key, data)
-
-
-def _delete(keys: list[str]) -> None:
-    keys = [k for k in keys if k]
-    if keys:
-        brand_media.backend().delete(keys)
-
-
-async def _read_limited(request: Request, limit: int) -> bytes:
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > limit:
-        raise HTTPException(status_code=413, detail="El archivo es muy grande.")
-    chunks, size = [], 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            raise HTTPException(status_code=413, detail="El archivo es muy grande.")
-        chunks.append(chunk)
-    return b"".join(chunks)
+def _gone() -> HTTPException:
+    return HTTPException(status_code=410, detail=GONE)
 
 
 @router.post(f"{API}/personajes/archivo", include_in_schema=False, dependencies=GUARD)
-async def subir_archivo(request: Request, clave: str = Query(...), tipo: str = Query(...), company_id: str = Query(""),
-                        db: AsyncSession = Depends(get_db)):
-    try:
-        clave = of.check_key(clave)
-    except of.Rejected as error:
-        raise _rejected(error) from None
-    if tipo not in COLUMN:
-        raise HTTPException(status_code=404, detail="Tipo de archivo no válido.")
-    cid = _scope(company_id)
-    await _check_scope(db, clave, cid)
-    if not brand_media.configured():
-        raise HTTPException(status_code=503, detail="El almacenamiento de archivos no está configurado.")
-    limit = of.MODEL_MAX if tipo == "modelo" else of.IMAGE_MAX
-    raw = await _read_limited(request, limit)
-    try:
-        content_type, ext = of.check_file(tipo, raw)
-    except of.Rejected as error:
-        raise _rejected(error) from None
-    key = f"oficina/{cid or 'clonexa'}/{uuid.uuid4().hex}.{ext}"
-    old = await od.get_character(db, cid, clave)
-    try:
-        await asyncio.to_thread(_put, key, raw, content_type)
-    except brand_media.StorageUnavailable as error:
-        raise HTTPException(status_code=503, detail=str(error)) from None
-    fields: dict[str, Any] = {COLUMN[tipo]: key, "archivos_bytes": len(raw)}
-    if tipo == "completa":
-        fields["estilo"] = "imagen"
-    if tipo == "modelo":
-        fields["estilo"] = "modelo"
-    row = await od.save_character(db, cid, clave, fields, ACTOR)
-    if old and old.get(COLUMN[tipo]) and old[COLUMN[tipo]] != key:
-        try:
-            await asyncio.to_thread(_delete, [old[COLUMN[tipo]]])
-        except Exception:
-            pass
-    await _audit(request, oficina_personaje=clave, empresa=cid or "clonexa", archivo=tipo, kb=round(len(raw) / 1024))
-    return _json({"ok": True, "item": od.character_out(row)})
+async def subir_archivo():
+    raise _gone()
 
 
 @router.delete(f"{API}/personajes/archivo", include_in_schema=False, dependencies=GUARD)
-async def quitar_archivo(request: Request, clave: str = Query(...), tipo: str = Query(...), company_id: str = Query(""),
-                         db: AsyncSession = Depends(get_db)):
-    try:
-        clave = of.check_key(clave)
-    except of.Rejected as error:
-        raise _rejected(error) from None
-    if tipo not in COLUMN:
-        raise HTTPException(status_code=404, detail="Tipo de archivo no válido.")
-    cid = _scope(company_id)
-    old = await od.get_character(db, cid, clave)
-    if not old or not old.get(COLUMN[tipo]):
-        raise HTTPException(status_code=404, detail="No hay archivo que quitar.")
-    fields: dict[str, Any] = {COLUMN[tipo]: ""}
-    if (tipo == "completa" and old.get("estilo") == "imagen") or (tipo == "modelo" and old.get("estilo") == "modelo"):
-        fields["estilo"] = "anime"
-    row = await od.save_character(db, cid, clave, fields, ACTOR)
-    try:
-        await asyncio.to_thread(_delete, [old[COLUMN[tipo]]])
-    except Exception:
-        pass
-    await _audit(request, oficina_personaje=clave, empresa=cid or "clonexa", archivo_quitado=tipo)
-    return _json({"ok": True, "item": od.character_out(row)})
-
-
-MEDIA = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "glb": "model/gltf-binary"}
+async def quitar_archivo():
+    raise _gone()
 
 
 @router.get(API + "/archivos/{scope}/{name}", include_in_schema=False, dependencies=GUARD)
-async def archivo(scope: str, name: str, e: str = Query(""), s: str = Query("")):
-    path = f"{scope}/{name}"
-    if not of.FILE_NAME_RE.match(path) or not of.signature_ok(path, e, s):
-        raise HTTPException(status_code=404, detail="Archivo no encontrado o enlace vencido.")
-    try:
-        data = await asyncio.to_thread(brand_media.backend().get, f"oficina/{path}")
-    except brand_media.StorageUnavailable as error:
-        raise HTTPException(status_code=503, detail=str(error)) from None
-    except Exception:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado.") from None
-    return Response(data, media_type=MEDIA[name.rsplit(".", 1)[1]], headers={"Cache-Control": "private, max-age=600",
-                                                                           "Content-Security-Policy": "default-src 'none'; sandbox"})
+async def archivo(scope: str, name: str):
+    raise _gone()
 
 
 # ------------------------------------------------------------------ pisos
@@ -381,6 +346,10 @@ async def piso(company_id: str, request: Request, db: AsyncSession = Depends(get
         if body["privacidad"] not in of.PRIVACY:
             raise HTTPException(status_code=422, detail="Privacidad no válida.")
         kwargs["privacidad"] = body["privacidad"]
+    if "estilo" in body:
+        if body["estilo"] not in ov.STYLES_FLOOR:
+            raise HTTPException(status_code=422, detail="Estilo de piso no válido.")
+        kwargs["estilo"] = body["estilo"]
     if not kwargs:
         raise HTTPException(status_code=422, detail="Nada que guardar.")
     await od.save_floor(db, cid, actor=ACTOR, **kwargs)
@@ -391,3 +360,103 @@ async def piso(company_id: str, request: Request, db: AsyncSession = Depends(get
 
 def reset_db_cache() -> None:
     _DB_CACHE.update(at=0.0, data=None)
+
+
+# ------------------------------------------------------------------ copia viva, distribucion y marca (fase 1.5)
+_LIVE: dict[str, tuple[float, dict]] = {}
+LIVE_TTL = 4.0
+
+
+async def _company(db: AsyncSession, company_id: str) -> dict:
+    cid = _scope(company_id)
+    found = next((c for c in await od.registered_companies(od.Reader(db)) if c["id"] == cid), None) if cid else None
+    if not found:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada (solo empresas registradas).")
+    return found
+
+
+def _template(c: dict, row: dict) -> str:
+    deduced = of.deduce_template(c["id"], c["modules"], has_locations=c["has_locations"], overnight=od.overnight(c.get("business_day")))
+    return row.get("plantilla") or deduced or "general"
+
+
+async def _live_company(db: AsyncSession, company_id: str) -> tuple[dict, dict]:
+    c = await _company(db, company_id)
+    row = await od.floor_row(db, c["id"])
+    if _template(c, row) not in ov.REAL_TEMPLATES:
+        raise HTTPException(status_code=409, detail="Este piso aún no tiene copia viva (hoy solo la plantilla Bar).")
+    return c, row
+
+
+def _dist(raw: Any) -> dict:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+@router.get(API + "/pisos/{company_id}/vivo", include_in_schema=False, dependencies=GUARD)
+async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends(get_db)):
+    c, row = await _live_company(db, company_id)
+    hit = _LIVE.get(c["id"])
+    if hit and time.monotonic() - hit[0] < LIVE_TTL:
+        snap = hit[1]
+    else:
+        privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
+        snap = await ov.live(od.Reader(db), c, _now(), privacy, _dist(row.get("distribucion")))
+        snap["style"] = od.floor_style(row, "bar")
+        snap["floor_mb"] = round(floor_bytes("bar") / 1024 / 1024, 2)
+        _LIVE[c["id"]] = (time.monotonic(), snap)
+    if rev and rev == snap["rev"]:
+        return _json({"ok": True, "same": True, "rev": snap["rev"]})
+    return _json(snap)
+
+
+async def _tables(db: AsyncSession, cid: str) -> list[str]:
+    from app.services import carta_links
+
+    return await carta_links.mesa_labels(db, cid)
+
+
+@router.put(API + "/pisos/{company_id}/distribucion", include_in_schema=False, dependencies=GUARD)
+async def guardar_distribucion(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    c, _row = await _live_company(db, company_id)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Datos no válidos.") from None
+    tables = await _tables(db, c["id"])
+    try:
+        clean = ov.clean_layout(body, tables)
+    except of.Rejected as error:
+        raise _rejected(error) from None
+    await od.save_floor(db, c["id"], distribucion=clean, actor=ACTOR)
+    _LIVE.pop(c["id"], None)
+    await _audit(request, oficina_distribucion=c["id"], objetos=len(clean["items"]))
+    return _json({"ok": True, "layout": ov.merge_layout(tables, clean)})
+
+
+@router.delete(API + "/pisos/{company_id}/distribucion", include_in_schema=False, dependencies=GUARD)
+async def acomodar_automatico(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    c, _row = await _live_company(db, company_id)
+    await od.save_floor(db, c["id"], distribucion={}, actor=ACTOR)
+    _LIVE.pop(c["id"], None)
+    await _audit(request, oficina_distribucion=c["id"], acomodar="automatico")
+    return _json({"ok": True, "layout": ov.merge_layout(await _tables(db, c["id"]), {})})
+
+
+@router.get(API + "/marca/{company_id}/logo", include_in_schema=False, dependencies=GUARD)
+async def marca_logo(company_id: str, db: AsyncSession = Depends(get_db)):
+    c = await _company(db, company_id)
+    found = await ov.logo(db, c["id"], c.get("settings"))
+    if not found:
+        raise HTTPException(status_code=404, detail="Esta empresa no tiene logo en el Estudio de marca.")
+    data, media_type = found
+    return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff",
+                                                          "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+def reset_live_cache() -> None:
+    _LIVE.clear()

@@ -136,9 +136,19 @@ def overnight(cfg: Optional[dict]) -> bool:
 
 
 async def floor_rows(r: Reader) -> dict[str, dict]:
-    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad FROM oficina_pisos",
-                        tables=("oficina_pisos",)) or []
+    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion FROM oficina_pisos",
+                        tables=("oficina_pisos",))
+    if rows is None:  # base sin la migracion 025k: lo de la fase 1
+        rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad FROM oficina_pisos",
+                            tables=("oficina_pisos",)) or []
     return {x["company_id"]: x for x in rows}
+
+
+def floor_style(row: dict, template: str) -> str:
+    """Interruptor por empresa del piso realista (apagado por defecto). Solo plantillas con motor realista."""
+    from app.services import oficina_vivo as ov
+
+    return "realista" if row.get("estilo") == "realista" and template in ov.REAL_TEMPLATES else "clasico"
 
 
 def order_floors(companies: list[dict], saved: dict[str, dict]) -> list[dict]:
@@ -360,6 +370,7 @@ async def floors(r: Reader, now: datetime) -> list[dict]:
         deduced = of.deduce_template(c["id"], c["modules"], has_locations=c["has_locations"], overnight=overnight(c.get("business_day")))
         template = row.get("plantilla") or deduced or "general"
         privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
+        style = floor_style(row, template)
         shifts = await open_shifts(r, c["id"], now)
         kpis, lines = await KPI[template](r, c, now, shifts)
         last = await last_activity(r, c["id"])
@@ -369,10 +380,23 @@ async def floors(r: Reader, now: datetime) -> list[dict]:
             "company_id": c["id"], "name": c["name"] or "Empresa", "template": template, "template_label": of.TEMPLATE_LABEL[template],
             "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
             "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
+            "style": style, "style_wanted": row.get("estilo") or "clasico",
+            "brand": await _brand(r, c) if style == "realista" else None,
             "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
             "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
         })
     return out
+
+
+async def _brand(r: Reader, c: dict) -> Optional[dict]:
+    from app.services import oficina_vivo as ov
+
+    try:
+        return await ov.brand(r.db, c["id"], c.get("settings"))
+    except Exception as error:
+        log.warning("oficina: marca sin datos (%s)", type(error).__name__)
+        await r.db.rollback()
+        return None
 
 
 # ------------------------------------------------------------------ piso CLONEXA (base)
@@ -482,7 +506,8 @@ async def shift_feed(r: Reader, floors_out: list[dict], now: datetime, limit: in
 
 # ------------------------------------------------------------------ editor (oficina_personajes)
 CHAR_COLS = ("clave", "nombre", "rol", "tarea", "estilo", "color_ropa", "color_pantalon", "color_pelo", "color_piel", "accesorio",
-             "color_accesorio", "cara_key", "completa_key", "modelo_key", "archivos_bytes", "updated_at")
+             "color_accesorio", "cuerpo", "peinado", "updated_at")
+OUT_COLS = tuple(k for k in CHAR_COLS if k not in ("clave", "updated_at"))
 
 
 async def characters(r: Reader) -> list[dict]:
@@ -493,10 +518,14 @@ async def characters(r: Reader) -> list[dict]:
 
 
 def character_out(x: dict) -> dict:
-    return {"company_id": x.get("company_id"), "clave": x["clave"],
-            **{k: x.get(k) or "" for k in CHAR_COLS if k not in ("clave", "cara_key", "completa_key", "modelo_key", "archivos_bytes", "updated_at")},
-            "cara_url": of.file_url(x.get("cara_key") or ""), "completa_url": of.file_url(x.get("completa_key") or ""),
-            "modelo_url": of.file_url(x.get("modelo_key") or ""), "updated_at": of.iso(x.get("updated_at"))}
+    """Lo guardado de un personaje. Imagen y modelo ya no se usan: no salen (aunque sigan en la base)."""
+    out = {"company_id": x.get("company_id"), "clave": x["clave"], **{k: x.get(k) or "" for k in OUT_COLS},
+           "updated_at": of.iso(x.get("updated_at"))}
+    if out["estilo"] not in of.STYLES:
+        out["estilo"] = ""
+    if out["accesorio"] not in of.ACCESSORIES:
+        out["accesorio"] = ""
+    return out
 
 
 async def company_exists(db: AsyncSession, company_id: Optional[str]) -> bool:
@@ -527,17 +556,23 @@ async def save_character(db: AsyncSession, company_id: Optional[str], clave: str
     return await get_character(db, company_id, clave) or {}
 
 
-async def save_floor(db: AsyncSession, company_id: str, *, plantilla: Any = ..., privacidad: Any = ..., actor: str) -> None:
+async def save_floor(db: AsyncSession, company_id: str, *, plantilla: Any = ..., privacidad: Any = ..., estilo: Any = ...,
+                     distribucion: Any = ..., actor: str) -> None:
     fields: dict[str, Any] = {}
     if plantilla is not ...:
         fields["plantilla"] = plantilla
     if privacidad is not ...:
         fields["privacidad"] = privacidad
+    if estilo is not ...:
+        fields["estilo"] = estilo
+    if distribucion is not ...:
+        fields["distribucion"] = json.dumps(distribucion)
     if not fields:
         return
     cols = list(fields)
     await db.execute(text(f"""
-        INSERT INTO oficina_pisos (company_id, updated_by, {', '.join(cols)}) VALUES (CAST(:c AS uuid), :a, {', '.join(':' + k for k in cols)})
+        INSERT INTO oficina_pisos (company_id, updated_by, {', '.join(cols)})
+        VALUES (CAST(:c AS uuid), :a, {', '.join(('CAST(:' + k + ' AS jsonb)') if k == 'distribucion' else (':' + k) for k in cols)})
         ON CONFLICT (company_id) DO UPDATE SET {', '.join(f'{k} = EXCLUDED.{k}' for k in cols)}, updated_by = EXCLUDED.updated_by, updated_at = now()
     """), {"c": company_id, "a": actor[:120], **fields})
     await db.commit()
@@ -550,6 +585,10 @@ async def save_order(db: AsyncSession, company_ids: list[str], actor: str) -> No
             ON CONFLICT (company_id) DO UPDATE SET orden = EXCLUDED.orden, updated_by = EXCLUDED.updated_by, updated_at = now()
         """), {"c": cid, "o": index, "a": actor[:120]})
     await db.commit()
+
+
+async def floor_row(db: AsyncSession, company_id: str) -> dict:
+    return (await floor_rows(Reader(db))).get(company_id) or {}
 
 
 async def registered_ids(db: AsyncSession) -> set[str]:

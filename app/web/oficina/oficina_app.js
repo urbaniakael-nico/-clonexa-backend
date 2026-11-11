@@ -1,12 +1,14 @@
 // Oficina 3D · Consola v2+ (interno de Clonexa, solo Admin V2).
 // Diseño: docs/oficina/maqueta-v2.html (edificio negro con neón y logo, ascensor, pisos, personajes
-// Lego / Anime / 3D / imagen completa / modelo .glb, editor, elenco, etiquetas y actividad en vivo).
+// Lego / Anime / 3D, editor, elenco, etiquetas y actividad en vivo).
+// Fase 1.5: los pisos con estilo "realista" (interruptor por empresa; hoy solo The Time Machine) abren el motor
+// realista (oficina_real.js, se carga solo al entrar a ese piso) con la marca de la empresa y su copia viva.
+// El editor ya no carga imágenes ni modelos: una imagen plana pierde la animación.
 // Aquí los datos son REALES: GET /admin-v2/api/oficina/estado cada 30 s (pausa si la pestaña no se ve).
 // Three.js sale del propio backend (three@0.160.0, copia local fija), sin CDN.
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
 // ===== reglas puras (probadas en tests/oficina_app.test.cjs) =====
 const API = '/admin-v2/api/oficina';
@@ -14,9 +16,12 @@ const POLL_MS = 30000;
 const FLOOR_STEP = 5.6;
 const ST = {work: {c: '#22c55e', t: 'Trabajando'}, wait: {c: '#f59e0b', t: 'Esperando'}, cafe: {c: '#f59e0b', t: 'En la cafetería'},
   err: {c: '#ef4444', t: 'Error'}, train: {c: '#60a5fa', t: 'En entrenamiento'}, nodata: {c: '#6b7280', t: 'Sin datos'}};
-const STYLE_LABEL = {lego: 'Lego', anime: 'Anime', real: '3D', imagen: 'Imagen', modelo: 'Modelo'};
+const STYLE_LABEL = {lego: 'Lego', anime: 'Anime', real: '3D'};
+const BODY_LABEL = {medio: 'Medio', delgado: 'Delgado', robusto: 'Robusto', alto: 'Alto'};
+const HAIR_LABEL = {corto: 'Corto', largo: 'Largo', rizado: 'Rizado', recogido: 'Recogido', rapado: 'Rapado', calvo: 'Sin pelo'};
+const ACC_LABEL = {none: 'Ninguno', delantal: 'Delantal', gorra: 'Gorra', casco: 'Casco', audifonos: 'Audífonos', gafas: 'Gafas', chaleco: 'Chaleco', corbata: 'Corbata'};
 const SERVER_FIELDS = {nombre: 'name', rol: 'zone', tarea: 'role', estilo: 'style', color_ropa: 'color', color_pantalon: 'legs',
-  color_pelo: 'hair', color_piel: 'skin', accesorio: 'acc', color_accesorio: 'accColor', cara_url: 'img', completa_url: 'full', modelo_url: 'glbUrl'};
+  color_pelo: 'hair', color_piel: 'skin', accesorio: 'acc', color_accesorio: 'accColor', cuerpo: 'body', peinado: 'hairStyle'};
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -36,7 +41,8 @@ function fromServer(item) {
   for (const [k, v] of Object.entries(SERVER_FIELDS)) {
     if (item[k] !== undefined && item[k] !== null && item[k] !== '') out[v] = item[k];
   }
-  if (out.acc === 'none') out.acc = 'none';
+  if (out.style && !STYLE_LABEL[out.style]) delete out.style;  // "imagen" y "modelo" ya no se usan
+  if (out.acc && !ACC_LABEL[out.acc]) delete out.acc;
   return out;
 }
 
@@ -44,7 +50,7 @@ function toServer(patch) {
   const back = Object.fromEntries(Object.entries(SERVER_FIELDS).map(([k, v]) => [v, k]));
   const out = {};
   for (const [k, v] of Object.entries(patch)) {
-    if (back[k] && !/_url$/.test(back[k])) out[back[k]] = v;
+    if (back[k]) out[back[k]] = v;
   }
   return out;
 }
@@ -89,6 +95,11 @@ function reorder(list, from, to) {
 
 function agentVisualState(state) {
   return ST[state] ? state : 'nodata';
+}
+
+// Un piso abre el motor realista solo si su empresa tiene el interruptor encendido (estilo "realista").
+function isRealFloor(f) {
+  return !!(f && f.style === 'realista');
 }
 // ===== fin reglas puras =====
 
@@ -188,21 +199,9 @@ function main(DATA, SAVED_IN) {
   // ---------------------------------------------------------------- personajes
   const CHARS = [], PICK = [];
   const SKIN = ['#f2cfb3', '#dcab86', '#b07a55', '#7d4f34'];
-  const GLBS = {}, GLB_WAIT = {}, TEXS = {};
   const SAVED = new Map();
   const savedKey = (cid, clave) => `${cid || ''}|${clave}`;
   (SAVED_IN.items || []).forEach(it => SAVED.set(savedKey(it.company_id, it.clave), it));
-  const urlPath = u => String(u || '').split('?')[0];
-  function tex(url) { const k = urlPath(url); if (!TEXS[k]) { TEXS[k] = new THREE.TextureLoader().load(url); TEXS[k].colorSpace = THREE.SRGBColorSpace; } return TEXS[k]; }
-  function glb(ch, url) {
-    const k = urlPath(url);
-    if (GLBS[k]) return GLBS[k];
-    if (!GLB_WAIT[k]) {
-      GLB_WAIT[k] = true;
-      new GLTFLoader().load(url, g => { GLBS[k] = g; CHARS.filter(c => urlPath(c.cfg && c.cfg.glbUrl) === k).forEach(rebuild); }, undefined, () => { GLB_WAIT[k] = false; log('<b>Editor</b> · no se pudo leer un modelo 3D', 'error'); });
-    }
-    return null;
-  }
   function layersOf(ch) {
     if (ch.kind === 'agent') return [SAVED.get(savedKey(null, 'agente:' + ch.id))];
     if (ch.kind === 'rep') return [SAVED.get(savedKey(ch.floor.cid, 'rep'))];
@@ -212,20 +211,16 @@ function main(DATA, SAVED_IN) {
   function arm(g, x, y, len, r, m, hand) { const p = new THREE.Group(); p.position.set(x, y, 0); g.add(p); cap(r, len, m, 0, -len / 2 - r * .5, 0, p); sph(r * 1.05, hand, 0, -len - r * 1.2, 0, p, 10, 8); return p; }
   function buildBody(ch) {
     const g = ch.body; while (g.children.length) g.remove(g.children[0]);
-    const c = mergeCfg(ch.def, layersOf(ch).filter(Boolean)); if (ch.kind !== 'agent') { c.name = ch.def.name; } ch.cfg = c; ch.billboard = null; ch.armL = ch.armR = null; ch.mixer = null;
+    const c = mergeCfg(ch.def, layersOf(ch).filter(Boolean)); if (ch.kind !== 'agent') { c.name = ch.def.name; } ch.cfg = c; ch.armL = ch.armR = null;
     const mb = M(c.color, {roughness: .8}), ms = M(c.style === 'lego' ? '#ffd34d' : c.skin, {roughness: .6}), mh = M(c.hair, {roughness: .9}), ml = M(c.legs || '#22202b', {roughness: .85}), shoe = M('#141216', {roughness: .5});
     let headY = 1.6, hr = .15, front = .15;
-    const model = c.style === 'modelo' && c.glbUrl ? glb(ch, c.glbUrl) : null;
-    if (c.style === 'imagen' && c.full) { const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.9), new THREE.MeshBasicMaterial({map: tex(c.full), transparent: true, alphaTest: .08, side: THREE.DoubleSide})); pl.position.y = .95; g.add(pl); ch.billboard = pl; headY = 1.75; }
-    else if (model) { const m = model.scene.clone(true); const bb = new THREE.Box3().setFromObject(m); const s = 1.75 / Math.max(.01, bb.max.y - bb.min.y); m.scale.setScalar(s); const bb2 = new THREE.Box3().setFromObject(m); m.position.y -= bb2.min.y; m.position.x -= (bb2.min.x + bb2.max.x) / 2; m.position.z -= (bb2.min.z + bb2.max.z) / 2; m.traverse(o => { if (o.isMesh) o.castShadow = true; }); g.add(m);
-      if (model.animations.length) { ch.mixer = new THREE.AnimationMixer(m); ch.mixer.clipAction(model.animations[0]).play(); } headY = 1.75; }
-    else if (c.style === 'lego') { [-.11, .11].forEach(x => { rbox(.2, .5, .26, ml, x, .25, 0, g, .03); }); rbox(.48, .12, .28, ml, 0, .55, 0, g, .03);
+    if (c.style === 'lego') { [-.11, .11].forEach(x => { rbox(.2, .5, .26, ml, x, .25, 0, g, .03); }); rbox(.48, .12, .28, ml, 0, .55, 0, g, .03);
       const t = new THREE.Mesh(new THREE.CylinderGeometry(.22, .29, .55, 4, 1), mb); t.rotation.y = Math.PI / 4; t.position.y = .88; t.scale.z = .62; t.castShadow = true; g.add(t);
       ch.armL = arm(g, -.31, 1.1, .32, .075, mb, ms); ch.armR = arm(g, .31, 1.1, .32, .075, mb, ms);
       cyl(.2, .2, .34, ms, 0, 1.37, 0, g, 24); cyl(.11, .11, .08, ms, 0, 1.58, 0, g); headY = 1.37; hr = .2; front = .2;
       if (c.hair !== 'none') cyl(.215, .215, .16, mh, 0, 1.52, -.01, g, 24);
       [-.07, .07].forEach(x => sph(.022, M('#111'), x, 1.4, .195, g, 8, 6)); const sm = new THREE.Mesh(new THREE.TorusGeometry(.06, .012, 6, 12, Math.PI), M('#111')); sm.rotation.z = Math.PI; sm.position.set(0, 1.32, .198); g.add(sm); }
-    else if (c.style === 'anime' || (c.style === 'modelo' && !model) || (c.style === 'imagen' && !c.full)) { [-.1, .1].forEach(x => { cap(.08, .28, ml, x, .24, 0, g); rbox(.15, .08, .24, shoe, x, .04, .04, g, .03); });
+    else if (c.style !== 'real') { [-.1, .1].forEach(x => { cap(.08, .28, ml, x, .24, 0, g); rbox(.15, .08, .24, shoe, x, .04, .04, g, .03); });
       cap(.2, .26, mb, 0, .66, 0, g).scale.z = .8; ch.armL = arm(g, -.25, .86, .24, .06, mb, ms); ch.armR = arm(g, .25, .86, .24, .06, mb, ms);
       cyl(.06, .06, .1, ms, 0, .98, 0, g); sph(.32, ms, 0, 1.26, 0, g, 28, 22); headY = 1.26; hr = .32; front = .3;
       if (c.hair !== 'none') { const h = new THREE.Mesh(new THREE.SphereGeometry(.335, 28, 16, 0, Math.PI * 2, 0, Math.PI * .55), mh); h.position.set(0, 1.29, -.01); h.castShadow = true; g.add(h);
@@ -240,16 +235,14 @@ function main(DATA, SAVED_IN) {
       sph(.035, ms, 0, 1.59, .14, g, 10, 8); [-.045, .045].forEach(x => { sph(.016, M('#2a1a12', {roughness: .2}), x, 1.645, .125, g, 8, 6); const ear = sph(.03, ms, x > 0 ? .13 : -.13, 1.62, 0, g, 8, 6); ear.scale.z = .6; });
       if (c.hair !== 'none') { const hh = new THREE.Mesh(new THREE.SphereGeometry(.142, 28, 14, 0, Math.PI * 2, 0, Math.PI * .52), mh); hh.scale.set(1, 1.18, 1.12); hh.position.set(0, 1.645, -.012); hh.castShadow = true; g.add(hh); if (c.long) { const lh = cap(.12, .25, mh, 0, 1.5, -.07, g); lh.scale.z = .6; } } }
     const am = M(c.accColor || '#222', {roughness: .4, metalness: .2}); const A = c.acc; const real = c.style === 'real';
-    if (!ch.billboard && !model) {
+    {
       if (A === 'audifonos') { const r = new THREE.Mesh(new THREE.TorusGeometry(hr * 1.08, .022, 8, 28, Math.PI), am); r.position.y = headY + (c.style === 'lego' ? .05 : hr * .2); g.add(r); [-1, 1].forEach(k => { const p = cyl(.055, .055, .05, am, k * hr * 1.05, headY, 0, g, 14); p.rotation.z = Math.PI / 2; }); }
       if (A === 'casco') { const r = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.18, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), M(c.accColor || '#f59e0b', {roughness: .35})); r.position.y = headY + hr * .35; r.castShadow = true; g.add(r); cyl(hr * 1.35, hr * 1.35, .02, M(c.accColor || '#f59e0b'), 0, headY + hr * .35, 0, g, 24); }
       if (A === 'gorra') { const r = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.08, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), am); r.position.y = headY + hr * .3; g.add(r); rbox(hr * 1.3, .02, hr * 1.1, am, 0, headY + hr * .32, hr * 1.05, g, .01); }
-      if (A === 'capa') { const cp = new THREE.Mesh(new THREE.PlaneGeometry(.5, real ? 1.15 : .75, 1, 8), new THREE.MeshStandardMaterial({color: c.accColor || '#5b21b6', side: THREE.DoubleSide, roughness: .6})); const pos = cp.geometry.attributes.position; for (let i = 0; i < pos.count; i++) { const y = pos.getY(i); pos.setZ(i, -(y * y) * .15); } cp.geometry.computeVertexNormals(); cp.position.set(0, real ? .88 : c.style === 'lego' ? .82 : .62, -.17); g.add(cp); }
       if (A === 'gafas') { const gm = M('#0d0d0d', {metalness: .7, roughness: .2}); [-1, 1].forEach(k => { const l = new THREE.Mesh(new THREE.TorusGeometry(hr * .28, hr * .05, 6, 16), gm); l.position.set(k * hr * .38, headY + hr * .1, front + .01); g.add(l); }); rbox(hr * .3, hr * .05, hr * .05, gm, 0, headY + hr * .1, front + .01, g, .005); }
       if (A === 'chaleco') { const v = cap(real ? .2 : .21, real ? .3 : .24, M('#ff7a1a', {roughness: .6, emissive: 0x2a0e00}), 0, real ? 1.18 : c.style === 'lego' ? .88 : .67, 0, g); v.scale.set(1.04, 1, real ? .74 : .85); rbox(.44, .035, .02, M('#e5e7eb', {emissive: 0x555555}), 0, real ? 1.1 : .7, real ? .15 : .18, g, .01); }
       if (A === 'delantal') rbox(.34, .48, .02, M('#f4f1ea'), 0, real ? .98 : c.style === 'lego' ? .72 : .56, c.style === 'anime' ? .18 : c.style === 'lego' ? .17 : .14, g, .01);
       if (A === 'corbata') rbox(.05, .26, .02, M(c.accColor || '#b91c1c'), 0, real ? 1.22 : .9, real ? .135 : .17, g, .01);
-      if (c.img) { const f = new THREE.Mesh(new THREE.CircleGeometry(hr * .92, 28), new THREE.MeshBasicMaterial({map: tex(c.img)})); f.position.set(0, headY, front + .012); g.add(f); }
     }
     g.traverse(o => { if (o.isMesh) { o.userData.ch = ch; PICK.push(o); } }); ch.tagH = headY + .5;
   }
@@ -463,6 +456,7 @@ function main(DATA, SAVED_IN) {
     const out = (TPL[f.template] || TPL.general)(p, f);
     p.stations = out.stations; p.data = f;
     if (f.template !== 'campo') { p.extraTex = textTex(['+0', 'en turno'], {w: 512, h: 192, size: 84, bg: '#0b1a12', fg: '#22c55e'}); p.extraSign = screenWall(p, -2.6, p.D / 2 - .85, 2.2, .9, p.extraTex, Math.PI, 1.6); p.extraSign.visible = false; }
+    if (isRealFloor(f)) facadeBrand(p, f);
     p.rep = addChar(p, Object.assign({id: 'rep-' + f.company_id, name: 'Rep. ' + f.name, role: 'Representante de ' + f.name, zone: 'Representante', rep: true, style: 'anime'}, out.repDef), 'rep', out.rep);
     repNames(p);
     p.staff = new Map();
@@ -496,6 +490,20 @@ function main(DATA, SAVED_IN) {
     } else if (p.extraSign) { p.extraSign.visible = extra > 0; if (extra) retext(p.extraTex, [`+${extra}`, 'en turno'], {size: 84, bg: '#0b1a12', fg: '#22c55e'}); }
     if (p.screen && p.screenLines) retext(p.screen, p.screenLines(f), {size: p.template === 'bar' ? 72 : 56, bg: {taller: '#1a1220', restaurante: '#20140c', bar: '#24104a', general: '#141a24'}[p.template] || '#141a24'});
   }
+  // Piso realista en el edificio: el logo de la empresa en su fachada y el neón con su color.
+  function facadeBrand(p, f) {
+    const b = f.brand || {};
+    const neon = new THREE.MeshBasicMaterial({color: b.accent || '#b08d57'});
+    p.g.children.filter(k => k.material === neonMat).forEach(k => { k.material = neon; });
+    p.brandNeon = neon;
+    const sign = mesh(new THREE.PlaneGeometry(6, 1.6), new THREE.MeshBasicMaterial({map: textTex([f.name], {w: 1024, h: 272, size: 120, fg: b.accent || '#ffffff', bg: 'rgba(0,0,0,.55)'}), transparent: true, toneMapped: false}), 4.5, p.h - 1.4, p.D / 2 + .32, p.g);
+    sign.castShadow = false; p.front.push(sign);
+    if (b.logo_url) {
+      const t = new THREE.TextureLoader().load(b.logo_url); t.colorSpace = THREE.SRGBColorSpace;
+      const lm = mesh(new THREE.PlaneGeometry(3, 1.5), new THREE.MeshBasicMaterial({map: t, transparent: true, toneMapped: false}), -4.5, p.h - 1.4, p.D / 2 + .32, p.g);
+      lm.castShadow = false; p.front.push(lm);
+    }
+  }
   function repNames(p) { const s = fromServer(SAVED.get(savedKey(p.cid, 'rep'))); p.rep.def.name = s.name || 'Rep. ' + p.name; p.rep.def.role = s.role || 'Representante de ' + p.name; }
   function of_uniform(u) { return ((DATA.uniforms || []).find(x => x.key === u) || {}).label || 'Personal'; }
   function layout(floors) {
@@ -504,7 +512,7 @@ function main(DATA, SAVED_IN) {
     [...BY_CID.entries()].forEach(([cid, p]) => { if (!wanted.has(cid)) { dropFloor(p); BY_CID.delete(cid); } });
     floors.forEach((f, i) => {
       let p = BY_CID.get(f.company_id);
-      if (p && p.template !== f.template) { dropFloor(p); BY_CID.delete(f.company_id); p = null; }
+      if (p && (p.template !== f.template || isRealFloor(p.data) !== isRealFloor(f) || (isRealFloor(f) && JSON.stringify(p.data.brand) !== JSON.stringify(f.brand)))) { dropFloor(p); BY_CID.delete(f.company_id); p = null; }
       if (!p) p = buildClientFloor(f, ys.floors[i]);
       p.y = ys.floors[i]; p.g.position.y = p.y; p.name = f.name; p.sub = f.template_label; p.data = f; p.order = i;
       syncStaff(p, f);
@@ -521,7 +529,37 @@ function main(DATA, SAVED_IN) {
   // ---------------------------------------------------------------- cámara
   const home = {tgt: new THREE.Vector3(0, 17, 0), dist: 120};
   const cam = {az: -.6, pol: 1.12, dist: 120, tgt: new THREE.Vector3(0, 17, 0)}, goal = {az: -.6, pol: 1.12, dist: 120, tgt: new THREE.Vector3(0, 17, 0)}; let focus = null;
+  let REAL = null, realFor = null, realBusy = false;
+  async function enterReal(p) {
+    if (realBusy || (REAL && realFor === p)) return;
+    leaveReal(); realBusy = true; realFor = p; hideInfo();
+    document.body.classList.add('real-on');
+    try {
+      const mod = await import('/admin-v2plus/oficina/real.js');
+      if (realFor !== p) return;
+      REAL = await mod.openReal({R, floor: p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
+        repName: p.rep && p.rep.def.name,
+        charCfg: (kind, k, uniform) => kind === 'rep' ? fromServerCfg([SAVED.get(savedKey(p.cid, 'rep'))])
+          : fromServerCfg([SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))]),
+        onClose: () => setFocus(null), onRep: () => showRep(p), onPerson: (info, kind) => showPerson(info, kind, p),
+        onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
+      log(`<b>${esc(p.name)}</b> · piso realista abierto`);
+    } catch (e) {
+      log(`<b>${esc(p.name)}</b> · no se pudo abrir el piso realista: ${esc(e.message)}`, 'error'); leaveReal(); realFor = null;
+    } finally { realBusy = false; }
+  }
+  function leaveReal() {
+    if (REAL) { REAL.close(); REAL = null; }
+    realFor = null; document.body.classList.remove('real-on'); resize();
+  }
+  function fromServerCfg(layers) { return Object.assign({}, ...layers.filter(Boolean).map(fromServer)); }
+  function showPerson(info, kind, p) {
+    openInfo(`<h2>${esc(info.name || 'Cliente')}</h2><div class="role">${esc(info.role || '')} · ${esc(p.name)}</div>${info.task ? `<ul><li>${esc(info.task)}</li></ul>` : ''}
+      <div class="src">${kind === 'cliente' ? 'Cliente anónimo (Clonexa no muestra datos de los clientes).' : 'Personal en turno (privacidad del piso).'}</div>`);
+  }
   function setFocus(p, keepCamera) {
+    if (p && isRealFloor(p.data)) { focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', b.dataset.k === p.key)); enterReal(p); return; }
+    if (REAL || realFor) leaveReal();
     focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', !!p && b.dataset.k === p.key));
     FLOORS.forEach(f => { f.g.visible = !(p && f.y > p.y + .1); const on = p === f; f.ceil.visible = !on; f.front.forEach(o => o.visible = !on); f.shell.forEach(o => o.visible = !on || !o.material || o.material !== facadeGlass); }); crown.visible = !p;
     if (keepCamera) return;
@@ -584,11 +622,14 @@ function main(DATA, SAVED_IN) {
       <div class="kpis">${(f.kpis || []).map(([k, v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>
       <ul>${(f.lines || []).map(t => `<li>${esc(t)}</li>`).join('')}<li>Última actividad ${esc(f.last_activity || '')}</li><li>${f.staff && f.staff.total != null ? esc(f.staff.total) + ' personas con turno abierto' : 'Turnos: sin datos'}</li></ul>
       <div class="row">Plantilla <select data-tpl>${tplOpts}</select></div>
+      ${f.template === 'bar' ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${f.style !== 'realista' ? 'selected' : ''}>Clásico</option><option value="realista" ${f.style === 'realista' ? 'selected' : ''}>Realista (copia viva)</option></select></div>` : ''}
+      ${f.brand && f.brand.warning ? `<div class="alert">${esc(f.brand.warning)}</div>` : ''}
       <div class="row">Personal <select data-priv><option value="nombre" ${f.privacy !== 'cargo' ? 'selected' : ''}>Nombre + inicial y cargo</option><option value="cargo" ${f.privacy === 'cargo' ? 'selected' : ''}>Solo el cargo</option></select></div>
       <div class="src">Solo actividad (sin dinero). Fuente: turnos, pedidos y registros de ${esc(f.name)} en Clonexa.</div><div class="row"><button type="button" data-edit>✏️ Editar representante</button></div>`, 'rep:' + f.company_id);
     info.querySelector('[data-edit]').onclick = () => openEd(p.rep);
     info.querySelector('[data-tpl]').onchange = e => saveFloor(f.company_id, {plantilla: e.target.value});
     info.querySelector('[data-priv]').onchange = e => saveFloor(f.company_id, {privacidad: e.target.value});
+    const st = info.querySelector('[data-style]'); if (st) st.onchange = e => saveFloor(f.company_id, {estilo: e.target.value});
   }
   async function saveFloor(cid, body) {
     try { await getJson(API + '/pisos/' + cid, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); log('<b>Oficina</b> · piso actualizado'); await poll(); const p = BY_CID.get(cid); if (p) setFocus(p); }
@@ -665,7 +706,7 @@ function main(DATA, SAVED_IN) {
   // ---------------------------------------------------------------- modo liviano
   const liteEl = document.getElementById('lite');
   function setLite(on, why) {
-    lite = on; liteEl.checked = on; CITY.visible = !on; R.shadowMap.enabled = !on; sun.castShadow = !on; R.setPixelRatio(on ? 1 : Math.min(devicePixelRatio, 2));
+    lite = on; if (REAL) REAL.setLite(on); liteEl.checked = on; CITY.visible = !on; R.shadowMap.enabled = !on; sun.castShadow = !on; R.setPixelRatio(on ? 1 : Math.min(devicePixelRatio, 2));
     S.traverse(o => { if (o.material) { (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); } }); resize();
     if (why) log('<b>Oficina</b> · ' + why);
   }
@@ -704,7 +745,7 @@ function main(DATA, SAVED_IN) {
     getJson(API + '/personajes').then(r => { (r.items || []).forEach(it => SAVED.set(savedKey(it.company_id, it.clave), it)); }).catch(() => {});
     entries().forEach(([t, list]) => { const h = document.createElement('h4'); h.textContent = `${t} · ${list.length}`; edList.appendChild(h);
       list.forEach(en => { const b = document.createElement('button'); b.type = 'button'; const cfg = mergeCfg(en.def || {}, [SAVED.get(savedKey(en.cid, en.clave))].filter(Boolean));
-        b.innerHTML = `<span>${esc(en.label)}<br><small>${esc(en.sub)}</small></span><small>${STYLE_LABEL[cfg.style] || 'Anime'}</small>`; b.onclick = () => sel(en, b); edList.appendChild(b);
+        b.innerHTML = `<span>${esc(en.label)}<br><small>${esc(en.sub)}</small></span><small>${BODY_LABEL[cfg.body] || STYLE_LABEL[cfg.style] || 'Anime'}</small>`; b.onclick = () => sel(en, b); edList.appendChild(b);
         if (!first) first = [en, b]; if (ch && !mine && en.kind !== 'plantilla' && en.chars().includes(ch)) mine = [en, b]; }); });
     if (mine || first) sel(...(mine || first));
   }
@@ -714,31 +755,30 @@ function main(DATA, SAVED_IN) {
     const saved = SAVED.get(savedKey(en.cid, en.clave)); const v = mergeCfg(Object.assign({style: 'anime', color: '#f20b6d', skin: SKIN[0], hair: '#2b1b12', acc: 'none'}, en.def || {}), [saved].filter(Boolean));
     const named = en.kind === 'agent' || en.kind === 'rep';
     const roles = ['Gerencia', 'Marketing', 'Ventas', 'Operaciones', 'Representante', 'Producción', 'Barra', 'Cocina', 'Salón', 'Campo'];
-    const filePart = (k, label, accept, url) => `<label${k === 'glb' ? ' class="full"' : ''}>${label}<div class="file">${k !== 'modelo' && url ? `<img class="prev" src="${esc(url)}" alt="">` : ''}<input type="file" accept="${accept}" data-f="${k}">${url ? `<button type="button" data-rm="${k}">Quitar</button>` : ''}</div></label>`;
     edForm.innerHTML = `${named ? `<label class="full">Nombre<input name="name" maxlength="80" value="${esc(v.name || '')}"></label>` : `<div class="note full">${en.kind === 'plantilla' ? 'Plantilla de uniforme: la usan todas las personas con este cargo (en todas las empresas).' : 'Personaje puntual: solo cambia a esta persona. Su nombre sale de Clonexa con la privacidad del piso.'}</div>`}
-      <label class="full">Estilo<div class="seg">${[['lego', 'Lego'], ['anime', 'Anime'], ['real', '3D'], ['imagen', 'Imagen completa'], ['modelo', 'Modelo 3D (.glb)']].map(([k, t]) => `<button type="button" data-st="${k}" class="${v.style === k ? 'on' : ''}">${t}</button>`).join('')}</div></label>
       ${named ? `<label>Rol / sección<select name="zone">${roles.map(r => `<option ${r === v.zone ? 'selected' : ''}>${r}</option>`).join('')}</select></label><label>Tarea<input name="role" maxlength="120" value="${esc(v.role || '')}"></label>` : ''}
+      <label>Cuerpo<select name="body">${Object.entries(BODY_LABEL).map(([k, t]) => `<option value="${k}" ${k === (v.body || 'medio') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Peinado<select name="hairStyle">${Object.entries(HAIR_LABEL).map(([k, t]) => `<option value="${k}" ${k === (v.hairStyle || 'corto') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label>Ropa<input type="color" name="color" value="${esc(v.color || '#f20b6d')}"></label><label>Pantalón<input type="color" name="legs" value="${esc(v.legs || '#22202b')}"></label>
-      <label>Pelo<input type="color" name="hair" value="${esc(v.hair === 'none' ? '#000000' : (v.hair || '#2b1b12'))}"></label>
-      <label>Piel<select name="skin">${SKIN.map((s, i) => `<option value="${s}" ${s === v.skin ? 'selected' : ''}>Tono ${i + 1}</option>`).join('')}</select></label>
-      <label>Accesorio<select name="acc">${[['none', 'Ninguno'], ['audifonos', 'Audífonos'], ['gafas', 'Gafas'], ['gorra', 'Gorra'], ['casco', 'Casco'], ['capa', 'Capa'], ['chaleco', 'Chaleco'], ['delantal', 'Delantal'], ['corbata', 'Corbata']].map(([a, t]) => `<option value="${a}" ${a === (v.acc || 'none') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Color de pelo<input type="color" name="hair" value="${esc(v.hair === 'none' ? '#000000' : (v.hair || '#2b1b12'))}"></label>
+      <label>Tono de piel<select name="skin">${SKIN.map((s, i) => `<option value="${s}" ${s === v.skin ? 'selected' : ''}>Tono ${i + 1}</option>`).join('')}</select></label>
+      <label>Accesorio<select name="acc">${Object.entries(ACC_LABEL).map(([a, t]) => `<option value="${a}" ${a === (v.acc || 'none') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label>Color del accesorio<input type="color" name="accColor" value="${esc(v.accColor || '#222222')}"></label>
-      ${filePart('cara', 'Imagen como cara (PNG/JPG/WebP, máx. 2 MB)', 'image/png,image/jpeg,image/webp', saved && saved.cara_url)}
-      ${filePart('completa', 'Imagen completa (PNG/WebP sin fondo, máx. 2 MB)', 'image/png,image/webp', saved && saved.completa_url)}
-      ${filePart('modelo', 'Modelo 3D (.glb, máx. 15 MB)', '.glb,model/gltf-binary', saved && saved.modelo_url)}
+      ${brandSwatches(en)}
       <div class="msg" data-msg></div>
       <div class="note legal">Usa solo personajes propios o con permiso. Los personajes de películas o cómics (Batman, etc.) tienen dueño y no se pueden usar.</div>`;
     const msg = edForm.querySelector('[data-msg]');
     const say = (t, bad) => { msg.textContent = t; msg.className = 'msg' + (bad ? ' bad' : ''); };
     edForm.onsubmit = e => { e.preventDefault(); };
-    edForm.querySelectorAll('[data-st]').forEach(x => x.onclick = () => { change(en, {style: x.dataset.st}, say); sel(en, b); });
-    edForm.querySelectorAll('input:not([type=file]),select').forEach(x => x.oninput = () => { const o = {}; o[x.name] = x.value; change(en, o, say); if (x.name === 'name') b.querySelector('span').firstChild.textContent = x.value; });
-    edForm.querySelectorAll('input[type=file]').forEach(inp => inp.onchange = async e => { const f = e.target.files[0]; if (!f) return; const k = inp.dataset.f;
-      const max = k === 'modelo' ? 15 : 2; if (f.size > max * 1024 * 1024) { say(`El archivo pesa más de ${max} MB.`, true); return; }
-      say('Subiendo…'); try { const r = await getJson(`${API}/personajes/archivo?clave=${encodeURIComponent(en.clave)}&tipo=${k}&company_id=${en.cid || ''}`, {method: 'POST', headers: {'Content-Type': f.type || 'application/octet-stream'}, body: f});
-        SAVED.set(savedKey(en.cid, en.clave), r.item); en.chars().forEach(rebuild); say('Guardado ✓'); sel(en, b); } catch (err) { say(err.message, true); } });
-    edForm.querySelectorAll('[data-rm]').forEach(x => x.onclick = async () => { try { const r = await getJson(`${API}/personajes/archivo?clave=${encodeURIComponent(en.clave)}&tipo=${x.dataset.rm}&company_id=${en.cid || ''}`, {method: 'DELETE'});
-      SAVED.set(savedKey(en.cid, en.clave), r.item); en.chars().forEach(rebuild); say('Archivo quitado ✓'); sel(en, b); } catch (err) { say(err.message, true); } });
+    edForm.querySelectorAll('input,select').forEach(x => x.oninput = () => { const o = {}; o[x.name] = x.value; change(en, o, say); if (x.name === 'name') b.querySelector('span').firstChild.textContent = x.value; });
+    edForm.querySelectorAll('[data-sw]').forEach(x => { x.firstChild.style.background = x.dataset.c; }); edForm.querySelectorAll('[data-sw]').forEach(x => x.onclick = () => { change(en, {[x.dataset.sw]: x.dataset.c}, say); sel(en, b); });
+  }
+  // Ropa según cargo y colores de la empresa: atajos con la paleta del Estudio de marca del piso.
+  function brandSwatches(en) {
+    const p = en.cid ? BY_CID.get(en.cid) : null; const c = p && p.data && p.data.brand && p.data.brand.colors;
+    if (!c) return '';
+    const sw = (field, label) => `<div class="sw full">${label}${['primary', 'secondary', 'surface', 'text'].map(k => `<button type="button" data-sw="${field}" data-c="${esc(c[k])}" title="${esc(k)}"><i class="c-${esc(k)}"></i></button>`).join('')}</div>`;
+    return sw('color', 'Ropa con la marca') + sw('accColor', 'Accesorio con la marca');
   }
   function change(en, o, say) {
     const k = savedKey(en.cid, en.clave); const cur = Object.assign({}, SAVED.get(k) || {clave: en.clave, company_id: en.cid});
@@ -761,15 +801,15 @@ function main(DATA, SAVED_IN) {
     cam.az += (goal.az - cam.az) * k; cam.pol += (goal.pol - cam.pol) * k; cam.dist += (goal.dist - cam.dist) * k; cam.tgt.lerp(goal.tgt, k); if (!focus && !drag) goal.az += dt * .035;
     C.position.set(cam.tgt.x + cam.dist * Math.sin(cam.pol) * Math.sin(cam.az), cam.tgt.y + cam.dist * Math.cos(cam.pol), cam.tgt.z + cam.dist * Math.sin(cam.pol) * Math.cos(cam.az)); C.lookAt(cam.tgt);
     sun.position.set(cam.tgt.x + 45, cam.tgt.y + 90, cam.tgt.z + 60); sun.target.position.copy(cam.tgt);
-    CHARS.forEach(ch => { ch.t += dt; const r = ch.root; if (ch.mixer) ch.mixer.update(dt);
-      if (ch.billboard) ch.billboard.rotation.y = Math.atan2(C.position.x - (r.getWorldPosition(v3).x), C.position.z - v3.z) - r.rotation.y;
+    CHARS.forEach(ch => { ch.t += dt; const r = ch.root;
       if (ch.path.length) { const [x, z] = ch.path[0]; const dx = x - r.position.x, dz = z - r.position.z, d = Math.hypot(dx, dz);
         if (d < .06) { r.position.x = x; r.position.z = z; ch.path.shift(); if (!ch.path.length && ch.then) { const f = ch.then; ch.then = null; f(); } } else { const sp = Math.min(d, dt * 2.6); r.position.x += dx / d * sp; r.position.z += dz / d * sp; r.rotation.y = Math.atan2(dx, dz); }
         ch.body.position.y = Math.abs(Math.sin(ch.t * 9)) * .05; if (ch.armL) { ch.armL.rotation.x = Math.sin(ch.t * 9) * .5; ch.armR.rotation.x = -Math.sin(ch.t * 9) * .5; } }
       else { ch.body.position.y = Math.sin(ch.t * 2) * .012; if (ch.armL) { const w = ch.kind === 'staff' ? !ch.paused : ch.state === 'work'; ch.armL.rotation.x = w ? -.9 + Math.sin(ch.t * 13) * .12 : Math.sin(ch.t * 1.5) * .04; ch.armR.rotation.x = w ? -.9 + Math.sin(ch.t * 13 + 1.7) * .12 : -Math.sin(ch.t * 1.5) * .04; } }
       ch.ring.material.opacity = ch.state === 'err' && ch.kind === 'agent' ? .5 + .5 * Math.sin(t * 10) : .9; });
     FLOORS.forEach(p => p.anim && p.g.visible && p.anim.forEach(f => f(t)));
-    R.render(S, C); updTags(); requestAnimationFrame(tick);
+    if (REAL) REAL.tick(); else { R.render(S, C); updTags(); }
+    requestAnimationFrame(tick);
   }
   let booting = true;
   applyData(DATA); booting = false;

@@ -7,8 +7,11 @@
   mas de 5 en una operacion muestra "+N"; privacidad "solo cargo".
 - Representantes sin cifras de dinero; dia del bar 18:00-04:00 (pedido de las 02:00 cuenta, el de las
   17:00 no); restaurante: pedidos, en cocina y domicilios del dia.
-- Editor: guardar, recargar y ver el cambio; archivo con tipo falso (415) o muy grande (413) rechazado;
-  archivo real al bucket (en memoria) y servido con enlace firmado; orden de pisos y plantilla guardados.
+- Editor: guardar, recargar y ver el cambio (cuerpo y peinado); las subidas de imagen/modelo responden 410 y
+  lo ya guardado no sale; orden de pisos y plantilla guardados.
+- Fase 1.5: copia viva de The Time Machine con sus mesas reales (mesa nueva aparece sola), eventos simulados
+  (mesa abierta/cerrada, pedido nuevo/entregado, cancion, juego, turno, pausa), modo arquitecto que guarda y
+  recarga, marca del Estudio de marca (o paleta neutra con aviso), recursos con cache larga y nada de dinero.
 - Migracion aditiva e idempotente (dos veces seguidas).
 """
 from __future__ import annotations
@@ -63,10 +66,19 @@ CREATE TABLE IF NOT EXISTS workforce_attendance_status (id uuid PRIMARY KEY DEFA
 CREATE TABLE IF NOT EXISTS workforce_attendance_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, employee_id uuid,
   event_type varchar(80) NOT NULL, payload_json jsonb NOT NULL DEFAULT '{}'::jsonb, occurred_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS hospitality_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, table_key varchar(120) NOT NULL DEFAULT 'mesa',
-  order_type varchar(40) NOT NULL DEFAULT 'table', status varchar(40) NOT NULL DEFAULT 'pendiente', total numeric(14,2) NOT NULL DEFAULT 0,
-  archived_at timestamptz NULL, cancelled_at timestamptz NULL, closed_at timestamptz NULL, created_at timestamptz NOT NULL DEFAULT now());
+  table_number varchar(120) NULL, order_type varchar(40) NOT NULL DEFAULT 'table', status varchar(40) NOT NULL DEFAULT 'pendiente', total numeric(14,2) NOT NULL DEFAULT 0,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb, archived_at timestamptz NULL, cancelled_at timestamptz NULL, closed_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL);
 CREATE TABLE IF NOT EXISTS hospitality_song_requests (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, status varchar(20) DEFAULT 'pendiente',
+  song text NOT NULL DEFAULT '', customer_name text NOT NULL DEFAULT '', archived_at timestamptz NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS hospitality_table_access (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, table_key text NOT NULL,
+  table_number text, access_code text, status text, activated_at timestamptz DEFAULT now(), expires_at timestamptz);
+CREATE TABLE IF NOT EXISTS hospitality_table_guests (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, access_id uuid NOT NULL,
+  table_key varchar(120) NOT NULL, account_id varchar(120) NOT NULL, guest_number integer NOT NULL, name varchar(180) NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS loyalty_game_rounds (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, kind varchar(12) NOT NULL,
+  status varchar(14) NOT NULL DEFAULT 'registration', prize varchar(160) NOT NULL DEFAULT '', started_at timestamptz, ends_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS company_brand_themes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, status text NOT NULL, tokens jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS wa_contacts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), stage varchar(20) NOT NULL DEFAULT 'nuevo', last_message_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now())
 """
@@ -94,7 +106,7 @@ def pg_url():
     async def setup():
         engine = create_async_engine(url, poolclass=NullPool)
         async with engine.begin() as conn:
-            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2:
+            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2 + _migration("025k_oficina_real") * 2:
                 await conn.execute(text(stmt))
         await engine.dispose()
 
@@ -128,7 +140,8 @@ N8N_OK = {"ok": True, "workflows": [flow("Nexa - Bot de comandos", running=True)
 
 @pytest.fixture
 def client(pg_url, monkeypatch):
-    for t in ("oficina_personajes", "oficina_pisos", "hospitality_orders", "hospitality_song_requests", "workforce_attendance_events",
+    for t in ("oficina_personajes", "oficina_pisos", "hospitality_orders", "hospitality_song_requests", "hospitality_table_access",
+              "hospitality_table_guests", "loyalty_game_rounds", "company_brand_themes", "workforce_attendance_events",
               "workforce_attendance_status", "employees", "work_locations", "company_modules", "companies"):
         _run(pg_url, f"DELETE FROM {t}")
 
@@ -207,7 +220,12 @@ def test_sin_sesion_todo_es_401(client, monkeypatch):
     for method, url in [("GET", "/admin-v2plus/oficina/app.js"), ("GET", "/admin-v2plus/oficina/vendor/three/build/three.module.js"),
                         ("GET", f"{API}/estado"), ("GET", f"{API}/personajes"), ("PUT", f"{API}/personajes"),
                         ("POST", f"{API}/personajes/archivo?clave=rep&tipo=cara&company_id={VELVET}"), ("DELETE", f"{API}/personajes/archivo?clave=rep&tipo=cara"),
-                        ("GET", f"{API}/archivos/clonexa/{'a' * 32}.png?e=1&s=x"), ("PUT", f"{API}/pisos/orden"), ("PUT", f"{API}/pisos/{VELVET}")]:
+                        ("GET", f"{API}/archivos/clonexa/{'a' * 32}.png?e=1&s=x"), ("PUT", f"{API}/pisos/orden"), ("PUT", f"{API}/pisos/{VELVET}"),
+                        ("GET", "/admin-v2plus/oficina/real.js"), ("GET", "/admin-v2plus/oficina/real_reglas.js"),
+                        ("GET", "/admin-v2plus/oficina/recursos/manifest.json"), ("GET", "/admin-v2plus/oficina/recursos/modelos/mesa.glb"),
+                        ("GET", "/admin-v2plus/oficina/vendor/three/examples/jsm/postprocessing/GTAOPass.js"),
+                        ("GET", f"{API}/pisos/{TTM}/vivo"), ("PUT", f"{API}/pisos/{TTM}/distribucion"), ("DELETE", f"{API}/pisos/{TTM}/distribucion"),
+                        ("GET", f"{API}/marca/{TTM}/logo")]:
         r = client.request(method, url, content=b"\x89PNG\r\n\x1a\n" if method == "POST" else None)
         assert r.status_code == 401, (method, url, r.status_code)
 
@@ -309,37 +327,36 @@ def test_representantes_sin_dinero_y_dia_del_bar(client, pg_url, monkeypatch):
 
 
 # ------------------------------------------------------------------ editor y pisos
-def test_editor_guarda_recarga_y_rechaza_archivos_falsos(client, pg_url, monkeypatch):
+def test_editor_guarda_recarga_y_ya_no_carga_archivos(client, pg_url, monkeypatch):
     _session(monkeypatch)
     _seed(pg_url)
-    r = client.put(f"{API}/personajes", json={"clave": "agente:ventas", "nombre": "Nexa Ventas Pro", "estilo": "lego", "color_ropa": "#112233"})
+    r = client.put(f"{API}/personajes", json={"clave": "agente:ventas", "nombre": "Nexa Ventas Pro", "estilo": "lego", "color_ropa": "#112233",
+                                              "cuerpo": "robusto", "peinado": "rizado", "accesorio": "delantal"})
     assert r.status_code == 200, r.text
-    items = client.get(f"{API}/personajes").json()["items"]
-    saved = next(i for i in items if i["clave"] == "agente:ventas")
-    assert saved["nombre"] == "Nexa Ventas Pro" and saved["estilo"] == "lego" and saved["color_ropa"] == "#112233" and saved["company_id"] is None
+    body = client.get(f"{API}/personajes").json()
+    saved = next(i for i in body["items"] if i["clave"] == "agente:ventas")
+    assert (saved["nombre"], saved["estilo"], saved["color_ropa"], saved["cuerpo"], saved["peinado"], saved["accesorio"]) == \
+        ("Nexa Ventas Pro", "lego", "#112233", "robusto", "rizado", "delantal") and saved["company_id"] is None
+    assert body["options"]["accesorio"] == ["none", "audifonos", "gafas", "gorra", "casco", "chaleco", "delantal", "corbata"]
     assert client.put(f"{API}/personajes", json={"clave": "agente:ventas", "estilo": "anime"}).json()["item"]["nombre"] == "Nexa Ventas Pro"
+    assert client.put(f"{API}/personajes", json={"clave": "agente:ventas", "estilo": "modelo"}).status_code == 422
+    assert client.put(f"{API}/personajes", json={"clave": "agente:ventas", "accesorio": "capa"}).status_code == 422
     assert client.put(f"{API}/personajes", json={"clave": "rep", "company_id": VELVET, "nombre": "Rep. Velvet"}).status_code == 200
     assert client.put(f"{API}/personajes", json={"clave": "rep", "company_id": DEMO, "nombre": "x"}).status_code == 404, "solo registradas"
     assert client.put(f"{API}/personajes", json={"clave": "rep", "nombre": "x"}).status_code == 422
     assert client.put(f"{API}/personajes", json={"clave": "agente:batman", "nombre": "x"}).status_code == 404
-    url = f"{API}/personajes/archivo?clave=agente:ventas&tipo=cara"
-    assert client.post(url, content=b"<svg onload=alert(1)>", headers={"Content-Type": "image/png"}).status_code == 415
-    assert client.post(url, content=b"\x89PNG\r\n\x1a\n" + b"\0" * (2 * 1024 * 1024)).status_code == 413
-    assert client.post(f"{API}/personajes/archivo?clave=agente:ventas&tipo=modelo", content=b"\x89PNG\r\n\x1a\n" + b"\0" * 50).status_code == 415
-    assert not client.bucket.objects, "nada rechazado llega al bucket"
+    # subidas desactivadas (410) y nada llega al bucket
     png = b"\x89PNG\r\n\x1a\n" + b"\0" * 200
-    r = client.post(url, content=png, headers={"Content-Type": "image/png"})
-    assert r.status_code == 200, r.text
-    link = r.json()["item"]["cara_url"]
-    assert link.startswith(f"{API}/archivos/clonexa/") and "?e=" in link
-    key = next(iter(client.bucket.objects))
-    assert key.startswith("oficina/clonexa/") and key.endswith(".png") and client.bucket.objects[key] == png
-    got = client.get(link)
-    assert got.status_code == 200 and got.content == png and got.headers["content-type"] == "image/png"
-    assert client.get(link.split("&s=")[0] + "&s=" + "0" * 32).status_code == 404, "firma mala"
-    stored = _run(pg_url, "SELECT cara_key, archivos_bytes FROM oficina_personajes WHERE clave = 'agente:ventas'")[0]
-    assert stored["cara_key"] == key and stored["archivos_bytes"] == len(png)
-    assert client.delete(url).status_code == 200 and not client.bucket.objects
+    for method, url in (("POST", f"{API}/personajes/archivo?clave=agente:ventas&tipo=cara"), ("POST", f"{API}/personajes/archivo?clave=agente:ventas&tipo=modelo"),
+                        ("DELETE", f"{API}/personajes/archivo?clave=agente:ventas&tipo=cara"), ("GET", f"{API}/archivos/clonexa/{'a' * 32}.png?e=1&s=x")):
+        r = client.request(method, url, content=png if method == "POST" else None)
+        assert r.status_code == 410, (method, url, r.status_code)
+    assert not client.bucket.objects
+    # lo ya cargado se conserva en la base pero no se muestra
+    _run(pg_url, "UPDATE oficina_personajes SET cara_key = 'oficina/clonexa/x.png', modelo_key = 'oficina/clonexa/y.glb', estilo = 'modelo' WHERE clave = 'agente:ventas'")
+    saved = next(i for i in client.get(f"{API}/personajes").json()["items"] if i["clave"] == "agente:ventas")
+    assert not [k for k in saved if k.endswith("_url") or k.endswith("_key")] and saved["estilo"] == "", "no se usa ni se muestra"
+    assert _run(pg_url, "SELECT cara_key FROM oficina_personajes WHERE clave = 'agente:ventas'")[0]["cara_key"] == "oficina/clonexa/x.png", "no se borra"
 
 
 def test_orden_y_plantilla_de_los_pisos(client, pg_url, monkeypatch):
@@ -367,3 +384,197 @@ def test_otras_empresas_sin_cambios_en_sus_paneles():
             assert "/admin-v2/api/oficina" not in body and "admin-v2plus/oficina" not in body, name
     registry = json.loads((root / "app/services/switch_registry.json").read_text(encoding="utf-8"))
     assert not [s for s in registry["switches"] if "oficina" in s["key"]], "no hay interruptor nuevo: no es de ninguna empresa"
+
+
+# ------------------------------------------------------------------ fase 1.5: piso realista de The Time Machine
+def _qr_tables(url, cid, count):
+    mod = _run(url, "INSERT INTO modules (code, name) VALUES ('qr', 'QR') ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id::text")[0]["id"]
+    _run(url, "DELETE FROM company_modules WHERE company_id = CAST(:c AS uuid) AND module_id = CAST(:m AS uuid)", {"c": cid, "m": mod})
+    _run(url, "INSERT INTO company_modules (company_id, module_id, enabled, settings) VALUES (CAST(:c AS uuid), CAST(:m AS uuid), true, CAST(:s AS jsonb))",
+         {"c": cid, "m": mod, "s": json.dumps({"qr_config": {"table_count": count, "max_capacity": 40}})})
+
+
+def _vivo(client, cid=TTM, rev=""):
+    oficina_routes.reset_live_cache()
+    r = client.get(f"{API}/pisos/{cid}/vivo" + (f"?rev={rev}" if rev else ""))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+MONEY_KEYS = ("total", "price", "precio", "subtotal", "amount", "monto", "valor", "venta", "sales", "ticket", "cash", "propina", "cuenta")
+
+
+def _no_money(obj, where=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "total" and "staff" in where and isinstance(v, (int, type(None))):
+                continue  # personas en turno (conteo), no dinero
+            assert not any(m in str(k).lower() for m in MONEY_KEYS), f"campo de dinero {where}.{k}"
+            _no_money(v, f"{where}.{k}")
+    elif isinstance(obj, list):
+        for v in obj:
+            _no_money(v, where)
+
+
+def test_ttm_realista_por_migracion_y_las_demas_clasicas(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    _seed(pg_url)
+    for stmt in _migration("025k_oficina_real") * 2:   # con The Time Machine ya registrada (como en produccion)
+        _run(pg_url, stmt)
+    rows = {r["company_id"]: r["estilo"] for r in _run(pg_url, "SELECT company_id::text AS company_id, estilo FROM oficina_pisos")}
+    assert rows == {TTM: "realista"}, "solo The Time Machine; las demas quedan como hoy (sin fila = clasico)"
+    floors = {f["company_id"]: f for f in _estado(client)["floors"]}
+    assert floors[TTM]["style"] == "realista" and floors[TTM]["brand"]["source"] == "neutra"
+    assert {floors[c]["style"] for c in (VELVET, ASADERO, VOLTAGE, NUEVA)} == {"clasico"} and all(floors[c]["brand"] is None for c in (VELVET, ASADERO, VOLTAGE, NUEVA))
+    # el interruptor se apaga y se enciende desde la ficha (solo plantillas con motor realista)
+    assert client.put(f"{API}/pisos/{TTM}", json={"estilo": "clasico"}).status_code == 200
+    assert next(f for f in _estado(client)["floors"] if f["company_id"] == TTM)["style"] == "clasico"
+    assert client.put(f"{API}/pisos/{TTM}", json={"estilo": "dorado"}).status_code == 422
+    assert client.put(f"{API}/pisos/{VELVET}", json={"estilo": "realista"}).status_code == 200
+    assert next(f for f in _estado(client)["floors"] if f["company_id"] == VELVET)["style"] == "clasico", "el taller aun no tiene motor realista"
+    assert client.get(f"{API}/pisos/{VELVET}/vivo").status_code == 409
+
+
+def test_copia_viva_con_las_mesas_reales_y_eventos(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    now = _seed(pg_url)
+    _qr_tables(pg_url, TTM, 10)
+    snap = _vivo(client)
+    labels = [t["label"] for t in snap["tables"]]
+    assert labels == [f"Mesa {i}" for i in range(1, 11)], "las 10 mesas reales de su QR"
+    assert sorted(k for k in snap["layout"]["items"] if k.startswith("mesa:")) == sorted(f"mesa:Mesa {i}" for i in range(1, 11))
+    assert {"barra", "dj", "pantalla", "entrada", "caja", "personal"} <= set(snap["layout"]["items"])
+    assert not any(t["open"] for t in snap["tables"]) and snap["orders"] == [] and snap["game"] is None
+    # mesa abierta con 3 personas registradas
+    acc = _run(pg_url, """INSERT INTO hospitality_table_access (company_id, table_key, table_number, status, activated_at, expires_at)
+                          VALUES (CAST(:c AS uuid), 'mesa-7', 'Mesa 7', 'active', now(), now() + interval '3 hours') RETURNING id::text""", {"c": TTM})[0]["id"]
+    for n in (1, 2, 3):
+        _run(pg_url, """INSERT INTO hospitality_table_guests (company_id, access_id, table_key, account_id, guest_number, name)
+                        VALUES (CAST(:c AS uuid), CAST(:a AS uuid), 'mesa-7', :n, :g, 'Laura')""", {"c": TTM, "a": acc, "n": f"acc{n}", "g": n})
+    # pedido nuevo a barra con 3 productos (cantidades 2 + 1) y precios que NUNCA deben salir
+    items = [{"name": "Cerveza", "quantity": 2, "unit_price": 987654, "subtotal": 1975308}, {"name": "Coctel", "quantity": 1, "unit_price": 55555}]
+    oid = _run(pg_url, """INSERT INTO hospitality_orders (company_id, table_key, table_number, status, total, items, created_at, updated_at)
+                          VALUES (CAST(:c AS uuid), 'mesa-7', 'Mesa 7', 'pendiente', 987654.32, CAST(:i AS jsonb), now(), now()) RETURNING id::text""",
+               {"c": TTM, "i": json.dumps(items)})[0]["id"]
+    _run(pg_url, "INSERT INTO hospitality_song_requests (company_id, song, customer_name, status) VALUES (CAST(:c AS uuid), 'La Bicicleta', 'Pedro Pérez', 'pendiente')", {"c": TTM})
+    _run(pg_url, "INSERT INTO loyalty_game_rounds (company_id, kind, status) VALUES (CAST(:c AS uuid), 'trivia', 'playing')", {"c": TTM})
+    barman = _employee(pg_url, TTM, "Carlos Andrés Ruiz", "Barman")
+    mesera = _employee(pg_url, TTM, "Diana López", "Mesera")
+    _open(pg_url, TTM, barman, now - timedelta(hours=1))
+    _open(pg_url, TTM, mesera, now - timedelta(hours=1))
+    s2 = _vivo(client)
+    m7 = next(t for t in s2["tables"] if t["label"] == "Mesa 7")
+    assert m7["open"] is True and m7["guests"] == 3
+    assert [(o["table"], o["state"], o["items"]) for o in s2["orders"]] == [("Mesa 7", "nuevo", 3)]
+    assert [x["title"] for x in s2["songs"]] == ["La Bicicleta"] and s2["game"]["kind"] == "trivia" and s2["game"]["label"] == "Trivia"
+    tasks = {p["uniform"]: p["task"] for p in s2["staff"]["people"]}
+    assert tasks["barman"] == "Preparando 3 productos · Mesa 7" and tasks["mesero"] == "Atendiendo 1 mesa"
+    dumped = json.dumps(s2)
+    for leak in ("987654", "1975308", "55555", "Pedro", "Laura", "Ruiz", "Cerveza", oid):
+        assert leak not in dumped, leak
+    _no_money(s2)
+    # misma copia -> "same"; pedido entregado -> cambia
+    assert client.get(f"{API}/pisos/{TTM}/vivo?rev={s2['rev']}").json() == {"ok": True, "same": True, "rev": s2["rev"]}
+    _run(pg_url, "UPDATE hospitality_orders SET status = 'entregado', updated_at = now() WHERE id = CAST(:o AS uuid)", {"o": oid})
+    s3 = _vivo(client, rev=s2["rev"])
+    assert s3.get("same") is None and s3["orders"][0]["state"] == "entregado"
+    assert {p["uniform"]: p["task"] for p in s3["staff"]["people"]}["mesero"] == "Llevando pedido · Mesa 7"
+    # pausa y mesa cerrada; mesa nueva en Clonexa aparece sola
+    _run(pg_url, "UPDATE workforce_attendance_status SET status = 'on_break' WHERE employee_id = CAST(:e AS uuid)", {"e": mesera})
+    _run(pg_url, "UPDATE hospitality_table_access SET status = 'closed'")
+    _run(pg_url, "UPDATE hospitality_orders SET archived_at = now()")
+    _qr_tables(pg_url, TTM, 11)
+    s4 = _vivo(client)
+    assert not any(t["open"] for t in s4["tables"]) and len(s4["tables"]) == 11 and "mesa:Mesa 11" in s4["layout"]["items"]
+    assert next(p for p in s4["staff"]["people"] if p["uniform"] == "mesero")["task"] == "En pausa · café"
+    # cierra turno -> se va
+    _run(pg_url, "UPDATE workforce_attendance_status SET status = 'off' WHERE employee_id = CAST(:e AS uuid)", {"e": barman})
+    assert [p["uniform"] for p in _vivo(client)["staff"]["people"]] == ["mesero"]
+
+
+def test_modo_arquitecto_guarda_recarga_y_acomoda(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    _seed(pg_url)
+    _qr_tables(pg_url, TTM, 4)
+    auto = _vivo(client)["layout"]
+    assert auto["custom"] is False
+    r = client.put(f"{API}/pisos/{TTM}/distribucion", json={"items": {"mesa:Mesa 1": [2.5, 1.25, 0.785], "barra": [-6, -4, 0], "dj": [999, -999, 0]}})
+    assert r.status_code == 200, r.text
+    lay = _vivo(client)["layout"]
+    W, D = lay["room"]["W"], lay["room"]["D"]
+    assert lay["custom"] is True and lay["items"]["mesa:Mesa 1"] == [2.5, 1.25, 0.785] and lay["items"]["barra"] == [-6, -4, 0]
+    assert lay["items"]["dj"] == [W / 2, -D / 2, 0], "fuera del salon se ajusta al borde"
+    assert lay["items"]["mesa:Mesa 2"] == auto["items"]["mesa:Mesa 2"], "lo no movido queda en su puesto automatico"
+    for bad in ({"items": {"mesa:Mesa 99": [0, 0, 0]}}, {"items": {"cohete": [0, 0, 0]}}, {"items": {"barra": [0, "x", 0]}}, {"nada": 1}):
+        assert client.put(f"{API}/pisos/{TTM}/distribucion", json=bad).status_code == 422, bad
+    _qr_tables(pg_url, TTM, 5)
+    assert "mesa:Mesa 5" in _vivo(client)["layout"]["items"], "mesa nueva aparece sola sin perder lo guardado"
+    assert client.delete(f"{API}/pisos/{TTM}/distribucion").status_code == 200
+    again = _vivo(client)["layout"]
+    assert again["custom"] is False and again["items"]["mesa:Mesa 1"] != [2.5, 1.25, 0.785]
+
+
+def test_marca_del_estudio_y_paleta_neutra_con_aviso(client, pg_url, monkeypatch):
+    from app.services import brand_theme as bt
+
+    _session(monkeypatch)
+    _seed(pg_url)
+    _qr_tables(pg_url, TTM, 3)
+    neutral = _vivo(client)["brand"]
+    assert neutral["source"] == "neutra" and neutral["warning"] == "⚠ Configura la marca en el Estudio de marca" and neutral["logo_url"] == ""
+    assert client.get(f"{API}/marca/{TTM}/logo").status_code == 404
+    tokens = bt.make_tokens(bt.palette("#1d0b4f", "#e11d48", "#0b0b10", "#f5f5f5"))
+    _run(pg_url, "INSERT INTO company_brand_themes (company_id, status, tokens) VALUES (CAST(:c AS uuid), 'published', CAST(:t AS jsonb))",
+         {"c": TTM, "t": json.dumps(tokens)})
+    b = _vivo(client)["brand"]
+    assert b["source"] == "estudio" and b["warning"] is None and b["colors"]["primary"] == "#1d0b4f" and b["colors"]["secondary"] == "#e11d48"
+    assert bt.contrast(b["accent"], "#0f0c11") >= 3.0 and b["accent"] != "#1d0b4f", "el morado oscuro se aclara para leerse como neon"
+    # el cambio de marca llega en el siguiente refresco (estado del edificio incluido)
+    tokens2 = bt.make_tokens(bt.palette("#16a34a", "#111827", "#0b0b10", "#f5f5f5"))
+    _run(pg_url, "UPDATE company_brand_themes SET tokens = CAST(:t AS jsonb) WHERE company_id = CAST(:c AS uuid)", {"c": TTM, "t": json.dumps(tokens2)})
+    assert _vivo(client)["brand"]["colors"]["primary"] == "#16a34a"
+    _run(pg_url, "INSERT INTO oficina_pisos (company_id, estilo) VALUES (CAST(:c AS uuid), 'realista') ON CONFLICT (company_id) DO UPDATE SET estilo = 'realista'", {"c": TTM})
+    assert next(f for f in _estado(client)["floors"] if f["company_id"] == TTM)["brand"]["colors"]["primary"] == "#16a34a"
+    # logo del panel inicial (data:image PNG) cuando el estudio no tiene logo
+    png = b"\x89PNG\r\n\x1a\n" + b"\0" * 40
+    legacy = {"branding": {"primary_color": "#ff5500", "logo_url": "data:image/png;base64," + __import__("base64").b64encode(png).decode()}}
+    _run(pg_url, "UPDATE companies SET settings_json = CAST(:s AS jsonb) WHERE id = CAST(:c AS uuid)", {"c": TTM, "s": json.dumps(legacy)})
+    b = _vivo(client)["brand"]
+    assert b["logo_url"].startswith(f"{API}/marca/{TTM}/logo?v=")
+    got = client.get(b["logo_url"])
+    assert got.status_code == 200 and got.content == png and got.headers["content-type"] == "image/png"
+    _run(pg_url, "DELETE FROM company_brand_themes")
+    b = _vivo(client)["brand"]
+    assert b["source"] == "panel" and b["colors"]["primary"] == "#ff5500" and b["warning"], "sin estudio: colores del panel inicial y el aviso"
+
+
+def test_dia_del_bar_cerrado_y_recursos_con_cache_larga(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    _seed(pg_url)
+    _qr_tables(pg_url, TTM, 2)
+    tz = ZoneInfo("America/Bogota")
+    monkeypatch.setattr(oficina_routes, "_now", lambda: datetime(2026, 11, 12, 11, 0, tzinfo=tz).astimezone(timezone.utc))
+    biz = _vivo(client)["business"]
+    assert biz == {"open": False, "lights": "low", "sign": "Cerrado · abre 18:00", "activity_off_hours": False, "hours": "18:00–04:00"}
+    monkeypatch.setattr(oficina_routes, "_now", lambda: datetime(2026, 11, 12, 1, 0, tzinfo=tz).astimezone(timezone.utc))
+    assert _vivo(client)["business"]["open"] is True
+    man = client.get("/admin-v2plus/oficina/recursos/manifest.json")
+    assert man.status_code == 200 and "modelos/mesa.glb" in man.json()["files"]
+    glb = client.get("/admin-v2plus/oficina/recursos/modelos/mesa.glb")
+    assert glb.status_code == 200 and glb.content[:4] == b"glTF" and glb.headers["cache-control"] == "private, max-age=31536000, immutable"
+    assert client.get("/admin-v2plus/oficina/recursos/../oficina_routes.py").status_code == 404
+    assert client.get("/admin-v2plus/oficina/recursos/modelos/otro.glb").status_code == 404
+    page = client.get("/admin-v2plus/oficina")
+    assert "'wasm-unsafe-eval'" in page.headers["content-security-policy"] and "'unsafe-eval'" not in page.headers["content-security-policy"].replace("'wasm-unsafe-eval'", "")
+
+
+def test_ninguna_respuesta_de_la_oficina_trae_dinero(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    now = _seed(pg_url)
+    _qr_tables(pg_url, TTM, 3)
+    _run(pg_url, "INSERT INTO hospitality_orders (company_id, table_key, table_number, status, total, items, created_at) VALUES (CAST(:c AS uuid), 'mesa-1', 'Mesa 1', 'alistando', 777777.77, CAST(:i AS jsonb), now())",
+         {"c": TTM, "i": json.dumps([{"quantity": 1, "unit_price": 777777, "subtotal": 777777}])})
+    _open(pg_url, TTM, _employee(pg_url, TTM, "Ana Caja", "Cajera"), now - timedelta(hours=1))
+    for body in (_estado(client), _vivo(client), client.get(f"{API}/personajes").json()):
+        _no_money(body)
+        assert "777777" not in json.dumps(body)

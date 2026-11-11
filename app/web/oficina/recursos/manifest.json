@@ -1,0 +1,445 @@
+{
+ "version": 1,
+ "templates": {
+  "bar": [
+   "hdri/warm_bar_1k.hdr",
+   "modelos/barril.glb",
+   "modelos/botellas.glb",
+   "modelos/caja.glb",
+   "modelos/lampara.glb",
+   "modelos/mesa.glb",
+   "modelos/planta.glb",
+   "modelos/silla.glb",
+   "modelos/sofa.glb",
+   "modelos/taburete.glb",
+   "texturas/concreto_arm.webp",
+   "texturas/concreto_diff.webp",
+   "texturas/concreto_nor_gl.webp",
+   "texturas/cuero_arm.webp",
+   "texturas/cuero_nor_gl.webp",
+   "texturas/madera_arm.webp",
+   "texturas/madera_diff.webp",
+   "texturas/madera_nor_gl.webp",
+   "texturas/metal_arm.webp",
+   "texturas/metal_diff.webp",
+   "texturas/metal_nor_gl.webp",
+   "texturas/pared_arm.webp",
+   "texturas/pared_diff.webp",
+   "texturas/pared_nor_gl.webp",
+   "texturas/piso_arm.webp",
+   "texturas/piso_diff.webp",
+   "texturas/piso_nor_gl.webp",
+   "texturas/tela_arm.webp",
+   "texturas/tela_diff.webp",
+   "texturas/tela_nor_gl.webp"
+  ]
+ },
+ "files": {
+  "hdri/warm_bar_1k.hdr": {
+   "bytes": 1487340,
+   "sha": "610f4496687a"
+  },
+  "modelos/barril.glb": {
+   "bytes": 309272,
+   "sha": "a094b655a991"
+  },
+  "modelos/botellas.glb": {
+   "bytes": 197000,
+   "sha": "0cec971b8b02"
+  },
+  "modelos/caja.glb": {
+   "bytes": 333960,
+   "sha": "1468d303bf36"
+  },
+  "modelos/lampara.glb": {
+   "bytes": 174360,
+   "sha": "553356afe55b"
+  },
+  "modelos/mesa.glb": {
+   "bytes": 155320,
+   "sha": "225fdfe9e442"
+  },
+  "modelos/planta.glb": {
+   "bytes": 163524,
+   "sha": "895ecf762897"
+  },
+  "modelos/silla.glb": {
+   "bytes": 114812,
+   "sha": "53aebe2d4d26"
+  },
+  "modelos/sofa.glb": {
+   "bytes": 207592,
+   "sha": "8d240059e7fd"
+  },
+  "modelos/taburete.glb": {
+   "bytes": 378916,
+   "sha": "c6efa754cbd5"
+  },
+  "texturas/concreto_arm.webp": {
+   "bytes": 39388,
+   "sha": "05347a8b5cd0"
+  },
+  "texturas/concreto_diff.webp": {
+   "bytes": 342934,
+   "sha": "cbb4a5390107"
+  },
+  "texturas/concreto_nor_gl.webp": {
+   "bytes": 83454,
+   "sha": "ddf5ccb8e9d9"
+  },
+  "texturas/cuero_arm.webp": {
+   "bytes": 180668,
+   "sha": "bbffa3dad813"
+  },
+  "texturas/cuero_nor_gl.webp": {
+   "bytes": 196410,
+   "sha": "27ce83773885"
+  },
+  "texturas/madera_arm.webp": {
+   "bytes": 97582,
+   "sha": "fb50fcadc414"
+  },
+  "texturas/madera_diff.webp": {
+   "bytes": 102252,
+   "sha": "de2f81b6f813"
+  },
+  "texturas/madera_nor_gl.webp": {
+   "bytes": 4474,
+   "sha": "8599b9aae448"
+  },
+  "texturas/metal_arm.webp": {
+   "bytes": 159696,
+   "sha": "bca6f60ef563"
+  },
+  "texturas/metal_diff.webp": {
+   "bytes": 67950,
+   "sha": "7c753096cf44"
+  },
+  "texturas/metal_nor_gl.webp": {
+   "bytes": 76324,
+   "sha": "02396e62279a"
+  },
+  "texturas/pared_arm.webp": {
+   "bytes": 108696,
+   "sha": "71a88486f031"
+  },
+  "texturas/pared_diff.webp": {
+   "bytes": 154260,
+   "sha": "0884f1d3c15b"
+  },
+  "texturas/pared_nor_gl.webp": {
+   "bytes": 330682,
+   "sha": "a396c6e99bb8"
+  },
+  "texturas/piso_arm.webp": {
+   "bytes": 14934,
+   "sha": "c12bec235a08"
+  },
+  "texturas/piso_diff.webp": {
+   "bytes": 115098,
+   "sha": "f22908c73d66"
+  },
+  "texturas/piso_nor_gl.webp": {
+   "bytes": 6924,
+   "sha": "11defe1afa43"
+  },
+  "texturas/tela_arm.webp": {
+   "bytes": 265634,
+   "sha": "5f5135714fa9"
+  },
+  "texturas/tela_diff.webp": {
+   "bytes": 96974,
+   "sha": "e072e9889769"
+  },
+  "texturas/tela_nor_gl.webp": {
+   "bytes": 46648,
+   "sha": "cbc4416ee0ed"
+  }
+ },
+ "sources": {
+  "modelos/taburete.glb": {
+   "id": "bar_chair_round_01",
+   "name": "Bar Chair Round 01",
+   "authors": [
+    "Dairon Sanchez"
+   ],
+   "url": "https://polyhaven.com/a/bar_chair_round_01",
+   "license": "CC0 1.0"
+  },
+  "modelos/mesa.glb": {
+   "id": "round_wooden_table_01",
+   "name": "Round Wooden Table 01",
+   "authors": [
+    "Ulan Cabanilla"
+   ],
+   "url": "https://polyhaven.com/a/round_wooden_table_01",
+   "license": "CC0 1.0"
+  },
+  "modelos/silla.glb": {
+   "id": "gallinera_chair",
+   "name": "Gallinera Chair",
+   "authors": [
+    "Ulan Cabanilla"
+   ],
+   "url": "https://polyhaven.com/a/gallinera_chair",
+   "license": "CC0 1.0"
+  },
+  "modelos/sofa.glb": {
+   "id": "Sofa_01",
+   "name": "Sofa 01",
+   "authors": [
+    "Kirill Sannikov"
+   ],
+   "url": "https://polyhaven.com/a/Sofa_01",
+   "license": "CC0 1.0"
+  },
+  "modelos/botellas.glb": {
+   "id": "wine_bottles_01",
+   "name": "Wine Bottles 01",
+   "authors": [
+    "Jurita Burger",
+    "Rico Cilliers"
+   ],
+   "url": "https://polyhaven.com/a/wine_bottles_01",
+   "license": "CC0 1.0"
+  },
+  "modelos/lampara.glb": {
+   "id": "hanging_industrial_lamp",
+   "name": "Hanging Industrial Lamp",
+   "authors": [
+    "Kuutti Siitonen"
+   ],
+   "url": "https://polyhaven.com/a/hanging_industrial_lamp",
+   "license": "CC0 1.0"
+  },
+  "modelos/planta.glb": {
+   "id": "potted_plant_04",
+   "name": "Potted Plant 04",
+   "authors": [
+    "James Ray Cock"
+   ],
+   "url": "https://polyhaven.com/a/potted_plant_04",
+   "license": "CC0 1.0"
+  },
+  "modelos/caja.glb": {
+   "id": "CashRegister_01",
+   "name": "Cash Register 01",
+   "authors": [
+    "Joe Seabuhr"
+   ],
+   "url": "https://polyhaven.com/a/CashRegister_01",
+   "license": "CC0 1.0"
+  },
+  "modelos/barril.glb": {
+   "id": "wine_barrel_01",
+   "name": "Wine Barrel 01",
+   "authors": [
+    "James Ray Cock"
+   ],
+   "url": "https://polyhaven.com/a/wine_barrel_01",
+   "license": "CC0 1.0"
+  },
+  "texturas/piso_diff.webp": {
+   "id": "herringbone_parquet",
+   "name": "Herringbone Parquet",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "url": "https://polyhaven.com/a/herringbone_parquet",
+   "license": "CC0 1.0"
+  },
+  "texturas/piso_nor_gl.webp": {
+   "id": "herringbone_parquet",
+   "name": "Herringbone Parquet",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "url": "https://polyhaven.com/a/herringbone_parquet",
+   "license": "CC0 1.0"
+  },
+  "texturas/piso_arm.webp": {
+   "id": "herringbone_parquet",
+   "name": "Herringbone Parquet",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "url": "https://polyhaven.com/a/herringbone_parquet",
+   "license": "CC0 1.0"
+  },
+  "texturas/pared_diff.webp": {
+   "id": "dark_brick_wall",
+   "name": "Dark Brick Wall",
+   "authors": [
+    "Dario Barresi",
+    "Dimitrios Savva"
+   ],
+   "url": "https://polyhaven.com/a/dark_brick_wall",
+   "license": "CC0 1.0"
+  },
+  "texturas/pared_nor_gl.webp": {
+   "id": "dark_brick_wall",
+   "name": "Dark Brick Wall",
+   "authors": [
+    "Dario Barresi",
+    "Dimitrios Savva"
+   ],
+   "url": "https://polyhaven.com/a/dark_brick_wall",
+   "license": "CC0 1.0"
+  },
+  "texturas/pared_arm.webp": {
+   "id": "dark_brick_wall",
+   "name": "Dark Brick Wall",
+   "authors": [
+    "Dario Barresi",
+    "Dimitrios Savva"
+   ],
+   "url": "https://polyhaven.com/a/dark_brick_wall",
+   "license": "CC0 1.0"
+  },
+  "texturas/tela_diff.webp": {
+   "id": "velour_velvet",
+   "name": "Velour Velvet",
+   "authors": [
+    "Rico Cilliers",
+    "colormass"
+   ],
+   "url": "https://polyhaven.com/a/velour_velvet",
+   "license": "CC0 1.0"
+  },
+  "texturas/tela_nor_gl.webp": {
+   "id": "velour_velvet",
+   "name": "Velour Velvet",
+   "authors": [
+    "Rico Cilliers",
+    "colormass"
+   ],
+   "url": "https://polyhaven.com/a/velour_velvet",
+   "license": "CC0 1.0"
+  },
+  "texturas/tela_arm.webp": {
+   "id": "velour_velvet",
+   "name": "Velour Velvet",
+   "authors": [
+    "Rico Cilliers",
+    "colormass"
+   ],
+   "url": "https://polyhaven.com/a/velour_velvet",
+   "license": "CC0 1.0"
+  },
+  "texturas/cuero_nor_gl.webp": {
+   "id": "leather_red_02",
+   "name": "Leather Red 02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/leather_red_02",
+   "license": "CC0 1.0"
+  },
+  "texturas/cuero_arm.webp": {
+   "id": "leather_red_02",
+   "name": "Leather Red 02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/leather_red_02",
+   "license": "CC0 1.0"
+  },
+  "texturas/metal_diff.webp": {
+   "id": "metal_plate",
+   "name": "Metal Plate",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/metal_plate",
+   "license": "CC0 1.0"
+  },
+  "texturas/metal_nor_gl.webp": {
+   "id": "metal_plate",
+   "name": "Metal Plate",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/metal_plate",
+   "license": "CC0 1.0"
+  },
+  "texturas/metal_arm.webp": {
+   "id": "metal_plate",
+   "name": "Metal Plate",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/metal_plate",
+   "license": "CC0 1.0"
+  },
+  "texturas/madera_diff.webp": {
+   "id": "wood_table_001",
+   "name": "Wood Table 001",
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "url": "https://polyhaven.com/a/wood_table_001",
+   "license": "CC0 1.0"
+  },
+  "texturas/madera_nor_gl.webp": {
+   "id": "wood_table_001",
+   "name": "Wood Table 001",
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "url": "https://polyhaven.com/a/wood_table_001",
+   "license": "CC0 1.0"
+  },
+  "texturas/madera_arm.webp": {
+   "id": "wood_table_001",
+   "name": "Wood Table 001",
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "url": "https://polyhaven.com/a/wood_table_001",
+   "license": "CC0 1.0"
+  },
+  "texturas/concreto_diff.webp": {
+   "id": "concrete_floor_02",
+   "name": "Concrete Floor 02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/concrete_floor_02",
+   "license": "CC0 1.0"
+  },
+  "texturas/concreto_nor_gl.webp": {
+   "id": "concrete_floor_02",
+   "name": "Concrete Floor 02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/concrete_floor_02",
+   "license": "CC0 1.0"
+  },
+  "texturas/concreto_arm.webp": {
+   "id": "concrete_floor_02",
+   "name": "Concrete Floor 02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "url": "https://polyhaven.com/a/concrete_floor_02",
+   "license": "CC0 1.0"
+  },
+  "hdri/warm_bar_1k.hdr": {
+   "id": "warm_bar",
+   "name": "Warm Bar",
+   "authors": [
+    "Greg Zaal",
+    "Jarod Guest"
+   ],
+   "url": "https://polyhaven.com/a/warm_bar",
+   "license": "CC0 1.0"
+  }
+ }
+}

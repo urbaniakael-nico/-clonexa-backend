@@ -76,3 +76,20 @@ button:disabled{opacity:.5;cursor:default}
 #help{position:fixed;left:50%;top:84px;transform:translateX(-50%);font-size:12px;color:#c9bccf;padding:6px 12px;max-width:min(560px,60vw);text-align:center}
 #load{position:fixed;inset:0;display:grid;place-items:center;font-weight:800;color:#c9bccf;background:#050407;z-index:9;padding:20px;text-align:center}
 @media(max-width:820px){#elev{width:156px}#elev small{display:none}#feed,#help{display:none}#legend{max-width:calc(100% - 24px)}#info{left:12px;right:12px;width:auto;top:auto;bottom:60px;max-height:45%}#ed .grid{grid-template-columns:minmax(0,1fr)}#top label:not(.lite){display:none}}
+/* Fase 1.5 · piso realista (oficina_real.js) */
+body.real-on #tags,body.real-on #help,body.real-on #legend{display:none}
+#realUi{position:fixed;inset:0;pointer-events:none;z-index:3}
+#realUi .rbar{position:fixed;top:84px;left:248px;right:354px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;pointer-events:auto;font-size:13px}
+#realUi .rbar b{font-size:14px}#realUi .sp{flex:1}
+.rchip{font-size:12px;padding:4px 10px;border-radius:99px;background:rgba(255,255,255,.07);color:#d6cbdb}.rchip.ok{color:#bbf7d0;background:rgba(34,197,94,.14)}
+.rchip.bad{color:#fecaca;background:rgba(239,68,68,.16)}.rchip.warn{color:#fde68a;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.45)}
+.rfps{font-size:11px;color:#a798ad;min-width:64px;text-align:right}
+#realUi .rarch{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;pointer-events:auto;font-size:12px;max-width:calc(100% - 24px)}
+#realUi .rarch span{color:#c9bccf}
+#realUi .rload{position:fixed;inset:0;display:grid;place-items:center;font-weight:800;color:#c9bccf;background:rgba(5,4,7,.85)}
+#realTags{position:fixed;inset:0;pointer-events:none;z-index:2}
+.rb{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:1px;font-size:11px;font-weight:700;white-space:nowrap;padding:4px 8px;border-radius:10px;background:rgba(8,6,12,.86);border:1px solid rgba(255,255,255,.14);max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.rb span{font-weight:500;color:#d6cbdb;font-size:11px}.rb.pausa{border-color:#f59e0b}.rb.pedido{border-color:#60a5fa;color:#dbeafe}
+.rb.nota{border-color:#e879f9;color:#fae8ff}.rb.rep{border-color:#fbbf24;white-space:normal;width:240px;text-align:center;font-weight:600}
+#ed .sw{display:flex;gap:6px;align-items:center;font-size:12px;color:#c9bccf}#ed .sw button{padding:4px}#ed .sw i{display:block;width:22px;height:22px;border-radius:6px;border:1px solid rgba(255,255,255,.3)}
+@media(max-width:820px){#realUi .rbar{left:12px;right:12px;top:auto;bottom:12px}}

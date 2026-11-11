@@ -13,17 +13,16 @@ app/services/oficina_data.py (cada consulta por empresa filtra por company_id).
   de configurar) y sin datos (el flujo no existe o n8n no responde: nunca se inventa).
 - Plantillas de piso: taller, restaurante, bar, campo y general. Privacidad: primer nombre +
   inicial del apellido y cargo (o solo cargo). Nada de dinero, GPS ni datos personales extra.
-- Archivos del editor: PNG/JPG/WebP hasta 2 MB y .glb hasta 15 MB, por su firma real.
+- Editor (fase 1.5): sin imagenes ni modelos cargados (una imagen plana pierde la animacion). Lo ya
+  cargado queda en el bucket y en la base, pero no se usa; las subidas responden 410.
 """
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import logging
 import os
 import re
-import struct
 import time
 import unicodedata
 from html import escape as html_escape
@@ -42,8 +41,10 @@ ENV_URL = "OFICINA_N8N_URL"
 ENV_SECRET = "OFICINA_N8N_SECRET"
 
 STATES = ("work", "wait", "err", "train", "nodata")
-STYLES = ("lego", "anime", "real", "imagen", "modelo")
-ACCESSORIES = ("none", "audifonos", "gafas", "gorra", "casco", "capa", "chaleco", "delantal", "corbata")
+STYLES = ("lego", "anime", "real")  # estilo de los pisos clasicos; "imagen" y "modelo" ya no se usan
+ACCESSORIES = ("none", "audifonos", "gafas", "gorra", "casco", "chaleco", "delantal", "corbata")
+BODIES = ("medio", "delgado", "robusto", "alto")
+HAIRSTYLES = ("corto", "largo", "rizado", "recogido", "rapado", "calvo")
 TEMPLATES = ("taller", "restaurante", "bar", "campo", "general")
 TEMPLATE_LABEL = {"taller": "Taller de costura", "restaurante": "Restaurante", "bar": "Bar", "campo": "Operación en campo",
                   "general": "Oficina general"}
@@ -399,9 +400,6 @@ def jornada(now: datetime, tz: ZoneInfo, cfg: Optional[dict]) -> tuple[datetime,
 
 
 # ------------------------------------------------------------------ editor: validacion
-IMAGE_MAX = 2 * 1024 * 1024
-MODEL_MAX = 15 * 1024 * 1024
-FILE_KINDS = {"cara": "imagen", "completa": "imagen", "modelo": "modelo"}
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 KEY_RE = re.compile(r"^(agente:[a-z]{3,20}|rep|plantilla:[a-z]{2,20}|persona:[0-9a-f]{12})$")
 
@@ -414,7 +412,7 @@ class Rejected(ValueError):
 
 
 def sniff_image(raw: bytes) -> Optional[tuple[str, str]]:
-    """(content-type, extension) por la firma real; None si no es PNG/JPG/WebP."""
+    """(content-type, extension) por la firma real; None si no es PNG/JPG/WebP (logo del panel inicial)."""
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png", "png"
     if raw.startswith(b"\xff\xd8\xff"):
@@ -422,38 +420,6 @@ def sniff_image(raw: bytes) -> Optional[tuple[str, str]]:
     if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
         return "image/webp", "webp"
     return None
-
-
-def glb_ok(raw: bytes) -> bool:
-    """glTF binario v2: cabecera 'glTF', version 2, largo declarado = largo real y primer bloque JSON."""
-    if len(raw) < 20 or raw[:4] != b"glTF":
-        return False
-    version, length = struct.unpack_from("<II", raw, 4)
-    chunk_len, chunk_type = struct.unpack_from("<II", raw, 12)
-    return version == 2 and length == len(raw) and chunk_type == 0x4E4F534A and 20 + chunk_len <= len(raw)
-
-
-def check_file(kind: str, raw: bytes) -> tuple[str, str]:
-    """Valida un archivo del editor. Devuelve (content-type, extension) o lanza Rejected."""
-    family = FILE_KINDS.get(kind)
-    if not family:
-        raise Rejected("Tipo de archivo no válido.", 404)
-    if not raw:
-        raise Rejected("El archivo está vacío.")
-    if family == "imagen":
-        if len(raw) > IMAGE_MAX:
-            raise Rejected("La imagen pesa más de 2 MB.", 413)
-        sniffed = sniff_image(raw)
-        if not sniffed:
-            raise Rejected("Solo se aceptan imágenes PNG, JPG o WebP (el archivo no es una imagen real).", 415)
-        if kind == "completa" and sniffed[0] == "image/jpeg":
-            raise Rejected("La imagen completa debe ser PNG o WebP con fondo transparente.", 415)
-        return sniffed
-    if len(raw) > MODEL_MAX:
-        raise Rejected("El modelo pesa más de 15 MB.", 413)
-    if not glb_ok(raw):
-        raise Rejected("Solo se aceptan modelos .glb (glTF binario 2.0) reales.", 415)
-    return "model/gltf-binary", "glb"
 
 
 def clean_character(body: Any) -> dict:
@@ -468,6 +434,12 @@ def clean_character(body: Any) -> dict:
         if body["estilo"] not in STYLES:
             raise Rejected("Estilo no válido.")
         out["estilo"] = body["estilo"]
+    for field, options in (("cuerpo", BODIES), ("peinado", HAIRSTYLES)):
+        if field in body:
+            value = str(body.get(field) or "")
+            if value and value not in options:
+                raise Rejected("Opción no válida en " + field + ".")
+            out[field] = value
     if "accesorio" in body:
         value = str(body.get("accesorio") or "none")
         if value not in ACCESSORIES:
@@ -491,42 +463,6 @@ def check_key(clave: str) -> str:
     if not KEY_RE.match(clave):
         raise Rejected("Personaje no válido.", 404)
     return clave
-
-
-# ------------------------------------------------------------------ enlaces firmados
-SIGNED_SECONDS = 15 * 60
-FILE_NAME_RE = re.compile(r"^(clonexa|[0-9a-f-]{36})/[0-9a-f]{32}\.(png|jpg|webp|glb)$")
-
-
-def _sig_key() -> bytes:
-    from app.web import admin_v2_routes as v2
-
-    return hmac.new(v2._session_secret(), b"clonexa-oficina-archivos-v1", hashlib.sha256).digest()
-
-
-def sign(path: str, expires: Optional[int] = None) -> str:
-    exp = int(expires or time.time() + SIGNED_SECONDS)
-    mac = hmac.new(_sig_key(), f"{path}.{exp}".encode("ascii"), hashlib.sha256).hexdigest()[:32]
-    return f"e={exp}&s={mac}"
-
-
-def signature_ok(path: str, exp: Any, sig: Any) -> bool:
-    try:
-        expires = int(exp)
-    except (TypeError, ValueError):
-        return False
-    if expires < time.time():
-        return False
-    good = hmac.new(_sig_key(), f"{path}.{expires}".encode("ascii"), hashlib.sha256).hexdigest()[:32]
-    return hmac.compare_digest(good, str(sig or ""))
-
-
-def file_url(storage_key: str) -> str:
-    """oficina/<ambito>/<id>.<ext> -> enlace firmado de 15 min (mismo origen, exige sesion)."""
-    if not storage_key:
-        return ""
-    path = storage_key.removeprefix("oficina/")
-    return f"/admin-v2/api/oficina/archivos/{path}?{sign(path)}"
 
 
 # ------------------------------------------------------------------ n8n "Oficina - Estado"

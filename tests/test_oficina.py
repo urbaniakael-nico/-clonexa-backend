@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import struct
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -285,52 +284,27 @@ def test_representantes_sin_dinero():
 
 
 # ------------------------------------------------------------------ editor
-def _png(size=100):
-    return b"\x89PNG\r\n\x1a\n" + b"\0" * size
-
-
-def _glb(extra=b""):
-    js = b'{"asset":{"version":"2.0"}}  '
-    body = struct.pack("<II", len(js), 0x4E4F534A) + js + extra
-    return b"glTF" + struct.pack("<II", 2, 12 + len(body)) + body
-
-
-def test_archivos_por_su_tipo_real_y_tamano():
-    assert of.check_file("cara", _png()) == ("image/png", "png")
-    assert of.check_file("cara", b"\xff\xd8\xff\xe0" + b"0" * 10) == ("image/jpeg", "jpg")
-    assert of.check_file("modelo", _glb()) == ("model/gltf-binary", "glb")
-    cases = [("cara", b"GIF89a....", 415), ("cara", b"<svg onload=alert(1)>", 415), ("cara", _png(2 * 1024 * 1024), 413),
-             ("completa", b"\xff\xd8\xff\xe0" + b"0" * 10, 415), ("modelo", _png(), 415), ("modelo", _glb()[:-3], 415),
-             ("modelo", b"glTF" + b"\0" * 30, 415), ("modelo", _glb(b"\0" * (15 * 1024 * 1024)), 413), ("cara", b"", 422), ("otro", _png(), 404)]
-    for kind, raw, status in cases:
-        with pytest.raises(of.Rejected) as exc:
-            of.check_file(kind, raw)
-        assert exc.value.status == status, (kind, raw[:10])
+def test_editor_sin_imagen_ni_modelo_y_logo_por_su_firma():
+    """Fase 1.5: el editor ya no valida archivos (las subidas responden 410); solo queda reconocer el logo
+    del panel inicial por su firma real."""
+    assert not hasattr(of, "check_file") and not hasattr(of, "file_url")
+    assert "imagen" not in of.STYLES and "modelo" not in of.STYLES and "capa" not in of.ACCESSORIES
+    assert of.sniff_image(b"\x89PNG\r\n\x1a\n" + b"\0" * 10) == ("image/png", "png")
+    assert of.sniff_image(b"<svg onload=alert(1)>") is None
 
 
 def test_campos_del_personaje_y_claves():
     out = of.clean_character({"nombre": "  Nexa <b>Pro</b> ", "estilo": "lego", "color_ropa": "#AABBCC", "accesorio": "casco", "otro": 1})
     assert out == {"nombre": "Nexa bPro/b", "estilo": "lego", "color_ropa": "#aabbcc", "accesorio": "casco"}
-    for bad in ({"estilo": "batman"}, {"color_ropa": "red"}, {"accesorio": "espada"}):
+    assert of.clean_character({"cuerpo": "robusto", "peinado": "rizado"}) == {"cuerpo": "robusto", "peinado": "rizado"}
+    for bad in ({"estilo": "batman"}, {"estilo": "imagen"}, {"estilo": "modelo"}, {"color_ropa": "red"}, {"accesorio": "espada"},
+                {"accesorio": "capa"}, {"cuerpo": "gigante"}, {"peinado": "mohicano"}):
         with pytest.raises(of.Rejected):
             of.clean_character(bad)
     assert of.check_key("agente:ventas") == "agente:ventas" and of.check_key("plantilla:dj") == "plantilla:dj"
     for bad in ("agente:batman", "plantilla:astronauta", "persona:xyz", "../../x", ""):
         with pytest.raises(of.Rejected):
             of.check_key(bad)
-
-
-def test_enlace_firmado_vence_y_no_se_reusa_en_otro_archivo(monkeypatch):
-    from app.web import admin_v2_routes as v2
-
-    monkeypatch.setattr(v2, "_session_secret", lambda: b"k" * 32)
-    url = of.file_url("oficina/clonexa/" + "a" * 32 + ".png")
-    path, query = url.split("/archivos/")[1].split("?")
-    e, s = (q.split("=")[1] for q in query.split("&"))
-    assert of.signature_ok(path, e, s)
-    assert not of.signature_ok("clonexa/" + "b" * 32 + ".png", e, s)
-    assert not of.signature_ok(path, str(int(e) - 10_000), s)
-    assert not of.signature_ok(path, "1", of.sign(path, 1).split("s=")[1]), "vencido"
 
 
 # ------------------------------------------------------------------ pagina
@@ -355,8 +329,25 @@ def test_three_es_la_copia_fija_0_160_0():
         "build/three.module.js": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495",
         "examples/jsm/environments/RoomEnvironment.js": "e21f41b7ef2016f2984a5d27850b42dffa797a6a194a138e288b06576d765a7b",
         "examples/jsm/geometries/RoundedBoxGeometry.js": "d20aeaf7077c459a8d952d215738d7b44fba028440bb862d84b622a34f0c80bb",
+        "examples/jsm/libs/meshopt_decoder.module.js": "01f48524f4bac6141eaba07e94cc36e7ee56f311796fa6117c159842941b0468",
         "examples/jsm/loaders/GLTFLoader.js": "d073b438e6a07e1359741dd5d6c76c953420cc0d4fd84eb1bdde94315540e6a3",
+        "examples/jsm/loaders/RGBELoader.js": "f0e87d0008d9484d31358b32befd1bf80e4301f77573cc9a7cf7d871cc3f64b4",
+        "examples/jsm/math/SimplexNoise.js": "9b8d541b77b0ddc79afaa6a1de8941452c191b8b9006f04e7b8fc422e2b263f7",
+        "examples/jsm/postprocessing/EffectComposer.js": "d234e578618fa816955ebdc059c049c577e203e650e33cf22bde3f232c29e669",
+        "examples/jsm/postprocessing/GTAOPass.js": "5140b7cc63800381ced45bef3a7a55c471f4be3cd9eb70b947e7ebfbe92658c2",
+        "examples/jsm/postprocessing/MaskPass.js": "328cf7db0da5d9be83ffe39d54b01d5ac1fddf108cc98182ddbb056f5c8b537f",
+        "examples/jsm/postprocessing/OutputPass.js": "13817fc7a87f662d29d2c5e00f44d3a4588c9afac4a372de0cacb0e44e368ffd",
+        "examples/jsm/postprocessing/Pass.js": "b3c6128340eaa37e40a6a2f1b738e894c855239417d50959759b34a2b5e89f92",
+        "examples/jsm/postprocessing/RenderPass.js": "1c90c085312871c4bcdccfcf519499c6276dd503363fcf7cb7f703add45cf4a2",
+        "examples/jsm/postprocessing/ShaderPass.js": "3b28a1ee27e0eb96c0eab137a1f442ccf127a926904eced2d51e125ec44af781",
+        "examples/jsm/postprocessing/UnrealBloomPass.js": "8f09315c0cec117a0ca2494d3e3586035b3c4323d6dcb037537cc51b04c3cdba",
+        "examples/jsm/shaders/CopyShader.js": "4e3346db194db56a596cd074e9bdb39fb5eb52040c333e0d29dc4eb1324d3b1d",
+        "examples/jsm/shaders/GTAOShader.js": "94edb1040c7b5e859b17c2817782c8e895118a2d824ed162cab187aa32cc5a15",
+        "examples/jsm/shaders/LuminosityHighPassShader.js": "3d841cc594a0c1767d1b0185720b32761a0133c5f1b70b56658e28f2fb9b7900",
+        "examples/jsm/shaders/OutputShader.js": "53a52e430c27bc36ceaab8ae90a2b4af7b02672d7ee4b29d6ba3c28e09c92c2a",
+        "examples/jsm/shaders/PoissonDenoiseShader.js": "3dab419b23529f8fd59e2713458502f9f51d2dd3af3e1285dc671fcc451d49fb",
         "examples/jsm/utils/BufferGeometryUtils.js": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb",
+        "examples/jsm/utils/SkeletonUtils.js": "83748c5072a5ce96e9d68d8efda908a1f1a06c0b5fd2618edc3e54a361a8fd5b",
     }
     from app.web import oficina_routes as routes
 

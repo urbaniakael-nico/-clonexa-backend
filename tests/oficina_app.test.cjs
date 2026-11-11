@@ -11,7 +11,7 @@ function pure() {
   const end = source.indexOf('// ===== fin reglas puras =====');
   assert.ok(start > 0 && end > start, 'bloque de reglas puras');
   const ctx = vm.createContext({});
-  vm.runInContext(source.slice(start, end) + '\nthis.out = {decideLite, fromServer, toServer, mergeCfg, staffDiff, floorYs, assignSeats, reorder, agentVisualState, esc, POLL_MS, ST};', ctx);
+  vm.runInContext(source.slice(start, end) + '\nthis.out = {decideLite, fromServer, toServer, mergeCfg, staffDiff, floorYs, assignSeats, reorder, agentVisualState, isRealFloor, esc, POLL_MS, ST};', ctx);
   // valores de otro "realm" (vm): se comparan como JSON
   const plain = fn => (...args) => { const r = fn(...args); return r && typeof r === 'object' ? JSON.parse(JSON.stringify(r)) : r; };
   return Object.fromEntries(Object.entries(ctx.out).map(([k, v]) => [k, typeof v === 'function' ? plain(v) : v]));
@@ -49,9 +49,11 @@ test('CLONEXA arriba, los pisos en el orden del ascensor y la recepción abajo',
 
 test('lo guardado en el editor se traduce a los campos del personaje y de vuelta', () => {
   const { fromServer, toServer, mergeCfg } = pure();
-  const item = { clave: 'agente:ventas', nombre: 'Nexa Pro', estilo: 'lego', color_ropa: '#112233', color_pelo: '', accesorio: 'casco', cara_url: '/x?e=1&s=2' };
-  assert.deepEqual(JSON.parse(JSON.stringify(fromServer(item))), { name: 'Nexa Pro', style: 'lego', color: '#112233', acc: 'casco', img: '/x?e=1&s=2' });
-  assert.deepEqual(JSON.parse(JSON.stringify(toServer({ style: 'anime', color: '#000000', name: 'X', img: 'no' }))), { estilo: 'anime', color_ropa: '#000000', nombre: 'X' }, 'los enlaces no se mandan');
+  const item = { clave: 'agente:ventas', nombre: 'Nexa Pro', estilo: 'lego', color_ropa: '#112233', color_pelo: '', accesorio: 'casco', cuerpo: 'alto', peinado: 'rizado', cara_url: '/x?e=1&s=2' };
+  assert.deepEqual(JSON.parse(JSON.stringify(fromServer(item))), { name: 'Nexa Pro', style: 'lego', color: '#112233', acc: 'casco', body: 'alto', hairStyle: 'rizado' }, 'la imagen ya no se usa');
+  assert.deepEqual(JSON.parse(JSON.stringify(fromServer({ estilo: 'modelo', accesorio: 'capa' }))), {}, 'estilos y accesorios retirados no se aplican');
+  assert.deepEqual(JSON.parse(JSON.stringify(toServer({ style: 'anime', color: '#000000', name: 'X', body: 'robusto', hairStyle: 'calvo', img: 'no' }))),
+    { estilo: 'anime', color_ropa: '#000000', nombre: 'X', cuerpo: 'robusto', peinado: 'calvo' }, 'nada de enlaces');
   const cfg = mergeCfg({ style: 'anime', color: '#f20b6d', hair: '#111' }, [{ estilo: 'real' }, null, { color_ropa: '#abcdef' }].filter(Boolean));
   assert.equal(cfg.style, 'real'); assert.equal(cfg.color, '#abcdef'); assert.equal(cfg.hair, '#111', 'plantilla → empresa → persona');
 });
@@ -80,7 +82,7 @@ test('consulta cada 30 s y se pausa si la pestaña no se ve', () => {
 
 test('three solo desde el propio backend (sin CDN) y sin estilos ni manejadores en línea', () => {
   const imports = [...source.matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
-  assert.deepEqual(imports, ['three', 'three/addons/environments/RoomEnvironment.js', 'three/addons/geometries/RoundedBoxGeometry.js', 'three/addons/loaders/GLTFLoader.js']);
+  assert.deepEqual(imports, ['three', 'three/addons/environments/RoomEnvironment.js', 'three/addons/geometries/RoundedBoxGeometry.js']);
   assert.doesNotMatch(source, /https?:\/\/(cdn|unpkg|jsdelivr)/i);
   assert.doesNotMatch(source, /\sstyle="/);
   assert.doesNotMatch(source, /<[a-z][^>]*\son(click|error|load|submit|input|change)=/i);
@@ -89,10 +91,21 @@ test('three solo desde el propio backend (sin CDN) y sin estilos ni manejadores 
   assert.match(html, /<a class="back" href="\/admin-v2plus" id="btnBack">← Volver a la consola<\/a>/);
 });
 
-test('el editor avisa: solo personajes propios o con permiso', () => {
+test('el editor: sin imagen ni modelo; cuerpo, peinado, pelo, piel, ropa con la marca y accesorios', () => {
   assert.match(source, /Usa solo personajes propios o con permiso\. Los personajes de películas o cómics \(Batman, etc\.\) tienen dueño y no se pueden usar\./);
-  assert.match(source, /Imagen como cara \(PNG\/JPG\/WebP, máx\. 2 MB\)/);
-  assert.match(source, /Modelo 3D \(\.glb, máx\. 15 MB\)/);
+  assert.doesNotMatch(source, /Imagen como cara|Imagen completa|Modelo 3D|type="file"|personajes\/archivo|GLTFLoader/);
+  for (const label of ['Cuerpo', 'Peinado', 'Color de pelo', 'Tono de piel', 'Ropa', 'Accesorio', 'Ropa con la marca']) assert.ok(source.includes(label), label);
+  assert.match(source, /const ACC_LABEL = \{none: 'Ninguno', delantal: 'Delantal', gorra: 'Gorra', casco: 'Casco', audifonos: 'Audífonos', gafas: 'Gafas', chaleco: 'Chaleco', corbata: 'Corbata'\};/);
+});
+
+test('solo los pisos con el interruptor "realista" abren el motor nuevo (y se carga al entrar)', () => {
+  const { isRealFloor } = pure();
+  assert.equal(isRealFloor({ style: 'realista' }), true);
+  assert.equal(isRealFloor({ style: 'clasico' }), false);
+  assert.equal(isRealFloor({}), false);
+  assert.equal(isRealFloor(null), false);
+  assert.match(source, /const mod = await import\('\/admin-v2plus\/oficina\/real\.js'\);/);
+  assert.match(source, /if \(REAL\) REAL\.tick\(\); else \{ R\.render\(S, C\); updTags\(\); \}/);
 });
 
 test('el textos que llegan del servidor se escapan', () => {

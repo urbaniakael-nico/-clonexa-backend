@@ -4,3 +4,5 @@ Dockerfile text eol=lf*.pdf binary
 *.mp4 binary
 *.webp binary
 app/web/vendor/** -text
+# Oficina 3D: recursos binarios (modelos, texturas, HDRI) tal cual, sin conversiones de fin de línea
+app/web/oficina/recursos/** -text
