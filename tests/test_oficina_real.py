@@ -135,9 +135,11 @@ def test_presupuesto_de_25_mb_por_piso():
     for f, meta in man["files"].items():
         assert (RES / f).stat().st_size == meta["bytes"], f
         if f.endswith(".glb"):
-            head = (RES / f).read_bytes()
-            assert head[:4] == b"glTF" and b"EXT_meshopt_compression" in head[:20000], f"{f} sin meshopt"
-            assert b"image/jpeg" not in head[:20000] and b"image/png" not in head[:20000], f"{f} con texturas sin pasar a WebP"
+            raw = (RES / f).read_bytes()
+            assert raw[:4] == b"glTF"
+            gltf = json.loads(raw[20:20 + int.from_bytes(raw[12:16], "little")])
+            assert "EXT_meshopt_compression" in gltf.get("extensionsUsed", []), f"{f} sin meshopt"
+            assert {i.get("mimeType") for i in gltf.get("images", [])} <= {"image/webp"}, f"{f} con texturas sin pasar a WebP"
         if f.startswith("texturas/"):
             assert f.endswith(".webp")
 
