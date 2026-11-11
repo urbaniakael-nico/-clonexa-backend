@@ -266,8 +266,12 @@ async def test_botones_del_bot_finalizar_ahora_y_sigo_trabajando(maker, monkeypa
 async def test_portal_cierra_cualquier_turno_con_motivo_doble_confirmacion_y_auditoria(maker):
     cid, va, _al = await _setup(maker)
     now = datetime.now(UTC)
+    # Independiente de la hora en que corra: la franja cubre todo el dia y la semana es la de la
+    # entrada en hora de Virginia (antes, despues de las 17:00 ET la entrada quedaba fuera del horario).
+    check_in_local = (now - timedelta(hours=2)).astimezone(ws.zone("America/New_York")).date()
     async with maker() as db:
-        await ws.save_week(db, cid, va, ws.week_start(now.date()), [{**H1, "days": [0, 1, 2, 3, 4, 5, 6]}], actor="Dueña", actor_user_id=None)
+        await ws.save_week(db, cid, va, ws.week_start(check_in_local), [{**H1, "days": [0, 1, 2, 3, 4, 5, 6], "start": "00:00", "end": "23:59"}],
+                           actor="Dueña", actor_user_id=None)
         short = await _employee(db, cid, "Turno Corto", tg="111", place=va)
         await _open_shift(db, cid, short, now - timedelta(hours=2))
         listed = await routes.get_open_shifts(uuid.UUID(cid), who=OWNER, db=db)
