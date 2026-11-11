@@ -126,6 +126,12 @@ test('animaciones de Quaternius por nombre; si falta una, se usa la propia', asy
   assert.equal(R.pickClip(names, 'bailar'), 'Dance_Loop');
   assert.equal(R.pickClip(names, 'teclear'), null);
   for (const a of R.ANIMS) assert.ok(R.UAL_CLIPS[a], a);
+  // nombres reales de Universal Animation Library [Standard] (UAL1_Standard.glb)
+  const ual = ['Idle_Loop', 'Idle_Talking_Loop', 'Walk_Loop', 'Walk_Formal_Loop', 'Sitting_Enter', 'Sitting_Exit', 'Sitting_Idle_Loop', 'Sitting_Talking_Loop', 'Dance_Loop', 'Interact', 'PickUp_Table'];
+  const got = Object.fromEntries(R.ANIMS.map(a => [a, R.pickClip(ual, a)]));
+  assert.deepEqual(got, { quieto: 'Idle_Loop', caminar: 'Walk_Loop', sentarse: 'Sitting_Enter', sentado_hablando: 'Sitting_Talking_Loop', teclear: 'Interact',
+    servir: 'Walk_Formal_Loop', preparar_trago: 'Interact', mezclar: 'Interact', brindar: 'Sitting_Talking_Loop', bailar: 'Dance_Loop', cafe: 'Idle_Talking_Loop', telefono: 'Idle_Talking_Loop' },
+    'todas las animaciones tienen clip; brindar (sentado) nunca cae a una de pie');
 });
 
 test('el representante resume solo actividad (nada de dinero)', async () => {

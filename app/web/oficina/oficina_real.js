@@ -427,19 +427,40 @@ export async function openReal(o) {
     if (A === 'audifonos') { const r = new THREE.Mesh(track(new THREE.TorusGeometry(.125, .012, 6, 24, Math.PI)), am); r.position.y = .1; B2.head.add(r); [-1, 1].forEach(k => cyl(.035, .035, .03, am, k * .118, .08, 0, B2.head).rotation.z = Math.PI / 2); }
     if (A === 'gafas') [-1, 1].forEach(k => { const l = new THREE.Mesh(track(new THREE.TorusGeometry(.026, .005, 6, 14)), mat('#0d0d0d', {metalness: .7})); l.position.set(k * .038, .1, .1); B2.head.add(l); });
   }
+  // Personajes CC0 de Quaternius (Universal Base Characters + Universal Animation Library, mismo esqueleto de 65 huesos).
+  // Ropa con los colores de la marca: el traje (zonas oscuras de la textura) se tiñe con cfg.color; la piel no cambia.
+  const CLIP_CACHE = {};
+  let FIT = null;
+  function uniformTint(m, color) {
+    const tint = new THREE.Color(color);
+    m.onBeforeCompile = sh => {
+      sh.uniforms.uTint = {value: tint};
+      sh.fragmentShader = 'uniform vec3 uTint;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        float cxL = dot(diffuseColor.rgb, vec3(.299, .587, .114));
+        float cxM = 1.0 - smoothstep(.035, .11, cxL);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uTint * (.45 + cxL * 6.0), cxM * .85);`);
+    };
+    m.customProgramCacheKey = () => 'cx-tint';
+  }
   function rigFromModel(cfg) {
-    // Personajes CC0 de Quaternius (si están). El cuerpo elige el archivo; las animaciones salen de animaciones.glb.
-    const want = (cfg.body === 'robusto' || cfg.body === 'alto') ? ['regular_male', 'superhero_male'] : ['regular_female', 'superhero_female', 'regular_male'];
-    const k = want.find(n => PEOPLE[n]) || Object.keys(PEOPLE).find(n => n !== 'animaciones');
+    const k = cfg.sex === 'f' && PEOPLE.superhero_female ? 'superhero_female' : PEOPLE.superhero_male ? 'superhero_male' : (PEOPLE.superhero_female ? 'superhero_female' : null);
     if (!k || !PEOPLE.animaciones) return null;
-    const root = SkeletonUtils.clone(PEOPLE[k].scene);
-    root.traverse(x => { if (x.isMesh) { x.castShadow = true; x.material = x.material.clone(); track(x.material); const n = (x.material.name || '').toLowerCase();
-      if (/skin|body/.test(n)) x.material.color.set(cfg.skin || SKIN[0]); else if (/hair/.test(n)) x.material.color.set(cfg.hair || '#2b1b12');
-      else if (/shirt|top|torso|cloth/.test(n)) x.material.color.set(cfg.color || '#333'); else if (/pant|leg|bottom/.test(n)) x.material.color.set(cfg.legs || '#222'); } });
-    const names = PEOPLE.animaciones.animations.map(a => a.name);
-    const clips = {};
-    RULES.ANIMS.forEach(s => { const n = RULES.pickClip(names, s) || RULES.pickClip(names, 'quieto'); if (n) clips[s] = PEOPLE.animaciones.animations.find(a => a.name === n); });
-    return {root, props: {}, height: 1.8, clips};
+    if (!FIT) { const bb = new THREE.Box3().setFromObject(PEOPLE[k].scene); FIT = 1.75 / Math.max(.1, bb.max.y - bb.min.y); }
+    const inner = SkeletonUtils.clone(PEOPLE[k].scene);
+    const [sx, sy] = BODY[cfg.body] || BODY.medio;
+    inner.scale.set(FIT * sx, FIT * sy, FIT * sx);
+    inner.traverse(x => { if (!x.isMesh) return; x.castShadow = !lite; x.userData.personShadow = true; x.frustumCulled = false;
+      x.material = track(x.material.clone()); const n = (x.material.name || '').toLowerCase();
+      if (/hair/.test(n)) x.material.color.set(new THREE.Color(cfg.hair || '#2b1b12').lerp(new THREE.Color('#ffffff'), .35));
+      else if (/superhero|body|suit/.test(n)) uniformTint(x.material, cfg.color || '#333'); });
+    const root = new THREE.Group(); root.add(inner);
+    if (!CLIP_CACHE.done) {
+      const names = PEOPLE.animaciones.animations.map(a => a.name);
+      RULES.ANIMS.forEach(st => { const n = RULES.pickClip(names, st) || RULES.pickClip(names, 'quieto'); if (n) CLIP_CACHE[st] = PEOPLE.animaciones.animations.find(a => a.name === n); });
+      CLIP_CACHE.done = true;
+    }
+    const clips = Object.fromEntries(RULES.ANIMS.filter(st => CLIP_CACHE[st]).map(st => [st, CLIP_CACHE[st]]));
+    return {root, props: {}, height: 1.75 * sy, clips};
   }
   function makePerson(cfg, kind) {
     let rig = null;
@@ -476,7 +497,7 @@ export async function openReal(o) {
   function guestCfg(seed) { const h = [...String(seed)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
     const shirts = ['#2f3e46', '#6b2737', '#334155', '#7c5c3b', '#1f4e5f', '#4a3f6b', '#5c5c5c', '#8a6d3b'];
     return {color: shirts[h % shirts.length], legs: ['#1f2937', '#2b2b30', '#3b3a36'][h % 3], skin: SKIN[(h >> 3) % 4], hair: ['#111', '#3b2414', '#6b4423', '#9a8478'][(h >> 5) % 4],
-      hairStyle: ['corto', 'largo', 'rizado', 'recogido', 'rapado'][(h >> 7) % 5], body: ['medio', 'delgado', 'robusto', 'alto'][(h >> 9) % 4], acc: 'none'}; }
+      hairStyle: ['corto', 'largo', 'rizado', 'recogido', 'rapado'][(h >> 7) % 5], body: ['medio', 'delgado', 'robusto', 'alto'][(h >> 9) % 4], acc: 'none', sex: (h >> 11) % 2 ? 'f' : 'm'}; }
   function tableOpen(lbl, n, instant) {
     const t = TABLES.get(lbl); if (!t || t.guests.length) return;
     for (let i = 0; i < n; i++) {
@@ -497,7 +518,7 @@ export async function openReal(o) {
     const base = {barman: {color: '#141414', legs: '#141414', acc: 'chaleco', accColor: B.primary}, mesero: {color: B.primary, legs: '#1d1d22', acc: 'corbata', accColor: B.secondary},
       dj: {color: B.secondary, legs: '#141414', acc: 'audifonos', accColor: B.accent}, caja: {color: B.primary, legs: '#222', acc: 'none'}, cocina: {color: '#f4f1ea', legs: '#222', acc: 'delantal'}}[u] || {color: B.primary, legs: '#222'};
     const h = [...person.key].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 3);
-    const def = Object.assign({skin: SKIN[h % 4], hair: ['#111', '#3b2414', '#6b4423'][h % 3], hairStyle: ['corto', 'recogido', 'rapado', 'largo'][h % 4], body: 'medio'}, base);
+    const def = Object.assign({skin: SKIN[h % 4], hair: ['#111', '#3b2414', '#6b4423'][h % 3], hairStyle: ['corto', 'recogido', 'rapado', 'largo'][h % 4], body: 'medio', sex: /a$/i.test(String(person.role || '')) ? 'f' : (h % 2 ? 'f' : 'm')}, base);
     return Object.assign(def, (o.charCfg && o.charCfg('persona', person.key, u)) || {});
   }
   function stationFor(person, idx) {
@@ -538,7 +559,7 @@ export async function openReal(o) {
   }
   let rep = null;
   function buildRep() {
-    const cfg = Object.assign({color: B.primary, legs: '#18181b', skin: SKIN[1], hair: '#111', hairStyle: 'recogido', body: 'medio', acc: 'none'}, (o.charCfg && o.charCfg('rep', cid)) || {});
+    const cfg = Object.assign({color: B.primary, legs: '#18181b', skin: SKIN[1], hair: '#111', hairStyle: 'recogido', body: 'medio', acc: 'none', sex: 'f'}, (o.charCfg && o.charCfg('rep', cid)) || {});
     rep = makePerson(cfg, 'rep'); rep.info = {name: (o.repName || 'Representante'), role: 'Representante de ' + floor.name};
     const s = world(layoutGroups.get('entrada'), SPOT.rep); seatAt(rep, s, 'quieto');
   }

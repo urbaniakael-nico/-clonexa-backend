@@ -12,15 +12,15 @@ export const UAL_CLIPS = {
   quieto: [/^idle(_loop)?$/i, /idle/i],
   caminar: [/^walk(_loop)?$/i, /walk/i],
   sentarse: [/sit(ting)?_?(enter|down)/i, /^sit/i],
-  sentado_hablando: [/sit(ting)?_?(talk|idle)/i, /sitting/i],
-  teclear: [/typ(e|ing)/i, /keyboard/i],
-  servir: [/(carry|tray|hold)/i],
-  preparar_trago: [/(interact|mix|pour|shake)/i],
-  mezclar: [/(dj|scratch|interact)/i],
-  brindar: [/(toast|cheer|drink)/i],
+  sentado_hablando: [/sit(ting)?_?talk/i, /sit(ting)?_?idle/i, /sitting/i],
+  teclear: [/typ(e|ing)/i, /keyboard/i, /^interact$/i],
+  servir: [/(carry|tray|hold)/i, /walk_formal/i],
+  preparar_trago: [/(mix|pour|shake)/i, /^interact$/i],
+  mezclar: [/(dj|scratch)/i, /^interact$/i],
+  brindar: [/(toast|cheer|drink)/i, /sitting_talk/i],   // sentado: nunca cae a una animación de pie
   bailar: [/danc/i],
-  cafe: [/(drink|coffee|sip)/i],
-  telefono: [/(phone|call)/i],
+  cafe: [/(coffee|sip)/i, /idle_talk/i],
+  telefono: [/(phone|call)/i, /idle_talk/i],
 };
 
 export function pickClip(names, state) {

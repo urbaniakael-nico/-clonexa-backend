@@ -62,7 +62,8 @@ MAPS = {"diff": "Diffuse", "nor_gl": "nor_gl", "arm": "arm"}
 PERSONAJES = {
     "zip_personajes": "Universal Base Characters[Standard].zip",
     "zip_animaciones": "Universal Animation Library[Standard].zip",
-    "cuerpos": ["Superhero_Male", "Superhero_Female", "Regular_Male", "Regular_Female"],
+    # archivo (sin extension, en "Base Characters/Godot - UE": mismo esqueleto que la libreria de animaciones) -> nombre servido
+    "cuerpos": {"Superhero_Male_FullBody": "superhero_male", "Superhero_Female_FullBody": "superhero_female"},
 }
 
 
@@ -141,12 +142,14 @@ def characters(tmp: Path, gt: str) -> dict:
         target = tmp / kind
         with zipfile.ZipFile(zpath) as z:
             z.extractall(target)
+        fix_uris(target)
         glbs = sorted(target.rglob("*.glb")) + sorted(target.rglob("*.gltf"))
         if kind == "animaciones":
-            pick = [g for g in glbs if "ual" in g.stem.lower() or "anim" in g.stem.lower()][:1] or glbs[:1]
+            # la version sin "root motion" (_RM): el motor mueve a la persona por su cuenta
+            pick = [g for g in glbs if g.stem.lower().startswith("ual") and not g.stem.lower().endswith("_rm")][:1]
             names = {"animaciones": pick}
         else:
-            names = {c: [g for g in glbs if g.stem.lower() == c.lower()][:1] for c in PERSONAJES["cuerpos"]}
+            names = {out: [g for g in glbs if g.stem == stem and "godot - ue" in g.as_posix().lower()][:1] for stem, out in PERSONAJES["cuerpos"].items()}
         for name, found in names.items():
             if not found:
                 print("Personajes: no encontre", name, "en", zpath.name)
@@ -158,6 +161,20 @@ def characters(tmp: Path, gt: str) -> dict:
             out[name.lower()] = {"id": found[0].stem, "name": found[0].stem, "authors": ["Quaternius"], "license": "CC0 1.0",
                                  "url": "https://quaternius.com/packs/" + ("universalanimationlibrary.html" if kind == "animaciones" else "universalbasecharacters.html")}
     return out
+
+
+def fix_uris(folder: Path) -> None:
+    """El paquete de Quaternius nombra algunas texturas "X_png.png" pero trae "X.png": se corrige el .gltf (copia temporal)."""
+    for g in folder.rglob("*.gltf"):
+        data = json.loads(g.read_text(encoding="utf-8"))
+        changed = False
+        for img in data.get("images") or []:
+            uri = img.get("uri") or ""
+            if uri and not (g.parent / uri).exists() and (g.parent / uri.replace("_png.png", ".png")).exists():
+                img["uri"] = uri.replace("_png.png", ".png")
+                changed = True
+        if changed:
+            g.write_text(json.dumps(data), encoding="utf-8")
 
 
 def manifest(sources: dict) -> dict:

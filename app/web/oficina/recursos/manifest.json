@@ -12,6 +12,9 @@
    "modelos/silla.glb",
    "modelos/sofa.glb",
    "modelos/taburete.glb",
+   "personajes/animaciones.glb",
+   "personajes/superhero_female.glb",
+   "personajes/superhero_male.glb",
    "texturas/concreto_arm.webp",
    "texturas/concreto_diff.webp",
    "texturas/concreto_nor_gl.webp",
@@ -74,6 +77,18 @@
   "modelos/taburete.glb": {
    "bytes": 378916,
    "sha": "c6efa754cbd5"
+  },
+  "personajes/animaciones.glb": {
+   "bytes": 1942336,
+   "sha": "42581e0d610c"
+  },
+  "personajes/superhero_female.glb": {
+   "bytes": 408780,
+   "sha": "bffa22784856"
+  },
+  "personajes/superhero_male.glb": {
+   "bytes": 380176,
+   "sha": "397a455f2a1f"
   },
   "texturas/concreto_arm.webp": {
    "bytes": 39388,
@@ -440,6 +455,33 @@
    ],
    "url": "https://polyhaven.com/a/warm_bar",
    "license": "CC0 1.0"
+  },
+  "personajes/superhero_male.glb": {
+   "id": "Superhero_Male_FullBody",
+   "name": "Superhero_Male_FullBody",
+   "authors": [
+    "Quaternius"
+   ],
+   "license": "CC0 1.0",
+   "url": "https://quaternius.com/packs/universalbasecharacters.html"
+  },
+  "personajes/superhero_female.glb": {
+   "id": "Superhero_Female_FullBody",
+   "name": "Superhero_Female_FullBody",
+   "authors": [
+    "Quaternius"
+   ],
+   "license": "CC0 1.0",
+   "url": "https://quaternius.com/packs/universalbasecharacters.html"
+  },
+  "personajes/animaciones.glb": {
+   "id": "UAL1_Standard",
+   "name": "UAL1_Standard",
+   "authors": [
+    "Quaternius"
+   ],
+   "license": "CC0 1.0",
+   "url": "https://quaternius.com/packs/universalanimationlibrary.html"
   }
  }
 }

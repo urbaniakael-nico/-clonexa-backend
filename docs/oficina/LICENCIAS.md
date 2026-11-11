@@ -18,6 +18,9 @@ Se genera con `ops/oficina/preparar_recursos.py`; la prueba `tests/test_oficina_
 | `modelos/silla.glb` | Gallinera Chair | Poly Haven | Ulan Cabanilla | CC0 1.0 | https://polyhaven.com/a/gallinera_chair |
 | `modelos/sofa.glb` | Sofa 01 | Poly Haven | Kirill Sannikov | CC0 1.0 | https://polyhaven.com/a/Sofa_01 |
 | `modelos/taburete.glb` | Bar Chair Round 01 | Poly Haven | Dairon Sanchez | CC0 1.0 | https://polyhaven.com/a/bar_chair_round_01 |
+| `personajes/animaciones.glb` | UAL1_Standard | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalanimationlibrary.html |
+| `personajes/superhero_female.glb` | Superhero_Female_FullBody | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalbasecharacters.html |
+| `personajes/superhero_male.glb` | Superhero_Male_FullBody | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalbasecharacters.html |
 | `texturas/concreto_arm.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
 | `texturas/concreto_diff.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
 | `texturas/concreto_nor_gl.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
