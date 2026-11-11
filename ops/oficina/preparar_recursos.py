@@ -191,6 +191,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--gltf-transform", required=True)
     ap.add_argument("--solo-personajes", action="store_true")
+    # Los cuerpos base de Quaternius se retiraron (se veian sin ropa): solo se generan si se piden de forma explicita.
+    ap.add_argument("--con-personajes-quaternius", action="store_true")
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     old = json.loads((OUT / "manifest.json").read_text(encoding="utf-8")) if (OUT / "manifest.json").exists() else {}
@@ -205,8 +207,9 @@ def main() -> int:
                 for short in MAPS:
                     sources[f"texturas/{key}_{short}.webp"] = meta
             sources[f"hdri/{HDRI}_1k.hdr"] = hdri(tmp)
-        for name, meta in characters(tmp, a.gltf_transform).items():
-            sources[f"personajes/{name}.glb"] = meta
+        if a.con_personajes_quaternius or a.solo_personajes:
+            for name, meta in characters(tmp, a.gltf_transform).items():
+                sources[f"personajes/{name}.glb"] = meta
     m = manifest(sources)
     m["sources"] = {k: v for k, v in sources.items() if k in m["files"]}
     (OUT / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")

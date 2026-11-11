@@ -97,9 +97,14 @@ function agentVisualState(state) {
   return ST[state] ? state : 'nodata';
 }
 
-// Un piso abre el motor realista solo si su empresa tiene el interruptor encendido (estilo "realista").
+// Un piso abre el motor realista solo si su empresa tiene el interruptor encendido (estilo "realista" o "bar":
+// el bar aprobado de The Time Machine, oficina_bar.js).
 function isRealFloor(f) {
-  return !!(f && f.style === 'realista');
+  return !!(f && (f.style === 'realista' || f.style === 'bar'));
+}
+// Con un piso abierto, el clic y el arrastre son del piso: nunca cambian de piso ni mueven el edificio.
+function buildingInputAllowed(realOpen) {
+  return !realOpen;
 }
 // ===== fin reglas puras =====
 
@@ -535,13 +540,14 @@ function main(DATA, SAVED_IN) {
     leaveReal(); realBusy = true; realFor = p; hideInfo();
     document.body.classList.add('real-on');
     try {
-      const mod = await import('/admin-v2plus/oficina/real.js');
+      const isBar = p.data && p.data.style === 'bar';
+      const mod = isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
       if (realFor !== p) return;
-      REAL = await mod.openReal({R, floor: p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
+      REAL = await (isBar ? mod.openBar : mod.openReal)({R, floor: p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
         repName: p.rep && p.rep.def.name,
         charCfg: (kind, k, uniform) => kind === 'rep' ? fromServerCfg([SAVED.get(savedKey(p.cid, 'rep'))])
           : fromServerCfg([SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))]),
-        onClose: () => setFocus(null), onRep: () => showRep(p), onPerson: (info, kind) => showPerson(info, kind, p),
+        onClose: () => setFocus(null), onRep: () => showRep(p), onPerson: (info, kind) => showPerson(info, kind, p), onTable: t => showTable(t, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
       log(`<b>${esc(p.name)}</b> · piso realista abierto`);
     } catch (e) {
@@ -553,6 +559,13 @@ function main(DATA, SAVED_IN) {
     realFor = null; document.body.classList.remove('real-on'); resize();
   }
   function fromServerCfg(layers) { return Object.assign({}, ...layers.filter(Boolean).map(fromServer)); }
+  function showTable(t, p) {
+    const since = t.since ? new Date(t.since).toLocaleTimeString('es-CO', {hour: '2-digit', minute: '2-digit'}) : null;
+    openInfo(`<h2>${esc(t.label)}</h2><div class="role">${t.open ? '● QR activo' : 'Libre'} · ${esc(p.name)}</div>
+      <ul>${t.open ? `<li>Abierta${since ? ' desde las ' + esc(since) : ''}</li>` : '<li>Sin QR activo</li>'}${t.guests ? `<li>${esc(t.guests)} personas registradas</li>` : ''}
+      <li>${t.pending ? esc(t.pending) + (t.pending === 1 ? ' producto pedido' : ' productos pedidos') + ' a la barra' : 'Sin pedidos pendientes'}</li>${t.songs ? `<li>${esc(t.songs)} canciones pedidas</li>` : ''}</ul>
+      <div class="src">Solo actividad (sin dinero ni datos de los clientes).</div>`, 'mesa:' + t.label);
+  }
   function showPerson(info, kind, p) {
     openInfo(`<h2>${esc(info.name || 'Cliente')}</h2><div class="role">${esc(info.role || '')} · ${esc(p.name)}</div>${info.task ? `<ul><li>${esc(info.task)}</li></ul>` : ''}
       <div class="src">${kind === 'cliente' ? 'Cliente anónimo (Clonexa no muestra datos de los clientes).' : 'Personal en turno (privacidad del piso).'}</div>`);
@@ -566,10 +579,10 @@ function main(DATA, SAVED_IN) {
     if (p) { goal.tgt.set(0, p.y + .6, 1.5); goal.dist = p.key === 'clonexa' ? 38 : 30; goal.pol = .8; goal.az = -.32; } else { goal.tgt.copy(home.tgt); goal.dist = home.dist; goal.pol = 1.12; goal.az = -.6; }
     if (p) { if (p.key === 'clonexa') showFloorInfo(); else if (p.rep) showRep(p); else hideInfo(); } else hideInfo();
   }
-  let drag = null; canvas.addEventListener('pointerdown', e => { drag = {x: e.clientX, y: e.clientY, m: 0}; });
+  let drag = null; canvas.addEventListener('pointerdown', e => { drag = buildingInputAllowed(REAL || realFor) ? {x: e.clientX, y: e.clientY, m: 0} : null; });
   addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; goal.az -= dx * .005; goal.pol = Math.max(.2, Math.min(1.48, goal.pol - dy * .004)); });
-  addEventListener('pointerup', e => { if (drag && drag.m < 6 && e.target === canvas) click(e); drag = null; });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); goal.dist = Math.max(8, Math.min(260, goal.dist * (1 + Math.sign(e.deltaY) * .1))); }, {passive: false});
+  addEventListener('pointerup', e => { if (drag && drag.m < 6 && e.target === canvas && buildingInputAllowed(REAL || realFor)) click(e); drag = null; });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); if (!buildingInputAllowed(REAL || realFor)) return; goal.dist = Math.max(8, Math.min(260, goal.dist * (1 + Math.sign(e.deltaY) * .1))); }, {passive: false});
   const ray = new THREE.Raycaster(), mv = new THREE.Vector2(); const vis = o => { while (o) { if (!o.visible) return false; o = o.parent; } return true; };
   function click(e) { mv.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mv, C); const hit = ray.intersectObjects(PICK.filter(vis), false)[0]; if (!hit) return;
     const ch = hit.object.userData.ch; if (ch) { if (focus !== ch.floor) setFocus(ch.floor); ch.kind === 'rep' ? showRep(ch.floor) : showChar(ch); } else if (hit.object.userData.floor) setFocus(hit.object.userData.floor); }
@@ -622,7 +635,7 @@ function main(DATA, SAVED_IN) {
       <div class="kpis">${(f.kpis || []).map(([k, v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>
       <ul>${(f.lines || []).map(t => `<li>${esc(t)}</li>`).join('')}<li>Última actividad ${esc(f.last_activity || '')}</li><li>${f.staff && f.staff.total != null ? esc(f.staff.total) + ' personas con turno abierto' : 'Turnos: sin datos'}</li></ul>
       <div class="row">Plantilla <select data-tpl>${tplOpts}</select></div>
-      ${f.template === 'bar' ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${f.style !== 'realista' ? 'selected' : ''}>Clásico</option><option value="realista" ${f.style === 'realista' ? 'selected' : ''}>Realista (copia viva)</option></select></div>` : ''}
+      ${f.template === 'bar' ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${!isRealFloor(f) ? 'selected' : ''}>Clásico</option><option value="realista" ${f.style === 'realista' ? 'selected' : ''}>Realista (copia viva)</option><option value="bar" ${f.style === 'bar' ? 'selected' : ''}>Bar aprobado (copia viva)</option></select></div>` : ''}
       ${f.brand && f.brand.warning ? `<div class="alert">${esc(f.brand.warning)}</div>` : ''}
       <div class="row">Personal <select data-priv><option value="nombre" ${f.privacy !== 'cargo' ? 'selected' : ''}>Nombre + inicial y cargo</option><option value="cargo" ${f.privacy === 'cargo' ? 'selected' : ''}>Solo el cargo</option></select></div>
       <div class="src">Solo actividad (sin dinero). Fuente: turnos, pedidos y registros de ${esc(f.name)} en Clonexa.</div><div class="row"><button type="button" data-edit>✏️ Editar representante</button></div>`, 'rep:' + f.company_id);

@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS hospitality_orders (id uuid PRIMARY KEY DEFAULT gen_r
   items jsonb NOT NULL DEFAULT '[]'::jsonb, archived_at timestamptz NULL, cancelled_at timestamptz NULL, closed_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL);
 CREATE TABLE IF NOT EXISTS hospitality_song_requests (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, status varchar(20) DEFAULT 'pendiente',
-  song text NOT NULL DEFAULT '', customer_name text NOT NULL DEFAULT '', archived_at timestamptz NULL, created_at timestamptz NOT NULL DEFAULT now());
+  song text NOT NULL DEFAULT '', customer_name text NOT NULL DEFAULT '', archived_at timestamptz NULL, created_at timestamptz NOT NULL DEFAULT now(),
+  table_number varchar(120) NOT NULL DEFAULT 'Mesa', playing_at timestamptz NULL);
 CREATE TABLE IF NOT EXISTS hospitality_table_access (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, table_key text NOT NULL,
   table_number text, access_code text, status text, activated_at timestamptz DEFAULT now(), expires_at timestamptz);
 CREATE TABLE IF NOT EXISTS hospitality_table_guests (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id uuid NOT NULL, access_id uuid NOT NULL,
@@ -106,7 +107,7 @@ def pg_url():
     async def setup():
         engine = create_async_engine(url, poolclass=NullPool)
         async with engine.begin() as conn:
-            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2 + _migration("025k_oficina_real") * 2:
+            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2 + _migration("025k_oficina_real") * 2 + _migration("025l_oficina_bar") * 2:
                 await conn.execute(text(stmt))
         await engine.dispose()
 
@@ -578,3 +579,98 @@ def test_ninguna_respuesta_de_la_oficina_trae_dinero(client, pg_url, monkeypatch
     for body in (_estado(client), _vivo(client), client.get(f"{API}/personajes").json()):
         _no_money(body)
         assert "777777" not in json.dumps(body)
+
+
+# ------------------------------------------------------------------ bar aprobado (Mixamo, bucket privado)
+def _fake_glb(tag: str) -> bytes:
+    body = json.dumps({"asset": {"version": "2.0"}, "nodes": [{"name": tag}]}).encode()
+    body += b" " * (-len(body) % 4)
+    return b"glTF" + (2).to_bytes(4, "little") + (20 + len(body)).to_bytes(4, "little") + len(body).to_bytes(4, "little") + b"JSON" + body
+
+
+def _upload_bar(bucket, names=("personajes/Ch01_nonPBR.glb", "animaciones/Idle.glb")):
+    import hashlib
+
+    from app.services import oficina_bar as obar
+
+    files = {}
+    for n in names:
+        data = _fake_glb(n)
+        bucket.put(obar.PREFIX + n, data)
+        files[n] = {"bytes": len(data), "sha": hashlib.sha256(data).hexdigest()}
+    bucket.put(obar.MANIFEST_KEY, json.dumps({"version": "t", "files": files}).encode())
+    oficina_routes.reset_cache()
+    return files
+
+
+def test_bar_sin_sesion_401_en_pagina_api_y_recursos_del_bucket(client, monkeypatch):
+    _upload_bar(client.bucket)
+    _session(monkeypatch, False)
+    for url in ("/admin-v2plus/oficina/bar.js", "/admin-v2plus/oficina/bar_reglas.js", "/admin-v2plus/oficina/bar/manifest.json",
+                "/admin-v2plus/oficina/bar/personajes/Ch01_nonPBR.glb", "/admin-v2plus/oficina/bar/animaciones/Idle.glb", f"{API}/pisos/{TTM}/vivo"):
+        r = client.get(url)
+        assert r.status_code == 401, (url, r.status_code)
+        assert b"glTF" not in r.content
+
+
+def test_bar_recursos_privados_con_sesion_cache_y_huella(client, monkeypatch):
+    _session(monkeypatch)
+    files = _upload_bar(client.bucket)
+    man = client.get("/admin-v2plus/oficina/bar/manifest.json")
+    assert man.status_code == 200 and man.json()["files"] == files and man.headers["cache-control"].startswith("no-store")
+    r = client.get("/admin-v2plus/oficina/bar/personajes/Ch01_nonPBR.glb")
+    assert r.status_code == 200 and r.content[:4] == b"glTF" and r.headers["content-type"] == "model/gltf-binary"
+    assert r.headers["cache-control"] == "private, max-age=31536000, immutable" and r.headers["etag"] == f'"{files["personajes/Ch01_nonPBR.glb"]["sha"]}"'
+    # en memoria: aunque el bucket se caiga, lo ya leido se sirve
+    client.bucket.objects.pop("oficina/bar/v1/personajes/Ch01_nonPBR.glb")
+    assert client.get("/admin-v2plus/oficina/bar/personajes/Ch01_nonPBR.glb").status_code == 200
+    # fuera de la lista blanca o con ruta rara: 404; huella alterada: 503 (nunca se sirve)
+    for bad in ("personajes/Otro.glb", "personajes/Ch01-nonPBR.glb", "texturas/x.webp", "personajes/Ch01_nonPBR.fbx"):
+        assert client.get(f"/admin-v2plus/oficina/bar/{bad}").status_code == 404, bad
+    client.bucket.put("oficina/bar/v1/animaciones/Idle.glb", b"glTF" + b"0" * 40)
+    assert client.get("/admin-v2plus/oficina/bar/animaciones/Idle.glb").status_code == 503
+    # bucket sin manifiesto: 503 claro (el piso abre sin personas)
+    client.bucket.objects.clear()
+    oficina_routes.reset_cache()
+    assert client.get("/admin-v2plus/oficina/bar/manifest.json").status_code == 503
+    js = client.get("/admin-v2plus/oficina/bar.js")
+    assert js.status_code == 200 and "openBar" in js.text
+
+
+def test_bar_encendido_solo_en_ttm_por_migracion_y_otras_sin_cambios(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    _seed(pg_url)
+    for stmt in _migration("025k_oficina_real") + _migration("025l_oficina_bar") * 2:
+        _run(pg_url, stmt)
+    rows = {r["company_id"]: r["estilo"] for r in _run(pg_url, "SELECT company_id::text AS company_id, estilo FROM oficina_pisos")}
+    assert rows == {TTM: "bar"}, "solo The Time Machine"
+    floors = {f["company_id"]: f for f in _estado(client)["floors"]}
+    assert floors[TTM]["style"] == "bar" and floors[TTM]["brand"] is not None
+    assert {floors[c]["style"] for c in (VELVET, ASADERO, VOLTAGE, NUEVA)} == {"clasico"} and all(floors[c]["brand"] is None for c in (VELVET, ASADERO, VOLTAGE, NUEVA))
+    assert client.put(f"{API}/pisos/{VELVET}", json={"estilo": "bar"}).status_code == 200
+    assert next(f for f in _estado(client)["floors"] if f["company_id"] == VELVET)["style"] == "clasico", "el taller no tiene bar"
+    assert client.put(f"{API}/pisos/{TTM}", json={"estilo": "realista"}).status_code == 200
+    assert next(f for f in _estado(client)["floors"] if f["company_id"] == TTM)["style"] == "realista"
+
+
+def test_bar_pantalla_de_canciones_con_datos_y_sin_datos(client, pg_url, monkeypatch):
+    _session(monkeypatch)
+    _seed(pg_url)
+    _qr_tables(pg_url, TTM, 10)
+    assert _vivo(client)["song_screen"] == {"now": None, "queue": []}, "sin pedidas: la pantalla invita a pedir"
+    now = datetime.now(timezone.utc)
+    for i, (song, table, status, cust) in enumerate([("Noche de salsa", "Mesa 4", "sonando", "Ana Gómez"), ("Luces de neón", "Mesa 7", "pendiente", "Pedro"),
+                                                      ("Volver a bailar", "Barra 3", "pendiente", "Luis"), ("Ritmo de medianoche", "Mesa 2", "pendiente", "Eva"),
+                                                      ("La cuarta en cola", "Mesa 1", "pendiente", "Sara"), ("Ya sonó", "Mesa 5", "reproducida", "Tom")]):
+        _run(pg_url, """INSERT INTO hospitality_song_requests (company_id, song, customer_name, status, table_number, created_at, playing_at)
+                        VALUES (CAST(:c AS uuid), :s, :n, :st, :t, :at, :p)""",
+             {"c": TTM, "s": song, "n": cust, "st": status, "t": table, "at": now - timedelta(minutes=30 - i), "p": now - timedelta(minutes=2) if status == "sonando" else None})
+    snap = _vivo(client)
+    sc = snap["song_screen"]
+    assert sc["now"]["title"] == "Noche de salsa" and sc["now"]["table"] == "Mesa 4" and sc["now"]["since"]
+    assert sc["queue"] == [{"title": "Luces de neón", "table": "Mesa 7"}, {"title": "Volver a bailar", "table": "Barra · silla 3"},
+                           {"title": "Ritmo de medianoche", "table": "Mesa 2"}], "las siguientes 3, la más antigua primero"
+    dumped = json.dumps(snap)
+    for leak in ("Ana", "Pedro", "Luis", "Gómez"):
+        assert leak not in dumped, "nunca el nombre del cliente"
+    _no_money(snap)

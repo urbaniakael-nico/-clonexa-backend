@@ -104,7 +104,8 @@ test('solo los pisos con el interruptor "realista" abren el motor nuevo (y se ca
   assert.equal(isRealFloor({ style: 'clasico' }), false);
   assert.equal(isRealFloor({}), false);
   assert.equal(isRealFloor(null), false);
-  assert.match(source, /const mod = await import\('\/admin-v2plus\/oficina\/real\.js'\);/);
+  assert.equal(isRealFloor({ style: 'bar' }), true, 'el bar aprobado (The Time Machine)');
+  assert.match(source, /const mod = isBar \? await import\('\/admin-v2plus\/oficina\/bar\.js'\) : await import\('\/admin-v2plus\/oficina\/real\.js'\);/);
   assert.match(source, /if \(REAL\) REAL\.tick\(\); else \{ R\.render\(S, C\); updTags\(\); \}/);
 });
 

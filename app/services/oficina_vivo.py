@@ -29,7 +29,7 @@ from app.services import oficina as of
 
 log = logging.getLogger("clonexa.oficina")
 
-STYLES_FLOOR = ("clasico", "realista")
+STYLES_FLOOR = ("clasico", "realista", "bar")   # "bar": el bar aprobado (025l, solo The Time Machine)
 REAL_TEMPLATES = ("bar",)
 NEUTRAL = {"primary": "#b08d57", "secondary": "#3b4b5a", "background": "#141519", "surface": "#24262c", "text": "#f2efe9"}
 ROOM_DARK = "#0f0c11"
@@ -271,6 +271,30 @@ def tasks(staff: list[dict], orders: list[dict], tables_open: int, song: Optiona
     return out
 
 
+BAR_SEAT = re.compile(r"^(?:barra|bar)(?:$|[\s·:#-])\D*(\d{1,2})?", re.I)
+
+
+def song_place(raw: Any, tables: list[str]) -> str:
+    """Desde donde se pidio una cancion: 'Mesa 4' o 'Barra · silla 3' (nunca el nombre del cliente)."""
+    label = _short(raw, 40)
+    if not label:
+        return ""
+    seat = BAR_SEAT.match(label)
+    if seat:
+        return f"Barra · silla {int(seat.group(1))}" if seat.group(1) else "Barra"
+    return table_label(label, "", tables)
+
+
+def song_screen(items: list[dict]) -> dict:
+    """Pantalla "Canciones pedidas" del bar: la que suena (estado 'sonando', la mas reciente) y las siguientes 3
+    en cola (pendientes, la mas antigua primero). Funcion pura (probada). Sin pedidas: now = None y queue = []."""
+    playing = sorted([s for s in items if s["state"] == "sonando"], key=lambda s: s.get("playing_at") or s.get("at") or "", reverse=True)
+    queue = sorted([s for s in items if s["state"] == "pendiente"], key=lambda s: s.get("at") or "")
+    now = playing[0] if playing else None
+    return {"now": {"title": now["title"], "table": now["table"], "since": now.get("playing_at") or now.get("at")} if now else None,
+            "queue": [{"title": s["title"], "table": s["table"]} for s in queue[:3]]}
+
+
 def rev(snapshot: dict) -> str:
     body = {k: v for k, v in snapshot.items() if k not in ("generated_at", "rev")}
     return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:16]
@@ -320,10 +344,12 @@ async def live(r, c: dict, now: datetime, privacy: str, saved_layout: Any) -> di
         ORDER BY o.created_at
     """, {"c": cid, "s": since, "a": list(ORDER_STATE)}, tables=("hospitality_orders",))
     songs = await r.rows("""
-        SELECT id::text AS id, COALESCE(song, '') AS song, lower(COALESCE(status, '')) AS status, created_at
+        SELECT id::text AS id, COALESCE(song, '') AS song, lower(COALESCE(status, '')) AS status, created_at,
+               COALESCE(table_number, '') AS table_number, playing_at
         FROM hospitality_song_requests
         WHERE company_id = CAST(:c AS uuid) AND created_at >= :s AND archived_at IS NULL
-        ORDER BY created_at DESC LIMIT 6
+          AND lower(COALESCE(status, '')) IN ('pendiente', 'sonando', 'reproducida')
+        ORDER BY created_at DESC LIMIT 20
     """, {"c": cid, "s": now - timedelta(hours=4)}, tables=("hospitality_song_requests",))
     game = await r.one("""
         SELECT kind, status, started_at, ends_at FROM loyalty_game_rounds
@@ -345,7 +371,9 @@ async def live(r, c: dict, now: datetime, privacy: str, saved_layout: Any) -> di
         open_tables.setdefault(o["table"], {"since": o["at"], "guests": None})
     extra = [t for t in open_tables if t not in tables]
     all_tables = tables + sorted(extra)
-    song_items = [{"id": _hid(s["id"]), "title": _short(s["song"]), "state": s["status"], "at": of.iso(s["created_at"])} for s in songs or [] if _short(s["song"])]
+    song_items = [{"id": _hid(s["id"]), "title": _short(s["song"]), "state": s["status"], "at": of.iso(s["created_at"]),
+                   "table": song_place(s.get("table_number"), tables), "playing_at": of.iso(s.get("playing_at"))}
+                  for s in songs or [] if _short(s["song"])]
     staff = of.staff_out(shifts or [], "bar", privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0}
     people = tasks([{k: p[k] for k in ("key", "label", "role", "uniform", "paused")} for p in staff["visible"]], orders,
                    len(open_tables), song_items[0]["title"] if song_items else None, now)
@@ -356,7 +384,7 @@ async def live(r, c: dict, now: datetime, privacy: str, saved_layout: Any) -> di
         "ok": True, "company_id": cid, "template": "bar",
         "layout": merge_layout(all_tables, saved_layout),
         "tables": [{"label": t, "open": t in open_tables, **(open_tables.get(t) or {"since": None, "guests": None})} for t in all_tables],
-        "orders": orders, "songs": song_items,
+        "orders": orders, "songs": song_items[:6], "song_screen": song_screen(song_items),
         "game": {"kind": game["kind"], "label": GAME_LABEL.get(game["kind"], game["kind"]), "state": game["status"],
                  "ends_at": of.iso(game.get("ends_at"))} if game else None,
         "staff": {"count": staff.get("total"), "extra": staff.get("extra", 0), "people": people},

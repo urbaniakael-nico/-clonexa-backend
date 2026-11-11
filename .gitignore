@@ -49,3 +49,14 @@ build/
 
 # three@0.160.0 (Oficina 3D) trae su archivo en build/: se versiona tal cual
 !app/web/vendor/three-0.160.0/build/
+
+# Oficina 3D: recursos de Mixamo (licencia: uso dentro del producto, NO redistribuibles; el repo es publico).
+# Viven en el bucket privado (ops/oficina/subir_recursos_bar.py). tests/test_oficina_bar.py falla si entra uno.
+clonexa-assets/
+oficina-bar/
+procesados/
+*.fbx
+*.FBX
+**/mixamo*/
+Ch[0-9][0-9]_nonPBR.glb
+Remy.glb

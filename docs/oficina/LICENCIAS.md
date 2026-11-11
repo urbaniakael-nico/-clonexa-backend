@@ -18,9 +18,6 @@ Se genera con `ops/oficina/preparar_recursos.py`; la prueba `tests/test_oficina_
 | `modelos/silla.glb` | Gallinera Chair | Poly Haven | Ulan Cabanilla | CC0 1.0 | https://polyhaven.com/a/gallinera_chair |
 | `modelos/sofa.glb` | Sofa 01 | Poly Haven | Kirill Sannikov | CC0 1.0 | https://polyhaven.com/a/Sofa_01 |
 | `modelos/taburete.glb` | Bar Chair Round 01 | Poly Haven | Dairon Sanchez | CC0 1.0 | https://polyhaven.com/a/bar_chair_round_01 |
-| `personajes/animaciones.glb` | UAL1_Standard | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalanimationlibrary.html |
-| `personajes/superhero_female.glb` | Superhero_Female_FullBody | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalbasecharacters.html |
-| `personajes/superhero_male.glb` | Superhero_Male_FullBody | Quaternius | Quaternius | CC0 1.0 | https://quaternius.com/packs/universalbasecharacters.html |
 | `texturas/concreto_arm.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
 | `texturas/concreto_diff.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
 | `texturas/concreto_nor_gl.webp` | Concrete Floor 02 | Poly Haven | Rob Tuytel | CC0 1.0 | https://polyhaven.com/a/concrete_floor_02 |
@@ -48,11 +45,21 @@ Se genera con `ops/oficina/preparar_recursos.py`; la prueba `tests/test_oficina_
 |---|---|---|
 | `app/web/vendor/three-0.160.0/**` (incluye postprocessing, RGBELoader, meshopt_decoder) | three.js r160 · https://github.com/mrdoob/three.js | MIT (ver LICENSE en la carpeta) |
 
-## Personajes animados (pendiente de descarga manual)
+## Personajes del bar aprobado (The Time Machine): Mixamo
 
-Fuente elegida: **Quaternius** (CC0 1.0, uso comercial y redistribución permitidos, sin atribución obligatoria).
-- Universal Base Characters · https://quaternius.com/packs/universalbasecharacters.html · CC0 1.0
-- Universal Animation Library · https://quaternius.com/packs/universalanimationlibrary.html · CC0 1.0
+| Recurso | Fuente | Licencia | Dónde viven |
+|---|---|---|---|
+| Personajes Remy, Ch01, Ch06, Ch07, Ch17, Ch21, Ch22, Ch42 (`personajes/*.glb`) | Mixamo (Adobe) · https://www.mixamo.com | Uso permitido dentro del producto (comercial incluido). **No redistribuible**: prohibido publicar o compartir los archivos sueltos. | Bucket privado de Clonexa (`oficina/bar/v1/`) |
+| 13 animaciones solo movimiento (`animaciones/*.glb`: Bartending, Walking, Waving, Sitting…, Rumba_Dancing, Silly_Dancing, Talking, Drinking, Idle) | Mixamo (Adobe) | Igual: uso dentro del producto, no redistribuible. | Bucket privado de Clonexa (`oficina/bar/v1/`) |
 
-Mientras no estén, el piso usa personajes de respaldo hechos en código (propios, sin licencia de terceros).
-No se usa Mixamo: no hace falta.
+Reglas:
+- **Nunca en el repositorio** (es público). `.gitignore` excluye `clonexa-assets/`, `*.fbx` y los nombres de Mixamo, y
+  `tests/test_oficina_bar.py` falla si un archivo de Mixamo (huesos `mixamorig`, animación `mixamo.com` o `.fbx`) entra a git.
+- Se suben con `ops/oficina/subir_recursos_bar.py` (lee la carpeta `procesados`, fuera del repo) y el backend los sirve
+  solo con sesión de Admin V2 (`/admin-v2plus/oficina/bar/...`, 401 sin sesión), con lista blanca y huella sha256.
+- Se convirtieron a glTF con FBX2glTF, meshopt y texturas WebP de 1024 px (solo cambia el formato).
+
+## Personajes de Quaternius (retirados)
+
+Los cuerpos base de Quaternius (CC0) se retiraron del repositorio el 2026-11-11: se veían sin ropa. Ningún piso los usa;
+el piso "realista" vuelve a sus personas hechas en código si se enciende para otra empresa.

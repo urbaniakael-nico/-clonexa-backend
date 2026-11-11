@@ -148,7 +148,10 @@ def floor_style(row: dict, template: str) -> str:
     """Interruptor por empresa del piso realista (apagado por defecto). Solo plantillas con motor realista."""
     from app.services import oficina_vivo as ov
 
-    return "realista" if row.get("estilo") == "realista" and template in ov.REAL_TEMPLATES else "clasico"
+    wanted = row.get("estilo")
+    if wanted == "bar" and template == "bar":
+        return "bar"          # el bar aprobado (oficina_bar.js, personajes de Mixamo): hoy solo The Time Machine
+    return "realista" if wanted == "realista" and template in ov.REAL_TEMPLATES else "clasico"
 
 
 def order_floors(companies: list[dict], saved: dict[str, dict]) -> list[dict]:
@@ -381,7 +384,7 @@ async def floors(r: Reader, now: datetime) -> list[dict]:
             "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
             "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
             "style": style, "style_wanted": row.get("estilo") or "clasico",
-            "brand": await _brand(r, c) if style == "realista" else None,
+            "brand": await _brand(r, c) if style in ("realista", "bar") else None,
             "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
             "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
         })

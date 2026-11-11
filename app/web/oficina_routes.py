@@ -19,6 +19,9 @@ API (GUARD: 401 sin sesion, antes de leer el cuerpo):
 - GET  /admin-v2/api/oficina/marca/{company_id}/logo  logo del Estudio de marca (o del panel inicial).
 Recursos del piso realista: GET /admin-v2plus/oficina/recursos/{archivo} (CC0, lista blanca en manifest.json,
 cache larga; ver docs/oficina/LICENCIAS.md).
+Bar aprobado (estilo "bar", hoy solo The Time Machine): GET /admin-v2plus/oficina/bar/manifest.json y
+GET /admin-v2plus/oficina/bar/{personajes|animaciones}/{archivo}.glb -> personajes y animaciones de Mixamo desde el
+bucket PRIVADO (nunca en el repo; licencia: uso dentro del producto, no redistribuible), solo con sesion.
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.services import oficina as of
+from app.services import oficina_bar as obar
 from app.services import oficina_data as od
 from app.services import oficina_vivo as ov
 from app.web import admin_v2_routes as v2
@@ -53,6 +57,8 @@ ASSETS = {
     "app.css": ("oficina/oficina.css", "text/css"),
     "real.js": ("oficina/oficina_real.js", "application/javascript"),
     "real_reglas.js": ("oficina/oficina_real_rules.js", "application/javascript"),
+    "bar.js": ("oficina/oficina_bar.js", "application/javascript"),
+    "bar_reglas.js": ("oficina/oficina_bar_rules.js", "application/javascript"),
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -165,6 +171,24 @@ async def oficina_recurso(path: str, request: Request, db: AsyncSession = Depend
                         headers={"Cache-Control": LONG_CACHE, "ETag": f'"{meta["sha"]}"', "X-Content-Type-Options": "nosniff"})
 
 
+@router.get("/admin-v2plus/oficina/bar/{path:path}", include_in_schema=False)
+async def oficina_bar_recurso(path: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Personajes y animaciones de Mixamo del bar aprobado: bucket privado, solo con sesion de Admin V2."""
+    await _require(request, db)
+    try:
+        if path == "manifest.json":
+            m = await obar.manifest()
+            return v2._no_store(Response(json.dumps({"files": m["files"], "version": m["version"]}), media_type="application/json"))
+        found = await obar.read(path)
+    except obar.Unavailable as error:
+        raise HTTPException(status_code=503, detail=str(error), headers={"Cache-Control": "no-store"}) from None
+    if not found:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    data, sha = found
+    return Response(data, media_type="model/gltf-binary",
+                    headers={"Cache-Control": LONG_CACHE, "ETag": f'"{sha}"', "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/admin-v2plus/oficina/{name}", include_in_schema=False)
 async def oficina_asset(name: str, request: Request, db: AsyncSession = Depends(get_db)):
     await _require(request, db)
@@ -181,6 +205,7 @@ DB_TTL = 10.0
 
 def reset_cache() -> None:
     _DB_CACHE.update(at=0.0, data=None)
+    obar.reset()
     of.N8N.reset()
     _LIVE.clear()
 
