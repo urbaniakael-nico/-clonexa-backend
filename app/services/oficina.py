@@ -204,7 +204,7 @@ def flow_lines(flows: list[Optional[dict]], now: datetime) -> list[str]:
         last = f.get("last") if isinstance(f.get("last"), dict) else None
         if runs:
             more = "+" if f.get("today_runs_capped") else ""
-            lines.append(f"{name}: {runs}{more} ejecuciones hoy" + (f" ({errors} con error)" if errors else ""))
+            lines.append(f"{name}: {runs}{more} {'ejecución' if runs == 1 else 'ejecuciones'} hoy" + (f" ({errors} con error)" if errors else ""))
         elif last:
             status = "bien" if str(last.get("status")) == "success" else "con error" if str(last.get("status")) in ("error", "crashed") else str(last.get("status") or "")
             lines.append(f"{name}: última {when_label(last.get('stopped_at') or last.get('started_at'), now)} · {status}")
@@ -238,7 +238,7 @@ def build_agents(n8n: dict, db_lines: dict[str, list[str]], now: datetime) -> li
             if ok and cal.get("ok"):
                 week = int(cal.get("week_pieces") or 0)
                 state = "work" if week else "wait"
-                today = [f"{week} piezas en el calendario esta semana", f"{int(cal.get('ready') or 0)} en \"Listo para aprobar\""]
+                today = [f"{week} {'pieza' if week == 1 else 'piezas'} en el calendario esta semana",f"{int(cal.get('ready') or 0)} en \"Listo para aprobar\""]
                 nxt = cal.get("next") or {}
                 if nxt.get("fecha"):
                     today.append(f"Próxima: {nxt.get('fecha')} · {nxt.get('formato') or ''} {nxt.get('tema') or ''}".strip())
