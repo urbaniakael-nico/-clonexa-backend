@@ -158,9 +158,9 @@ def set_railway(secret: str) -> None:
     """Variables del backend en Railway sin imprimir el secreto (no redespliega: lo hace el push)."""
     for key, value in (("OFICINA_N8N_URL", URL), ("OFICINA_N8N_SECRET", secret)):
         exe = shutil.which("railway") or shutil.which("railway.cmd") or "railway"  # Windows: railway.cmd
-        r = subprocess.run([exe, "variable", "set", key, "--stdin", "--service", BACKEND_SERVICE, "--skip-deploys"], input=value,
+        r = subprocess.run([exe, "variable", "set", key, "--stdin", f"--service={BACKEND_SERVICE}", "--environment=production", "--skip-deploys"], input=value,
                            capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[2]))
-        print(f"Railway {key}:", "ok" if r.returncode == 0 else f"falló ({r.returncode})")
+        print(f"Railway {key}:", "ok" if r.returncode == 0 else f"falló ({r.returncode}): {(r.stderr or r.stdout or '').strip()[:200]}")
         if r.returncode != 0:
             sys.exit(1)
 
