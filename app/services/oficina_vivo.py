@@ -29,7 +29,7 @@ from app.services import oficina as of
 
 log = logging.getLogger("clonexa.oficina")
 
-STYLES_FLOOR = ("clasico", "realista", "bar")   # "bar": el bar aprobado (025l, solo The Time Machine)
+STYLES_FLOOR = ("clasico", "realista", "bar", "aprobado")   # "bar": bar aprobado (025l, TTM); "aprobado": 025m
 REAL_TEMPLATES = ("bar",)
 NEUTRAL = {"primary": "#b08d57", "secondary": "#3b4b5a", "background": "#141519", "surface": "#24262c", "text": "#f2efe9"}
 ROOM_DARK = "#0f0c11"

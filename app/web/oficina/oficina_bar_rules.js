@@ -39,6 +39,13 @@ export const CLIENTS = ['Remy', 'Ch42_nonPBR', 'Ch21_nonPBR', 'Ch22_nonPBR', 'Ch
 export const STAFF_MODEL = {barman: ['Ch01_nonPBR', 'Ch22_nonPBR'], mesero: ['Ch01_nonPBR', 'Ch42_nonPBR'], dj: ['Ch06_nonPBR'], caja: ['Ch21_nonPBR'],
   cocina: ['Remy'], '': ['Ch01_nonPBR']};
 export const REP_MODEL = 'Ch07_nonPBR';
+// Selector de género del editor (Hombre / Mujer y su personaje) para el personal; sin nada guardado, el de siempre.
+export function staffModel(def, saved, key) {
+  const pool = saved && saved.genero === 'mujer' ? CHARACTERS.filter(n => WOMEN.test(n)) : saved && saved.genero === 'hombre' ? CHARACTERS.filter(n => !WOMEN.test(n)) : null;
+  if (saved && saved.personaje && CHARACTERS.includes(saved.personaje) && (!pool || pool.includes(saved.personaje))) return saved.personaje;
+  if (!pool || pool.includes(def)) return def;
+  return pool[hashOf(key || '') % pool.length];
+}
 // Ropa alegre de los clientes (solo la camisa/blusa: la piel nunca se toca).
 export const HAPPY = ['#ff4d6d', '#ffb703', '#2ec4b6', '#8338ec', '#3a86ff', '#fb5607', '#06d6a0', '#ff006e', '#f15bb5', '#00bbf9'];
 export const STAFF_BLACK = '#141416';

@@ -101,3 +101,12 @@ body.real-on #tags,body.real-on #help,body.real-on #legend{display:none}
 #barTags .tg.pausa{border-color:#f59e0b}#barTags .tg.pausa i{background:#f59e0b}
 #barTags .tg.mesa{border:0;font-size:11px;padding:3px 8px}#barTags .tg.mesa.on{background:rgba(10,8,14,.85);color:#bbf7d0;border:1px solid rgba(74,222,128,.45)}#barTags .tg.mesa.off{background:rgba(40,36,46,.85);color:#bdb3c6}
 #barTags .tg .dot{color:#4ade80;font-weight:700}
+/* pisos aprobados (025m): colores de estado en las etiquetas (sin estilos en línea: CSP) */
+#barTags.pisos .tg i.work{background:#22c55e}#barTags.pisos .tg i.wait{background:#f59e0b}#barTags.pisos .tg i.err{background:#ef4444}
+#barTags.pisos .tg i.train,#barTags.pisos .tg i.blue{background:#60a5fa}#barTags.pisos .tg i.nodata{background:#6b7280}#barTags.pisos .tg i.rep{background:#fbbf24}#barTags.pisos .tg i.ceo{background:#a855f7}
+#barTags.pisos .tg.red{border-color:#ef4444;box-shadow:0 0 12px rgba(239,68,68,.5)}#barTags.pisos .tg.blue{border-color:#60a5fa}
+#barTags.pisos .tg.ceo{border-color:#a855f7;box-shadow:0 0 14px rgba(168,85,247,.45)}
+#barTags.pisos .tg .off{color:#9a90a6}
+#barTags.pisos .tg.zn{transform:translate(-50%,-50%);font-size:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;padding:4px 12px;border-radius:999px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.3);box-shadow:none}
+#barTags.pisos.clonexa .tg.zn{background:linear-gradient(135deg,rgba(255,59,78,.35),rgba(124,58,237,.35));border-color:rgba(255,255,255,.25)}
+#barTags.pisos.taller .tg.zn{background:rgba(219,39,119,.35);border-color:rgba(255,255,255,.25)}

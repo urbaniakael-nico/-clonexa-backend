@@ -49,6 +49,11 @@ TEMPLATES = ("taller", "restaurante", "bar", "campo", "general")
 TEMPLATE_LABEL = {"taller": "Taller de costura", "restaurante": "Restaurante", "bar": "Bar", "campo": "Operación en campo",
                   "general": "Oficina general"}
 PRIVACY = ("nombre", "cargo")
+# Editor (pisos aprobados): genero y personaje de Mixamo de cada genero; tunica, barba (solo hombres) y su color.
+GENDERS = ("hombre", "mujer")
+MIXAMO_BY_GENDER = {"hombre": ("Remy", "Ch01_nonPBR", "Ch06_nonPBR", "Ch42_nonPBR", "Ch17_nonPBR"),
+                    "mujer": ("Ch07_nonPBR", "Ch21_nonPBR", "Ch22_nonPBR")}
+YES_NO = ("si", "no")
 UNIFORMS = ("costura", "cocina", "mesero", "caja", "domiciliario", "barman", "dj", "tecnico")
 UNIFORM_LABEL = {"costura": "Operaria de costura", "cocina": "Cocinero/a", "mesero": "Mesero/a", "caja": "Cajero/a",
                  "domiciliario": "Domiciliario", "barman": "Barman", "dj": "DJ", "tecnico": "Técnico de campo"}
@@ -84,6 +89,10 @@ AGENTS: list[dict[str, Any]] = [
     {"id": "lector", "flows": ["Clonexa - Leer carta"], "db": "menu"},
     {"id": "guardian", "flows": ["Nexa - Errores"]},
 ]
+# Piso aprobado de Clonexa: area de cada agente (un flujo nuevo de n8n cae en la suya por su nombre).
+AGENT_AREA = {"director": "direccion", "asistente": "juntas", "creativo": "marketing", "contenido": "marketing", "planb": "marketing",
+              "tiktok": "marketing", "analista": "marketing", "ventas": "ventas", "correos": "ventas", "prospecta": "ventas",
+              "comunidad": "ventas", "mensajero": "bots", "archivista": "bots", "lector": "bots", "guardian": "bots"}
 AGENT_IDS = tuple(a["id"] for a in AGENTS)
 
 
@@ -445,7 +454,28 @@ def clean_character(body: Any) -> dict:
         if value not in ACCESSORIES:
             raise Rejected("Accesorio no válido.")
         out["accesorio"] = value
-    for field in ("color_ropa", "color_pantalon", "color_pelo", "color_piel", "color_accesorio"):
+    if "genero" in body:
+        value = str(body.get("genero") or "")
+        if value and value not in GENDERS:
+            raise Rejected("Género no válido.")
+        out["genero"] = value
+    if "personaje" in body:
+        value = str(body.get("personaje") or "")
+        if value and not any(value in names for names in MIXAMO_BY_GENDER.values()):
+            raise Rejected("Personaje no válido.")
+        gender = out.get("genero") or str(body.get("genero") or "")
+        if value and gender in MIXAMO_BY_GENDER and value not in MIXAMO_BY_GENDER[gender]:
+            raise Rejected("Ese personaje no es del género elegido.")
+        out["personaje"] = value
+    for field in ("tunica", "barba"):
+        if field in body:
+            value = str(body.get(field) or "")
+            if value and value not in YES_NO:
+                raise Rejected(f"Opción no válida en {field}.")
+            out[field] = value
+    if out.get("barba") == "si" and (out.get("genero") or body.get("genero")) == "mujer":
+        raise Rejected("La barba es solo para personajes hombres.")
+    for field in ("color_ropa", "color_pantalon", "color_pelo", "color_piel", "color_accesorio", "color_barba"):
         if field in body:
             value = str(body.get(field) or "")
             if value and not HEX.match(value):

@@ -42,6 +42,7 @@ from app.api.deps import get_db
 from app.services import oficina as of
 from app.services import oficina_bar as obar
 from app.services import oficina_data as od
+from app.services import oficina_pisos as opi
 from app.services import oficina_vivo as ov
 from app.web import admin_v2_routes as v2
 from app.web.admin_v2plus_companies import GUARD, _audit, _json
@@ -59,6 +60,13 @@ ASSETS = {
     "real_reglas.js": ("oficina/oficina_real_rules.js", "application/javascript"),
     "bar.js": ("oficina/oficina_bar.js", "application/javascript"),
     "bar_reglas.js": ("oficina/oficina_bar_rules.js", "application/javascript"),
+    # pisos aprobados (025m): motor comun + un motor por plantilla + reglas puras
+    "mixamo.js": ("oficina/oficina_mixamo.js", "application/javascript"),
+    "pisos_reglas.js": ("oficina/oficina_pisos_rules.js", "application/javascript"),
+    "clonexa.js": ("oficina/oficina_clonexa.js", "application/javascript"),
+    "taller.js": ("oficina/oficina_taller.js", "application/javascript"),
+    "restaurante.js": ("oficina/oficina_restaurante.js", "application/javascript"),
+    "campo.js": ("oficina/oficina_campo.js", "application/javascript"),
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -208,27 +216,26 @@ def reset_cache() -> None:
     obar.reset()
     of.N8N.reset()
     _LIVE.clear()
+    opi.reset()
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@router.get(f"{API}/estado", include_in_schema=False, dependencies=GUARD)
-async def estado(db: AsyncSession = Depends(get_db)):
-    now = _now()
-    n8n = await of.N8N.get()
+async def _base(db: AsyncSession, now: datetime) -> dict:
     if _DB_CACHE["data"] is not None and time.monotonic() - _DB_CACHE["at"] < DB_TTL:
-        base = _DB_CACHE["data"]
-    else:
-        r = od.Reader(db)
-        floors = await od.floors(r, now)
-        block = await od.clonexa_block(r, now)
-        shifts = await od.shift_feed(r, floors, now)
-        base = {"floors": floors, "block": block, "shift_feed": shifts}
-        _DB_CACHE.update(at=time.monotonic(), data=base)
-    block, floors = base["block"], base["floors"]
-    agents = of.build_agents(n8n, block["lines"], now)
+        return _DB_CACHE["data"]
+    r = od.Reader(db)
+    floors = await od.floors(r, now)
+    block = await od.clonexa_block(r, now)
+    shifts = await od.shift_feed(r, floors, now)
+    base = {"floors": floors, "block": block, "shift_feed": shifts, "clonexa_style": await od.clonexa_style(r)}
+    _DB_CACHE.update(at=time.monotonic(), data=base)
+    return base
+
+
+def _approvals(n8n: dict, block: dict, agents: list[dict]) -> dict:
     cal = n8n.get("calendar") if n8n.get("ok") else None
     approvals = {
         "pieces": (cal or {}).get("ready_items") or [] if cal and cal.get("ok") else None,
@@ -242,6 +249,18 @@ async def estado(db: AsyncSession = Depends(get_db)):
         ("Lote de correos de hoy por aprobar" if approvals["batch"] else "Sin lote de correos pendiente") if approvals["batch_known"] else "Lote de correos: sin datos",
         f"{len(approvals['replied'])} leads respondieron" if approvals["replied_known"] else "Leads: sin datos",
     ]
+    return approvals
+
+
+@router.get(f"{API}/estado", include_in_schema=False, dependencies=GUARD)
+async def estado(db: AsyncSession = Depends(get_db)):
+    now = _now()
+    n8n = await of.N8N.get()
+    base = await _base(db, now)
+    block, floors = base["block"], base["floors"]
+    agents = of.build_agents(n8n, block["lines"], now)
+    cal = n8n.get("calendar") if n8n.get("ok") else None
+    approvals = _approvals(n8n, block, agents)
     ideas = n8n.get("ideas") if n8n.get("ok") else None
     feed = sorted(of.n8n_feed(n8n, now) + block["feed"] + base["shift_feed"], key=lambda e: e.get("at") or "", reverse=True)[:12]
     return _json({
@@ -250,7 +269,7 @@ async def estado(db: AsyncSession = Depends(get_db)):
         "agents": agents, "approvals": approvals,
         "calendar": {k: cal.get(k) for k in ("ready", "approved", "next", "week_pieces")} if cal and cal.get("ok") else None,
         "ideas": {"pending": int(ideas.get("pending") or 0), "items": (ideas.get("items") or [])[:5]} if ideas and ideas.get("ok") else None,
-        "floors": floors, "feed": feed,
+        "floors": floors, "feed": feed, "clonexa_style": base.get("clonexa_style", "clasico"),
         "cast": {"agents": len(of.AGENTS), "reps": len(floors), "templates": len(of.UNIFORMS), "on_shift": od.counts_now(floors),
                  "by_floor": [{"name": f["name"], "on_shift": (f.get("staff") or {}).get("total")} for f in floors]},
         "templates": [{"key": k, "label": of.TEMPLATE_LABEL[k]} for k in of.TEMPLATES],
@@ -408,8 +427,9 @@ def _template(c: dict, row: dict) -> str:
 async def _live_company(db: AsyncSession, company_id: str) -> tuple[dict, dict]:
     c = await _company(db, company_id)
     row = await od.floor_row(db, c["id"])
-    if _template(c, row) not in ov.REAL_TEMPLATES:
-        raise HTTPException(status_code=409, detail="Este piso aún no tiene copia viva (hoy solo la plantilla Bar).")
+    template = _template(c, row)
+    if template not in ov.REAL_TEMPLATES and od.floor_style(row, template) != "aprobado":
+        raise HTTPException(status_code=409, detail="Este piso aún no tiene copia viva.")
     return c, row
 
 
@@ -422,6 +442,29 @@ def _dist(raw: Any) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+APPROVED_LIVE = {"taller": opi.live_taller, "restaurante": opi.live_restaurante, "campo": opi.live_campo}
+
+
+@router.get(API + "/clonexa/vivo", include_in_schema=False, dependencies=GUARD)
+async def clonexa_vivo(rev: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Copia viva del piso de Clonexa (agentes, bots, empresas de hoy y tesoreria sin montos)."""
+    now = _now()
+    hit = _LIVE.get("clonexa")
+    if hit and time.monotonic() - hit[0] < LIVE_TTL:
+        snap = hit[1]
+    else:
+        n8n = await of.N8N.get()
+        base = await _base(db, now)
+        agents = of.build_agents(n8n, base["block"]["lines"], now)
+        approvals = _approvals(n8n, base["block"], agents)
+        snap = await opi.live_clonexa(od.Reader(db), now, n8n, base, agents, approvals)
+        snap["generated_at"] = now.isoformat()
+        _LIVE["clonexa"] = (time.monotonic(), snap)
+    if rev and rev == snap["rev"]:
+        return _json({"ok": True, "same": True, "rev": snap["rev"]})
+    return _json(snap)
+
+
 @router.get(API + "/pisos/{company_id}/vivo", include_in_schema=False, dependencies=GUARD)
 async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends(get_db)):
     c, row = await _live_company(db, company_id)
@@ -430,8 +473,14 @@ async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends
         snap = hit[1]
     else:
         privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
-        snap = await ov.live(od.Reader(db), c, _now(), privacy, _dist(row.get("distribucion")))
-        snap["style"] = od.floor_style(row, "bar")
+        template = _template(c, row)
+        live = APPROVED_LIVE.get(template) if od.floor_style(row, template) == "aprobado" else None
+        if live:
+            snap = await live(od.Reader(db), c, _now(), privacy)
+            snap["style"] = "aprobado"
+        else:
+            snap = await ov.live(od.Reader(db), c, _now(), privacy, _dist(row.get("distribucion")))
+            snap["style"] = od.floor_style(row, "bar")
         snap["floor_mb"] = round(floor_bytes("bar") / 1024 / 1024, 2)
         _LIVE[c["id"]] = (time.monotonic(), snap)
     if rev and rev == snap["rev"]:

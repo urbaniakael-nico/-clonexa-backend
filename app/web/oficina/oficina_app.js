@@ -21,7 +21,16 @@ const BODY_LABEL = {medio: 'Medio', delgado: 'Delgado', robusto: 'Robusto', alto
 const HAIR_LABEL = {corto: 'Corto', largo: 'Largo', rizado: 'Rizado', recogido: 'Recogido', rapado: 'Rapado', calvo: 'Sin pelo'};
 const ACC_LABEL = {none: 'Ninguno', delantal: 'Delantal', gorra: 'Gorra', casco: 'Casco', audifonos: 'Audífonos', gafas: 'Gafas', chaleco: 'Chaleco', corbata: 'Corbata'};
 const SERVER_FIELDS = {nombre: 'name', rol: 'zone', tarea: 'role', estilo: 'style', color_ropa: 'color', color_pantalon: 'legs',
-  color_pelo: 'hair', color_piel: 'skin', accesorio: 'acc', color_accesorio: 'accColor', cuerpo: 'body', peinado: 'hairStyle'};
+  color_pelo: 'hair', color_piel: 'skin', accesorio: 'acc', color_accesorio: 'accColor', cuerpo: 'body', peinado: 'hairStyle',
+  genero: 'gender', personaje: 'model', tunica: 'tunic', barba: 'beard', color_barba: 'beardColor'};
+// Pisos aprobados: personajes de Mixamo por género (el editor elige cuál).
+const MIXAMO = {hombre: ['Remy', 'Ch01_nonPBR', 'Ch06_nonPBR', 'Ch42_nonPBR', 'Ch17_nonPBR'], mujer: ['Ch07_nonPBR', 'Ch21_nonPBR', 'Ch22_nonPBR']};
+const MIXAMO_LABEL = {Remy: 'Remy', Ch01_nonPBR: 'Ch01', Ch06_nonPBR: 'Ch06', Ch42_nonPBR: 'Ch42', Ch17_nonPBR: 'Ch17 (casco)', Ch07_nonPBR: 'Ch07', Ch21_nonPBR: 'Ch21', Ch22_nonPBR: 'Ch22'};
+// Motor de cada piso aprobado (uno por plantilla).
+const AGENT_MODEL_DEF = {director: 'Ch01_nonPBR', asistente: 'Ch07_nonPBR', creativo: 'Remy', contenido: 'Ch22_nonPBR', planb: 'Ch42_nonPBR', tiktok: 'Ch21_nonPBR',
+  analista: 'Ch42_nonPBR', ventas: 'Ch07_nonPBR', correos: 'Ch01_nonPBR', prospecta: 'Ch21_nonPBR', comunidad: 'Ch22_nonPBR', mensajero: 'Ch06_nonPBR',
+  archivista: 'Ch01_nonPBR', lector: 'Ch07_nonPBR', guardian: 'Ch06_nonPBR'};
+const APPROVED_MODULE = {taller: '/admin-v2plus/oficina/taller.js', restaurante: '/admin-v2plus/oficina/restaurante.js', campo: '/admin-v2plus/oficina/campo.js'};
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -100,11 +109,19 @@ function agentVisualState(state) {
 // Un piso abre el motor realista solo si su empresa tiene el interruptor encendido (estilo "realista" o "bar":
 // el bar aprobado de The Time Machine, oficina_bar.js).
 function isRealFloor(f) {
-  return !!(f && (f.style === 'realista' || f.style === 'bar'));
+  return !!(f && (f.style === 'realista' || f.style === 'bar' || (f.style === 'aprobado' && APPROVED_MODULE[f.template])));
 }
 // Con un piso abierto, el clic y el arrastre son del piso: nunca cambian de piso ni mueven el edificio.
 function buildingInputAllowed(realOpen) {
   return !realOpen;
+}
+// Género por defecto del editor (igual que oficina_pisos_rules.genderFromName): nombre en "a" -> Mujer, salvo
+// nombres masculinos conocidos (KRISS de Velvet es hombre). Editable.
+const MALE_A = new Set(['kriss', 'kris', 'cris', 'luca', 'nicola', 'andrea', 'josua', 'joshua', 'elia', 'borja', 'santi']);
+function guessGender(name) {
+  const n = String(name || '').trim().split(/\s+/)[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (!n) return 'hombre';
+  return MALE_A.has(n) ? 'hombre' : /a$/.test(n) ? 'mujer' : 'hombre';
 }
 // ===== fin reglas puras =====
 
@@ -540,14 +557,18 @@ function main(DATA, SAVED_IN) {
     leaveReal(); realBusy = true; realFor = p; hideInfo();
     document.body.classList.add('real-on');
     try {
-      const isBar = p.data && p.data.style === 'bar';
-      const mod = isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
+      const isCx = p === cx, isBar = !isCx && p.data && p.data.style === 'bar', approved = !isCx && p.data && p.data.style === 'aprobado' && APPROVED_MODULE[p.data.template];
+      const mod = isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
       if (realFor !== p) return;
-      REAL = await (isBar ? mod.openBar : mod.openReal)({R, floor: p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
+      const layers = (kind, k, uniform) => kind === 'rep' ? [SAVED.get(savedKey(p.cid, 'rep'))] : kind === 'agent' ? [SAVED.get(savedKey(null, 'agente:' + k))]
+        : [SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))];
+      const openFn = isCx || approved ? mod.open : isBar ? mod.openBar : mod.openReal;
+      REAL = await openFn({R, floor: isCx ? {company_id: null, name: 'CLONEXA', template: 'clonexa'} : p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
         repName: p.rep && p.rep.def.name,
-        charCfg: (kind, k, uniform) => kind === 'rep' ? fromServerCfg([SAVED.get(savedKey(p.cid, 'rep'))])
-          : fromServerCfg([SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))]),
-        onClose: () => setFocus(null), onRep: () => showRep(p), onPerson: (info, kind) => showPerson(info, kind, p), onTable: t => showTable(t, p),
+        charCfg: (kind, k, uniform) => fromServerCfg(layers(kind, k, uniform)),
+        rawCfg: (kind, k, uniform) => Object.assign({}, ...layers(kind, k, uniform).filter(Boolean)),
+        onClose: () => setFocus(null), onRep: () => showRep(p), onTable: t => showTable(t, p),
+        onPerson: (info, kind) => (isCx && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
       log(`<b>${esc(p.name)}</b> · piso realista abierto`);
     } catch (e) {
@@ -563,15 +584,16 @@ function main(DATA, SAVED_IN) {
     const since = t.since ? new Date(t.since).toLocaleTimeString('es-CO', {hour: '2-digit', minute: '2-digit'}) : null;
     openInfo(`<h2>${esc(t.label)}</h2><div class="role">${t.open ? '● QR activo' : 'Libre'} · ${esc(p.name)}</div>
       <ul>${t.open ? `<li>Abierta${since ? ' desde las ' + esc(since) : ''}</li>` : '<li>Sin QR activo</li>'}${t.guests ? `<li>${esc(t.guests)} personas registradas</li>` : ''}
-      <li>${t.pending ? esc(t.pending) + (t.pending === 1 ? ' producto pedido' : ' productos pedidos') + ' a la barra' : 'Sin pedidos pendientes'}</li>${t.songs ? `<li>${esc(t.songs)} canciones pedidas</li>` : ''}</ul>
+      <li>${t.pending ? esc(t.pending) + (t.pending === 1 ? ' producto pedido' : ' productos pedidos') + (p.data && p.data.template === 'restaurante' ? ' en preparación' : ' a la barra') : 'Sin pedidos pendientes'}</li>${t.songs ? `<li>${esc(t.songs)} canciones pedidas</li>` : ''}</ul>
       <div class="src">Solo actividad (sin dinero ni datos de los clientes).</div>`, 'mesa:' + t.label);
   }
   function showPerson(info, kind, p) {
     openInfo(`<h2>${esc(info.name || 'Cliente')}</h2><div class="role">${esc(info.role || '')} · ${esc(p.name)}</div>${info.task ? `<ul><li>${esc(info.task)}</li></ul>` : ''}
       <div class="src">${kind === 'cliente' ? 'Cliente anónimo (Clonexa no muestra datos de los clientes).' : 'Personal en turno (privacidad del piso).'}</div>`);
   }
+  const cxApproved = () => DATA && DATA.clonexa_style === 'aprobado';
   function setFocus(p, keepCamera) {
-    if (p && isRealFloor(p.data)) { focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', b.dataset.k === p.key)); enterReal(p); return; }
+    if (p && (isRealFloor(p.data) || (p === cx && cxApproved()))) { focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', b.dataset.k === p.key)); enterReal(p); return; }
     if (REAL || realFor) leaveReal();
     focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', !!p && b.dataset.k === p.key));
     FLOORS.forEach(f => { f.g.visible = !(p && f.y > p.y + .1); const on = p === f; f.ceil.visible = !on; f.front.forEach(o => o.visible = !on); f.shell.forEach(o => o.visible = !on || !o.material || o.material !== facadeGlass); }); crown.visible = !p;
@@ -635,6 +657,7 @@ function main(DATA, SAVED_IN) {
       <div class="kpis">${(f.kpis || []).map(([k, v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>
       <ul>${(f.lines || []).map(t => `<li>${esc(t)}</li>`).join('')}<li>Última actividad ${esc(f.last_activity || '')}</li><li>${f.staff && f.staff.total != null ? esc(f.staff.total) + ' personas con turno abierto' : 'Turnos: sin datos'}</li></ul>
       <div class="row">Plantilla <select data-tpl>${tplOpts}</select></div>
+      ${APPROVED_MODULE[f.template] ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${f.style !== 'aprobado' ? 'selected' : ''}>Clásico</option><option value="aprobado" ${f.style === 'aprobado' ? 'selected' : ''}>Piso aprobado (copia viva)</option></select></div>` : ''}
       ${f.template === 'bar' ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${!isRealFloor(f) ? 'selected' : ''}>Clásico</option><option value="realista" ${f.style === 'realista' ? 'selected' : ''}>Realista (copia viva)</option><option value="bar" ${f.style === 'bar' ? 'selected' : ''}>Bar aprobado (copia viva)</option></select></div>` : ''}
       ${f.brand && f.brand.warning ? `<div class="alert">${esc(f.brand.warning)}</div>` : ''}
       <div class="row">Personal <select data-priv><option value="nombre" ${f.privacy !== 'cargo' ? 'selected' : ''}>Nombre + inicial y cargo</option><option value="cargo" ${f.privacy === 'cargo' ? 'selected' : ''}>Solo el cargo</option></select></div>
@@ -772,6 +795,7 @@ function main(DATA, SAVED_IN) {
       ${named ? `<label>Rol / sección<select name="zone">${roles.map(r => `<option ${r === v.zone ? 'selected' : ''}>${r}</option>`).join('')}</select></label><label>Tarea<input name="role" maxlength="120" value="${esc(v.role || '')}"></label>` : ''}
       <label>Cuerpo<select name="body">${Object.entries(BODY_LABEL).map(([k, t]) => `<option value="${k}" ${k === (v.body || 'medio') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label>Peinado<select name="hairStyle">${Object.entries(HAIR_LABEL).map(([k, t]) => `<option value="${k}" ${k === (v.hairStyle || 'corto') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      ${mixamoFields(en, v)}
       <label>Ropa<input type="color" name="color" value="${esc(v.color || '#f20b6d')}"></label><label>Pantalón<input type="color" name="legs" value="${esc(v.legs || '#22202b')}"></label>
       <label>Color de pelo<input type="color" name="hair" value="${esc(v.hair === 'none' ? '#000000' : (v.hair || '#2b1b12'))}"></label>
       <label>Tono de piel<select name="skin">${SKIN.map((s, i) => `<option value="${s}" ${s === v.skin ? 'selected' : ''}>Tono ${i + 1}</option>`).join('')}</select></label>
@@ -784,7 +808,20 @@ function main(DATA, SAVED_IN) {
     const say = (t, bad) => { msg.textContent = t; msg.className = 'msg' + (bad ? ' bad' : ''); };
     edForm.onsubmit = e => { e.preventDefault(); };
     edForm.querySelectorAll('input,select').forEach(x => x.oninput = () => { const o = {}; o[x.name] = x.value; change(en, o, say); if (x.name === 'name') b.querySelector('span').firstChild.textContent = x.value; });
+    const gSel = edForm.querySelector('[name=gender]'); if (gSel) gSel.oninput = () => { change(en, {gender: gSel.value, model: '', ...(gSel.value === 'mujer' ? {beard: 'no'} : {})}, say); sel(en, b); };
     edForm.querySelectorAll('[data-sw]').forEach(x => { x.firstChild.style.background = x.dataset.c; }); edForm.querySelectorAll('[data-sw]').forEach(x => x.onclick = () => { change(en, {[x.dataset.sw]: x.dataset.c}, say); sel(en, b); });
+  }
+  // Pisos aprobados (Mixamo): género Hombre / Mujer, su personaje, túnica, barba (solo hombres) y su color.
+  function mixamoFields(en, v) {
+    const isAgent = en.kind === 'agent';
+    const gender = v.gender || (isAgent ? (/(Ch07|Ch21|Ch22)/.test(AGENT_MODEL_DEF[en.def && en.def.id] || '') ? 'mujer' : 'hombre') : guessGender(en.label));
+    const opt = (val, label, cur) => `<option value="${esc(val)}" ${val === (cur || '') ? 'selected' : ''}>${esc(label)}</option>`;
+    return `<div class="note full">Pisos aprobados (personajes de Mixamo)${isAgent ? ' · piso Clonexa: túnica negra' : ''}</div>
+      <label>Género<select name="gender">${opt('hombre', 'Hombre', gender)}${opt('mujer', 'Mujer', gender)}</select></label>
+      <label>Personaje<select name="model">${opt('', 'Automático', v.model)}${MIXAMO[gender].map(m => opt(m, MIXAMO_LABEL[m], v.model)).join('')}</select></label>
+      <label>Túnica<select name="tunic">${opt('', isAgent ? 'Sí (piso Clonexa)' : 'Automática', v.tunic)}${opt('si', 'Sí', v.tunic)}${opt('no', 'No', v.tunic)}</select></label>
+      ${gender === 'hombre' ? `<label>Barba<select name="beard">${opt('', en.def && en.def.id === 'director' ? 'Sí (CEO)' : 'No', v.beard)}${opt('si', 'Sí', v.beard)}${opt('no', 'No', v.beard)}</select></label>
+      <label>Color de barba<input type="color" name="beardColor" value="${esc(v.beardColor || '#2b1a10')}"></label>` : ''}`;
   }
   // Ropa según cargo y colores de la empresa: atajos con la paleta del Estudio de marca del piso.
   function brandSwatches(en) {
@@ -801,6 +838,7 @@ function main(DATA, SAVED_IN) {
     en.chars().forEach(rebuild);
     pending = Object.assign(pending.clave === en.clave && pending.company_id === en.cid ? pending : {clave: en.clave, company_id: en.cid}, toServer(o));
     clearTimeout(saveTimer); saveTimer = setTimeout(async () => { const body = pending; pending = {};
+      if (REAL && REAL.rebuild && ('genero' in body || 'personaje' in body || 'tunica' in body || 'barba' in body || 'color_barba' in body || 'color_pelo' in body || 'color_ropa' in body || 'nombre' in body)) REAL.rebuild();
       try { const r = await getJson(API + '/personajes', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); SAVED.set(savedKey(r.item.company_id, r.item.clave), r.item); say('Guardado ✓'); }
       catch (err) { say('No se guardó: ' + err.message, true); } }, 600);
   }

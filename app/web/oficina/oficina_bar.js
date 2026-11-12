@@ -403,7 +403,7 @@ export async function openBar(o) {
       let s = STAFF.get(person.key);
       if (!s) {
         const models = RULES.STAFF_MODEL[person.uniform] || RULES.STAFF_MODEL[''];
-        const n = models[idx % models.length];
+        const n = RULES.staffModel(models[idx % models.length], (o.rawCfg && o.rawCfg('staff', person.key, person.uniform)) || {}, person.key);   // género del editor
         const p = makePerson(n, {staff: person.uniform !== 'dj', kind: 'personal', info: {name: person.label, role: person.role, task: person.task}});
         s = {p, data: person, spot: spot.pos, clip}; STAFF.set(person.key, s);
         p.tag = tag(p.g, '', '', person.uniform === 'dj' ? 2.15 : 2.05);

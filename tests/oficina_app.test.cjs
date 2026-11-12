@@ -105,7 +105,8 @@ test('solo los pisos con el interruptor "realista" abren el motor nuevo (y se ca
   assert.equal(isRealFloor({}), false);
   assert.equal(isRealFloor(null), false);
   assert.equal(isRealFloor({ style: 'bar' }), true, 'el bar aprobado (The Time Machine)');
-  assert.match(source, /const mod = isBar \? await import\('\/admin-v2plus\/oficina\/bar\.js'\) : await import\('\/admin-v2plus\/oficina\/real\.js'\);/);
+  assert.match(source, /isBar \? await import\('\/admin-v2plus\/oficina\/bar\.js'\) : await import\('\/admin-v2plus\/oficina\/real\.js'\);/, 'cada motor se carga solo al entrar a su piso');
+  assert.match(source, /isCx \? await import\('\/admin-v2plus\/oficina\/clonexa\.js'\) : approved \? await import\(approved\)/, 'pisos aprobados: un motor por plantilla');
   assert.match(source, /if \(REAL\) REAL\.tick\(\); else \{ R\.render\(S, C\); updTags\(\); \}/);
 });
 

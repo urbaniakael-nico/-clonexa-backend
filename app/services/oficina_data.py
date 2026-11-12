@@ -151,7 +151,18 @@ def floor_style(row: dict, template: str) -> str:
     wanted = row.get("estilo")
     if wanted == "bar" and template == "bar":
         return "bar"          # el bar aprobado (oficina_bar.js, personajes de Mixamo): hoy solo The Time Machine
+    if wanted == "aprobado" and template in APPROVED_TEMPLATES:
+        return "aprobado"     # pisos aprobados (025m): Velvet (taller), Asadero (restaurante) y VOLTAGE (campo)
     return "realista" if wanted == "realista" and template in ov.REAL_TEMPLATES else "clasico"
+
+
+APPROVED_TEMPLATES = ("taller", "restaurante", "campo")
+
+
+async def clonexa_style(r: Reader) -> str:
+    """Interruptor del piso de Clonexa (oficina_ajustes.piso_clonexa): 'aprobado' o 'clasico' (sin la fila)."""
+    row = await r.one("SELECT valor FROM oficina_ajustes WHERE clave = 'piso_clonexa'", tables=("oficina_ajustes",))
+    return "aprobado" if (row or {}).get("valor") == "aprobado" else "clasico"
 
 
 def order_floors(companies: list[dict], saved: dict[str, dict]) -> list[dict]:
@@ -384,7 +395,7 @@ async def floors(r: Reader, now: datetime) -> list[dict]:
             "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
             "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
             "style": style, "style_wanted": row.get("estilo") or "clasico",
-            "brand": await _brand(r, c) if style in ("realista", "bar") else None,
+            "brand": await _brand(r, c) if style in ("realista", "bar", "aprobado") else None,
             "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
             "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
         })
@@ -509,7 +520,7 @@ async def shift_feed(r: Reader, floors_out: list[dict], now: datetime, limit: in
 
 # ------------------------------------------------------------------ editor (oficina_personajes)
 CHAR_COLS = ("clave", "nombre", "rol", "tarea", "estilo", "color_ropa", "color_pantalon", "color_pelo", "color_piel", "accesorio",
-             "color_accesorio", "cuerpo", "peinado", "updated_at")
+             "color_accesorio", "cuerpo", "peinado", "genero", "personaje", "tunica", "barba", "color_barba", "updated_at")
 OUT_COLS = tuple(k for k in CHAR_COLS if k not in ("clave", "updated_at"))
 
 

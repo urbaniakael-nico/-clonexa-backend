@@ -107,7 +107,7 @@ def pg_url():
     async def setup():
         engine = create_async_engine(url, poolclass=NullPool)
         async with engine.begin() as conn:
-            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2 + _migration("025k_oficina_real") * 2 + _migration("025l_oficina_bar") * 2:
+            for stmt in [s for s in SCHEMA.split(";") if s.strip()] + _migration("023b_admin_audit_log") + _migration("025j_oficina") * 2 + _migration("025k_oficina_real") * 2 + _migration("025l_oficina_bar") * 2 + _migration("025m_oficina_pisos") * 2:
                 await conn.execute(text(stmt))
         await engine.dispose()
 
@@ -640,13 +640,14 @@ def test_bar_recursos_privados_con_sesion_cache_y_huella(client, monkeypatch):
 def test_bar_encendido_solo_en_ttm_por_migracion_y_otras_sin_cambios(client, pg_url, monkeypatch):
     _session(monkeypatch)
     _seed(pg_url)
-    for stmt in _migration("025k_oficina_real") + _migration("025l_oficina_bar") * 2:
+    for stmt in _migration("025k_oficina_real") + _migration("025l_oficina_bar") * 2 + _migration("025m_oficina_pisos") * 2:
         _run(pg_url, stmt)
     rows = {r["company_id"]: r["estilo"] for r in _run(pg_url, "SELECT company_id::text AS company_id, estilo FROM oficina_pisos")}
-    assert rows == {TTM: "bar"}, "solo The Time Machine"
+    assert rows == {TTM: "bar", VELVET: "aprobado", ASADERO: "aprobado", VOLTAGE: "aprobado"}, "bar solo TTM; pisos aprobados (025m) solo sus 3 empresas"
     floors = {f["company_id"]: f for f in _estado(client)["floors"]}
     assert floors[TTM]["style"] == "bar" and floors[TTM]["brand"] is not None
-    assert {floors[c]["style"] for c in (VELVET, ASADERO, VOLTAGE, NUEVA)} == {"clasico"} and all(floors[c]["brand"] is None for c in (VELVET, ASADERO, VOLTAGE, NUEVA))
+    assert {floors[c]["style"] for c in (VELVET, ASADERO, VOLTAGE)} == {"aprobado"}
+    assert floors[NUEVA]["style"] == "clasico" and floors[NUEVA]["brand"] is None, "una empresa nueva no ve nada nuevo"
     assert client.put(f"{API}/pisos/{VELVET}", json={"estilo": "bar"}).status_code == 200
     assert next(f for f in _estado(client)["floors"] if f["company_id"] == VELVET)["style"] == "clasico", "el taller no tiene bar"
     assert client.put(f"{API}/pisos/{TTM}", json={"estilo": "realista"}).status_code == 200
