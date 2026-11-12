@@ -26,7 +26,8 @@ const SERVER_FIELDS = {nombre: 'name', rol: 'zone', tarea: 'role', estilo: 'styl
   genero: 'gender', personaje: 'model', tunica: 'tunic', barba: 'beard', color_barba: 'beardColor'};
 // Pisos aprobados: personajes de Mixamo por género (el editor elige cuál).
 const MIXAMO = {hombre: ['Remy', 'Ch01_nonPBR', 'Ch06_nonPBR', 'Ch42_nonPBR', 'Ch17_nonPBR'], mujer: ['Ch07_nonPBR', 'Ch21_nonPBR', 'Ch22_nonPBR']};
-const MIXAMO_LABEL = {Remy: 'Remy', Ch01_nonPBR: 'Ch01', Ch06_nonPBR: 'Ch06', Ch42_nonPBR: 'Ch42', Ch17_nonPBR: 'Ch17 (casco)', Ch07_nonPBR: 'Ch07', Ch21_nonPBR: 'Ch21', Ch22_nonPBR: 'Ch22'};
+const MIXAMO_LABEL = {Remy: 'Remy · camisa', Ch01_nonPBR: 'Hombre casual (Ch01)', Ch06_nonPBR: 'Buzo y audífonos (Ch06)', Ch42_nonPBR: 'Hombre (Ch42)', Ch17_nonPBR: 'Técnico con casco (Ch17)',
+  Ch07_nonPBR: 'Mujer de traje (Ch07)', Ch21_nonPBR: 'Mujer (Ch21)', Ch22_nonPBR: 'Mujer (Ch22)'};
 // Motor de cada piso aprobado (uno por plantilla).
 const AGENT_MODEL_DEF = {director: 'Ch01_nonPBR', asistente: 'Ch07_nonPBR', creativo: 'Remy', contenido: 'Ch22_nonPBR', planb: 'Ch42_nonPBR', tiktok: 'Ch21_nonPBR',
   analista: 'Ch42_nonPBR', ventas: 'Ch07_nonPBR', correos: 'Ch01_nonPBR', prospecta: 'Ch21_nonPBR', comunidad: 'Ch22_nonPBR', mensajero: 'Ch06_nonPBR',

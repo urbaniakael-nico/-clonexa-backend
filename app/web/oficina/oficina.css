@@ -13,7 +13,14 @@ html,body{height:100%;overflow:hidden;background:#050407;font-family:Inter,syste
 #top .back{color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.08)}
 #top .back:hover{background:rgba(255,255,255,.14)}
 select,input{font:inherit}
-#top select{color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px 8px;font-size:12px}
+/* Listas legibles: el desplegable nativo usa el esquema oscuro y cada opción fondo oscuro con letra clara (contraste AA).
+   Antes: fondo blanco del sistema con letra blanca heredada -> opciones invisibles. */
+:root{color-scheme:dark}
+select{color-scheme:dark;background-color:#1a1522;color:#f3eef6}
+select option,select optgroup{background-color:#1a1522;color:#f3eef6}
+select option:checked{background-color:#4a1033;color:#ffffff}
+select option:disabled{color:#a798ad}
+#top select{color:#fff;background:#1d1826;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px 8px;font-size:12px}
 #top input[type=color]{width:34px;height:30px;border:0;background:none;padding:0}
 button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:8px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:600;font-size:13px}
 button:hover{background:rgba(255,255,255,.14)}button.pri{background:linear-gradient(135deg,#ff3b4e,#f20b6d)}
@@ -36,7 +43,7 @@ button:disabled{opacity:.5;cursor:default}
 #info .kpi b{display:block;font-size:20px;overflow-wrap:anywhere}#info .kpi span{font-size:11px;color:#a798ad}
 #info h4{font-size:11px;letter-spacing:1.5px;color:#a798ad;margin:12px 0 6px}
 #info .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#c9bccf}
-#info select{color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px}
+#info select{color:#fff;background:#1a1522;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px}
 #info .alert{border:1px solid #fbbf24;color:#fde68a;background:rgba(251,191,36,.08);padding:8px 10px;border-radius:10px;font-size:12px;margin:6px 0}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
 .st-work{background:#22c55e}.st-wait,.st-cafe{background:#f59e0b}.st-err{background:#ef4444}.st-train{background:#60a5fa}.st-nodata{background:#6b7280}.st-rep{background:#fbbf24}
@@ -63,7 +70,7 @@ button:disabled{opacity:.5;cursor:default}
 #ed .list button.on{outline:1px solid #f20b6d;background:rgba(242,11,109,.18)}#ed .list small{color:#a798ad;font-weight:400}
 #ed form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-content:start}
 #ed label{display:grid;gap:5px;font-size:12px;color:#c9bccf;min-width:0}
-#ed input,#ed select{color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px;min-width:0}
+#ed input,#ed select{color:#fff;background:#1a1522;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px;min-width:0}
 #ed input[type=color]{padding:2px;height:38px}#ed .full{grid-column:1/-1}
 #ed .seg{display:flex;gap:6px;flex-wrap:wrap}#ed .seg button.on{background:linear-gradient(135deg,#ff3b4e,#f20b6d)}
 #ed .note{grid-column:1/-1;font-size:12px;color:#a798ad;background:rgba(255,255,255,.04);padding:10px;border-radius:10px;line-height:1.5}
