@@ -168,7 +168,7 @@
   }
 
   const go = () => {
-    const btn = [...document.querySelectorAll(".client-nav button")].find((b) => /n[oó]mina|payroll/i.test(b.textContent));
+    const btn = [...document.querySelectorAll(".client-nav button, .cxop-card-078a[data-client-module]")].map((b) => b.querySelector("strong") || b).find((b) => /n[oó]mina|payroll/i.test(b.textContent));
     if (!btn) return setTimeout(go, 200);
     btn.click();
     const wait = () => {

@@ -59,7 +59,7 @@
 
   const results = {};
   const textOf = () => {
-    const main = document.querySelector(".client-main");
+    const main = document.querySelector(".client-main") || document.getElementById("clientDashboardRoot030D");
     return main ? (main.innerText || main.textContent || "").replace(/\s+/g, " ").trim() : "";
   };
   const finish = () => {
@@ -71,7 +71,7 @@
   const visit = (codes, i) => {
     if (i >= codes.length) return finish();
     const code = codes[i];
-    const btn = document.querySelector(`.client-nav [data-client-module="${code}"]`) || (code === "dashboard" ? document.querySelector(".client-nav [data-client-back-dashboard]") : null);
+    const btn = document.querySelector(`.client-nav [data-client-module="${code}"], .cxop-card-078a[data-client-module="${code}"]`) || (code === "dashboard" ? (document.querySelector(".client-nav [data-client-back-dashboard]") || (document.querySelector("[data-cxop-grid-078a]") ? { click() {} } : null)) : null);   // 078A: el inicio nuevo ya es el dashboard
     if (!btn) { results[code] = { missing: true }; return visit(codes, i + 1); }
     const before = errors.length;
     btn.click();
@@ -83,7 +83,7 @@
     }, 2500);
   };
   const go = () => {
-    if (!document.querySelector(".client-nav")) return setTimeout(go, 200);
+    if (!document.querySelector(".client-nav, [data-cxop-grid-078a]")) return setTimeout(go, 200);
     visit(["dashboard", ...MODULES.map((m) => m.module.code)], 0);
   };
   window.addEventListener("load", () => setTimeout(go, 500));

@@ -42306,7 +42306,7 @@ function inventoryCreatePayload() {
         kpi.classList.toggle("ok", stockView.tone === "ok");
       }
     });
-    cxOpPaintChips078A(metrics);
+    if (typeof cxOpPaintChips078A === "function") cxOpPaintChips078A(metrics);
     const hero = document.querySelector("#clientDashboardRoot030D .client-hero");
     const currentBanner = hero?.querySelector(".hsp-dashboard-pending-banner-030d");
     const bannerHtml = cxHspDashboardPendingBanner030D(metrics);

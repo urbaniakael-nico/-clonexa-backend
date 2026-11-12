@@ -130,7 +130,7 @@
   }
 
   const go = () => {
-    const btn = [...document.querySelectorAll(".client-nav button")].find((b) => /personal|workforce/i.test(b.textContent));
+    const btn = [...document.querySelectorAll(".client-nav button, .cxop-card-078a[data-client-module]")].map((b) => b.querySelector("strong") || b).find((b) => /personal|workforce/i.test(b.textContent));
     if (!btn) return setTimeout(go, 200);
     btn.click();
     const wait = () => (document.querySelector(V2 ? ".wf-root .wf-table, .wf-root .wf-cards" : ".personal-grid") ? setTimeout(measure, 1500) : setTimeout(wait, 200));

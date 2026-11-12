@@ -137,7 +137,7 @@
   }
 
   const go = () => {
-    const btn = [...document.querySelectorAll(".client-nav button")].find((b) => (SCREEN === "crm" ? /crm/i : /personal|workforce/i).test(b.textContent));
+    const btn = [...document.querySelectorAll(".client-nav button, .cxop-card-078a[data-client-module]")].map((b) => b.querySelector("strong") || b).find((b) => (SCREEN === "crm" ? /crm/i : /personal|workforce/i).test(b.textContent));
     if (!btn) return setTimeout(go, 200);
     btn.click();
     const ready = SCREEN === "personal" ? ".wf-root .wf-table, .wf-root .wf-cards" : (WL ? ".cxp-root .cxp-sec" : ".cx-crm-people-grid, .personal-empty");
