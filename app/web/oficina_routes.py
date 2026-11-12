@@ -43,6 +43,7 @@ from app.services import oficina as of
 from app.services import oficina_bar as obar
 from app.services import oficina_data as od
 from app.services import oficina_pisos as opi
+from app.services import oficina_recepcion as orc
 from app.services import oficina_vivo as ov
 from app.web import admin_v2_routes as v2
 from app.web.admin_v2plus_companies import GUARD, _audit, _json
@@ -67,7 +68,8 @@ ASSETS = {
     "taller.js": ("oficina/oficina_taller.js", "application/javascript"),
     "restaurante.js": ("oficina/oficina_restaurante.js", "application/javascript"),
     "campo.js": ("oficina/oficina_campo.js", "application/javascript"),
-    "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),   # gestos de la camara (tactil, pellizco, sin "atras")
+    "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),
+    "recepcion.js": ("oficina/oficina_recepcion.js", "application/javascript"),   # Recepcion con Nexa (025n)   # gestos de la camara (tactil, pellizco, sin "atras")
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -231,7 +233,8 @@ async def _base(db: AsyncSession, now: datetime) -> dict:
     floors = await od.floors(r, now)
     block = await od.clonexa_block(r, now)
     shifts = await od.shift_feed(r, floors, now)
-    base = {"floors": floors, "block": block, "shift_feed": shifts, "clonexa_style": await od.clonexa_style(r)}
+    base = {"floors": floors, "block": block, "shift_feed": shifts, "clonexa_style": await od.clonexa_style(r),
+            "reception_style": await od.reception_style(r)}
     _DB_CACHE.update(at=time.monotonic(), data=base)
     return base
 
@@ -271,6 +274,7 @@ async def estado(db: AsyncSession = Depends(get_db)):
         "calendar": {k: cal.get(k) for k in ("ready", "approved", "next", "week_pieces")} if cal and cal.get("ok") else None,
         "ideas": {"pending": int(ideas.get("pending") or 0), "items": (ideas.get("items") or [])[:5]} if ideas and ideas.get("ok") else None,
         "floors": floors, "feed": feed, "clonexa_style": base.get("clonexa_style", "clasico"),
+        "reception_style": base.get("reception_style", "clasico"),
         "cast": {"agents": len(of.AGENTS), "reps": len(floors), "templates": len(of.UNIFORMS), "on_shift": od.counts_now(floors),
                  "by_floor": [{"name": f["name"], "on_shift": (f.get("staff") or {}).get("total")} for f in floors]},
         "templates": [{"key": k, "label": of.TEMPLATE_LABEL[k]} for k in of.TEMPLATES],
@@ -451,6 +455,25 @@ def _dist(raw: Any) -> dict:
 
 
 APPROVED_LIVE = {"taller": opi.live_taller, "restaurante": opi.live_restaurante, "campo": opi.live_campo}
+
+
+@router.get(API + "/recepcion/vivo", include_in_schema=False, dependencies=GUARD)
+async def recepcion_vivo(rev: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Recepcion con Nexa: interesados REALES de hoy (WhatsApp, prospeccion, Leads DEMO, correos, demos). Sin telefono,
+    correo, nombre de la persona ni texto de sus mensajes. Solo con el interruptor oficina_ajustes.piso_recepcion."""
+    r = od.Reader(db)
+    if await od.reception_style(r) != "aprobado":
+        raise HTTPException(status_code=409, detail="La recepción con Nexa no está activada.")
+    now = _now()
+    hit = _LIVE.get("recepcion")
+    if hit and time.monotonic() - hit[0] < LIVE_TTL:
+        snap = hit[1]
+    else:
+        snap = await orc.live_recepcion(r, now, await of.N8N.get())
+        _LIVE["recepcion"] = (time.monotonic(), snap)
+    if rev and rev == snap["rev"]:
+        return _json({"ok": True, "same": True, "rev": snap["rev"]})
+    return _json(snap)
 
 
 @router.get(API + "/clonexa/vivo", include_in_schema=False, dependencies=GUARD)

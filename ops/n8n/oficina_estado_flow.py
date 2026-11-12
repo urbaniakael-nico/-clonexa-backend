@@ -9,6 +9,9 @@ consulta nada; el flujo solo guarda la huella SHA-256 del secreto, nunca el secr
   esta semana y la proxima publicacion.
 - ideas: pestaña "Ideas": temas pendientes.
 - report: pestaña "Reporte semanal": fecha del ultimo reporte (ok false si la pestaña no existe).
+- reception (Recepcion con Nexa, 025n): interesados de las ultimas 24 h guardados por "Nexa - Leads DEMO"
+  (comentarios con DEMO/precio/info) y "Nexa - Correos" (solo "cliente potencial"), leidos del staticData de esos
+  flujos. PRIVACIDAD: sale solo canal, hora, estado y temas por palabras clave; nunca usuario, nombre, correo ni texto.
 No guarda ejecuciones buenas (la respuesta trae la lista de flujos y pesaria en la base de n8n).
 
 Secretos (nunca en el repo, nunca se imprimen): referencias\\n8n-key.txt (API de n8n) y
@@ -107,7 +110,21 @@ if (repRows) {
   const dates = repRows.slice(1).map(r => toIso(r[0])).filter(Boolean).sort();
   report = {ok: true, rows: Math.max(0, repRows.length - 1), last_date: dates.length ? dates[dates.length - 1] : null};
 }
-return [{json: {ok: true, generated_at: new Date().toISOString(), workflows, recent: recent.slice(0, 15), calendar, ideas, report}}];
+// Recepcion: Leads DEMO y Correos (staticData de esos flujos), sin datos personales
+const TOPICS = [['carta_video', /carta\s*(en\s*)?video|men[uú]\s*(en\s*)?video|carta\s*digital|men[uú]\s*digital/i], ['qr', /\bqr\b|mesas?\b/i],
+  ['nomina', /n[oó]mina|turnos?\b|asistencia|empleados/i], ['inventario', /inventario|bodega|stock/i], ['domicilios', /domicilio|delivery|pedidos?\b/i],
+  ['bot', /\bbot\b|whats?app|chatbot|automatiza/i], ['precio', /precio|cu[aá]nto|cotiza|costo|valor|tarifa|planes?\b/i], ['demo', /\bdemo\b|prueba gratis|probar/i],
+  ['info', /\binfo\b|informaci[oó]n|me interesa|interesad/i]];
+const topics = t => TOPICS.filter(([, rx]) => rx.test(String(t || ''))).map(([k]) => k);
+const all = ((($('Flujos').first() || {json: {}}).json || {}).data) || [];
+const sdOf = name => { const w = all.find(x => x.name === name); if (!w) return null; let sd = w.staticData; if (typeof sd === 'string') { try { sd = JSON.parse(sd); } catch (e) { sd = {}; } } return (sd && sd.global) || {}; };
+const DAY = 86400e3, nowMs = Date.now(), recentIso = s => { const t = Date.parse(s); return t && nowMs - t <= DAY; };
+const leadsSd = sdOf('Nexa - Leads DEMO'), mailSd = sdOf('Nexa - Correos');
+const reception = {ok: !!(leadsSd || mailSd),
+  leads: leadsSd ? (leadsSd.leads || []).filter(l => recentIso(l.fecha)).slice(0, 40).map(l => ({ref: 'lead:' + l.fecha, at: l.fecha, channel: String(l.red || ''), state: String(l.estado || 'nuevo'), topics: topics(l.texto)})) : null,
+  mail: mailSd ? Object.values(mailSd.borradores || {}).filter(b => recentIso(b.fecha) && /cliente potencial/i.test(String(b.tipo || ''))).slice(0, 40)
+    .map(b => ({ref: 'correo:' + b.fecha, at: b.fecha, channel: 'correo', state: String(b.estado || 'pendiente'), topics: topics((b.asunto || '') + ' ' + (b.resumen || ''))})) : null};
+return [{json: {ok: true, generated_at: new Date().toISOString(), workflows, recent: recent.slice(0, 15), calendar, ideas, report, reception}}];
 """
 
 LISTA = r"""

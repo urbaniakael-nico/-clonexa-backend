@@ -372,9 +372,19 @@
     return match ? match[1] : "";
   }
 
+  // Mapa comercial con la ficha de un prospecto: /admin-v2plus#mapa/{prospecto} (lo abre la Recepción de la Oficina 3D)
+  function prospectFromHash(hash) {
+    const match = /^#mapa\/([0-9a-fA-F-]{36})$/.exec(String(hash || ""));
+    return match ? match[1] : "";
+  }
+
   function onHash() {
     const contact = nexaFromHash(window.location.hash);
     if (contact) { setView("nexa", { contact }); return; }
+    const prospect = prospectFromHash(window.location.hash);
+    if (prospect && window.CxConsoleAdmin && window.CxConsoleMapa) {
+      window.CxConsoleAdmin.model.landing.tab = "mapa"; window.CxConsoleMapa.model.openId = prospect; setView("landing"); return;
+    }
     const id = companyFromHash(window.location.hash);
     if (id) { state.companyId = id; setView("company"); }
     else if (state.view === "company") setView("companies");
@@ -487,7 +497,7 @@
     // La Ficha vive en otro archivo que carga después de este: la ruta inicial
     // (/admin-v2plus#empresa/{id} al recargar o desde un link) se resuelve
     // cuando ya cargaron todos los scripts de la página.
-    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash)) onHash(); };
+    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash) || prospectFromHash(hash)) onHash(); };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);
@@ -499,6 +509,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, nexaFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
+  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, nexaFromHash, prospectFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();

@@ -119,3 +119,9 @@ body.real-on #tags,body.real-on #help,body.real-on #legend{display:none}
 #barTags.pisos .tg.zn{transform:translate(-50%,-50%);font-size:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;padding:4px 12px;border-radius:999px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.3);box-shadow:none}
 #barTags.pisos.clonexa .tg.zn{background:linear-gradient(135deg,rgba(255,59,78,.35),rgba(124,58,237,.35));border-color:rgba(255,255,255,.25)}
 #barTags.pisos.taller .tg.zn{background:rgba(219,39,119,.35);border-color:rgba(255,255,255,.25)}
+/* Recepción con Nexa (025n): colores por estado del visitante (sin estilos en línea: CSP) */
+#barTags.pisos.recepcion .tg i.lead{background:#f20b6d}#barTags.pisos.recepcion .tg i.espera{background:#f59e0b}#barTags.pisos.recepcion .tg i.demo{background:#a855f7}#barTags.pisos.recepcion .tg i.gris{background:#94a3b8}
+#barTags.pisos.recepcion .tg.lead{border-color:#f20b6d;box-shadow:0 0 12px rgba(242,11,109,.45)}#barTags.pisos.recepcion .tg.nx{border-color:#a855f7}
+#barTags.pisos.recepcion .tg.espera{border-color:rgba(245,158,11,.7)}#barTags.pisos.recepcion .tg.demo{border-color:#a855f7;box-shadow:0 0 12px rgba(168,85,247,.4)}
+#barTags.pisos.recepcion .tg.gris{color:#cbd5e1;border-color:rgba(148,163,184,.45)}
+#barTags.pisos.recepcion .tg.zn{background:rgba(0,0,0,.45);border-color:rgba(255,255,255,.3)}

@@ -165,6 +165,12 @@ async def clonexa_style(r: Reader) -> str:
     return "aprobado" if (row or {}).get("valor") == "aprobado" else "clasico"
 
 
+async def reception_style(r: Reader) -> str:
+    """Interruptor de la Recepcion con Nexa (oficina_ajustes.piso_recepcion, 025n): 'aprobado' o 'clasico'."""
+    row = await r.one("SELECT valor FROM oficina_ajustes WHERE clave = 'piso_recepcion'", tables=("oficina_ajustes",))
+    return "aprobado" if (row or {}).get("valor") == "aprobado" else "clasico"
+
+
 def order_floors(companies: list[dict], saved: dict[str, dict]) -> list[dict]:
     """Orden del ascensor (de arriba hacia abajo, debajo de CLONEXA): el guardado primero; las empresas
     nuevas al final por fecha de registro."""

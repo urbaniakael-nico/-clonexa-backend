@@ -109,6 +109,16 @@ export function wallSide(box, room) {
   return null;
 }
 
+// Etiquetas HTML sin taparse: la caja (centrada en x, con la base en y) sube hasta no chocar con las ya puestas.
+// placed: cajas ya puestas [x0, y0, x1, y1]; move=false (zonas del piso): se queda donde está. Devuelve la y final.
+export function declutter(placed, x, y, w, h, move = true) {
+  const box = yy => [x - w / 2, yy - h, x + w / 2, yy];
+  const hit = b => placed.find(q => b[0] < q[2] + 2 && b[2] > q[0] - 2 && b[1] < q[3] + 2 && b[3] > q[1] - 2);
+  let yy = y;
+  for (let i = 0; move && i < 8; i++) { const q = hit(box(yy)); if (!q) break; yy = q[1] - 3; }
+  placed.push(box(yy)); return yy;
+}
+
 // Quién entra, quién sale y quién cambia (por la clave estable de cada persona).
 export function diffPeople(prevKeys, people) {
   const now = new Set(people.map(p => p.key));
@@ -339,4 +349,61 @@ export function opBoard(op) {
 export function repCampo(snap) {
   const ops = (snap && snap.ops) || []; const out = ops.reduce((a, o) => a + (o.outside || 0), 0);
   return `${show(snap && snap.on_shift)} en turno · ${ops.length ? out : NO} fuera de perímetro`;
+}
+
+// ================================================================== RECEPCIÓN con Nexa (recepcion.html / recepcion.png)
+// Interesados REALES de hoy (copia viva /recepcion/vivo). Cada estado tiene su lugar, su animación y su color:
+// talking -> de pie en el mostrador (Talking) · new -> entra caminando por la entrada y va al mostrador ·
+// waiting -> sentado en la sala de espera (Sitting, "espera N min", naranja) · demo -> sala de espera, morado con
+// fecha y hora · idle -> gris, de pie cerca de la entrada. Máximo 8 visibles (el resto "+N" en la pantalla).
+export const RECEPCION = {ROOM: {W: 18, D: 12, WALL: 4}, CAMERA: {pos: [2, 9, 15], look: [0, 0.6, -1.2], fov: 34}, VISIBLE: 8,
+  NEXA: [-0.2, -4.0, 0.25], DOOR: [-3.6, 6.6],
+  COUNTER: [[1.5, -2.2, Math.PI * .8], [-1.6, -2.2, -Math.PI * .8], [0.2, -1.8, Math.PI], [2.8, -2.5, Math.PI * .7], [-2.9, -2.5, -Math.PI * .7],
+    [1.0, -1.2, Math.PI * .9], [-1.1, -1.2, -Math.PI * .9], [3.6, -1.6, Math.PI * .7]],
+  SEATS: [[4.75, -1.1, -Math.PI / 2], [4.75, -0.1, -Math.PI / 2], [4.75, 1.9, -Math.PI / 2], [4.75, 2.9, -Math.PI / 2]],
+  STAND: [[3.2, 4.2, -2.4], [2.4, 4.7, -2.6], [3.9, 4.9, -2.8], [1.6, 4.3, -2.4]],
+  ENTRANCE: [[-3.4, 3.9, Math.PI * .85], [-4.6, 3.5, Math.PI * .9], [-2.3, 4.4, Math.PI * .8], [-5.6, 4.2, Math.PI], [-4.1, 5.0, Math.PI],
+    [-6.4, 3.4, Math.PI * .95], [-2.9, 5.3, Math.PI * .8], [-5.2, 5.4, Math.PI]],
+  SCREEN_ROWS: 6};
+export const RC_COLOR = {talking: '#22c55e', new: '#f20b6d', waiting: '#f59e0b', demo: '#a855f7', idle: '#94a3b8'};
+export const RC_CLS = {talking: 'lead', new: 'lead', waiting: 'espera', demo: 'demo', idle: 'gris'};
+// Lugar, animación y si llega caminando, por visitante (estable: el orden lo da el servidor).
+export function receptionPlan(visitors) {
+  const R = RECEPCION; let c = 0, s = 0, st = 0, e = 0; const out = [];
+  for (const v of (visitors || []).slice(0, R.VISIBLE)) {
+    let spot, clip, arrive = false, k = 0;
+    if (v.state === 'talking' || v.state === 'new') { k = c; spot = R.COUNTER[c++ % R.COUNTER.length]; clip = 'Talking'; arrive = v.state === 'new'; }
+    else if (v.state === 'waiting' || v.state === 'demo') {
+      if (s < R.SEATS.length) { k = s; spot = R.SEATS[s++]; clip = 'Sitting'; } else { k = st; spot = R.STAND[st++ % R.STAND.length]; clip = 'Idle'; } }
+    else { k = e; spot = R.ENTRANCE[e++ % R.ENTRANCE.length]; clip = 'Idle'; }
+    const seated = clip === 'Sitting';
+    out.push({id: v.id, spot, clip, arrive, cls: RC_CLS[v.state] || 'gris', color: RC_COLOR[v.state] || RC_COLOR.idle, seated, slot: k, dy: seated ? 1.55 : 2.05});
+  }
+  return out;
+}
+// Etiqueta del visitante (la arma el servidor sin datos personales): "<negocio> · <zona>" y "<tema> · <canal> · <estado>".
+export function receptionTag(v) { const t = (v && v.tag) || {}; return {cls: RC_CLS[v && v.state] || 'gris', head: t.head || 'Interesado', small: t.small || ''}; }
+export function nexaTag(snap) {
+  const n = (snap && snap.nexa) || {}; const talking = n.state === 'talking';
+  return {clip: talking ? 'Talking' : 'Idle', cls: talking ? 'work' : 'nodata', text: 'Nexa · Recepción', small: n.text || 'Esperando visitas'};
+}
+// Personaje estable por visitante (ningún dato de la persona: solo su clave anónima). Sin el casco de técnico.
+// Los personajes de la referencia aprobada (6, ~16 MB): Ch07 es Nexa; los visitantes, los otros cinco.
+export const RC_MODELS = ['Ch07_nonPBR', 'Ch01_nonPBR', 'Ch42_nonPBR', 'Remy', 'Ch21_nonPBR', 'Ch06_nonPBR'];
+export function visitorModel(id) { const pool = RC_MODELS.slice(1); return pool[hashOf(id) % pool.length]; }
+// Pantalla "Recepción · interesados de hoy": filas (máx. 6) + "+N"; sin visitas: "Sin visitas hoy".
+export function receptionScreen(snap) {
+  const rows = ((snap && snap.screen) || []).slice(0, RECEPCION.SCREEN_ROWS);
+  const more = Math.max(0, ((snap && snap.interesados) || 0) - rows.length);
+  return {rows, more, empty: !rows.length, title: 'Recepción · interesados de hoy'};
+}
+// Entra y sale (por la clave anónima del visitante).
+export function receptionDiff(prevIds, visitors) {
+  const now = new Set((visitors || []).slice(0, RECEPCION.VISIBLE).map(v => v.id));
+  return {enter: [...now].filter(k => !prevIds.has(k)), leave: [...prevIds].filter(k => !now.has(k))};
+}
+// Enlace al tocar un visitante: su conversación en Conversaciones Nexa o el prospecto en el Mapa comercial.
+export function visitorLink(v) {
+  const l = v && v.link; if (!l || !/^[0-9a-fA-F-]{36}$/.test(String(l.id || ''))) return null;
+  return l.type === 'nexa' ? `/admin-v2plus#nexa/${l.id}` : l.type === 'mapa' ? `/admin-v2plus#mapa/${l.id}` : null;
 }

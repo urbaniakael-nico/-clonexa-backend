@@ -373,6 +373,7 @@
       drawLayers(L);
     }).catch((error) => { model.error = error.message; paint("data"); });
     load();
+    if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
   window.CxConsoleMapa = { model, api, mapUrl, pane, cards, zonesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, STATUS, TYPES,

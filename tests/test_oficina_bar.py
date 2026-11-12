@@ -175,7 +175,8 @@ def test_motor_del_bar_sin_cdn_sin_codigo_en_linea_y_con_transiciones():
     bar = (ROOT / "app/web/oficina/oficina_bar.js").read_text(encoding="utf-8")
     rules = (ROOT / "app/web/oficina/oficina_bar_rules.js").read_text(encoding="utf-8")
     for imp in re.findall(r"^import .* from '([^']+)';$", bar, re.M):
-        assert imp == "three" or imp == "/admin-v2plus/oficina/bar_reglas.js" or "examples/jsm/" + imp.removeprefix("three/addons/") in routes.THREE, imp
+        own = ("/admin-v2plus/oficina/bar_reglas.js", "/admin-v2plus/oficina/pisos_reglas.js", "/admin-v2plus/oficina/gestos.js")   # limites de camara y gestos
+        assert imp == "three" or imp in own or "examples/jsm/" + imp.removeprefix("three/addons/") in routes.THREE, imp
     assert "import " not in rules
     for body in (bar, rules):
         assert not re.search(r"https?://", body), "sin CDN ni URL externas"

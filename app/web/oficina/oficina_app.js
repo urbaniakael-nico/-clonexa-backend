@@ -574,18 +574,19 @@ function main(DATA, SAVED_IN) {
     leaveReal(); realBusy = true; realFor = p; hideInfo();
     document.body.classList.add('real-on');
     try {
-      const isCx = p === cx, isBar = !isCx && p.data && p.data.style === 'bar', approved = !isCx && p.data && p.data.style === 'aprobado' && APPROVED_MODULE[p.data.template];
-      const mod = isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
+      const isLobby = p === lobby, isCx = p === cx || isLobby, isBar = !isCx && p.data && p.data.style === 'bar', approved = !isCx && p.data && p.data.style === 'aprobado' && APPROVED_MODULE[p.data.template];
+      // planta baja: Recepción con Nexa (interruptor oficina_ajustes.piso_recepcion, 025n)
+      const mod = isLobby ? await import('/admin-v2plus/oficina/recepcion.js') : isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
       if (realFor !== p) return;
       const layers = (kind, k, uniform) => kind === 'rep' ? [SAVED.get(savedKey(p.cid, 'rep'))] : kind === 'agent' ? [SAVED.get(savedKey(null, 'agente:' + k))]
         : [SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))];
       const openFn = isCx || approved ? mod.open : isBar ? mod.openBar : mod.openReal;
-      REAL = await openFn({R, floor: isCx ? {company_id: null, name: 'CLONEXA', template: 'clonexa'} : p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
+      REAL = await openFn({R, floor: isLobby ? {company_id: null, name: 'Recepción', template: 'recepcion'} : isCx ? {company_id: null, name: 'CLONEXA', template: 'clonexa'} : p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
         repName: p.rep && p.rep.def.name,
         charCfg: (kind, k, uniform) => fromServerCfg(layers(kind, k, uniform)),
         rawCfg: (kind, k, uniform) => mergeRaw(layers(kind, k, uniform)),
         onClose: () => setFocus(null), onRep: () => showRep(p), onTable: t => showTable(t, p),
-        onPerson: (info, kind) => (isCx && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
+        onPerson: (info, kind) => kind === 'visitante' ? showVisitor(info) : (isCx && !isLobby && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
       log(`<b>${esc(p.name)}</b> · piso realista abierto`);
     } catch (e) {
@@ -604,13 +605,21 @@ function main(DATA, SAVED_IN) {
       <li>${t.pending ? esc(t.pending) + (t.pending === 1 ? ' producto pedido' : ' productos pedidos') + (p.data && p.data.template === 'restaurante' ? ' en preparación' : ' a la barra') : 'Sin pedidos pendientes'}</li>${t.songs ? `<li>${esc(t.songs)} canciones pedidas</li>` : ''}</ul>
       <div class="src">Solo actividad (sin dinero ni datos de los clientes).</div>`, 'mesa:' + t.label);
   }
+  // Recepción: tocar un visitante abre su conversación en Conversaciones Nexa (o el prospecto en el Mapa comercial).
+  function showVisitor(info) {
+    const link = info && typeof info.link === 'string' && /^\/admin-v2plus#(nexa|mapa)\/[0-9a-fA-F-]{36}$/.test(info.link) ? info.link : null;
+    if (link) { window.open(link, '_blank', 'noopener'); return; }
+    openInfo(`<h2>${esc(info.name || 'Interesado')}</h2><div class="role">Recepción</div>${info.task ? `<ul><li>${esc(info.task)}</li></ul>` : ''}
+      <div class="src">Interesado real de hoy (sin datos personales). Este canal no tiene conversación en la consola.</div>`);
+  }
   function showPerson(info, kind, p) {
     openInfo(`<h2>${esc(info.name || 'Cliente')}</h2><div class="role">${esc(info.role || '')} · ${esc(p.name)}</div>${info.task ? `<ul><li>${esc(info.task)}</li></ul>` : ''}
       <div class="src">${kind === 'cliente' ? 'Cliente anónimo (Clonexa no muestra datos de los clientes).' : 'Personal en turno (privacidad del piso).'}</div>`);
   }
   const cxApproved = () => DATA && DATA.clonexa_style === 'aprobado';
+  const rcApproved = () => DATA && DATA.reception_style === 'aprobado';
   function setFocus(p, keepCamera) {
-    if (p && (isRealFloor(p.data) || (p === cx && cxApproved()))) { focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', b.dataset.k === p.key)); enterReal(p); return; }
+    if (p && (isRealFloor(p.data) || (p === cx && cxApproved()) || (p === lobby && rcApproved()))) { focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', b.dataset.k === p.key)); enterReal(p); return; }
     if (REAL || realFor) leaveReal();
     focus = p; document.querySelectorAll('#floors button').forEach(b => b.classList.toggle('on', !!p && b.dataset.k === p.key));
     FLOORS.forEach(f => { f.g.visible = !(p && f.y > p.y + .1); const on = p === f; f.ceil.visible = !on; f.front.forEach(o => o.visible = !on); f.shell.forEach(o => o.visible = !on || !o.material || o.material !== facadeGlass); }); crown.visible = !p;

@@ -134,14 +134,18 @@ export async function openFloor(o, spec) {
   const at = (x, y, z) => ({position: new THREE.Vector3(x, y, z)});
   const zoneTag = (text, x, z) => tag(at(x, .05, z), esc(text), 'zn', 0, true);
   const v3 = new THREE.Vector3();
+  // etiquetas sin taparse: la que choca con otra ya puesta sube hasta quedar libre (P.declutter, regla pura)
+  const placed = [];
   function placeTags() {
-    for (const t of tags) {
-      if (t.fixed) v3.copy(t.obj.position); else t.obj.getWorldPosition(v3);
-      v3.y += t.dy; v3.project(C);
-      if (v3.z > 1 || t.hidden) { t.d.style.display = 'none'; continue; }
-      t.d.style.display = 'flex'; if (!t.w || t.wh !== t.html) { t.w = t.d.offsetWidth; t.wh = t.html; }
-      const half = t.w / 2 + 6, x = Math.max(half, Math.min(innerWidth - half, (v3.x * .5 + .5) * innerWidth));
-      t.d.style.left = x.toFixed(1) + 'px'; t.d.style.top = ((-v3.y * .5 + .5) * innerHeight).toFixed(1) + 'px';
+    placed.length = 0;
+    const order = tags.map(t => { if (t.fixed) v3.copy(t.obj.position); else t.obj.getWorldPosition(v3); v3.y += t.dy; v3.project(C); return {t, x: v3.x, y: v3.y, z: v3.z}; })
+      .sort((a, b) => (a.t.fixed === b.t.fixed ? b.y - a.y : a.t.fixed ? -1 : 1));   // zonas primero; luego de abajo hacia arriba en pantalla
+    for (const {t, x: px, y: py, z} of order) {
+      if (z > 1 || t.hidden) { t.d.style.display = 'none'; continue; }
+      t.d.style.display = 'flex'; if (!t.w || t.wh !== t.html) { t.w = t.d.offsetWidth; t.h = t.d.offsetHeight; t.wh = t.html; }
+      const half = t.w / 2 + 6, x = Math.max(half, Math.min(innerWidth - half, (px * .5 + .5) * innerWidth));
+      const y = P.declutter(placed, x, (-py * .5 + .5) * innerHeight, t.w, t.h || 22, !t.fixed);
+      t.d.style.left = x.toFixed(1) + 'px'; t.d.style.top = y.toFixed(1) + 'px';
     }
   }
   const dot = cls => `<i class="${esc(cls || 'work')}"></i>`;
