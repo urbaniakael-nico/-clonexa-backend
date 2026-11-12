@@ -68,7 +68,7 @@ def test_scan_web_va_a_contacto_y_redes_no_son_web():
 
     res = asyncio.run(ps.scan_website("https://laespiga.com.co/", "La Espiga", fetch=fake))
     assert res == {"email": "ventas@laespiga.com.co", "why": "dominio_propio", "source_url": "https://laespiga.com.co/contacto",
-                   "status": "encontrado"}
+                   "status": "encontrado", "channels": {}}
     assert asyncio.run(ps.scan_website("https://instagram.com/laespiga", "La Espiga", fetch=fake))["status"] == "sin_web"
     assert asyncio.run(ps.scan_website("", "La Espiga", fetch=fake))["status"] == "sin_web"
 
@@ -261,3 +261,41 @@ def test_vigencia_regla_inicial_12_meses():
 def test_field_mask_de_vigencia_no_sube_el_sku():
     assert "places.reviews" not in ps.FIELD_MASK and "reviews" not in ps.DETAIL_FIELD_MASK, "Atmosphere apagado"
     assert "places.regularOpeningHours" in ps.FIELD_MASK and "places.userRatingCount" in ps.FIELD_MASK
+
+
+def test_canales_publicos_solo_perfiles_reales():
+    c = pn.classify_link
+    assert c("https://www.instagram.com/ConfeccionesMarta/?hl=es") == ("instagram", "@confeccionesmarta", "https://www.instagram.com/confeccionesmarta/")
+    assert c("https://instagram.com/p/Cx123/") is None and c("https://www.instagram.com/explore/") is None
+    assert c("https://www.instagram.com/clonexaapp/") is None, "nunca nuestra propia cuenta"
+    assert c("https://web.facebook.com/ElectricosRL") == ("facebook", "electricosrl", "https://www.facebook.com/ElectricosRL")
+    assert c("https://www.facebook.com/sharer/sharer.php?u=x") is None and c("https://facebook.com/groups/abc") is None
+    assert c("https://www.facebook.com/profile.php?id=1000123") == ("facebook", "1000123", "https://www.facebook.com/profile.php?id=1000123")
+    assert c("https://www.tiktok.com/@taller.marta") == ("tiktok", "@taller.marta", "https://www.tiktok.com/@taller.marta")
+    assert c("https://wa.me/573001112233?text=hola") == ("whatsapp", "573001112233", "https://wa.me/573001112233")
+    assert c("https://api.whatsapp.com/send?phone=573001112233") == ("whatsapp", "573001112233", "https://wa.me/573001112233")
+    assert c("whatsapp://send?phone=573001112233")[0] == "whatsapp"
+    assert c("https://wa.link/abc") is None and c("mailto:x@y.co") is None
+    html = ('<a href="https://www.facebook.com/sharer.php?u=1">Compartir</a><a href="https://www.facebook.com/TallerMarta">FB</a>'
+            '<a href="https://instagram.com/tallermarta">IG</a> escribenos https://wa.me/573001112233')
+    ch = pn.extract_channels(html, "https://tallermarta.co/contacto")
+    assert set(ch) == {"facebook", "instagram", "whatsapp"} and all(v["source"] == "https://tallermarta.co/contacto" for v in ch.values())
+    assert ch["facebook"]["value"] == "tallermarta"
+    assert pn.channel_from_website("https://www.instagram.com/rosa3") == ("instagram", {"value": "@rosa3", "url": "https://www.instagram.com/rosa3/", "source": "google:website"})
+    assert pn.social_keys({"instagram": {"value": "@a"}, "web": {"value": "a.co"}}) == ["instagram:@a"]
+
+
+def test_escaneo_de_la_web_trae_correo_y_redes_con_su_fuente():
+    pages = {"https://tallermarta.co/": '<a href="https://instagram.com/tallermarta">IG</a><a href="/contacto">Contáctenos</a>',
+             "https://tallermarta.co/contacto": '<p>info@tallermarta.co</p><a href="https://wa.me/573001112233">WhatsApp</a>'}
+
+    async def fetch(url):
+        return url, pages.get(url, "")
+
+    r = asyncio.run(ps.scan_website("https://tallermarta.co/", "Taller Marta", fetch=fetch))
+    assert r["email"] == "info@tallermarta.co" and r["source_url"] == "https://tallermarta.co/contacto"
+    assert r["channels"]["instagram"]["source"] == "https://tallermarta.co/"
+    assert r["channels"]["whatsapp"]["source"] == "https://tallermarta.co/contacto"
+    assert ps.google_channels({"websiteUri": "https://facebook.com/TallerX", "nationalPhoneNumber": "601 234 5678"}) == {
+        "phone": {"value": "601 234 5678", "url": "tel:6012345678", "source": "google:telefono"},
+        "facebook": {"value": "tallerx", "url": "https://www.facebook.com/TallerX", "source": "google:website"}}

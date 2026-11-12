@@ -109,6 +109,9 @@ PAGES = {
     "https://laespiga.com.co/contacto": "<p>pedidos@laespiga.com.co · juan.perez1987@gmail.com</p>",
     "https://sabordecasa.co/": "<p>Escríbenos a <a href='mailto:info@sabordecasa.co'>info@sabordecasa.co</a></p>",
     "https://doncarlos.com/": "<p>Llámanos al 300 000 0000</p>",
+    "https://tallermarta.co/": '<a href="https://instagram.com/tallermarta">IG</a><a href="https://www.tiktok.com/@tallermarta">TT</a>'
+                               '<a href="/contacto">Contacto</a>',
+    "https://tallermarta.co/contacto": '<p>ventas@tallermarta.co</p><a href="https://api.whatsapp.com/send?phone=573001112233">WA</a>',
 }
 
 
@@ -645,3 +648,32 @@ def test_vigencia_por_verificar_no_entra_a_correo_y_se_ve_en_mapa(client, pg_url
     # ya no aparece en Google -> por verificar
     r = client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "not_found": True}).json()
     assert _run(pg_url, "SELECT vigencia FROM prospects WHERE id = CAST(:i AS uuid)", {"i": pid})[0]["vigencia"] == "por_verificar"
+
+
+# ------------------------------------------------------------------ 025p: canales publicos
+def test_canales_publicos_con_su_fuente_e_indicadores(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    z = _bog(pg_url)
+    places = [_taller(1, "Taller Marta", web="https://tallermarta.co/"), _taller(2, "Taller IG", web="https://www.instagram.com/tallerig"),
+              _taller(3, "Taller Solo Teléfono"), _taller(4, "Taller FB", web="https://www.facebook.com/TallerFB")]
+    out = _ingest_in(client, z, "taller", places).json()
+    assert out["new"] == 4 and out["with_email"] == 1
+    rows = {r["name"]: r for r in _run(pg_url, "SELECT name, channels, email_status FROM prospects")}
+    marta = rows["Taller Marta"]["channels"]
+    assert marta["email"]["value"] == "ventas@tallermarta.co" and marta["email"]["source"] == "https://tallermarta.co/contacto"
+    assert marta["instagram"] == {"value": "@tallermarta", "url": "https://www.instagram.com/tallermarta/", "source": "https://tallermarta.co/"}
+    assert marta["tiktok"]["value"] == "@tallermarta" and marta["whatsapp"]["value"] == "573001112233"
+    assert marta["phone"]["source"] == "google:telefono" and marta["web"]["source"] == "google:website"
+    assert rows["Taller IG"]["channels"]["instagram"]["source"] == "google:website", "la web de Google era un Instagram"
+    assert rows["Taller IG"]["email_status"] == "sin_web"
+    assert rows["Taller FB"]["channels"]["facebook"]["value"] == "tallerfb"
+    assert set(rows["Taller Solo Teléfono"]["channels"]) == {"phone"}
+    m = client.get(f"{URL}/admin/map?nicho=taller").json()
+    t = next(n for n in m["niches"] if n["key"] == "taller")
+    assert t["pct_con_correo"] == 25.0 and t["pct_con_redes"] == 75.0 and t["pct_con_whatsapp"] == 25.0
+    zn = next(x for x in m["zones"] if x["slug"] == "bogota-puente-aranda")
+    assert zn["con_redes"] == 3 and zn["con_whatsapp"] == 1
+    pin = next(p for p in m["pins"] if p["name"] == "Taller Marta")
+    assert set(pin["canales"]) >= {"instagram", "whatsapp", "email"}
+    d = client.get(f"{URL}/admin/prospects/{pin['id']}").json()["prospect"]
+    assert d["channels"]["whatsapp"]["url"] == "https://wa.me/573001112233" and d["channels"]["instagram"]["source"] == "https://tallermarta.co/"

@@ -28,6 +28,10 @@
     campo: ["Empresas de campo", "🦺", "#22c55e"], transporte: ["Transporte y logística", "🚚", "#3b82f6"], tienda: ["Tiendas y minimercados", "🛒", "#14b8a6"],
     bar: ["Bares", "🍸", "#a855f7"] };
   const EMPTY_FILTERS = () => ({ zone_id: "", nicho: "", tipo: "", estado: "", vigencia: "", desde: "", hasta: "" });
+  // canales publicos (de la ficha de Google y de la web del negocio): [icono, nombre]
+  const CHANNELS = { email: ["✉️", "Correo"], instagram: ["📸", "Instagram"], facebook: ["📘", "Facebook"], tiktok: ["🎵", "TikTok"],
+    whatsapp: ["🟢", "WhatsApp publicado"], web: ["🌐", "Web"], phone: ["📞", "Teléfono"] };
+  const chanIcons = (keys) => arr(keys).filter((k) => CHANNELS[k]).map((k) => CHANNELS[k][0]).join("");
   const VIGENCIA = { activo: "Activo", por_verificar: "Por verificar", sin_dato: "Sin dato aún" };
   const KINDS = { inicial: "Correo inicial", seguimiento: "Seguimiento", respuesta: "Respondió", baja: "Baja", apertura: "Abrió la landing",
     whatsapp_entrada: "Escribió por WhatsApp", demo: "Demo", cliente: "Cliente", prueba: "Prueba" };
@@ -97,13 +101,26 @@
     return `<section class="vp-cards vpm-cards">${items.map(([l, v, s]) => `<div class="vp-panel vp-card"><span>${h(l)}</span><strong>${h(num(v))}</strong>${s ? `<small>${h(s)}</small>` : ""}</div>`).join("")}</section>`;
   }
 
+  const chanCells = (z) => `<td>${h(pct(z.con_correo || 0, z.prospectos || 0))}</td><td>${h(pct(z.con_redes || 0, z.prospectos || 0))}</td><td>${h(pct(z.con_whatsapp || 0, z.prospectos || 0))}</td>`;
+
+  function channelsList(p) {
+    const ch = (p && p.channels) || {};
+    const keys = Object.keys(CHANNELS).filter((k) => ch[k] && typeof ch[k] === "object" && ch[k].value);
+    if (!keys.length) return `<p class="vp-login-hint">Sin canales públicos encontrados.</p>`;
+    const link = (u) => (/^(https:\/\/|mailto:|tel:)/i.test(String(u || "")) ? String(u) : "");
+    const src = (s) => (/^https:\/\//i.test(String(s || "")) ? `<a href="${h(s)}" target="_blank" rel="noopener noreferrer">fuente</a>` : h(String(s || "").replace("google:", "ficha de Google: ")));
+    return `<ul class="vpm-channels">${keys.map((k) => { const c = ch[k]; const u = link(c.url);
+      return `<li><span aria-hidden="true">${h(CHANNELS[k][0])}</span><b>${h(CHANNELS[k][1])}</b> ${u ? `<a href="${h(u)}" target="_blank" rel="noopener noreferrer">${h(c.value)}</a>` : h(c.value)}<small>${src(c.source)}</small></li>`; }).join("")}</ul>
+      ${ch.whatsapp ? `<p class="vp-login-hint">El WhatsApp publicado solo se muestra: Nexa nunca escribe en frío.</p>` : ""}`;
+  }
+
   function zonesTable(d) {
     const zs = arr(d && d.zones).filter((z) => z.active !== false);
     if (!zs.length) return "";
     return `<section class="vp-panel vp-section"><h2>% por zona</h2><div class="vpm-table-wrap"><table class="vpm-table">
-      <thead><tr><th>Zona</th><th>Prospectos</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
+      <thead><tr><th>Zona</th><th>Prospectos</th><th>% correo</th><th>% IG/FB</th><th>% WhatsApp publicado</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
       <tbody>${zs.map((z) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-zone="${h(z.id)}">${h(z.name)}</button><small>${h(z.group_name || "")}</small></td>
-        <td>${h(num(z.prospectos))}</td><td>${h(num(z.enviados))}</td><td>${h(pct(z.abrieron, z.enviados))}</td><td>${h(pct(z.respondieron, z.enviados))}</td>
+        <td>${h(num(z.prospectos))}</td>${chanCells(z)}<td>${h(num(z.enviados))}</td><td>${h(pct(z.abrieron, z.enviados))}</td><td>${h(pct(z.respondieron, z.enviados))}</td>
         <td>${h(num(z.demos))}</td><td>${h(num(z.clientes))}</td><td class="vp-mono">${h(num(z.puntaje))}</td></tr>`).join("")}</tbody></table></div>
       <p class="vp-login-hint">Puntaje = prospectos ×1 + correos ×2 + aperturas ×5 + respuestas ×10 + demos ×20 + clientes ×40.</p></section>`;
   }
@@ -145,9 +162,9 @@
     const ns = arr(d && d.niches);
     if (!ns.length) return "";
     return `<section class="vp-panel vp-section"><h2>% por nicho</h2><div class="vpm-table-wrap"><table class="vpm-table">
-      <thead><tr><th>Nicho</th><th>Prospectos</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
+      <thead><tr><th>Nicho</th><th>Prospectos</th><th>% correo</th><th>% IG/FB</th><th>% WhatsApp publicado</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
       <tbody>${ns.map((n) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-niche="${h(n.key)}">${h(n.icon || "")} ${h(n.label)}</button><small>${n.page ? h(n.page) : "sin página propia (usa la principal)"} · prioridad ${h(n.priority || 1)}</small></td>
-        <td>${h(num(n.prospectos))}</td><td>${h(num(n.enviados))}</td><td>${h(pct(n.abrieron, n.enviados))}</td><td>${h(pct(n.respondieron, n.enviados))}</td>
+        <td>${h(num(n.prospectos))}</td>${chanCells(n)}<td>${h(num(n.enviados))}</td><td>${h(pct(n.abrieron, n.enviados))}</td><td>${h(pct(n.respondieron, n.enviados))}</td>
         <td>${h(num(n.demos))}</td><td>${h(num(n.clientes))}</td><td class="vp-mono">${h(num(n.puntaje))}</td></tr>`).join("")}</tbody></table></div></section>`;
   }
 
@@ -194,6 +211,7 @@
         <button class="vp-btn vp-btn-sm" type="button" data-vpm-status="demo">Marcar demo</button>
         <button class="vp-btn vp-btn-sm" type="button" data-vpm-status="cliente">Marcar cliente</button>
         <button class="vp-btn vp-btn-sm ${confirm ? "vp-btn-danger" : ""}" type="button" data-vpm-status="baja">${confirm ? "Confirmar baja permanente" : "Dar de baja"}</button></div>`}
+      <h3>Canales públicos</h3>${channelsList(p)}
       <h3>Historial de contactos</h3>
       <ul class="vp-actions-list vpm-history">${arr(d.history).map((x) => `<li class="vp-action"><b>${h(KINDS[x.kind] || x.kind)}</b>
         <small>${h(fecha(x.sent_at || x.created_at))} · ${h(x.channel)} · ${h(x.status)}${x.subject ? ` · ${h(x.subject)}` : ""}${x.detail && x.detail.motivo ? ` · ${h(x.detail.motivo)}` : ""}</small></li>`).join("") || `<li class="vp-empty">Sin contactos todavía.</li>`}</ul>
@@ -285,7 +303,8 @@
         ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: `vpm-pin is-${model.colorBy === "nicho" ? `n-${nicheOf(p)}` : h(p.status)}${p.vigencia === "por_verificar" ? " is-verify" : ""}`, html: h(icon), iconSize: [24, 24] }), keyboard: false })
         : L.circleMarker([p.lat, p.lng], { radius: 7, color: "#0b0710", weight: 1.5, fillColor: pinColor(p), fillOpacity: p.vigencia === "por_verificar" ? 0.4 : 0.95,
           dashArray: p.vigencia === "por_verificar" ? "2 3" : null });
-      mk.bindTooltip(`${h(icon)} ${h(p.name)} · ${h(nl)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.vigencia === "por_verificar" ? " · por verificar (solo visita)" : ""}${p.email ? ` · ${h(p.email)}` : ""}`);
+      const ci = chanIcons(p.canales);
+      mk.bindTooltip(`${h(icon)} ${h(p.name)}${ci ? ` ${h(ci)}` : ""} · ${h(nl)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.vigencia === "por_verificar" ? " · por verificar (solo visita)" : ""}${p.email ? ` · ${h(p.email)}` : ""}`);
       mk.on("click", () => openDetail(p.id));
       groups.prospectos.addLayer(mk);
     });
@@ -415,6 +434,6 @@
     if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
-  window.CxConsoleMapa = { VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
+  window.CxConsoleMapa = { CHANNELS, channelsList, VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
     _setMap: (m) => { map = m; } };
 })();

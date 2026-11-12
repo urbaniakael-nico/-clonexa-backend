@@ -386,22 +386,26 @@ async def scan_website(website: str, name: str, fetch=None) -> dict:
     """Pagina principal y, si no hay correo, la de contacto. {email, why, source_url, status}."""
     fetch = fetch or fetch_page
     if not website:
-        return {"email": "", "why": "", "source_url": "", "status": "sin_web"}
+        return {"email": "", "why": "", "source_url": "", "status": "sin_web", "channels": {}}
     if is_social(website):
-        return {"email": "", "why": "", "source_url": "", "status": "sin_web"}
+        return {"email": "", "why": "", "source_url": "", "status": "sin_web", "channels": {}}
     final, page = await fetch(website)
     if not page:
-        return {"email": "", "why": "", "source_url": "", "status": "web_caida"}
+        return {"email": "", "why": "", "source_url": "", "status": "web_caida", "channels": {}}
+    channels = pn.extract_channels(page, final or website)
     found = best_email(page, final or website, name)
-    if found:
-        return {"email": found[0], "why": found[1], "source_url": final or website, "status": "encontrado"}
-    link = contact_link(page, final or website)
+    out = {"email": found[0], "why": found[1], "source_url": final or website, "status": "encontrado"} if found else None
+    # la pagina de contacto solo si falta el correo o no hay ninguna red publicada (no se piden mas paginas)
+    link = contact_link(page, final or website) if (not found or not channels) else ""
     if link:
         f2, p2 = await fetch(link)
-        found = best_email(p2, f2 or website, name) if p2 else None
-        if found:
-            return {"email": found[0], "why": found[1], "source_url": f2 or link, "status": "encontrado"}
-    return {"email": "", "why": "", "source_url": "", "status": "sin_correo"}
+        if p2:
+            channels = pn.merge_channels(channels, pn.extract_channels(p2, f2 or link))
+            if not out:
+                found = best_email(p2, f2 or website, name)
+                if found:
+                    out = {"email": found[0], "why": found[1], "source_url": f2 or link, "status": "encontrado"}
+    return {**(out or {"email": "", "why": "", "source_url": "", "status": "sin_correo"}), "channels": channels}
 
 
 # ---------------------------------------------------------------- base
@@ -613,6 +617,23 @@ async def scan_plan(db: AsyncSession, *, max_searches: int = 12, zone_slug: str 
     return plan
 
 
+def google_channels(place: dict) -> dict:
+    """Canales de la ficha de Google: telefono y web; si la "web" es un Instagram/Facebook/TikTok/WhatsApp, se
+    guarda como esa red (fuente: Google)."""
+    out: dict[str, dict] = {}
+    phone = str(place.get("nationalPhoneNumber") or "").strip()
+    if phone:
+        out["phone"] = {"value": phone[:60], "url": "tel:" + re.sub(r"[^\d+]", "", phone), "source": "google:telefono"}
+    web = str(place.get("websiteUri") or "").strip()
+    if web:
+        social = pn.channel_from_website(web)
+        if social:
+            out[social[0]] = social[1]
+        elif not is_social(web):
+            out["web"] = {"value": host_of(web), "url": web[:500], "source": "google:website"}
+    return out
+
+
 def _component(place: dict, *kinds: str) -> str:
     for c in place.get("addressComponents") or []:
         if set(c.get("types") or []) & set(kinds):
@@ -679,14 +700,16 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
         btype = classify_type(p, business_type)
         website = str(p.get("websiteUri") or "")[:500]
         vg = pn.vigencia(p, at=now(), months=int(cfg["vigencia_months"]), min_reviews=int(cfg["vigencia_min_reviews"]))
+        chans = google_channels(p)
         row = await _one(db, """
             INSERT INTO prospects (place_id, code, unsub_token, name, business_type, primary_type, google_types, address,
                                    locality, neighborhood, zone_id, lat, lng, phone, website, business_status, email_status, niche,
-                                   vigencia, vigencia_reason, vigencia_at, last_activity_at, rating_count, has_hours)
+                                   vigencia, vigencia_reason, vigencia_at, last_activity_at, rating_count, has_hours, channels)
             VALUES (:pid, :code, :tok, :name, :btype, :ptype, CAST(:types AS jsonb), :addr, :loc, :nb, :zone, :lat, :lng,
-                    :phone, :web, :bs, :es, :niche, :vg, :vgr, now(), :lact, :rc, :hh)
+                    :phone, :web, :bs, :es, :niche, :vg, :vgr, now(), :lact, :rc, :hh, CAST(:chans AS jsonb))
             ON CONFLICT (place_id) DO NOTHING RETURNING id::text AS id""", {
             "vg": vg["estado"], "vgr": vg["motivo"][:160], "lact": vg["last_activity_at"], "rc": vg["rating_count"], "hh": vg["has_hours"],
+            "chans": json.dumps(chans, ensure_ascii=False),
             "niche": pn.niche_of(btype),
             "pid": pid[:300], "code": await _unique_code(db), "tok": secrets.token_urlsafe(24), "name": name[:200],
             "btype": btype, "ptype": str(p.get("primaryType") or "")[:80], "types": json.dumps((p.get("types") or [])[:20]),
@@ -723,7 +746,7 @@ async def scan_many(db: AsyncSession, targets: list[dict], *, fetch=None, concur
             try:
                 return t, await asyncio.wait_for(scan_website(t["website"], t["name"], fetch=fetch), 25)
             except Exception:  # noqa: BLE001 - una web mala no tumba el lote
-                return t, {"email": "", "why": "", "source_url": "", "status": "web_caida"}
+                return t, {"email": "", "why": "", "source_url": "", "status": "web_caida", "channels": {}}
 
     found = 0
     for t, res in await asyncio.gather(*(one(t) for t in targets)):
@@ -740,9 +763,23 @@ async def save_email_scan(db: AsyncSession, prospect_id: str, res: dict) -> int:
         dup = await _one(db, "SELECT 1 AS x FROM prospects WHERE lower(email) = :e AND id <> CAST(:i AS uuid)", {"e": email, "i": prospect_id})
         if dup:  # la misma cadena/duenio con varias sedes: un solo contacto por correo
             email, status = "", "correo_repetido"
+    found = dict(res.get("channels") or {})
+    if email:
+        found["email"] = {"value": email[:200], "url": "mailto:" + email[:200], "source": (res.get("source_url") or "")[:500]}
+    cur = await _one(db, "SELECT channels FROM prospects WHERE id = CAST(:i AS uuid)", {"i": prospect_id}) or {}
+    merged = pn.merge_channels(cur.get("channels") or {}, found)
+    if not email and "email" in merged and status != "web_caida":
+        merged.pop("email")   # el correo ya no esta publicado (o quedo excluido/repetido)
+    if status == "web_caida":
+        # la web no abrio hoy: no se borra lo que ya se sabia
+        await db.execute(text("""UPDATE prospects SET channels = CAST(:ch AS jsonb), email_checked_at = now(), updated_at = now(),
+                                 email_status = CASE WHEN email <> '' THEN email_status ELSE 'web_caida' END
+                                 WHERE id = CAST(:i AS uuid)"""), {"ch": json.dumps(merged, ensure_ascii=False), "i": prospect_id})
+        return 0
     await db.execute(text("""UPDATE prospects SET email = :e, email_source_url = :s, email_status = :st, email_checked_at = now(),
-                             updated_at = now() WHERE id = CAST(:i AS uuid)"""),
-                     {"e": email[:200], "s": (res.get("source_url") or "")[:500] if email else "", "st": status, "i": prospect_id})
+                             channels = CAST(:ch AS jsonb), updated_at = now() WHERE id = CAST(:i AS uuid)"""),
+                     {"e": email[:200], "s": (res.get("source_url") or "")[:500] if email else "", "st": status, "i": prospect_id,
+                      "ch": json.dumps(merged, ensure_ascii=False)})
     return 1 if email else 0
 
 
@@ -1189,6 +1226,12 @@ def public_prospect(p: Optional[dict], *, full_email: bool = False) -> Optional[
     out["estado"] = STATUS_LABEL.get(p.get("status"), p.get("status"))
     out["email"] = (p.get("email") or "") if full_email else mask_email(p.get("email") or "")
     out["email_source_url"] = p.get("email_source_url") if full_email else ""
+    chans = p.get("channels") or {}
+    if full_email:   # ficha (solo Admin V2): cada canal publico con su enlace y de donde salio
+        out["channels"] = {k: {"value": v.get("value", ""), "url": v.get("url", ""), "source": v.get("source", "")}
+                           for k, v in chans.items() if isinstance(v, dict)}
+    else:
+        out["channels"] = {k: True for k in chans if k != "email"}
     out["maps_url"] = ("https://www.google.com/maps/search/?api=1&query=" + _q(p.get("name") or "") +
                        "&query_place_id=" + _q(p.get("place_id") or ""))
     return out
@@ -1233,7 +1276,8 @@ def zone_score(c: dict) -> int:
 
 async def map_data(db: AsyncSession, f: dict) -> dict:
     where, params = _filters(f)
-    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.niche, p.status, p.lat, p.lng, p.zone_id, p.email, p.vigencia
+    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.niche, p.status, p.lat, p.lng, p.zone_id, p.email, p.vigencia,
+                                      ARRAY(SELECT jsonb_object_keys(p.channels)) AS canales
                                FROM prospects p WHERE {where} AND p.lat IS NOT NULL ORDER BY p.created_at DESC LIMIT 3000""", params)
     for pin in pins:
         pin["email"] = mask_email(pin["email"])
@@ -1274,7 +1318,8 @@ async def map_data(db: AsyncSession, f: dict) -> dict:
             "statuses": [{"key": k, "label": v} for k, v in STATUS_LABEL.items()]}
 
 
-STAT_KEYS = ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas", "por_verificar")
+STAT_KEYS = ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas", "por_verificar",
+             "con_redes", "con_whatsapp")
 
 
 def _stats_of(c: dict) -> dict:
@@ -1282,6 +1327,9 @@ def _stats_of(c: dict) -> dict:
     sent = stats["enviados"]
     stats["pct_abrio"] = round(100 * stats["abrieron"] / sent, 1) if sent else 0
     stats["pct_respondio"] = round(100 * stats["respondieron"] / sent, 1) if sent else 0
+    n = stats["prospectos"]
+    for k in ("con_correo", "con_redes", "con_whatsapp"):
+        stats["pct_" + k] = round(100 * stats[k] / n, 1) if n else 0
     return stats
 
 
@@ -1296,7 +1344,9 @@ async def _group_stats(db: AsyncSession, column: str, where: str, params: dict) 
                COUNT(*) FILTER (WHERE p.demo_at IS NOT NULL)::int AS demos,
                COUNT(*) FILTER (WHERE p.client_at IS NOT NULL)::int AS clientes,
                COUNT(*) FILTER (WHERE p.status = 'baja')::int AS bajas,
-               COUNT(*) FILTER (WHERE p.vigencia = 'por_verificar')::int AS por_verificar
+               COUNT(*) FILTER (WHERE p.vigencia = 'por_verificar')::int AS por_verificar,
+               COUNT(*) FILTER (WHERE p.channels ? 'instagram' OR p.channels ? 'facebook')::int AS con_redes,
+               COUNT(*) FILTER (WHERE p.channels ? 'whatsapp')::int AS con_whatsapp
         FROM prospects p
         LEFT JOIN (SELECT prospect_id, COUNT(*) AS n FROM prospect_contacts
                    WHERE channel = 'email' AND status = 'enviado' AND kind IN ('inicial', 'seguimiento') GROUP BY prospect_id) s

@@ -1033,6 +1033,10 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .vpm-pin.is-n-transporte { border-color: #3b82f6; }
 .vpm-pin.is-n-tienda { border-color: #14b8a6; }
 .vpm-pin.is-n-bar { border-color: #a855f7; }
+.vpm-channels { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.vpm-channels li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
+.vpm-channels a { color: var(--vp-text); }
+.vpm-channels small { color: var(--vp-muted); flex-basis: 100%; padding-left: 22px; }
 .vpm-pin.is-verify { border-style: dashed; opacity: .55; }
 .vpm-vig { margin: 4px 0 8px; font-size: 13px; color: var(--vp-muted); overflow-wrap: anywhere; }
 .vpm-vig.is-activo b { color: #22c55e; }

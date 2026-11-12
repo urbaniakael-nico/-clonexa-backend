@@ -228,3 +228,24 @@ test('025p vigencia: filtro, ficha "por verificar" y pin atenuado', () => {
   assert.equal(mk.args.o.fillOpacity, 0.4);
   assert.match(mk.tooltip, /por verificar/);
 });
+
+test('025p canales: ficha con íconos, enlaces seguros y fuente; % por zona', () => {
+  const { M } = load();
+  M.model.detail = { prospect: { id: 'c', name: 'Taller Marta', status: 'nuevo', channels: {
+    instagram: { value: '@tallermarta', url: 'https://www.instagram.com/tallermarta/', source: 'https://tallermarta.co/' },
+    whatsapp: { value: '573001112233', url: 'https://wa.me/573001112233', source: 'https://tallermarta.co/contacto' },
+    facebook: { value: 'x', url: 'javascript:alert(1)', source: 'google:website' },
+    phone: { value: '601 234', url: 'tel:601234', source: 'google:telefono' } } }, history: [] };
+  const html = M.detailPanel();
+  assert.match(html, /Canales públicos/);
+  assert.match(html, /📸/);
+  assert.match(html, /href="https:\/\/www\.instagram\.com\/tallermarta\/"/);
+  assert.match(html, /href="https:\/\/tallermarta\.co\/" target="_blank" rel="noopener noreferrer">fuente/);
+  assert.match(html, /ficha de Google: website/);
+  assert.match(html, /nunca escribe en frío/);
+  assert.doesNotMatch(html, /javascript:/);
+  const zt = M.zonesTable({ zones: [{ id: 1, name: 'Puente Aranda', active: true, prospectos: 4, con_correo: 1, con_redes: 3, con_whatsapp: 1, enviados: 0 }] });
+  assert.match(zt, /% IG\/FB/);
+  assert.match(zt, /75%/);
+  assert.match(zt, /25%/);
+});
