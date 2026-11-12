@@ -146,11 +146,14 @@ def _zone(pg_url, slug="kennedy-central"):
     return _run(pg_url, "SELECT * FROM prospect_zones WHERE slug = :s", {"s": slug})[0]
 
 
-def _place(i, name, *, lat=4.6220, lng=-74.1530, web="", status="OPERATIONAL", primary="restaurant"):
-    return {"id": f"place-{i}", "displayName": {"text": name}, "formattedAddress": f"Cl. {i} Sur, Bogotá",
-            "location": {"latitude": lat, "longitude": lng}, "types": [primary, "food"], "primaryType": primary,
-            "businessStatus": status, "nationalPhoneNumber": "601 000 0000", "websiteUri": web,
-            "addressComponents": [{"types": ["neighborhood"], "longText": "Kennedy Central"}]}
+def _place(i, name, *, lat=4.6220, lng=-74.1530, web="", status="OPERATIONAL", primary="restaurant", reviews=25, hours=True):
+    p = {"id": f"place-{i}", "displayName": {"text": name}, "formattedAddress": f"Cl. {i} Sur, Bogotá",
+         "location": {"latitude": lat, "longitude": lng}, "types": [primary, "food"], "primaryType": primary,
+         "businessStatus": status, "nationalPhoneNumber": "601 000 0000", "websiteUri": web,
+         "addressComponents": [{"types": ["neighborhood"], "longText": "Kennedy Central"}], "userRatingCount": reviews}
+    if hours:
+        p["regularOpeningHours"] = {"weekdayDescriptions": ["lunes: 8:00–18:00"]}
+    return p
 
 
 def _kennedy_20():
@@ -614,3 +617,31 @@ def test_talleres_en_bogota_sin_cadenas_del_nicho(client, pg_url, monkeypatch):
 def test_nichos_sin_sesion_401(client, monkeypatch, method, path):
     _admin(monkeypatch, ok=False)
     assert client.request(method.upper(), URL + path, json={"names": []}, headers=H).status_code == 401
+
+
+# ------------------------------------------------------------------ 025p: vigencia
+def test_vigencia_por_verificar_no_entra_a_correo_y_se_ve_en_mapa(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    places = [_place(300, "Taller Activo", web="https://sabordecasa.co/"),
+              _place(301, "Taller Sin Horario", web="https://laespiga.com.co/", hours=False, reviews=0)]
+    out = _ingest(client, pg_url, places).json()
+    assert out["new"] == 2 and out["with_email"] == 2
+    rows = {r["name"]: r for r in _run(pg_url, "SELECT name, vigencia, vigencia_reason, rating_count, has_hours FROM prospects")}
+    assert rows["Taller Activo"]["vigencia"] == "activo" and rows["Taller Activo"]["rating_count"] == 25 and rows["Taller Activo"]["has_hours"]
+    assert rows["Taller Sin Horario"]["vigencia"] == "por_verificar" and "12 meses" in rows["Taller Sin Horario"]["vigencia_reason"]
+    view = _with_db(pg_url, lambda db: ps.build_batch(db, _at(2026, 11, 11, 7, 30)))
+    assert [i["name"] for i in view["items"]] == ["Taller Activo"], "por verificar no entra al lote de correo"
+    m = client.get(f"{URL}/admin/map?vigencia=por_verificar").json()
+    assert [p["name"] for p in m["pins"]] == ["Taller Sin Horario"] and m["pins"][0]["vigencia"] == "por_verificar"
+    assert m["cards"]["por_verificar"] == 1
+    pid = m["pins"][0]["id"]
+    d = client.get(f"{URL}/admin/prospects/{pid}").json()["prospect"]
+    assert d["vigencia"] == "por_verificar" and d["vigencia_reason"]
+    # refresco de 30 dias: llegaron resenas nuevas -> activo
+    _run(pg_url, "UPDATE prospects SET rating_count = 2 WHERE id = CAST(:i AS uuid)", {"i": pid}, fetch=False)
+    r = client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "place": {**places[1], "userRatingCount": 4}}).json()
+    assert r["vigencia"] == "activo"
+    assert _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind = 'places_details'")[0]["n"] == 1
+    # ya no aparece en Google -> por verificar
+    r = client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "not_found": True}).json()
+    assert _run(pg_url, "SELECT vigencia FROM prospects WHERE id = CAST(:i AS uuid)", {"i": pid})[0]["vigencia"] == "por_verificar"

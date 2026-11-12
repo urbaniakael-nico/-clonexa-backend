@@ -210,3 +210,21 @@ test('025p nichos: filtro, tabla por nicho, color e ícono por nicho', () => {
   assert.match(mk.tooltip, /🦺 Eléctricos &lt;b&gt; · Empresas de campo/);
   M.model.colorBy = 'estado';
 });
+
+test('025p vigencia: filtro, ficha "por verificar" y pin atenuado', () => {
+  const { M, made, window } = load();
+  assert.equal(M.mapUrl({ vigencia: 'por_verificar' }), '/api/v1/prospecting/admin/map?vigencia=por_verificar');
+  M.model.data = SAMPLE;
+  assert.ok(M.pane().includes('name="vigencia"'));
+  M.model.detail = { prospect: { id: 'v', name: 'Taller', status: 'nuevo', vigencia: 'por_verificar', vigencia_reason: 'sin actividad visible en 12 meses <x>' }, history: [] };
+  const html = M.detailPanel();
+  assert.match(html, /Por verificar/);
+  assert.match(html, /solo a la ruta de visitas/);
+  assert.match(html, /&lt;x&gt;/);
+  M._setMap({ layers: new Set(), hasLayer() { return false; } });
+  M.model.data = { ...SAMPLE, pins: [{ id: 'v', name: 'T', business_type: 'taller', niche: 'taller', status: 'nuevo', vigencia: 'por_verificar', lat: 4.6, lng: -74.1 }] };
+  M.drawLayers(window.L);
+  const mk = made.markers[made.markers.length - 1];
+  assert.equal(mk.args.o.fillOpacity, 0.4);
+  assert.match(mk.tooltip, /por verificar/);
+});

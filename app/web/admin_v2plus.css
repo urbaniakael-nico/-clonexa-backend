@@ -1033,6 +1033,10 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .vpm-pin.is-n-transporte { border-color: #3b82f6; }
 .vpm-pin.is-n-tienda { border-color: #14b8a6; }
 .vpm-pin.is-n-bar { border-color: #a855f7; }
+.vpm-pin.is-verify { border-style: dashed; opacity: .55; }
+.vpm-vig { margin: 4px 0 8px; font-size: 13px; color: var(--vp-muted); overflow-wrap: anywhere; }
+.vpm-vig.is-activo b { color: #22c55e; }
+.vpm-vig.is-por_verificar b { color: #f59e0b; }
 .vpm-attrib { margin: 0; font-size: 12px; color: var(--vp-muted); }
 .vpm-attrib a { color: var(--vp-text); }
 .vpm-table-wrap { overflow-x: auto; }

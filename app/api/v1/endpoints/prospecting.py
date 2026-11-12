@@ -270,13 +270,14 @@ async def batch_preview(request: Request, batch_id: int, t: str = Query(default=
 # ---------------------------------------------------------------- consola v2+ (Admin V2)
 @router.get("/admin/map", dependencies=admin)
 async def admin_map(zone_id: Optional[int] = None, tipo: str = Query(default="", max_length=30), nicho: str = Query(default="", max_length=20),
+                    vigencia: str = Query(default="", max_length=16),
                     estado: str = Query(default="", max_length=20), desde: str = Query(default="", pattern=r"^(\d{4}-\d{2}-\d{2})?$"),
                     hasta: str = Query(default="", pattern=r"^(\d{4}-\d{2}-\d{2})?$"), db: AsyncSession = Depends(get_db)) -> dict:
     from app.api.v1.endpoints import landing_analytics
 
     await landing_analytics._ensure_storage(db)
     await landing_analytics.backfill_geo(db)
-    data = await ps.map_data(db, {"zone_id": zone_id, "type": tipo, "niche": nicho, "status": estado, "desde": desde, "hasta": hasta})
+    data = await ps.map_data(db, {"zone_id": zone_id, "type": tipo, "niche": nicho, "vigencia": vigencia, "status": estado, "desde": desde, "hasta": hasta})
     return {**data, "attribution": {"map": "© OpenStreetMap", "ip": "IP Geolocation by DB-IP", "ip_url": "https://db-ip.com"}}
 
 

@@ -49,10 +49,13 @@ SEARCH = pn.SEARCH
 FIELD_MASK = ",".join([
     "places.id", "places.displayName", "places.formattedAddress", "places.addressComponents", "places.location",
     "places.types", "places.primaryType", "places.businessStatus", "places.nationalPhoneNumber", "places.websiteUri",
+    # vigencia: mismo SKU (Enterprise, ya lo es por telefono y web). Las resenas (con fecha) serian Enterprise +
+    # Atmosphere: NO se piden (ver prospecting_niches.SKU_PRICE).
+    "places.regularOpeningHours", "places.userRatingCount",
     "nextPageToken",
 ])
 DETAIL_FIELD_MASK = ("id,displayName,formattedAddress,addressComponents,location,types,primaryType,businessStatus,"
-                     "nationalPhoneNumber,websiteUri")
+                     "nationalPhoneNumber,websiteUri,regularOpeningHours,userRatingCount")
 RESCAN_DAYS = 30  # una busqueda agotada (sin pagina siguiente) no se repite antes de 30 dias (ahorro)
 REFRESH_DAYS = 30
 FOLLOWUP_DAYS = 7
@@ -644,6 +647,7 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
     niche = pn.niche_of(business_type)
     await record_usage(db, "places_text", niche=niche, zone_id=zone_id)   # cada busqueda es 1 llamada, traiga o no resultados
     chain_names = [c["name"] for c in await chains(db)] + await niche_chains(db, niche)
+    cfg = await get_settings(db)
     out = {"found": len(places), "new": 0, "duplicate": 0, "chain": 0, "closed": 0, "outside": 0, "excluded": 0,
            "with_email": 0, "new_ids": []}
     new_rows = []
@@ -674,12 +678,15 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
             continue
         btype = classify_type(p, business_type)
         website = str(p.get("websiteUri") or "")[:500]
+        vg = pn.vigencia(p, at=now(), months=int(cfg["vigencia_months"]), min_reviews=int(cfg["vigencia_min_reviews"]))
         row = await _one(db, """
             INSERT INTO prospects (place_id, code, unsub_token, name, business_type, primary_type, google_types, address,
-                                   locality, neighborhood, zone_id, lat, lng, phone, website, business_status, email_status, niche)
+                                   locality, neighborhood, zone_id, lat, lng, phone, website, business_status, email_status, niche,
+                                   vigencia, vigencia_reason, vigencia_at, last_activity_at, rating_count, has_hours)
             VALUES (:pid, :code, :tok, :name, :btype, :ptype, CAST(:types AS jsonb), :addr, :loc, :nb, :zone, :lat, :lng,
-                    :phone, :web, :bs, :es, :niche)
+                    :phone, :web, :bs, :es, :niche, :vg, :vgr, now(), :lact, :rc, :hh)
             ON CONFLICT (place_id) DO NOTHING RETURNING id::text AS id""", {
+            "vg": vg["estado"], "vgr": vg["motivo"][:160], "lact": vg["last_activity_at"], "rc": vg["rating_count"], "hh": vg["has_hours"],
             "niche": pn.niche_of(btype),
             "pid": pid[:300], "code": await _unique_code(db), "tok": secrets.token_urlsafe(24), "name": name[:200],
             "btype": btype, "ptype": str(p.get("primaryType") or "")[:80], "types": json.dumps((p.get("types") or [])[:20]),
@@ -768,22 +775,33 @@ async def refresh_due(db: AsyncSession, limit: int = 40) -> list[dict]:
 
 async def apply_refresh(db: AsyncSession, prospect_id: str, place: Optional[dict], not_found: bool = False) -> dict:
     if not_found or not place:
-        await db.execute(text("""UPDATE prospects SET business_status = 'NOT_FOUND', place_refreshed_at = now(), updated_at = now()
+        await db.execute(text("""UPDATE prospects SET business_status = 'NOT_FOUND', place_refreshed_at = now(), updated_at = now(),
+                                 vigencia = 'por_verificar', vigencia_reason = 'ya no aparece en Google', vigencia_at = now()
                                  WHERE id = CAST(:i AS uuid)"""), {"i": prospect_id})
+        await record_usage(db, "places_details")
         await db.commit()
         return {"ok": True, "estado": "no_encontrado"}
     loc = place.get("location") or {}
+    prev = await _one(db, """SELECT rating_count, place_refreshed_at, last_activity_at, vigencia FROM prospects
+                             WHERE id = CAST(:i AS uuid)""", {"i": prospect_id}) or {}
+    cfg = await get_settings(db)
+    vg = pn.vigencia(place, at=now(), months=int(cfg["vigencia_months"]), min_reviews=int(cfg["vigencia_min_reviews"]),
+                     prev_count=prev.get("rating_count"), prev_at=prev.get("place_refreshed_at"), prev_activity=prev.get("last_activity_at"))
     await db.execute(text("""
         UPDATE prospects SET name = COALESCE(NULLIF(:n, ''), name), address = COALESCE(NULLIF(:a, ''), address),
             phone = :ph, website = :w, lat = COALESCE(:lat, lat), lng = COALESCE(:lng, lng),
-            business_status = :bs, google_types = CAST(:t AS jsonb), place_refreshed_at = now(), updated_at = now()
+            business_status = :bs, google_types = CAST(:t AS jsonb), place_refreshed_at = now(), updated_at = now(),
+            vigencia = :vg, vigencia_reason = :vgr, vigencia_at = now(), last_activity_at = :lact,
+            rating_count = COALESCE(:rc, rating_count), has_hours = :hh
         WHERE id = CAST(:i AS uuid)"""), {
+        "vg": vg["estado"], "vgr": vg["motivo"][:160], "lact": vg["last_activity_at"], "rc": vg["rating_count"], "hh": vg["has_hours"],
         "n": str((place.get("displayName") or {}).get("text") or "")[:200], "a": str(place.get("formattedAddress") or "")[:300],
         "ph": str(place.get("nationalPhoneNumber") or "")[:60], "w": str(place.get("websiteUri") or "")[:500],
         "lat": loc.get("latitude"), "lng": loc.get("longitude"), "bs": str(place.get("businessStatus") or "OPERATIONAL")[:40],
         "t": json.dumps((place.get("types") or [])[:20]), "i": prospect_id})
+    await record_usage(db, "places_details")
     await db.commit()
-    return {"ok": True, "estado": str(place.get("businessStatus") or "OPERATIONAL")}
+    return {"ok": True, "estado": str(place.get("businessStatus") or "OPERATIONAL"), "vigencia": vg["estado"]}
 
 
 # ---------------------------------------------------------------- contactos y estados
@@ -936,6 +954,7 @@ async def set_status(db: AsyncSession, prospect_id: str, status: str) -> dict:
 def _eligible_sql() -> str:
     return """NOT p.is_test AND p.email <> '' AND p.status NOT IN ('baja', 'respondio', 'demo', 'cliente')
               AND p.business_status IN ('', 'OPERATIONAL') AND p.replied_at IS NULL AND p.unsubscribed_at IS NULL
+              AND p.vigencia <> 'por_verificar'
               AND NOT EXISTS (SELECT 1 FROM prospect_exclusions x WHERE (x.kind = 'email' AND x.value = lower(p.email))
                               OR (x.kind = 'domain' AND x.value = split_part(lower(p.email), '@', 2))
                               OR (x.kind = 'place' AND x.value = p.place_id))
@@ -1157,9 +1176,11 @@ def public_prospect(p: Optional[dict], *, full_email: bool = False) -> Optional[
     if not p:
         return None
     out = {k: p.get(k) for k in ("id", "code", "name", "business_type", "address", "neighborhood", "zone_id", "zone_name",
-                                 "zone_group", "lat", "lng", "status", "contact_count", "email_status", "website", "phone")}
+                                 "zone_group", "lat", "lng", "status", "contact_count", "email_status", "website", "phone",
+                                 "vigencia", "vigencia_reason", "rating_count", "has_hours", "assisted_count", "visit_count")}
     for k in ("first_contacted_at", "last_contacted_at", "followup_sent_at", "opened_at", "replied_at", "demo_at", "client_at",
-              "unsubscribed_at", "wa_consent_at", "created_at", "place_refreshed_at"):
+              "unsubscribed_at", "wa_consent_at", "created_at", "place_refreshed_at", "vigencia_at", "last_activity_at",
+              "assisted_first_at", "assisted_followup_at", "last_visit_at"):
         v = p.get(k)
         out[k] = v.isoformat() if isinstance(v, datetime) else v
     out["tipo"] = TYPE_LABEL.get(p.get("business_type"), p.get("business_type"))
@@ -1186,6 +1207,9 @@ def _filters(f: dict) -> tuple[str, dict]:
     if f.get("type") in TYPES:
         where.append("p.business_type = :btype")
         params["btype"] = f["type"]
+    if f.get("vigencia") in ("activo", "por_verificar", "sin_dato"):
+        where.append("p.vigencia = :vigencia")
+        params["vigencia"] = f["vigencia"]
     if f.get("niche") in pn.NICHES:
         where.append("p.niche = :niche")
         params["niche"] = f["niche"]
@@ -1209,7 +1233,7 @@ def zone_score(c: dict) -> int:
 
 async def map_data(db: AsyncSession, f: dict) -> dict:
     where, params = _filters(f)
-    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.niche, p.status, p.lat, p.lng, p.zone_id, p.email
+    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.niche, p.status, p.lat, p.lng, p.zone_id, p.email, p.vigencia
                                FROM prospects p WHERE {where} AND p.lat IS NOT NULL ORDER BY p.created_at DESC LIMIT 3000""", params)
     for pin in pins:
         pin["email"] = mask_email(pin["email"])
@@ -1250,7 +1274,7 @@ async def map_data(db: AsyncSession, f: dict) -> dict:
             "statuses": [{"key": k, "label": v} for k, v in STATUS_LABEL.items()]}
 
 
-STAT_KEYS = ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas")
+STAT_KEYS = ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas", "por_verificar")
 
 
 def _stats_of(c: dict) -> dict:
@@ -1271,7 +1295,8 @@ async def _group_stats(db: AsyncSession, column: str, where: str, params: dict) 
                COUNT(*) FILTER (WHERE p.replied_at IS NOT NULL)::int AS respondieron,
                COUNT(*) FILTER (WHERE p.demo_at IS NOT NULL)::int AS demos,
                COUNT(*) FILTER (WHERE p.client_at IS NOT NULL)::int AS clientes,
-               COUNT(*) FILTER (WHERE p.status = 'baja')::int AS bajas
+               COUNT(*) FILTER (WHERE p.status = 'baja')::int AS bajas,
+               COUNT(*) FILTER (WHERE p.vigencia = 'por_verificar')::int AS por_verificar
         FROM prospects p
         LEFT JOIN (SELECT prospect_id, COUNT(*) AS n FROM prospect_contacts
                    WHERE channel = 'email' AND status = 'enviado' AND kind IN ('inicial', 'seguimiento') GROUP BY prospect_id) s

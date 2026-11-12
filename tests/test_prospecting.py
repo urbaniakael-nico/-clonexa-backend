@@ -240,3 +240,24 @@ def test_cada_tipo_tiene_nicho_y_las_zonas_viejas_no_cambian():
     assert set(pn.MISSING_PAGES) == {"transporte", "tienda"}, "paginas que faltan en la landing (no se inventan)"
     assert pn.landing_url("https://www.clonexa.com.co/", "tienda", {"utm_source": "email"}) == "https://www.clonexa.com.co/?utm_source=email#soluciones"
     assert pn.landing_url("https://www.clonexa.com.co", "campo", {"a": "b"}) == "https://www.clonexa.com.co/personal-en-campo?a=b"
+
+
+def test_vigencia_regla_inicial_12_meses():
+    at = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    hours = {"weekdayDescriptions": ["lunes: 8–18"]}
+    assert pn.vigencia({"businessStatus": "OPERATIONAL", "regularOpeningHours": hours, "userRatingCount": 8}, at=at)["estado"] == "activo"
+    v = pn.vigencia({"businessStatus": "OPERATIONAL", "userRatingCount": 40}, at=at)
+    assert v["estado"] == "por_verificar" and "sin horario" in v["motivo"]
+    assert pn.vigencia({"businessStatus": "OPERATIONAL", "regularOpeningHours": hours, "userRatingCount": 1}, at=at)["estado"] == "por_verificar"
+    assert pn.vigencia({"businessStatus": "CLOSED_TEMPORARILY", "regularOpeningHours": hours, "userRatingCount": 90}, at=at)["estado"] == "por_verificar"
+    old = {"businessStatus": "OPERATIONAL", "regularOpeningHours": hours, "userRatingCount": 30, "reviews": [{"publishTime": "2024-05-01T00:00:00Z"}]}
+    assert pn.vigencia(old, at=at)["estado"] == "por_verificar", "si hay fecha de resena, manda la fecha"
+    new = {**old, "reviews": [{"publishTime": "2026-09-01T00:00:00Z"}]}
+    assert pn.vigencia(new, at=at)["estado"] == "activo"
+    grew = pn.vigencia({"businessStatus": "OPERATIONAL", "userRatingCount": 3}, at=at, prev_count=2, prev_at=at)
+    assert grew["estado"] == "activo" and grew["last_activity_at"] == at, "resenas nuevas desde el ultimo refresco"
+
+
+def test_field_mask_de_vigencia_no_sube_el_sku():
+    assert "places.reviews" not in ps.FIELD_MASK and "reviews" not in ps.DETAIL_FIELD_MASK, "Atmosphere apagado"
+    assert "places.regularOpeningHours" in ps.FIELD_MASK and "places.userRatingCount" in ps.FIELD_MASK

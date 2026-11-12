@@ -27,7 +27,8 @@
   const NICHES = { restaurante: ["Restaurantes y comidas", "🍽️", "#f59e0b"], taller: ["Talleres y fábricas", "🧵", "#ff2d6f"],
     campo: ["Empresas de campo", "🦺", "#22c55e"], transporte: ["Transporte y logística", "🚚", "#3b82f6"], tienda: ["Tiendas y minimercados", "🛒", "#14b8a6"],
     bar: ["Bares", "🍸", "#a855f7"] };
-  const EMPTY_FILTERS = () => ({ zone_id: "", nicho: "", tipo: "", estado: "", desde: "", hasta: "" });
+  const EMPTY_FILTERS = () => ({ zone_id: "", nicho: "", tipo: "", estado: "", vigencia: "", desde: "", hasta: "" });
+  const VIGENCIA = { activo: "Activo", por_verificar: "Por verificar", sin_dato: "Sin dato aún" };
   const KINDS = { inicial: "Correo inicial", seguimiento: "Seguimiento", respuesta: "Respondió", baja: "Baja", apertura: "Abrió la landing",
     whatsapp_entrada: "Escribió por WhatsApp", demo: "Demo", cliente: "Cliente", prueba: "Prueba" };
   const LAYERS = [["prospectos", "Prospectos"], ["visitas", "Calor: visitas a la landing"], ["leads", "Calor: respuestas y leads"], ["zonas", "Zonas de prospección"]];
@@ -47,6 +48,7 @@
     if (f.nicho) p.set("nicho", f.nicho);
     if (f.tipo) p.set("tipo", f.tipo);
     if (f.estado) p.set("estado", f.estado);
+    if (f.vigencia) p.set("vigencia", f.vigencia);
     if (f.desde) p.set("desde", f.desde);
     if (f.hasta) p.set("hasta", f.hasta);
     const qs = p.toString();
@@ -89,7 +91,7 @@
   // ------------------------------------------------------------ vistas (HTML)
   function cards(d) {
     const c = (d && d.cards) || {};
-    const items = [["Prospectos", c.prospectos, `${num(c.con_correo)} con correo`], ["Correos enviados", c.enviados, ""],
+    const items = [["Prospectos", c.prospectos, `${num(c.con_correo)} con correo · ${num(c.por_verificar)} por verificar`], ["Correos enviados", c.enviados, ""],
       ["Abrieron la landing", c.abrieron, pct(c.abrieron || 0, c.enviados || 0)], ["Respondieron", c.respondieron, pct(c.respondieron || 0, c.enviados || 0)],
       ["Demos", c.demos, ""], ["Clientes", c.clientes, ""]];
     return `<section class="vp-cards vpm-cards">${items.map(([l, v, s]) => `<div class="vp-panel vp-card"><span>${h(l)}</span><strong>${h(num(v))}</strong>${s ? `<small>${h(s)}</small>` : ""}</div>`).join("")}</section>`;
@@ -115,6 +117,7 @@
       <label class="vp-field">Nicho<select name="nicho">${opt("", "Todos", f.nicho)}${Object.entries(NICHES).map(([k, [l, i]]) => opt(k, `${i} ${l}`, f.nicho)).join("")}</select></label>
       <label class="vp-field">Tipo de negocio<select name="tipo">${opt("", "Todos", f.tipo)}${Object.entries(TYPES).map(([k, l]) => opt(k, l, f.tipo)).join("")}</select></label>
       <label class="vp-field">Estado<select name="estado">${opt("", "Todos", f.estado)}${Object.entries(STATUS).map(([k, [l]]) => opt(k, l, f.estado)).join("")}</select></label>
+      <label class="vp-field">Vigencia<select name="vigencia">${opt("", "Todas", f.vigencia)}${Object.entries(VIGENCIA).map(([k, l]) => opt(k, l, f.vigencia)).join("")}</select></label>
       <label class="vp-field">Desde<input type="date" name="desde" value="${h(f.desde)}"></label>
       <label class="vp-field">Hasta<input type="date" name="hasta" value="${h(f.hasta)}"></label>
       <div class="vp-actions"><button class="vp-btn vp-btn-primary" type="submit">Filtrar</button><button class="vp-btn" type="button" data-vpm-reset>Limpiar</button></div>
@@ -177,7 +180,8 @@
     const confirm = model.confirm === p.id;
     return `<aside class="vp-panel vp-section vpm-detail" data-vpm-detail="${h(p.id)}">
       <div class="vp-row-between"><h2>${h(p.name)}</h2><button class="vp-btn vp-btn-sm" type="button" data-vpm-close aria-label="Cerrar ficha">✕</button></div>
-      <p><span class="vpm-dot is-${h(p.status)}" aria-hidden="true"></span> ${h(label)} · ${h(p.tipo || TYPES[p.business_type] || "")}</p>
+      <p><span class="vpm-dot is-${h(p.status)}" aria-hidden="true"></span> ${h(label)} · ${h(p.tipo || TYPES[p.business_type] || "")}${p.nicho ? ` · ${h(p.nicho)}` : ""}</p>
+      <p class="vpm-vig is-${h(p.vigencia || "sin_dato")}"><b>${h(VIGENCIA[p.vigencia] || VIGENCIA.sin_dato)}</b>${p.vigencia_reason ? ` · ${h(p.vigencia_reason)}` : ""}${p.vigencia === "por_verificar" ? " · no entra a correo ni a la cola asistida: solo a la ruta de visitas" : ""}</p>
       <ul class="vpm-facts">${row("Zona", [p.zone_name, p.zone_group].filter(Boolean).join(" · "))}${row("Dirección", p.address)}${row("Teléfono", p.phone)}
         ${row("Correo", p.email)}${row("Código", p.code)}${row("Correos enviados", String(p.contact_count ?? 0))}
         ${row("Primer contacto", p.first_contacted_at && fecha(p.first_contacted_at))}${row("Abrió la landing", p.opened_at && fecha(p.opened_at))}
@@ -278,9 +282,10 @@
       const [label] = STATUS[p.status] || [p.status];
       const [nl, icon] = NICHES[nicheOf(p)] || NICHES.restaurante;
       const mk = (L.divIcon && L.marker)
-        ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: `vpm-pin is-${model.colorBy === "nicho" ? `n-${nicheOf(p)}` : h(p.status)}`, html: h(icon), iconSize: [24, 24] }), keyboard: false })
-        : L.circleMarker([p.lat, p.lng], { radius: 7, color: "#0b0710", weight: 1.5, fillColor: pinColor(p), fillOpacity: 0.95 });
-      mk.bindTooltip(`${h(icon)} ${h(p.name)} · ${h(nl)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.email ? ` · ${h(p.email)}` : ""}`);
+        ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: `vpm-pin is-${model.colorBy === "nicho" ? `n-${nicheOf(p)}` : h(p.status)}${p.vigencia === "por_verificar" ? " is-verify" : ""}`, html: h(icon), iconSize: [24, 24] }), keyboard: false })
+        : L.circleMarker([p.lat, p.lng], { radius: 7, color: "#0b0710", weight: 1.5, fillColor: pinColor(p), fillOpacity: p.vigencia === "por_verificar" ? 0.4 : 0.95,
+          dashArray: p.vigencia === "por_verificar" ? "2 3" : null });
+      mk.bindTooltip(`${h(icon)} ${h(p.name)} · ${h(nl)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.vigencia === "por_verificar" ? " · por verificar (solo visita)" : ""}${p.email ? ` · ${h(p.email)}` : ""}`);
       mk.on("click", () => openDetail(p.id));
       groups.prospectos.addLayer(mk);
     });
@@ -369,7 +374,7 @@
     if (form.matches("[data-vpm-filters]")) {
       event.preventDefault();
       const d = new FormData(form);
-      model.filters = { zone_id: String(d.get("zone_id") || ""), nicho: String(d.get("nicho") || ""), tipo: String(d.get("tipo") || ""), estado: String(d.get("estado") || ""),
+      model.filters = { zone_id: String(d.get("zone_id") || ""), nicho: String(d.get("nicho") || ""), tipo: String(d.get("tipo") || ""), estado: String(d.get("estado") || ""), vigencia: String(d.get("vigencia") || ""),
         desde: String(d.get("desde") || ""), hasta: String(d.get("hasta") || "") };
       load();
       return;
@@ -410,6 +415,6 @@
     if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
-  window.CxConsoleMapa = { model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
+  window.CxConsoleMapa = { VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
     _setMap: (m) => { map = m; } };
 })();
