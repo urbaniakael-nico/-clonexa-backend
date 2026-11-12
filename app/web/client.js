@@ -1270,7 +1270,8 @@
     "configuration",
     "config",
     "configuracion",
-    "ajustes"
+    "ajustes",
+    "live3d"
   ]);
 
   function cxNormalizeModuleToken017H(value) {
@@ -37914,6 +37915,275 @@ function inventoryCreatePayload() {
   bindPersonalModuleEvents();
 
 
+  /* CLONEXA_078A_OWNER_HOME_START: panel del dueño SIN barra lateral (panel-tm-propuesta.png), para TODAS las
+     empresas (pedido del dueño). SOLO DISEÑO: las mismas cifras (renderClientHeroKpis), los mismos avisos y las
+     mismas tarjetas data-client-module que abren exactamente la pantalla de siempre. La barra superior lleva LIVE,
+     Alertas (los interruptores visual/sonido de siempre), Ajustes y Salir (client_core_settings.js los pone en el
+     hueco [class*=sidebar]). Si la empresa tiene "Negocio en vivo 3D" y el rol lo puede ver, tarjeta grande 2x2.
+     Interruptor de emergencia por empresa: settings_json.owner_panel_classic = true -> el panel de antes. */
+  const CX_OP_ICON_078A = [
+    [/orders|pedido|waiter/, "🧾"], [/qr|tables|mesa/, "📱"], [/stock/, "📦"], [/inventor|material/, "🍾"], [/loyal|fideli/, "🎡"],
+    [/hospitality|report|kpi/, "📊"], [/cash|caja|cierre|day_closing/, "💰"], [/workforce|personal|employee|payroll|nomina/, "👥"],
+    [/sales|venta/, "💳"], [/bots?$|telegram|whatsapp/, "🤖"], [/crm/, "🗂️"], [/carta|menu/, "📖"], [/domicil|delivery/, "🛵"],
+    [/sanidad/, "🧽"], [/costos|finance|billing|factur/, "🧮"], [/mini_?panel/, "🔗"], [/assist|asistente|ia_operativa|ai_/, "✨"],
+    [/reference|produc/, "🧵"], [/gps|location|field|transport/, "📍"], [/store|tienda|shoplink/, "🛍️"],
+  ];
+  const CX_OP_DESC_078A = {
+    bar: "Tus mesas, pedidos, barra y canciones en 3D, en tiempo real.",
+    restaurante: "Tus mesas, cocina, domicilios y personal en 3D, en tiempo real.",
+    taller: "Tus máquinas, producción y personal en 3D, en tiempo real.",
+    operación: "Tu personal en campo y sus operaciones en 3D, en tiempo real.",
+  };
+  let cxOpInfo078A = {};
+  let cxOpLoading078A = null;
+  let cxOpPreview078A = {};
+
+  function cxOpIcon078A(module = {}) {
+    const key = String(module.code || "").toLowerCase() + " " + String(module.badge || "").toLowerCase();
+    const hit = CX_OP_ICON_078A.find(([re]) => re.test(key));
+    return hit ? hit[1] : "◆";
+  }
+  function cxOpIsAssistant078A(module = {}) {
+    return /assist|asistente|ia_operativa|ai_assistant/.test(String(module.code || "").toLowerCase()) || String(module.badge || "") === "AI";
+  }
+  // Dato vivo de la esquina (solo lo que el panel ya calcula; si no hay dato, nada).
+  function cxOpChip078A(module = {}, metrics = {}) {
+    const code = String(module.code || "").toLowerCase();
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    if (cxOpIsAssistant078A(module)) return { text: "IA", tone: "ai" };
+    if (/^(orders|pedidos|waiter_ordering)$/.test(code) && num(metrics.pendingOrders) != null) return { text: `${num(metrics.pendingOrders)} abiertos`, tone: "" };
+    if (/^(qr|tables|qr_bar_menu)$/.test(code) && num(metrics.qrTables) != null) return { text: `${num(metrics.qrTables)} mesas`, tone: "" };
+    if (/^stock$/.test(code) && num(metrics.outOfStock) != null) return { text: `${num(metrics.outOfStock)} sin stock`, tone: num(metrics.outOfStock) > 0 ? "bad" : "" };
+    return null;
+  }
+  // Colores del panel desde la marca (Estudio de marca / branding): fondo, tarjeta, texto, atenuado y acento, con
+  // contraste AA (4,5:1) garantizado para el texto y el texto sobre el acento.
+  function cxOpHex078A(value, fallback) {
+    const v = String(value || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(v)) return ("#" + v.slice(1).split("").map((c) => c + c).join("")).toLowerCase();
+    return fallback;
+  }
+  function cxOpRgb078A(hex) { return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)); }
+  function cxOpMix078A(a, b, t) { const x = cxOpRgb078A(a), y = cxOpRgb078A(b); return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join(""); }
+  function cxOpLum078A(hex) { const c = cxOpRgb078A(hex).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+  function cxOpContrast078A(a, b) { const x = cxOpLum078A(a), y = cxOpLum078A(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  function cxOpReadable078A(fg, bg, min = 4.5) {
+    if (cxOpContrast078A(fg, bg) >= min) return fg;
+    const target = cxOpLum078A(bg) > 0.4 ? "#000000" : "#ffffff";
+    for (let t = 0.1; t <= 1.0001; t += 0.1) { const c = cxOpMix078A(fg, target, t); if (cxOpContrast078A(c, bg) >= min) return c; }
+    return target;
+  }
+  function cxOpPalette078A(b = {}) {
+    let bg = cxOpHex078A(b.background_color, "#0b0a10");
+    // fondo de gris medio (ni texto blanco ni negro llegan a 7:1): se oscurece hasta que el texto claro se lea
+    for (let t = 0.1; Math.max(cxOpContrast078A("#ffffff", bg), cxOpContrast078A("#000000", bg)) < 7 && t <= 1.0001; t += 0.1) bg = cxOpMix078A(cxOpHex078A(b.background_color, "#0b0a10"), "#000000", t);
+    const light = cxOpLum078A(bg) > 0.4;
+    const text = cxOpReadable078A(cxOpHex078A(b.text_color, light ? "#111111" : "#ffffff"), bg, 7);
+    const card = cxOpMix078A(bg, text, light ? 0.05 : 0.07);
+    const accent = cxOpHex078A(b.primary_color, "#f20b6d");
+    const second = cxOpHex078A(b.secondary_color, accent);
+    return {
+      bg, card, text, accent, second, light,
+      muted: cxOpReadable078A(cxOpMix078A(text, card, 0.32), card),
+      line: cxOpMix078A(card, text, 0.16),
+      onAccent: cxOpContrast078A("#ffffff", accent) >= 4.5 ? "#ffffff" : "#111111",
+      accentText: cxOpReadable078A(accent, card),
+      danger: light ? "#fee2e2" : "#5b0f16", dangerText: light ? "#7f1d1d" : "#fecaca",
+      ai: light ? "#ede9fe" : "#3b1663", aiText: light ? "#3b0764" : "#f3e8ff",
+    };
+  }
+  function cxOpStyle078A(p) {
+    return [["bg", p.bg], ["card", p.card], ["text", p.text], ["muted", p.muted], ["line", p.line], ["accent", p.accent], ["second", p.second],
+      ["on-accent", p.onAccent], ["accent-text", p.accentText], ["danger", p.danger], ["danger-text", p.dangerText], ["ai", p.ai], ["ai-text", p.aiText]]
+      .map(([k, v]) => `--op-${k}:${v}`).join(";");
+  }
+  function cxOpHomeOn078A() {
+    const info = cxOpInfo078A[state.companyId] || null;
+    return !(info && info.classic === true);
+  }
+  function cxOpLiveCard078A(live) {
+    if (!live) return "";
+    const noun = live.noun || "negocio";
+    const pic = cxOpPreview078A[state.companyId];
+    return `
+      <button class="client-module-card cxop-card-078a cxop-live-078a" type="button" data-cxop-live-078a ${pic ? `style="background-image:linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.72)),url('${h(pic)}')"` : ""}>
+        <span class="cxop-chip-078a cxop-chip-live-078a">● EN VIVO</span>
+        <span class="cxop-live-text-078a">
+          <strong><span aria-hidden="true">🏢</span> Ver mi ${h(noun)} en vivo</strong>
+          <small>${h(CX_OP_DESC_078A[noun] || "Tu negocio en 3D con tus datos reales, en tiempo real.")}</small>
+          <span class="cxop-open-078a">Abrir</span>
+        </span>
+      </button>`;
+  }
+  function cxOpModuleCard078A(module, metrics) {
+    const chip = cxOpChip078A(module, metrics);
+    const ai = cxOpIsAssistant078A(module);
+    return `
+      <button class="client-module-card cxop-card-078a${ai ? " cxop-ai-078a" : ""}" type="button" data-client-module="${h(module.code)}" data-cxop-code-078a="${h(module.code)}">
+        ${chip ? `<span class="cxop-chip-078a${chip.tone ? " is-" + chip.tone : ""}" data-cxop-chip-078a>${h(chip.text)}</span>` : ""}
+        <span class="cxop-icon-078a" aria-hidden="true">${cxOpIcon078A(module)}</span>
+        <strong>${h(module.title)}</strong>
+        <small>${h(module.subtitle)}</small>
+      </button>`;
+  }
+  function cxOpHomeHtml078A({ company, b, modules, hasHospitalityDashboard, hospitalityMetrics }) {
+    const p = cxOpPalette078A(b);
+    const info = cxOpInfo078A[state.companyId] || {};
+    const ordered = modules.filter((m) => !cxOpIsAssistant078A(m)).concat(modules.filter((m) => cxOpIsAssistant078A(m)));
+    const alerts = hasHospitalityDashboard
+      ? `<details class="cxop-alerts-078a"><summary class="cxop-pill-078a"><span aria-hidden="true">🔔</span> Alertas</summary>
+          <div class="cxop-alerts-pop-078a" role="group" aria-label="Alertas">
+            <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-visual-alerts aria-pressed="true"><span aria-hidden="true">&#128994;</span> Visual <b>ON</b></button>
+            <button class="client-btn hsp-alert-control-030b" type="button" data-hsp-toggle-sound-alerts aria-pressed="false"><span aria-hidden="true">&#128276;</span> Sonido <b>OFF</b></button>
+          </div></details>`
+      : "";
+    return `
+      <main id="clientDashboardRoot030D" class="client-shell cxop-root-078a${p.light ? " is-light" : ""}" style="${cxOpStyle078A(p)}">
+        ${hasHospitalityDashboard ? `<div id="hspOrderAlerts030B" class="hsp-order-alerts-030b" aria-live="assertive" aria-atomic="false"></div>` : ""}
+        <header class="cxop-top-078a">
+          <div class="cxop-brand-078a">
+            <div class="client-logo cxop-logo-078a">${logo(company, b)}</div>
+            <div><div class="cxop-eyebrow-078a">Sistema operativo empresarial</div><h1 class="cxop-name-078a">${h(company.name || "Empresa")}</h1></div>
+          </div>
+          <div class="cxop-tools-078a">
+            <span class="cxop-pill-078a cxop-livepill-078a">● LIVE</span>
+            ${alerts}
+            <div class="cxop-sidebar-slot-078a" data-cxop-account-078a></div>
+          </div>
+        </header>
+        <section class="client-hero cxop-hero-078a">
+          <div class="client-kpi-grid cxop-kpis-078a">${renderClientHeroKpis(modules, company)}</div>
+          <div class="client-actions cxop-actions-078a">${renderClientHeroActions(modules)}</div>
+          ${hasHospitalityDashboard ? cxHspDashboardPendingBanner030D(hospitalityMetrics) : ""}
+          ${cxSanDashboardBanner048K()}
+          ${cxSessDashboardBanner048Q()}
+          ${cxCarDashboardBanner048T()}
+        </section>
+        <section class="client-panel cxop-panel-078a" aria-label="Módulos del panel">
+          <div class="client-module-grid cxop-grid-078a" data-cxop-grid-078a>
+            ${cxOpLiveCard078A(info.live3d)}
+            ${ordered.length ? ordered.map((m) => cxOpModuleCard078A(m, hospitalityMetrics)).join("") : `
+              <div class="client-module-card cxop-card-078a"><strong>Sin modulos activos</strong><small>Activa un paquete desde Admin V2</small></div>`}
+          </div>
+        </section>
+      </main>`;
+  }
+  function cxOpPaintChips078A(metrics = {}) {
+    document.querySelectorAll("[data-cxop-code-078a]").forEach((card) => {
+      const chip = cxOpChip078A({ code: card.getAttribute("data-cxop-code-078a") }, metrics);
+      const el = card.querySelector("[data-cxop-chip-078a]");
+      if (!chip || !el) return;
+      el.textContent = chip.text;
+      el.classList.toggle("is-bad", chip.tone === "bad");
+    });
+  }
+  // Ajustes y Salir de siempre (client_core_settings.js) en la barra superior, con la etiqueta corta.
+  function cxOpAccount078A() {
+    const slot = document.querySelector("[data-cxop-account-078a]");
+    const box = document.getElementById("clxCoreActions");
+    if (!slot || !box) return;
+    if (box.parentElement !== slot) slot.appendChild(box);
+    const out = document.getElementById("clxCoreLogout");
+    if (out && out.textContent.trim() !== "⏻ Salir") out.textContent = "⏻ Salir";
+  }
+  const cxOpLoadedAt078A = {};
+  async function cxOpLoadInfo078A() {
+    const cid = state.companyId;
+    if (!cid || cxOpLoading078A === cid || Date.now() - (cxOpLoadedAt078A[cid] || 0) < 60000) return;
+    cxOpLoading078A = cid;
+    cxOpLoadedAt078A[cid] = Date.now();
+    let info = { classic: false, live3d: null };
+    try { info = await api(`/live3d/companies/${encodeURIComponent(cid)}/panel`); } catch (_) { /* panel nuevo sin tarjeta 3D */ }
+    cxOpLoading078A = null;
+    const before = JSON.stringify(cxOpInfo078A[cid] || {});
+    cxOpInfo078A[cid] = info;
+    let picture = false;
+    if (info.live3d && info.live3d.has_preview && !cxOpPreview078A[cid]) {
+      try {
+        const res = await fetch(`${API}/live3d/companies/${encodeURIComponent(cid)}/vista.jpg`, { headers: authHeaders() });
+        if (res.ok) { cxOpPreview078A[cid] = URL.createObjectURL(await res.blob()); picture = true; }
+      } catch (_) {}
+    }
+    if (before !== JSON.stringify(info) || picture) {
+      if (document.getElementById("clientDashboardRoot030D")) render();
+    }
+  }
+  async function cxOpOpenLive078A(button) {
+    const cid = state.companyId;
+    if (button) button.disabled = true;
+    try {
+      const res = await api(`/live3d/companies/${encodeURIComponent(cid)}/acceso`);
+      window.location.href = res.url;
+    } catch (error) {
+      if (button) button.disabled = false;
+      const text = button && button.querySelector("small");
+      if (text) text.textContent = "No se pudo abrir ahora. Intenta de nuevo.";
+    }
+  }
+  document.addEventListener("click", (event) => {
+    const live = event.target.closest("[data-cxop-live-078a]");
+    if (live) { event.preventDefault(); cxOpOpenLive078A(live); return; }
+    const open = document.querySelector(".cxop-alerts-078a[open]");
+    if (open && !event.target.closest(".cxop-alerts-078a")) open.removeAttribute("open");
+  });
+  function cxOpStyles078A() {
+    if (document.getElementById("cxOpStyles078A")) return;
+    const style = document.createElement("style");
+    style.id = "cxOpStyles078A";
+    style.textContent = `
+      .cxop-root-078a{min-height:100vh;box-sizing:border-box;padding:clamp(14px,2.4vw,32px);background:radial-gradient(1200px 600px at 85% -10%,color-mix(in srgb,var(--op-accent) 22%,transparent),transparent 70%),linear-gradient(160deg,var(--op-bg),color-mix(in srgb,var(--op-bg) 88%,var(--op-second)));color:var(--op-text);display:grid;gap:clamp(12px,1.6vw,22px);align-content:start;font-family:inherit}
+      .cxop-top-078a{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+      .cxop-brand-078a{display:flex;align-items:center;gap:14px;min-width:0}
+      .cxop-logo-078a{width:56px;height:56px;flex:0 0 56px;border-radius:14px;overflow:hidden;display:grid;place-items:center;background:var(--op-card);border:1px solid var(--op-line);font-weight:900;font-size:24px;margin:0}
+      .cxop-eyebrow-078a{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--op-muted);font-weight:700}
+      .cxop-name-078a{margin:2px 0 0;font-size:clamp(22px,2.6vw,32px);line-height:1.1;font-weight:900;color:var(--op-text);overflow-wrap:anywhere}
+      .cxop-tools-078a{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      .cxop-pill-078a,.cxop-root-078a .clx-core-action-btn{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--op-line);background:var(--op-card);color:var(--op-text);font-weight:800;font-size:14px;cursor:pointer;list-style:none;width:auto;text-align:center;box-shadow:none}
+      .cxop-pill-078a::-webkit-details-marker{display:none}
+      .cxop-livepill-078a{background:var(--op-accent);color:var(--op-on-accent);border-color:transparent;cursor:default}
+      .cxop-sidebar-slot-078a{display:contents}
+      .cxop-root-078a #clxCoreActions{display:flex;gap:10px;margin:0}
+      .cxop-alerts-078a{position:relative}
+      .cxop-alerts-pop-078a{position:absolute;right:0;top:calc(100% + 8px);z-index:30;display:grid;gap:8px;min-width:200px;padding:12px;border-radius:16px;background:var(--op-card);border:1px solid var(--op-line);box-shadow:0 20px 50px rgba(0,0,0,.45)}
+      .cxop-hero-078a{display:grid;gap:12px;padding:0;margin:0;background:none;border:0;box-shadow:none}
+      .cxop-kpis-078a{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(10px,1.4vw,18px);margin:0}
+      .cxop-root-078a .client-kpi{display:block;text-align:left;padding:18px 22px;border-radius:18px;background:var(--op-card);border:1px solid var(--op-line);color:var(--op-text);min-width:0;font:inherit}
+      .cxop-root-078a .client-kpi span{display:block;font-size:14px;color:var(--op-muted);font-weight:600}
+      .cxop-root-078a .client-kpi strong{display:block;font-size:clamp(30px,3.4vw,44px);line-height:1.15;font-weight:900;color:var(--op-text);overflow-wrap:anywhere}
+      .cxop-root-078a .client-kpi small{display:block;font-size:13px;color:var(--op-muted);overflow-wrap:anywhere}
+      .cxop-root-078a .client-kpi.danger{background:var(--op-danger);border-color:#ef4444}
+      .cxop-root-078a .client-kpi.danger span,.cxop-root-078a .client-kpi.danger strong,.cxop-root-078a .client-kpi.danger small{color:var(--op-danger-text)}
+      .cxop-actions-078a{display:flex;flex-wrap:wrap;gap:8px;margin:0}.cxop-actions-078a:empty{display:none}
+      .cxop-actions-078a .client-btn{border-radius:999px;background:var(--op-card);color:var(--op-text);border:1px solid var(--op-line)}
+      .cxop-panel-078a{padding:0;margin:0;background:none;border:0;box-shadow:none}
+      .cxop-grid-078a{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(190px,auto);grid-auto-flow:dense;gap:clamp(10px,1.4vw,18px);margin:0}
+      .cxop-card-078a{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:6px;text-align:left;padding:22px;border-radius:20px;background:var(--op-card);border:1px solid var(--op-line);color:var(--op-text);cursor:pointer;min-width:0;min-height:190px;font:inherit;transition:transform .15s,border-color .15s}
+      .cxop-card-078a:hover{transform:translateY(-2px);border-color:var(--op-accent-text)}
+      .cxop-card-078a:focus-visible{outline:3px solid var(--op-accent-text);outline-offset:3px}
+      .cxop-card-078a strong{font-size:clamp(20px,1.8vw,26px);font-weight:900;color:var(--op-text);overflow-wrap:anywhere}
+      .cxop-card-078a small{font-size:14px;color:var(--op-muted);overflow-wrap:anywhere}
+      .cxop-icon-078a{font-size:42px;line-height:1;margin-bottom:auto}
+      .cxop-chip-078a{position:absolute;top:18px;right:18px;padding:5px 11px;border-radius:999px;font-size:13px;font-weight:800;background:color-mix(in srgb,var(--op-accent) 20%,var(--op-card));color:var(--op-text);border:1px solid var(--op-line)}
+      .cxop-chip-078a.is-bad{background:var(--op-danger);color:var(--op-danger-text);border-color:#ef4444}
+      .cxop-ai-078a{grid-column:span 2;background:linear-gradient(120deg,var(--op-ai),color-mix(in srgb,var(--op-ai) 70%,#7f1d1d));border-color:#a855f7}
+      .cxop-ai-078a strong,.cxop-ai-078a small{color:var(--op-ai-text)}
+      .cxop-ai-078a .cxop-chip-078a{background:#6d28d9;color:#fff;border-color:#a855f7}
+      .cxop-live-078a{grid-column:span 2;grid-row:span 2;order:-1;min-height:400px;background:linear-gradient(140deg,color-mix(in srgb,var(--op-accent) 35%,#140b18),#07050a);background-size:cover;background-position:center;border:2px solid var(--op-accent);color:#fff}
+      .cxop-live-text-078a{display:grid;gap:8px;justify-items:start}
+      .cxop-live-078a strong{font-size:clamp(26px,3vw,40px);color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+      .cxop-live-078a small{color:#fff;font-size:16px;text-shadow:0 1px 8px rgba(0,0,0,.7)}
+      .cxop-chip-live-078a{background:#052e16;color:#bbf7d0;border-color:#22c55e}
+      .cxop-open-078a{margin-top:6px;padding:10px 22px;border-radius:12px;background:var(--op-accent);color:var(--op-on-accent);font-weight:900;font-size:16px}
+      @media (max-width:1100px){.cxop-grid-078a,.cxop-kpis-078a{grid-template-columns:repeat(2,minmax(0,1fr))}.cxop-live-078a{grid-row:span 1;min-height:300px}}
+      @media (max-width:640px){.cxop-grid-078a{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto}.cxop-kpis-078a{grid-template-columns:repeat(2,minmax(0,1fr))}
+        .cxop-live-078a,.cxop-ai-078a{grid-column:auto;grid-row:auto}.cxop-live-078a{min-height:260px}.cxop-card-078a{min-height:150px}
+        .cxop-top-078a{align-items:flex-start}.cxop-tools-078a{width:100%}.cxop-pill-078a,.cxop-root-078a .clx-core-action-btn{min-height:44px}}
+    `;
+    document.head.appendChild(style);
+  }
+  /* CLONEXA_078A_OWNER_HOME_END */
+
   function render() {
     const company = state.company || {};
     const b = normalizeBranding(state.branding || {});
@@ -37926,6 +38196,21 @@ function inventoryCreatePayload() {
     if (hasHospitalityDashboard) {
       cxHspStyles024R();
       cxHspLoadAlertPreferences031D();
+    }
+
+    // 078A: panel del dueño nuevo (sin barra lateral); el de antes solo con el interruptor de emergencia.
+    cxOpLoadInfo078A();
+    if (cxOpHomeOn078A()) {
+      cxOpStyles078A();
+      $("app").innerHTML = cxOpHomeHtml078A({ company, b, modules, hasHospitalityDashboard, hospitalityMetrics });
+      setTimeout(cxOpAccount078A, 0);
+      if (hasHospitalityDashboard) {
+        cxHspSyncAlertButton030B();
+        cxHspArmStoredAlerts030D();
+        cxHspStartGlobalMonitor031H();
+        cxHspStartDashboardMonitor030D();
+      }
+      return;
     }
 
     $("app").innerHTML = `
@@ -41877,6 +42162,7 @@ function inventoryCreatePayload() {
 
     return {
       activeTables,
+      qrTables: tables.length,
       lowStock: Number(inventoryData?.summary?.low_stock || 0),
       ...(outOfStockCard ? cxHspStockAlerts048E(inventoryData?.items) : {}),
       pendingOrders: pendingItems.length,
@@ -42020,6 +42306,7 @@ function inventoryCreatePayload() {
         kpi.classList.toggle("ok", stockView.tone === "ok");
       }
     });
+    cxOpPaintChips078A(metrics);
     const hero = document.querySelector("#clientDashboardRoot030D .client-hero");
     const currentBanner = hero?.querySelector(".hsp-dashboard-pending-banner-030d");
     const bannerHtml = cxHspDashboardPendingBanner030D(metrics);
