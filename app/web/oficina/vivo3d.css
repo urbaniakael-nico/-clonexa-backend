@@ -1,0 +1,24 @@
+/* Negocio en vivo 3D · visor del cliente (encima de app.css de la oficina: mismos chips, etiquetas y cristal). */
+body.vivo3d{margin:0;overflow:hidden;background:#07050a;color:#fff;font-family:Inter,system-ui,sans-serif}
+body.vivo3d #c{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+body.vivo3d #load,body.vivo3d #v3msg{position:fixed;inset:0;display:grid;place-items:center;font-weight:800;color:#e9e3f0;background:#07050a;z-index:10;padding:24px;text-align:center;font-size:18px}
+body.vivo3d #v3msg.hidden{display:none}
+#v3top{position:fixed;top:12px;right:12px;z-index:4;display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:14px;font-size:13px}
+#v3top b{font-size:14px}#v3top .sp{display:none}
+#v3top button,#v3info .x{min-height:36px;border-radius:10px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#fff;font:700 13px Inter,system-ui,sans-serif;padding:0 12px;cursor:pointer}
+#v3top button.pri{background:#f20b6d;border-color:#f20b6d;color:#fff}
+#v3top button:focus-visible,#v3info .x:focus-visible{outline:3px solid #fbbf24;outline-offset:2px}
+.v3live{font-weight:900;color:#4ade80;letter-spacing:.04em}
+/* la barra del motor arriba a la izquierda (en la consola deja espacio al ascensor) */
+body.vivo3d #realUi .rbar{top:12px;left:12px;right:auto;max-width:calc(100% - 340px)}
+body.vivo3d #realUi [data-arch-toggle]{display:none}
+#v3info{position:fixed;left:12px;bottom:12px;z-index:5;max-width:min(360px,calc(100% - 24px));padding:14px 16px;border-radius:14px;display:none}
+#v3info.open{display:block}#v3info h2{margin:0 0 4px;font-size:17px}#v3info .role{color:#d6cde0;font-size:13px}
+#v3info ul{margin:8px 0 0;padding-left:18px;font-size:13px}#v3info .x{position:absolute;top:8px;right:8px;min-height:30px;padding:0 9px}
+/* modo TV: pantalla completa, sin controles (los datos de las etiquetas se quedan) */
+body.vivo3d.tv #v3top,body.vivo3d.tv #realUi .rbar,body.vivo3d.tv #v3info{display:none!important}
+@media(max-width:820px){
+  body.vivo3d #realUi .rbar{left:8px;right:8px;top:auto;bottom:8px;max-width:none}
+  #v3top{top:8px;right:8px;left:8px;flex-wrap:wrap}#v3top .sp{display:block;flex:1}
+  #v3info{bottom:72px}
+}

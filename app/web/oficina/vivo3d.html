@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Mi negocio en vivo</title>
+<link rel="icon" href="/assets/brand/favicon.ico?v=cx26a" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap">
+<link rel="stylesheet" href="__ROOT__app.css">
+<link rel="stylesheet" href="__ROOT__vivo3d.css">
+<script type="importmap">{"imports":{"three":"__ROOT__vendor/three/build/three.module.js","three/addons/":"__ROOT__vendor/three/examples/jsm/","/admin-v2plus/oficina/":"__ROOT__"}}</script>
+</head>
+<body class="vivo3d real-on">
+<div id="load">Cargando tu negocio en vivo…</div>
+<canvas id="c"></canvas>
+<div id="v3top" class="glass">
+  <span class="v3live">● EN VIVO</span><b id="v3name">Mi negocio</b><span class="sp"></span>
+  <button type="button" id="v3lite" aria-pressed="false">Modo liviano</button>
+  <button type="button" id="v3tv" class="pri">⛶ Modo TV</button>
+</div>
+<div id="v3info" class="glass" role="dialog" aria-live="polite"></div>
+<div id="v3msg" class="hidden"></div>
+<script type="module" src="__ROOT__vivo3d.js"></script>
+</body>
+</html>
