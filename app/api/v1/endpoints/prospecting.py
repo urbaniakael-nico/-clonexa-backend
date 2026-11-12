@@ -53,10 +53,11 @@ admin = [Depends(require_admin_v2_session)]
 # ---------------------------------------------------------------- n8n: prospeccion
 @router.get("/n8n/scan-plan", dependencies=n8n)
 async def scan_plan(max: int = Query(default=12, ge=1, le=40), zona: str = Query(default="", max_length=60),
-                    tipos: str = Query(default="", max_length=200), forzar: bool = False,
-                    db: AsyncSession = Depends(get_db)) -> dict:
+                    tipos: str = Query(default="", max_length=200), nicho: str = Query(default="", max_length=20),
+                    forzar: bool = False, db: AsyncSession = Depends(get_db)) -> dict:
     types = [t for t in tipos.split(",") if t] or None
-    return {"plan": await ps.scan_plan(db, max_searches=max, zone_slug=zona, types=types, force=forzar)}
+    return {"plan": await ps.scan_plan(db, max_searches=max, zone_slug=zona, types=types, force=forzar,
+                                       niche=nicho if nicho in ps.NICHES else "")}
 
 
 class PlacesIn(BaseModel):
@@ -93,6 +94,10 @@ async def scan_report(desde: str = Query(default="", max_length=40), db: AsyncSe
     rep = await ps.scan_report(db, since)
     lines = [f"🔎 <b>Prospección de hoy</b>: {rep['nuevos']} negocios nuevos ({rep['nuevos_con_correo']} con correo publicado)"]
     lines += [f"• {r['zona']}: {r['nuevos']} ({r['con_correo']} con correo)" for r in rep["zonas"]]
+    if rep.get("nichos"):
+        lines.append("\nPor nicho:")
+        lines += [f"• {_esc(n['label'])}: {n['nuevos']} · correo {n['con_correo']} · IG/FB {n['con_redes']} · WhatsApp publicado "
+                  f"{n['con_whatsapp']} · por verificar {n['por_verificar']}" for n in rep["nichos"]]
     lines.append(f"\nEn la lista: {rep['total']} prospectos, {rep['total_con_correo']} con correo.")
     return {**rep, "mensaje": "\n".join(lines)}
 
@@ -264,14 +269,14 @@ async def batch_preview(request: Request, batch_id: int, t: str = Query(default=
 
 # ---------------------------------------------------------------- consola v2+ (Admin V2)
 @router.get("/admin/map", dependencies=admin)
-async def admin_map(zone_id: Optional[int] = None, tipo: str = Query(default="", max_length=30),
+async def admin_map(zone_id: Optional[int] = None, tipo: str = Query(default="", max_length=30), nicho: str = Query(default="", max_length=20),
                     estado: str = Query(default="", max_length=20), desde: str = Query(default="", pattern=r"^(\d{4}-\d{2}-\d{2})?$"),
                     hasta: str = Query(default="", pattern=r"^(\d{4}-\d{2}-\d{2})?$"), db: AsyncSession = Depends(get_db)) -> dict:
     from app.api.v1.endpoints import landing_analytics
 
     await landing_analytics._ensure_storage(db)
     await landing_analytics.backfill_geo(db)
-    data = await ps.map_data(db, {"zone_id": zone_id, "type": tipo, "status": estado, "desde": desde, "hasta": hasta})
+    data = await ps.map_data(db, {"zone_id": zone_id, "type": tipo, "niche": nicho, "status": estado, "desde": desde, "hasta": hasta})
     return {**data, "attribution": {"map": "© OpenStreetMap", "ip": "IP Geolocation by DB-IP", "ip_url": "https://db-ip.com"}}
 
 
@@ -311,6 +316,7 @@ class ZoneIn(BaseModel):
     radius_m: int = Field(default=700, ge=150, le=5000)
     polygon: Optional[list[list[float]]] = Field(default=None, max_length=200)
     active: bool = True
+    niches: list[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("polygon")
     @classmethod
@@ -355,6 +361,22 @@ async def admin_chains_save(body: ChainsIn, db: AsyncSession = Depends(get_db)) 
     return {"chains": [c["name"] for c in await ps.set_chains(db, body.names)]}
 
 
+@router.get("/admin/niches", dependencies=admin)
+async def admin_niches(db: AsyncSession = Depends(get_db)) -> dict:
+    """Nichos con su pagina de la landing, prioridad, tipos que se buscan y cadenas excluidas del nicho."""
+    nc = await ps.all_niche_chains(db)
+    return {"niches": [{"key": k, **v, "types": ps.pn.types_of(k), "chains": nc.get(k, [])} for k, v in ps.NICHES.items()],
+            "missing_pages": ps.pn.MISSING_PAGES}
+
+
+@router.put("/admin/niches/{niche}/chains", dependencies=admin)
+async def admin_niche_chains_save(niche: str, body: ChainsIn, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        return {"niche": niche, "chains": await ps.set_niche_chains(db, niche, body.names)}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="nicho_invalido") from None
+
+
 class SettingsIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     daily_limit: Optional[int] = Field(default=None, ge=1, le=25)
@@ -364,6 +386,12 @@ class SettingsIn(BaseModel):
     sender_email: Optional[str] = Field(default=None, max_length=200)
     reply_to: Optional[str] = Field(default=None, max_length=200)
     test_recipient: Optional[str] = Field(default=None, max_length=200)
+    search_limits: Optional[dict[str, int]] = None
+    zone_search_limit: Optional[int] = Field(default=None, ge=0, le=40)
+    rescan_days: Optional[int] = Field(default=None, ge=6, le=90)
+    assisted_daily_limit: Optional[int] = Field(default=None, ge=0, le=30)
+    vigencia_months: Optional[int] = Field(default=None, ge=3, le=36)
+    vigencia_min_reviews: Optional[int] = Field(default=None, ge=0, le=50)
 
 
 @router.get("/admin/settings", dependencies=admin)

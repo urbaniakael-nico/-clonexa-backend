@@ -182,3 +182,31 @@ test('Leaflet local sin cambios (SRI oficial 1.9.4) y con su ruta', () => {
   assert.match(routes, /"\/admin-v2plus-leaflet\.css"/);
   assert.match(routes, /"\/admin-v2plus-mapa\.js"/);
 });
+
+test('025p nichos: filtro, tabla por nicho, color e ícono por nicho', () => {
+  const { M, made, window } = load();
+  assert.equal(M.mapUrl({ nicho: 'taller', tipo: 'fabrica' }), '/api/v1/prospecting/admin/map?nicho=taller&tipo=fabrica');
+  const data = { ...SAMPLE, niches: [{ key: 'taller', label: 'Talleres y fábricas', icon: '🧵', page: '/talleres-y-fabricas', priority: 1, prospectos: 15, enviados: 4, abrieron: 1, respondieron: 1, demos: 0, clientes: 0, puntaje: 28 },
+    { key: 'tienda', label: 'Tiendas <y> minimercados', icon: '🛒', page: '', priority: 2, prospectos: 0, enviados: 0, abrieron: 0, respondieron: 0, demos: 0, clientes: 0, puntaje: 0 }] };
+  const nt = M.nichesTable(data);
+  assert.match(nt, /% por nicho/);
+  assert.match(nt, /\/talleres-y-fabricas/);
+  assert.match(nt, /sin página propia/);
+  assert.match(nt, /Tiendas &lt;y&gt; minimercados/);
+  assert.match(nt, /25%/);
+  M.model.data = data;
+  const html = M.pane();
+  assert.ok(html.includes('name="nicho"') && html.includes('data-vpm-color'));
+  assert.doesNotMatch(html, /\sstyle=/);
+  assert.equal(M.pinColor({ status: 'baja', niche: 'campo' }), '#ef4444');
+  M.model.colorBy = 'nicho';
+  assert.equal(M.pinColor({ status: 'baja', niche: 'campo' }), '#22c55e');
+  assert.equal(M.pinColor({ status: 'nuevo' }), '#f59e0b', 'sin nicho = restaurantes');
+  M._setMap({ layers: new Set(), hasLayer() { return false; } });
+  M.model.data = { ...SAMPLE, pins: [{ id: 'x', name: 'Eléctricos <b>', business_type: 'electrico', niche: 'campo', tipo: 'Contratista eléctrico', status: 'nuevo', lat: 4.6, lng: -74.1 }] };
+  M.drawLayers(window.L);
+  const mk = made.markers[made.markers.length - 1];
+  assert.equal(mk.args.o.fillColor, '#22c55e');
+  assert.match(mk.tooltip, /🦺 Eléctricos &lt;b&gt; · Empresas de campo/);
+  M.model.colorBy = 'estado';
+});

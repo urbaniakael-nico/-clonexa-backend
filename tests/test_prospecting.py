@@ -137,8 +137,15 @@ def test_peticion_a_places_con_zona_y_pagina():
 P = {"name": "Panadería La Espiga", "business_type": "panaderia", "code": "K7M2QD", "unsub_token": "tok_123", "email": "hola@laespiga.com.co"}
 
 
+PAGE_OF = {"carta": "/restaurantes", "bar": "/bares", "taller": "/talleres-y-fabricas", "campo": "/personal-en-campo",
+           "transporte": "/", "tienda": "/"}
+
+
 @pytest.mark.parametrize("btype,segment", [("restaurante", "carta"), ("comidas_rapidas", "carta"), ("cafe", "carta"),
-                                           ("panaderia", "carta"), ("bar", "bar"), ("taller", "taller")])
+                                           ("panaderia", "carta"), ("bar", "bar"), ("taller", "taller"), ("fabrica", "taller"),
+                                           ("electrico", "campo"), ("telecom", "campo"), ("construccion", "campo"),
+                                           ("instalador", "campo"), ("aseo", "campo"), ("vigilancia", "campo"),
+                                           ("transporte", "transporte"), ("tienda", "tienda")])
 def test_plantillas_utm_whatsapp_y_baja(btype, segment):
     mail = pe.render({**P, "business_type": btype}, followup=False, settings=ps.DEFAULT_SETTINGS, zone_slug="kennedy-central")
     assert mail["segment"] == segment and mail["to"] == "hola@laespiga.com.co"
@@ -147,7 +154,10 @@ def test_plantillas_utm_whatsapp_y_baja(btype, segment):
     q = parse_qs(demo.query)
     assert q == {"utm_source": ["email"], "utm_medium": ["prospeccion"],
                  "utm_campaign": [f"kennedy-central-{pe.TYPE_SLUG[btype]}"], "utm_content": ["K7M2QD"]}
-    assert demo.netloc == "www.clonexa.com.co"
+    assert demo.netloc == "www.clonexa.com.co" and demo.path == PAGE_OF[segment], "pagina de su nicho (o la principal)"
+    if segment in ("transporte", "tienda"):
+        assert demo.fragment == "soluciones", "nicho sin pagina: principal con #seccion"
+    assert "Negocio en vivo 3D" in mail["html"] and "Negocio en vivo 3D" in mail["text"]
     wa = urlparse(mail["wa_url"])
     assert wa.netloc == "wa.me" and wa.path == "/573144798220"
     assert "(código K7M2QD)" in unquote(parse_qs(wa.query)["text"][0])
@@ -214,3 +224,19 @@ def test_dockerfile_descarga_dbip_con_atribucion():
     docker = Path(__file__).resolve().parents[1].joinpath("Dockerfile").read_text(encoding="utf-8")
     assert "download.db-ip.com/free/dbip-city-lite-" in docker and "IP Geolocation by DB-IP" in docker
     assert ip_geo.DEFAULT_PATH in docker.replace("/app/data/geo/dbip-city-lite.mmdb", ip_geo.DEFAULT_PATH)
+
+
+# ------------------------------------------------------------------ 025p: nichos
+from app.services import prospecting_niches as pn  # noqa: E402
+
+
+def test_cada_tipo_tiene_nicho_y_las_zonas_viejas_no_cambian():
+    assert set(pn.TYPES) >= {"taller", "fabrica", "electrico", "telecom", "construccion", "instalador", "aseo", "vigilancia", "transporte", "tienda"}
+    assert {pn.niche_of(t) for t in pn.TYPES} == set(pn.NICHES)
+    assert pn.zone_types({"niches": []}) == list(pn.LEGACY_TYPES), "Kennedy/Techo/Hipotecho buscan lo mismo que antes"
+    assert set(pn.zone_types({"niches": ["campo"]})) == {"electrico", "telecom", "construccion", "instalador", "aseo", "vigilancia"}
+    assert pn.priority("restaurante") == 1 and pn.priority("taller") == 1 and pn.priority("tienda") == 2
+    assert sum(pn.DEFAULT_SEARCH_LIMITS.values()) <= pn.DAILY_MAX_SEARCHES
+    assert set(pn.MISSING_PAGES) == {"transporte", "tienda"}, "paginas que faltan en la landing (no se inventan)"
+    assert pn.landing_url("https://www.clonexa.com.co/", "tienda", {"utm_source": "email"}) == "https://www.clonexa.com.co/?utm_source=email#soluciones"
+    assert pn.landing_url("https://www.clonexa.com.co", "campo", {"a": "b"}) == "https://www.clonexa.com.co/personal-en-campo?a=b"

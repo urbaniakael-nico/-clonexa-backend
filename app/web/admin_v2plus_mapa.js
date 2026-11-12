@@ -20,7 +20,14 @@
     nuevo: ["Nuevo", "#9aa4b2"], contactado: ["Contactado", "#3b82f6"], abrio: ["Abrió la landing", "#f59e0b"],
     respondio: ["Respondió", "#a855f7"], demo: ["Demo", "#ec4899"], cliente: ["Cliente", "#22c55e"], baja: ["Baja", "#ef4444"],
   };
-  const TYPES = { restaurante: "Restaurante", comidas_rapidas: "Comidas rápidas", cafe: "Café", panaderia: "Panadería", bar: "Bar", taller: "Taller de confección" };
+  const TYPES = { restaurante: "Restaurante", comidas_rapidas: "Comidas rápidas", cafe: "Café", panaderia: "Panadería", bar: "Bar", taller: "Taller de confección",
+    fabrica: "Fábrica pequeña", electrico: "Contratista eléctrico", telecom: "Telecomunicaciones", construccion: "Construcción", instalador: "Instaladores",
+    aseo: "Aseo", vigilancia: "Vigilancia", transporte: "Transporte y logística", tienda: "Tienda / minimercado" };
+  // nicho -> [etiqueta, icono, color] (los mismos de app/services/prospecting_niches.py)
+  const NICHES = { restaurante: ["Restaurantes y comidas", "🍽️", "#f59e0b"], taller: ["Talleres y fábricas", "🧵", "#ff2d6f"],
+    campo: ["Empresas de campo", "🦺", "#22c55e"], transporte: ["Transporte y logística", "🚚", "#3b82f6"], tienda: ["Tiendas y minimercados", "🛒", "#14b8a6"],
+    bar: ["Bares", "🍸", "#a855f7"] };
+  const EMPTY_FILTERS = () => ({ zone_id: "", nicho: "", tipo: "", estado: "", desde: "", hasta: "" });
   const KINDS = { inicial: "Correo inicial", seguimiento: "Seguimiento", respuesta: "Respondió", baja: "Baja", apertura: "Abrió la landing",
     whatsapp_entrada: "Escribió por WhatsApp", demo: "Demo", cliente: "Cliente", prueba: "Prueba" };
   const LAYERS = [["prospectos", "Prospectos"], ["visitas", "Calor: visitas a la landing"], ["leads", "Calor: respuestas y leads"], ["zonas", "Zonas de prospección"]];
@@ -37,6 +44,7 @@
   function mapUrl(f = {}) {
     const p = new URLSearchParams();
     if (f.zone_id) p.set("zone_id", f.zone_id);
+    if (f.nicho) p.set("nicho", f.nicho);
     if (f.tipo) p.set("tipo", f.tipo);
     if (f.estado) p.set("estado", f.estado);
     if (f.desde) p.set("desde", f.desde);
@@ -53,7 +61,7 @@
 
   // ------------------------------------------------------------ estado
   const model = {
-    filters: { zone_id: "", tipo: "", estado: "", desde: "", hasta: "" },
+    filters: EMPTY_FILTERS(), colorBy: "estado",
     layers: { prospectos: true, visitas: true, leads: true, zonas: true },
     data: null, error: "", loading: false, detail: null, detailError: "", confirm: "", newZone: null, notice: "",
   };
@@ -104,6 +112,7 @@
     const zs = arr(d && d.zones);
     return `<form class="vp-panel vp-section vp-form-grid vpm-filters" data-vpm-filters>
       <label class="vp-field">Zona<select name="zone_id">${opt("", "Todas", f.zone_id)}${zs.map((z) => opt(z.id, z.name, f.zone_id)).join("")}</select></label>
+      <label class="vp-field">Nicho<select name="nicho">${opt("", "Todos", f.nicho)}${Object.entries(NICHES).map(([k, [l, i]]) => opt(k, `${i} ${l}`, f.nicho)).join("")}</select></label>
       <label class="vp-field">Tipo de negocio<select name="tipo">${opt("", "Todos", f.tipo)}${Object.entries(TYPES).map(([k, l]) => opt(k, l, f.tipo)).join("")}</select></label>
       <label class="vp-field">Estado<select name="estado">${opt("", "Todos", f.estado)}${Object.entries(STATUS).map(([k, [l]]) => opt(k, l, f.estado)).join("")}</select></label>
       <label class="vp-field">Desde<input type="date" name="desde" value="${h(f.desde)}"></label>
@@ -114,12 +123,29 @@
 
   function layerToggles() {
     return `<div class="vpm-layers" role="group" aria-label="Capas del mapa">${LAYERS.map(([k, l]) => `<label class="vpm-layer"><input type="checkbox" data-vpm-layer="${k}" ${model.layers[k] ? "checked" : ""}> ${h(l)}</label>`).join("")}
+      <label class="vpm-layer">Color de los pines <select data-vpm-color><option value="estado" ${model.colorBy === "estado" ? "selected" : ""}>por estado</option><option value="nicho" ${model.colorBy === "nicho" ? "selected" : ""}>por nicho</option></select></label>
       <span class="vpm-jump"><button class="vp-btn vp-btn-sm" type="button" data-vpm-jump="bogota">Bogotá</button><button class="vp-btn vp-btn-sm" type="button" data-vpm-jump="colombia">Colombia</button>
       <button class="vp-btn vp-btn-sm" type="button" data-vpm-new-zone>＋ Zona</button></span></div>`;
   }
 
   function legend() {
+    if (model.colorBy === "nicho") return `<ul class="vpm-legend">${Object.entries(NICHES).map(([k, [l, i]]) => `<li><span class="vpm-dot is-n-${k}" aria-hidden="true"></span>${h(i)} ${h(l)}</li>`).join("")}</ul>`;
     return `<ul class="vpm-legend">${Object.entries(STATUS).map(([k, [l]]) => `<li><span class="vpm-dot is-${k}" aria-hidden="true"></span>${h(l)}</li>`).join("")}</ul>`;
+  }
+  const nicheOf = (p) => (p && (p.niche || "")) || "restaurante";
+  function pinColor(p) {
+    if (model.colorBy === "nicho") return (NICHES[nicheOf(p)] || NICHES.restaurante)[2];
+    return (STATUS[p.status] || [p.status, "#9aa4b2"])[1];
+  }
+
+  function nichesTable(d) {
+    const ns = arr(d && d.niches);
+    if (!ns.length) return "";
+    return `<section class="vp-panel vp-section"><h2>% por nicho</h2><div class="vpm-table-wrap"><table class="vpm-table">
+      <thead><tr><th>Nicho</th><th>Prospectos</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
+      <tbody>${ns.map((n) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-niche="${h(n.key)}">${h(n.icon || "")} ${h(n.label)}</button><small>${n.page ? h(n.page) : "sin página propia (usa la principal)"} · prioridad ${h(n.priority || 1)}</small></td>
+        <td>${h(num(n.prospectos))}</td><td>${h(num(n.enviados))}</td><td>${h(pct(n.abrieron, n.enviados))}</td><td>${h(pct(n.respondieron, n.enviados))}</td>
+        <td>${h(num(n.demos))}</td><td>${h(num(n.clientes))}</td><td class="vp-mono">${h(num(n.puntaje))}</td></tr>`).join("")}</tbody></table></div></section>`;
   }
 
   function newZoneForm() {
@@ -184,6 +210,7 @@
           Ubicación de visitas: <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a> (precisión de ciudad, no de barrio).
           Las aperturas con código de prospecto sí son exactas.</p></section>
       <div data-vpm-zones>${d ? zonesTable(d) : ""}</div>
+      <div data-vpm-niches>${d ? nichesTable(d) : ""}</div>
     </div>`;
   }
 
@@ -248,9 +275,12 @@
         .bindTooltip(`${h(num(v.total))} respuesta(s) o lead(s)`, { sticky: true }));
     });
     arr(d.pins).forEach((p) => {
-      const [label, color] = STATUS[p.status] || [p.status, "#9aa4b2"];
-      const mk = L.circleMarker([p.lat, p.lng], { radius: 7, color: "#0b0710", weight: 1.5, fillColor: color, fillOpacity: 0.95 });
-      mk.bindTooltip(`${h(p.name)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.email ? ` · ${h(p.email)}` : ""}`);
+      const [label] = STATUS[p.status] || [p.status];
+      const [nl, icon] = NICHES[nicheOf(p)] || NICHES.restaurante;
+      const mk = (L.divIcon && L.marker)
+        ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: `vpm-pin is-${model.colorBy === "nicho" ? `n-${nicheOf(p)}` : h(p.status)}`, html: h(icon), iconSize: [24, 24] }), keyboard: false })
+        : L.circleMarker([p.lat, p.lng], { radius: 7, color: "#0b0710", weight: 1.5, fillColor: pinColor(p), fillOpacity: 0.95 });
+      mk.bindTooltip(`${h(icon)} ${h(p.name)} · ${h(nl)} · ${h(p.tipo || TYPES[p.business_type] || "")} · ${h(label)}${p.email ? ` · ${h(p.email)}` : ""}`);
       mk.on("click", () => openDetail(p.id));
       groups.prospectos.addLayer(mk);
     });
@@ -274,6 +304,7 @@
       set("[data-vpm-cards]", model.data ? cards(model.data) : (model.error ? "" : `<p class="vp-loading">Cargando el mapa comercial…</p>`));
       set("[data-vpm-filters-host]", filtersForm(model.data));
       set("[data-vpm-zones]", model.data ? zonesTable(model.data) : "");
+      set("[data-vpm-niches]", model.data ? nichesTable(model.data) : "");
     }
     if (!part || part === "detail" || part === "data") set("[data-vpm-detail-host]", detailPanel());
     if (!part || part === "newzone") set("[data-vpm-newzone-host]", newZoneForm());
@@ -300,10 +331,12 @@
     if (!t || !t.closest) return;
     const jump = t.closest("[data-vpm-jump]");
     if (jump && map) { if (jump.getAttribute("data-vpm-jump") === "colombia") map.fitBounds(COLOMBIA); else map.setView(BOGOTA, 13); return; }
-    if (t.closest("[data-vpm-reset]")) { model.filters = { zone_id: "", tipo: "", estado: "", desde: "", hasta: "" }; load(); return; }
+    if (t.closest("[data-vpm-reset]")) { model.filters = EMPTY_FILTERS(); load(); return; }
     if (t.closest("[data-vpm-close]")) { model.detail = null; model.detailError = ""; paint("detail"); return; }
     if (t.closest("[data-vpm-new-zone]")) { model.newZone = model.newZone ? null : { radius_m: 700, city: "Bogotá" }; paint("newzone"); return; }
     if (t.closest("[data-vpm-zone-cancel]")) { model.newZone = null; paint("newzone"); return; }
+    const nb = t.closest("[data-vpm-niche]");
+    if (nb) { model.filters = { ...model.filters, nicho: nb.getAttribute("data-vpm-niche") || "" }; load(); return; }
     const zb = t.closest("[data-vpm-zone]");
     if (zb) {
       const z = arr(model.data && model.data.zones).find((x) => String(x.id) === zb.getAttribute("data-vpm-zone"));
@@ -324,6 +357,7 @@
 
   function onChange(event) {
     const t = event.target;
+    if (t && t.matches && t.matches("[data-vpm-color]")) { model.colorBy = t.value === "nicho" ? "nicho" : "estado"; paint("detail"); if (window.L && map) drawLayers(window.L); return; }
     if (!t || !t.matches || !t.matches("[data-vpm-layer]")) return;
     model.layers[t.getAttribute("data-vpm-layer")] = Boolean(t.checked);
     syncLayers();
@@ -335,7 +369,7 @@
     if (form.matches("[data-vpm-filters]")) {
       event.preventDefault();
       const d = new FormData(form);
-      model.filters = { zone_id: String(d.get("zone_id") || ""), tipo: String(d.get("tipo") || ""), estado: String(d.get("estado") || ""),
+      model.filters = { zone_id: String(d.get("zone_id") || ""), nicho: String(d.get("nicho") || ""), tipo: String(d.get("tipo") || ""), estado: String(d.get("estado") || ""),
         desde: String(d.get("desde") || ""), hasta: String(d.get("hasta") || "") };
       load();
       return;
@@ -376,6 +410,6 @@
     if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
-  window.CxConsoleMapa = { model, api, mapUrl, pane, cards, zonesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, STATUS, TYPES,
+  window.CxConsoleMapa = { model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
     _setMap: (m) => { map = m; } };
 })();

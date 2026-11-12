@@ -32,26 +32,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import prospecting_email as pe
+from app.services import prospecting_niches as pn
 from app.services.payroll_colombia import colombian_holidays
 
 log = logging.getLogger("clonexa.prospecting")
 
 BOGOTA = timezone(timedelta(hours=-5))
-TYPES = ("restaurante", "comidas_rapidas", "cafe", "panaderia", "bar", "taller")
-TYPE_LABEL = {"restaurante": "Restaurante", "comidas_rapidas": "Comidas rápidas", "cafe": "Café",
-              "panaderia": "Panadería", "bar": "Bar", "taller": "Taller de confección"}
+TYPES = pn.TYPES
+TYPE_LABEL = pn.TYPE_LABEL
+NICHES = pn.NICHES
 STATUSES = ("nuevo", "contactado", "abrio", "respondio", "demo", "cliente", "baja")
 STATUS_LABEL = {"nuevo": "Nuevo", "contactado": "Contactado", "abrio": "Abrió la landing", "respondio": "Respondió",
                 "demo": "Demo", "cliente": "Cliente", "baja": "Baja"}
 RANK = {s: i for i, s in enumerate(STATUSES)}
-SEARCH = {
-    "restaurante": ("restaurantes", "restaurant"),
-    "comidas_rapidas": ("comidas rápidas", "fast_food_restaurant"),
-    "cafe": ("cafeterías", "cafe"),
-    "panaderia": ("panaderías", "bakery"),
-    "bar": ("bares", "bar"),
-    "taller": ("taller de confección", None),
-}
+SEARCH = pn.SEARCH
 FIELD_MASK = ",".join([
     "places.id", "places.displayName", "places.formattedAddress", "places.addressComponents", "places.location",
     "places.types", "places.primaryType", "places.businessStatus", "places.nationalPhoneNumber", "places.websiteUri",
@@ -59,7 +53,7 @@ FIELD_MASK = ",".join([
 ])
 DETAIL_FIELD_MASK = ("id,displayName,formattedAddress,addressComponents,location,types,primaryType,businessStatus,"
                      "nationalPhoneNumber,websiteUri")
-RESCAN_DAYS = 6
+RESCAN_DAYS = 30  # una busqueda agotada (sin pagina siguiente) no se repite antes de 30 dias (ahorro)
 REFRESH_DAYS = 30
 FOLLOWUP_DAYS = 7
 WEEK_DAYS = 7
@@ -79,6 +73,15 @@ DEFAULT_SETTINGS = {
     "landing_url": pe.DEFAULT_LANDING,
     "backend_url": pe.DEFAULT_BACKEND,
     "wa_number": pe.WA_NUMBER,
+    # busquedas diarias en Google Places (cada una es 1 llamada Text Search): por nicho y por zona
+    "search_limits": dict(pn.DEFAULT_SEARCH_LIMITS),
+    "zone_search_limit": pn.DEFAULT_ZONE_LIMIT,
+    "rescan_days": RESCAN_DAYS,
+    # cola asistida (Instagram / Facebook, se envia a mano)
+    "assisted_daily_limit": 15,
+    # vigencia: sin actividad visible en N meses -> por verificar
+    "vigencia_months": 12,
+    "vigencia_min_reviews": 3,
 }
 
 
@@ -149,8 +152,8 @@ def in_zone(zone: dict, lat: Optional[float], lng: Optional[float], slack: float
 
 
 def classify_type(place: dict, searched: str) -> str:
-    if searched == "taller":
-        return "taller"
+    if pn.niche_of(searched) not in ("restaurante", "bar"):
+        return searched   # talleres, campo, transporte y tiendas: el tipo es el que se busco
     primary = str(place.get("primaryType") or "")
     types = set(place.get("types") or [])
     if primary in ("bar", "pub", "wine_bar", "night_club") or (searched == "bar" and "bar" in types):
@@ -412,6 +415,9 @@ async def get_settings(db: AsyncSession) -> dict:
     row = await _one(db, "SELECT config FROM prospect_settings WHERE id = 1")
     cfg = dict(DEFAULT_SETTINGS)
     cfg.update({k: v for k, v in ((row or {}).get("config") or {}).items() if k in DEFAULT_SETTINGS})
+    limits = dict(pn.DEFAULT_SEARCH_LIMITS)
+    limits.update({k: v for k, v in (cfg.get("search_limits") or {}).items() if k in pn.NICHES})
+    cfg["search_limits"] = limits
     return cfg
 
 
@@ -424,6 +430,14 @@ async def save_settings(db: AsyncSession, changes: dict) -> dict:
     cfg["window_start"] = max(8, min(16, int(cfg["window_start"])))
     cfg["window_end"] = max(cfg["window_start"] + 1, min(17, int(cfg["window_end"])))
     cfg["min_gap_minutes"] = max(3, min(60, int(cfg["min_gap_minutes"])))
+    limits = dict(pn.DEFAULT_SEARCH_LIMITS)
+    limits.update({k: max(0, min(40, int(v))) for k, v in (cfg.get("search_limits") or {}).items() if k in pn.NICHES})
+    cfg["search_limits"] = limits
+    cfg["zone_search_limit"] = max(0, min(40, int(cfg["zone_search_limit"])))
+    cfg["rescan_days"] = max(6, min(90, int(cfg["rescan_days"])))
+    cfg["assisted_daily_limit"] = max(0, min(30, int(cfg["assisted_daily_limit"])))
+    cfg["vigencia_months"] = max(3, min(36, int(cfg["vigencia_months"])))
+    cfg["vigencia_min_reviews"] = max(0, min(50, int(cfg["vigencia_min_reviews"])))
     await db.execute(text("""INSERT INTO prospect_settings (id, config, updated_at) VALUES (1, CAST(:c AS jsonb), now())
                              ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()"""),
                      {"c": json.dumps(cfg)})
@@ -435,6 +449,31 @@ async def chains(db: AsyncSession, active_only: bool = True) -> list[dict]:
     return await _rows(db, "SELECT id, name, active FROM prospect_chains" + (" WHERE active" if active_only else "") + " ORDER BY name")
 
 
+async def niche_chains(db: AsyncSession, niche: str) -> list[str]:
+    rows = await _rows(db, "SELECT name FROM prospect_niche_chains WHERE active AND niche = :n ORDER BY name", {"n": niche})
+    return [r["name"] for r in rows]
+
+
+async def all_niche_chains(db: AsyncSession) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {n: [] for n in pn.NICHES}
+    for r in await _rows(db, "SELECT niche, name FROM prospect_niche_chains WHERE active ORDER BY niche, name"):
+        out.setdefault(r["niche"], []).append(r["name"])
+    return out
+
+
+async def set_niche_chains(db: AsyncSession, niche: str, names: list[str]) -> list[str]:
+    if niche not in pn.NICHES:
+        raise ValueError("nicho_invalido")
+    clean = sorted({" ".join(str(n).split())[:120] for n in names if str(n).strip()})
+    await db.execute(text("UPDATE prospect_niche_chains SET active = false WHERE niche = :ni AND NOT (name = ANY(CAST(:n AS text[])))"),
+                     {"n": clean, "ni": niche})
+    for n in clean:
+        await db.execute(text("""INSERT INTO prospect_niche_chains (niche, name) VALUES (:ni, :n)
+                                 ON CONFLICT (niche, name) DO UPDATE SET active = true"""), {"n": n, "ni": niche})
+    await db.commit()
+    return await niche_chains(db, niche)
+
+
 async def set_chains(db: AsyncSession, names: list[str]) -> list[dict]:
     clean = sorted({" ".join(str(n).split())[:120] for n in names if str(n).strip()})
     await db.execute(text("UPDATE prospect_chains SET active = false WHERE NOT (name = ANY(CAST(:n AS text[])))"), {"n": clean})
@@ -444,7 +483,7 @@ async def set_chains(db: AsyncSession, names: list[str]) -> list[dict]:
     return await chains(db)
 
 
-ZONE_COLS = "id, slug, name, group_name, city, kind, center_lat, center_lng, radius_m, polygon, active, sort"
+ZONE_COLS = "id, slug, name, group_name, city, kind, center_lat, center_lng, radius_m, polygon, active, sort, niches"
 
 
 async def zones(db: AsyncSession, active_only: bool = False) -> list[dict]:
@@ -465,13 +504,14 @@ async def save_zone(db: AsyncSession, data: dict, zone_id: Optional[int] = None)
         "radius": int(data.get("radius_m") or 700),
         "polygon": json.dumps(data["polygon"]) if data.get("polygon") else None,
         "active": bool(data.get("active", True)),
+        "niches": json.dumps([n for n in (data.get("niches") or []) if n in pn.NICHES]),
     }
     if zone_id is None:
         params["slug"] = slugify(data.get("slug") or data["name"])
         row = await _one(db, f"""
-            INSERT INTO prospect_zones (slug, name, group_name, city, kind, center_lat, center_lng, radius_m, polygon, active, sort)
+            INSERT INTO prospect_zones (slug, name, group_name, city, kind, center_lat, center_lng, radius_m, polygon, active, sort, niches)
             VALUES (:slug, :name, :group_name, :city, :kind, :lat, :lng, :radius, CAST(:polygon AS jsonb), :active,
-                    COALESCE((SELECT MAX(sort) + 1 FROM prospect_zones), 0))
+                    COALESCE((SELECT MAX(sort) + 1 FROM prospect_zones), 0), CAST(:niches AS jsonb))
             ON CONFLICT (slug) DO NOTHING RETURNING {ZONE_COLS}""", params)
         if not row:
             raise ValueError("zona_repetida")
@@ -480,7 +520,7 @@ async def save_zone(db: AsyncSession, data: dict, zone_id: Optional[int] = None)
         row = await _one(db, f"""
             UPDATE prospect_zones SET name = :name, group_name = :group_name, city = :city, kind = :kind,
                 center_lat = :lat, center_lng = :lng, radius_m = :radius, polygon = CAST(:polygon AS jsonb),
-                active = :active, updated_at = now()
+                active = :active, niches = CAST(:niches AS jsonb), updated_at = now()
             WHERE id = :id RETURNING {ZONE_COLS}""", params)
         if not row:
             raise LookupError("zona_no_existe")
@@ -489,10 +529,14 @@ async def save_zone(db: AsyncSession, data: dict, zone_id: Optional[int] = None)
 
 
 # ---------------------------------------------------------------- busqueda en Google Places
+PAREN_RE = re.compile(r"\s*\(.*?\)")
+
+
 def places_request(zone: dict, business_type: str, page_token: str = "") -> dict:
     query, included = SEARCH[business_type]
+    where = PAREN_RE.sub("", zone["name"]).strip()
     body: dict[str, Any] = {
-        "textQuery": f"{query} en {zone['name']}, {zone.get('city') or 'Bogotá'}",
+        "textQuery": f"{query} en {where}, {zone.get('city') or 'Bogotá'}",
         "languageCode": "es", "regionCode": "CO", "pageSize": 20,
         "locationBias": {"circle": {"center": {"latitude": zone["center_lat"], "longitude": zone["center_lng"]},
                                     "radius": float(min(50000, max(200, zone["radius_m"])))}},
@@ -504,24 +548,66 @@ def places_request(zone: dict, business_type: str, page_token: str = "") -> dict
     return {"url": "https://places.googleapis.com/v1/places:searchText", "field_mask": FIELD_MASK, "body": body}
 
 
+async def usage_today(db: AsyncSession, kind: str = "places_text", at: Optional[datetime] = None) -> tuple[dict, dict]:
+    rows = await _rows(db, "SELECT niche, zone_id, calls FROM prospect_api_usage WHERE day = :d AND kind = :k",
+                       {"d": bogota(at).date(), "k": kind})
+    by_niche: dict[str, int] = {}
+    by_zone: dict[int, int] = {}
+    for r in rows:
+        by_niche[r["niche"]] = by_niche.get(r["niche"], 0) + r["calls"]
+        by_zone[r["zone_id"]] = by_zone.get(r["zone_id"], 0) + r["calls"]
+    return by_niche, by_zone
+
+
+async def record_usage(db: AsyncSession, kind: str, *, niche: str = "", zone_id: int = 0, calls: int = 1, units: int = 0,
+                       at: Optional[datetime] = None) -> None:
+    await db.execute(text("""
+        INSERT INTO prospect_api_usage (day, kind, niche, zone_id, calls, units) VALUES (:d, :k, :n, :z, :c, :u)
+        ON CONFLICT (day, kind, niche, zone_id) DO UPDATE SET calls = prospect_api_usage.calls + EXCLUDED.calls,
+            units = prospect_api_usage.units + EXCLUDED.units"""),
+                     {"d": bogota(at).date(), "k": kind[:24], "n": (niche or "")[:20], "z": int(zone_id or 0), "c": calls, "u": units})
+
+
 async def scan_plan(db: AsyncSession, *, max_searches: int = 12, zone_slug: str = "", types: Optional[list[str]] = None,
-                    force: bool = False) -> list[dict]:
+                    force: bool = False, niche: str = "", at: Optional[datetime] = None) -> list[dict]:
+    """Busquedas de hoy. Cada zona busca los tipos de sus nichos ([] = los de siempre en Kennedy/Techo/Hipotecho).
+    Respeta el limite diario por nicho y por zona (cuenta lo ya gastado hoy) y no repite una busqueda agotada
+    antes de rescan_days. Primero lo que nunca se busco, luego la prioridad del nicho y lo mas viejo."""
+    cfg = await get_settings(db)
     zs = [z for z in await zones(db, active_only=True) if not zone_slug or z["slug"] == zone_slug or slugify(z["group_name"]) == zone_slug]
-    wanted = [t for t in (types or TYPES) if t in TYPES]
+    wanted = {t for t in (types or TYPES) if t in TYPES}
+    if niche:
+        wanted &= set(pn.types_of(niche))
     state = {(r["zone_id"], r["business_type"]): r for r in await _rows(db, "SELECT * FROM prospect_zone_scans")}
-    cut = now() - timedelta(days=RESCAN_DAYS)
-    plan = []
+    cut = (at or now()) - timedelta(days=int(cfg["rescan_days"]))
+    used_n, used_z = await usage_today(db, at=at)
+    limits = cfg["search_limits"]
+    zone_limit = int(cfg["zone_search_limit"])
+    cand = []
     for z in zs:
-        for t in wanted:
+        for t in pn.zone_types(z):
+            if t not in wanted:
+                continue
             st = state.get((z["id"], t)) or {}
             token = st.get("next_page_token") or ""
             last = st.get("last_scanned_at")
             if not force and last and last > cut and not token:
                 continue
-            plan.append((last or datetime.min.replace(tzinfo=timezone.utc), z, t, token))
-    plan.sort(key=lambda p: (p[0], p[1]["sort"]))
-    return [{"zone_id": z["id"], "zone": z["slug"], "zone_name": z["name"], "business_type": t,
-             "request": places_request(z, t, token)} for _, z, t, token in plan[:max(1, min(40, max_searches))]]
+            cand.append(((0 if last is None else 1), pn.priority(pn.niche_of(t)),
+                         (last or datetime.min.replace(tzinfo=timezone.utc)).timestamp(), z["sort"], z, t, token))
+    cand.sort(key=lambda c: c[:4])
+    plan: list[dict] = []
+    for *_, z, t, token in cand:
+        n = pn.niche_of(t)
+        if not force and (used_n.get(n, 0) >= int(limits.get(n, 0)) or used_z.get(z["id"], 0) >= zone_limit):
+            continue
+        used_n[n] = used_n.get(n, 0) + 1
+        used_z[z["id"]] = used_z.get(z["id"], 0) + 1
+        plan.append({"zone_id": z["id"], "zone": z["slug"], "zone_name": z["name"], "business_type": t, "niche": n,
+                     "request": places_request(z, t, token)})
+        if len(plan) >= max(1, min(40, max_searches)):
+            break
+    return plan
 
 
 def _component(place: dict, *kinds: str) -> str:
@@ -555,7 +641,9 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
         raise LookupError("zona_no_existe")
     if business_type not in TYPES:
         raise ValueError("tipo_invalido")
-    chain_names = [c["name"] for c in await chains(db)]
+    niche = pn.niche_of(business_type)
+    await record_usage(db, "places_text", niche=niche, zone_id=zone_id)   # cada busqueda es 1 llamada, traiga o no resultados
+    chain_names = [c["name"] for c in await chains(db)] + await niche_chains(db, niche)
     out = {"found": len(places), "new": 0, "duplicate": 0, "chain": 0, "closed": 0, "outside": 0, "excluded": 0,
            "with_email": 0, "new_ids": []}
     new_rows = []
@@ -588,10 +676,11 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
         website = str(p.get("websiteUri") or "")[:500]
         row = await _one(db, """
             INSERT INTO prospects (place_id, code, unsub_token, name, business_type, primary_type, google_types, address,
-                                   locality, neighborhood, zone_id, lat, lng, phone, website, business_status, email_status)
+                                   locality, neighborhood, zone_id, lat, lng, phone, website, business_status, email_status, niche)
             VALUES (:pid, :code, :tok, :name, :btype, :ptype, CAST(:types AS jsonb), :addr, :loc, :nb, :zone, :lat, :lng,
-                    :phone, :web, :bs, :es)
+                    :phone, :web, :bs, :es, :niche)
             ON CONFLICT (place_id) DO NOTHING RETURNING id::text AS id""", {
+            "niche": pn.niche_of(btype),
             "pid": pid[:300], "code": await _unique_code(db), "tok": secrets.token_urlsafe(24), "name": name[:200],
             "btype": btype, "ptype": str(p.get("primaryType") or "")[:80], "types": json.dumps((p.get("types") or [])[:20]),
             "addr": str(p.get("formattedAddress") or "")[:300],
@@ -658,7 +747,16 @@ async def scan_report(db: AsyncSession, since: datetime) -> dict:
         WHERE z.active GROUP BY z.id, z.name, z.group_name, z.sort ORDER BY z.sort""", {"s": since})
     total = await _one(db, """SELECT COUNT(*)::int AS prospectos, COUNT(*) FILTER (WHERE email <> '')::int AS con_correo
                               FROM prospects WHERE NOT is_test AND status <> 'baja'""") or {}
-    return {"zonas": rows, "nuevos": sum(r["nuevos"] for r in rows), "nuevos_con_correo": sum(r["con_correo"] for r in rows),
+    niches = await _rows(db, """
+        SELECT niche, COUNT(*)::int AS nuevos, COUNT(*) FILTER (WHERE email <> '')::int AS con_correo,
+               COUNT(*) FILTER (WHERE channels ? 'instagram' OR channels ? 'facebook')::int AS con_redes,
+               COUNT(*) FILTER (WHERE channels ? 'whatsapp')::int AS con_whatsapp,
+               COUNT(*) FILTER (WHERE vigencia = 'por_verificar')::int AS por_verificar
+        FROM prospects WHERE created_at >= :s AND NOT is_test GROUP BY niche ORDER BY niche""", {"s": since})
+    for n in niches:
+        n["label"] = pn.NICHES.get(n["niche"], {}).get("label", n["niche"])
+    return {"zonas": [r for r in rows if r["nuevos"]] or rows[:0], "nichos": niches,
+            "nuevos": sum(r["nuevos"] for r in rows), "nuevos_con_correo": sum(r["con_correo"] for r in rows),
             "total": total.get("prospectos", 0), "total_con_correo": total.get("con_correo", 0)}
 
 
@@ -733,7 +831,9 @@ PROSPECT_COLS = """p.id::text AS id, p.place_id, p.code, p.unsub_token, p.name, 
     p.neighborhood, p.zone_id, z.slug AS zone_slug, z.name AS zone_name, z.group_name AS zone_group, p.lat, p.lng, p.phone,
     p.website, p.email, p.email_source_url, p.email_status, p.status, p.is_test, p.contact_count, p.first_contacted_at,
     p.last_contacted_at, p.followup_sent_at, p.opened_at, p.replied_at, p.demo_at, p.client_at, p.unsubscribed_at,
-    p.wa_consent_at, p.wa_consent_source, p.business_status, p.created_at, p.place_refreshed_at"""
+    p.wa_consent_at, p.wa_consent_source, p.business_status, p.created_at, p.place_refreshed_at, p.niche, p.vigencia,
+    p.vigencia_reason, p.vigencia_at, p.last_activity_at, p.rating_count, p.has_hours, p.channels, p.assisted_count,
+    p.assisted_first_at, p.assisted_followup_at, p.visit_count, p.last_visit_at, p.email_checked_at"""
 
 
 async def prospect_by(db: AsyncSession, column: str, value: Any) -> Optional[dict]:
@@ -1003,24 +1103,31 @@ async def preview_html(db: AsyncSession, batch_id: int, token: str) -> Optional[
     return pe.render(p, followup=c["kind"] == "seguimiento", settings=cfg, zone_slug=p.get("zone_slug") or "")["html"]
 
 
+TEST_PROSPECTS = (("carta", "restaurante", "Restaurante de Prueba"), ("bar", "bar", "Bar de Prueba"),
+                  ("taller", "taller", "Taller de Prueba"), ("campo", "electrico", "Eléctricos de Prueba"),
+                  ("transporte", "transporte", "Transportes de Prueba"), ("tienda", "tienda", "Minimercado de Prueba"))
+
+
 async def ensure_test_prospects(db: AsyncSession, recipient: str) -> list[dict]:
     """Un prospecto de PRUEBA por plantilla (is_test: no sale en el mapa ni en los lotes), con el correo de
     Clonexa + etiqueta (recipient+carta@...), para probar baja y enlaces sin tocar negocios reales."""
     local, domain = recipient.split("@", 1)
     out = []
     zone = await _one(db, "SELECT id FROM prospect_zones WHERE slug = 'kennedy-central'") or {}
-    for seg, btype in (("carta", "restaurante"), ("bar", "bar"), ("taller", "taller")):
+    for seg, btype, name in TEST_PROSPECTS:
         pid = f"clonexa-prueba-{seg}"
         email = f"{local}+{seg}@{domain}"
         row = await _one(db, "SELECT id::text AS id FROM prospects WHERE place_id = :p", {"p": pid})
         if not row:
             row = await _one(db, """INSERT INTO prospects (place_id, code, unsub_token, name, business_type, zone_id, email, email_status,
-                                    email_source_url, is_test, lat, lng)
-                                    VALUES (:p, :c, :t, :n, :b, :z, :e, 'encontrado', 'prueba', true, 4.62171, -74.15262)
+                                    email_source_url, is_test, lat, lng, niche, vigencia, channels)
+                                    VALUES (:p, :c, :t, :n, :b, :z, :e, 'encontrado', 'prueba', true, 4.62171, -74.15262, :ni, 'activo',
+                                            CAST(:ch AS jsonb))
                                     RETURNING id::text AS id""",
-                                 {"p": pid, "c": await _unique_code(db), "t": secrets.token_urlsafe(24),
-                                  "n": {"carta": "Restaurante de Prueba", "bar": "Bar de Prueba", "taller": "Taller de Prueba"}[seg],
-                                  "b": btype, "z": zone.get("id"), "e": email})
+                                 {"p": pid, "c": await _unique_code(db), "t": secrets.token_urlsafe(24), "n": name,
+                                  "b": btype, "z": zone.get("id"), "e": email, "ni": pn.niche_of(btype),
+                                  "ch": json.dumps({"instagram": {"value": "@clonexaapp", "url": "https://www.instagram.com/clonexaapp/",
+                                                                  "source": "prueba"}})})
         out.append(await prospect_by(db, "id", row["id"]))
     await db.commit()
     return out
@@ -1056,6 +1163,8 @@ def public_prospect(p: Optional[dict], *, full_email: bool = False) -> Optional[
         v = p.get(k)
         out[k] = v.isoformat() if isinstance(v, datetime) else v
     out["tipo"] = TYPE_LABEL.get(p.get("business_type"), p.get("business_type"))
+    out["niche"] = p.get("niche") or pn.niche_of(p.get("business_type") or "")
+    out["nicho"] = pn.NICHES.get(out["niche"], {}).get("label", "")
     out["estado"] = STATUS_LABEL.get(p.get("status"), p.get("status"))
     out["email"] = (p.get("email") or "") if full_email else mask_email(p.get("email") or "")
     out["email_source_url"] = p.get("email_source_url") if full_email else ""
@@ -1077,6 +1186,9 @@ def _filters(f: dict) -> tuple[str, dict]:
     if f.get("type") in TYPES:
         where.append("p.business_type = :btype")
         params["btype"] = f["type"]
+    if f.get("niche") in pn.NICHES:
+        where.append("p.niche = :niche")
+        params["niche"] = f["niche"]
     if f.get("status") in STATUSES:
         where.append("p.status = :status")
         params["status"] = f["status"]
@@ -1097,32 +1209,23 @@ def zone_score(c: dict) -> int:
 
 async def map_data(db: AsyncSession, f: dict) -> dict:
     where, params = _filters(f)
-    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.status, p.lat, p.lng, p.zone_id, p.email
+    pins = await _rows(db, f"""SELECT p.id::text AS id, p.name, p.business_type, p.niche, p.status, p.lat, p.lng, p.zone_id, p.email
                                FROM prospects p WHERE {where} AND p.lat IS NOT NULL ORDER BY p.created_at DESC LIMIT 3000""", params)
     for pin in pins:
         pin["email"] = mask_email(pin["email"])
         pin["tipo"] = TYPE_LABEL.get(pin["business_type"], pin["business_type"])
-    sent_where = "c.channel = 'email' AND c.status = 'enviado' AND c.kind IN ('inicial', 'seguimiento')"
-    counts = await _rows(db, f"""
-        SELECT p.zone_id, COUNT(DISTINCT p.id)::int AS prospectos,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.email <> '')::int AS con_correo,
-               (SELECT COUNT(*) FROM prospect_contacts c JOIN prospects q ON q.id = c.prospect_id
-                WHERE q.zone_id = p.zone_id AND {sent_where} AND NOT q.is_test)::int AS enviados,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.opened_at IS NOT NULL)::int AS abrieron,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.replied_at IS NOT NULL)::int AS respondieron,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.demo_at IS NOT NULL)::int AS demos,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.client_at IS NOT NULL)::int AS clientes,
-               COUNT(DISTINCT p.id) FILTER (WHERE p.status = 'baja')::int AS bajas
-        FROM prospects p WHERE {where} GROUP BY p.zone_id""", params)
-    by_zone = {c["zone_id"]: c for c in counts}
+    by_zone = {c["k"]: c for c in await _group_stats(db, "p.zone_id", where, params)}
+    by_niche = {c["k"]: c for c in await _group_stats(db, "p.niche", where, params)}
     zone_list = []
     for z in await zones(db):
-        c = by_zone.get(z["id"], {})
-        stats = {k: c.get(k, 0) for k in ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas")}
-        zone_list.append({**z, **stats, "puntaje": zone_score(stats),
-                          "pct_abrio": round(100 * stats["abrieron"] / stats["enviados"], 1) if stats["enviados"] else 0,
-                          "pct_respondio": round(100 * stats["respondieron"] / stats["enviados"], 1) if stats["enviados"] else 0})
-    totals = {k: sum(c.get(k, 0) for c in counts) for k in ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas")}
+        stats = _stats_of(by_zone.get(z["id"], {}))
+        zone_list.append({**z, **stats, "puntaje": zone_score(stats)})
+    niche_list = []
+    for key, n in pn.NICHES.items():
+        stats = _stats_of(by_niche.get(key, {}))
+        niche_list.append({"key": key, "label": n["label"], "icon": n["icon"], "color": n["color"], "priority": n["priority"],
+                           "page": ("/" + n["page"]) if n["page"] else "", **stats, "puntaje": zone_score(stats)})
+    totals = {k: sum(_stats_of(c).get(k, 0) for c in by_zone.values()) for k in STAT_KEYS}
     visit_where = ["lat IS NOT NULL"]
     vparams: dict[str, Any] = {}
     if f.get("desde"):
@@ -1142,9 +1245,38 @@ async def map_data(db: AsyncSession, f: dict) -> dict:
         SELECT ROUND(p.lat::numeric, 3)::float AS lat, ROUND(p.lng::numeric, 3)::float AS lng, COUNT(*)::int AS total
         FROM prospects p WHERE {where} AND p.lat IS NOT NULL AND (p.replied_at IS NOT NULL OR p.demo_at IS NOT NULL OR p.client_at IS NOT NULL)
         GROUP BY 1, 2 ORDER BY total DESC LIMIT 500""", params)
-    return {"pins": pins, "zones": zone_list, "heat_visits": heat_visits, "heat_leads": heat_leads, "cards": totals,
-            "types": [{"key": k, "label": v} for k, v in TYPE_LABEL.items()],
+    return {"pins": pins, "zones": zone_list, "niches": niche_list, "heat_visits": heat_visits, "heat_leads": heat_leads, "cards": totals,
+            "types": [{"key": k, "label": v, "niche": pn.niche_of(k)} for k, v in TYPE_LABEL.items()],
             "statuses": [{"key": k, "label": v} for k, v in STATUS_LABEL.items()]}
+
+
+STAT_KEYS = ("prospectos", "con_correo", "enviados", "abrieron", "respondieron", "demos", "clientes", "bajas")
+
+
+def _stats_of(c: dict) -> dict:
+    stats = {k: int(c.get(k) or 0) for k in STAT_KEYS}
+    sent = stats["enviados"]
+    stats["pct_abrio"] = round(100 * stats["abrieron"] / sent, 1) if sent else 0
+    stats["pct_respondio"] = round(100 * stats["respondieron"] / sent, 1) if sent else 0
+    return stats
+
+
+async def _group_stats(db: AsyncSession, column: str, where: str, params: dict) -> list[dict]:
+    assert column in ("p.zone_id", "p.niche")
+    return await _rows(db, f"""
+        SELECT {column} AS k, COUNT(*)::int AS prospectos,
+               COUNT(*) FILTER (WHERE p.email <> '')::int AS con_correo,
+               COALESCE(SUM(s.n), 0)::int AS enviados,
+               COUNT(*) FILTER (WHERE p.opened_at IS NOT NULL)::int AS abrieron,
+               COUNT(*) FILTER (WHERE p.replied_at IS NOT NULL)::int AS respondieron,
+               COUNT(*) FILTER (WHERE p.demo_at IS NOT NULL)::int AS demos,
+               COUNT(*) FILTER (WHERE p.client_at IS NOT NULL)::int AS clientes,
+               COUNT(*) FILTER (WHERE p.status = 'baja')::int AS bajas
+        FROM prospects p
+        LEFT JOIN (SELECT prospect_id, COUNT(*) AS n FROM prospect_contacts
+                   WHERE channel = 'email' AND status = 'enviado' AND kind IN ('inicial', 'seguimiento') GROUP BY prospect_id) s
+               ON s.prospect_id = p.id
+        WHERE {where} GROUP BY {column}""", params)
 
 
 async def _has_geo_columns(db: AsyncSession) -> bool:

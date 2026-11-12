@@ -73,6 +73,9 @@ def pg_url():
             for _ in range(2):  # idempotente
                 for stmt in _statements("025i_prospecting"):
                     await conn.execute(text(stmt))
+            for _ in range(2):  # idempotente
+                for stmt in _statements("025p_prospect_multicanal"):
+                    await conn.execute(text(stmt))
         await engine.dispose()
 
     asyncio.run(setup())
@@ -116,7 +119,7 @@ async def fake_fetch(url):
 @pytest.fixture
 def client(pg_url, monkeypatch):
     _run(pg_url, """TRUNCATE prospect_contacts, prospect_batches, prospect_exclusions, prospect_zone_scans, prospects,
-                    landing_visit_events, wa_messages, wa_contacts""", fetch=False)
+                    landing_visit_events, wa_messages, wa_contacts, prospect_api_usage""", fetch=False)
     _run(pg_url, "UPDATE prospect_settings SET config = '{}'::jsonb", fetch=False)
 
     async def db_dep():
@@ -175,9 +178,12 @@ def _at(y, m, d, h, mi=0):
 
 # ------------------------------------------------------------------ migracion y autenticacion
 def test_semillas_de_zonas_y_cadenas(pg_url):
-    zs = _run(pg_url, "SELECT slug, group_name FROM prospect_zones ORDER BY sort")
-    assert [z["slug"] for z in zs] == ["kennedy-central", "castilla", "americas", "timiza", "techo", "hipotecho"]
-    assert {z["group_name"] for z in zs} == {"Kennedy", "Techo", "Hipotecho"}
+    zs = _run(pg_url, "SELECT slug, group_name, niches FROM prospect_zones ORDER BY sort")
+    assert [z["slug"] for z in zs[:6]] == ["kennedy-central", "castilla", "americas", "timiza", "techo", "hipotecho"]
+    assert {z["group_name"] for z in zs[:6]} == {"Kennedy", "Techo", "Hipotecho"} and all(z["niches"] == [] for z in zs[:6])
+    bog = zs[6:]
+    assert len(bog) == 19 and {z["group_name"] for z in bog} == {"Bogotá"}, "las 19 localidades de Bogotá"
+    assert all({"taller", "campo"} <= set(z["niches"]) and "restaurante" not in z["niches"] for z in bog)
     names = {r["name"] for r in _run(pg_url, "SELECT name FROM prospect_chains")}
     assert {"El Corral", "Frisby", "KFC", "McDonald's", "Crepes & Waffles", "Juan Valdez", "Presto", "Subway", "Domino's"} <= names
     cols = {r["column_name"] for r in _run(pg_url, "SELECT column_name FROM information_schema.columns WHERE table_name = 'landing_visit_events'")}
@@ -187,6 +193,8 @@ def test_semillas_de_zonas_y_cadenas(pg_url):
 def test_revision_id_corto():
     mod = importlib.import_module("migrations.versions.025i_prospecting")
     assert len(mod.revision) <= 32 and mod.down_revision == "025h_wa_group_reports"
+    mod = importlib.import_module("migrations.versions.025p_prospect_multicanal")
+    assert len(mod.revision) <= 32 and mod.down_revision == "025o_live3d"
 
 
 N8N_ROUTES = [("get", "/n8n/scan-plan"), ("post", "/n8n/places"), ("get", "/n8n/scan-report"), ("get", "/n8n/refresh-due"),
@@ -245,15 +253,18 @@ def test_kennedy_20_negocios_sin_cadenas_sin_duplicados_correo_solo_de_la_web(cl
 
 
 def test_plan_rota_zonas_y_usa_la_pagina_siguiente(client, pg_url):
-    plan = client.get(f"{URL}/n8n/scan-plan?max=40", headers=H).json()["plan"]
-    assert len(plan) == 36  # 6 zonas x 6 tipos
+    _run(pg_url, """UPDATE prospect_settings SET config = '{"search_limits": {"restaurante": 40, "bar": 40, "taller": 40},
+                    "zone_search_limit": 40}'::jsonb""", fetch=False)
+    food = "&tipos=restaurante,comidas_rapidas,cafe,panaderia"
+    plan = client.get(f"{URL}/n8n/scan-plan?max=40{food}", headers=H).json()["plan"]
+    assert len(plan) == 24 and all(not p["zone"].startswith("bogota-") for p in plan), "comida solo en Kennedy/Techo/Hipotecho"
     _ingest(client, pg_url, [], next_page_token="PAG2")
-    plan = client.get(f"{URL}/n8n/scan-plan?max=40", headers=H).json()["plan"]
+    plan = client.get(f"{URL}/n8n/scan-plan?max=40{food}", headers=H).json()["plan"]
     kc = [p for p in plan if p["zone"] == "kennedy-central" and p["business_type"] == "restaurante"]
     assert kc and kc[0]["request"]["body"]["pageToken"] == "PAG2"
     _ingest(client, pg_url, [], next_page_token="")
-    plan = client.get(f"{URL}/n8n/scan-plan?max=40", headers=H).json()["plan"]
-    assert not [p for p in plan if p["zone"] == "kennedy-central" and p["business_type"] == "restaurante"], "no se repite en 6 dias"
+    plan = client.get(f"{URL}/n8n/scan-plan?max=40{food}", headers=H).json()["plan"]
+    assert not [p for p in plan if p["zone"] == "kennedy-central" and p["business_type"] == "restaurante"], "no se repite en 30 dias"
     only = client.get(f"{URL}/n8n/scan-plan?max=40&zona=kennedy&tipos=bar,cafe", headers=H).json()["plan"]
     assert {p["zone"] for p in only} == {"kennedy-central", "castilla", "americas", "timiza"} and {p["business_type"] for p in only} == {"bar", "cafe"}
 
@@ -385,14 +396,19 @@ def test_respuestas_por_correo(client, pg_url):
 def test_correos_de_prueba_solo_a_clonexa_y_la_baja_los_bloquea(client, pg_url):
     _run(pg_url, "UPDATE prospect_settings SET config = '{\"test_recipient\": \"equipo@clonexa.test\"}'::jsonb", fetch=False)
     items = client.post(f"{URL}/n8n/test-emails", headers=H).json()["items"]
-    assert [i["to"] for i in items] == ["equipo+carta@clonexa.test", "equipo+bar@clonexa.test", "equipo+taller@clonexa.test"]
+    assert [i["to"] for i in items] == ["equipo+carta@clonexa.test", "equipo+bar@clonexa.test", "equipo+taller@clonexa.test",
+                                        "equipo+campo@clonexa.test", "equipo+transporte@clonexa.test", "equipo+tienda@clonexa.test"]
+    pages = [i["demo_url"].split("?")[0] for i in items]
+    assert pages == ["https://www.clonexa.com.co/restaurantes", "https://www.clonexa.com.co/bares", "https://www.clonexa.com.co/talleres-y-fabricas",
+                     "https://www.clonexa.com.co/personal-en-campo", "https://www.clonexa.com.co/", "https://www.clonexa.com.co/"]
+    assert all("Negocio en vivo 3D" in i["html"] for i in items)
     assert all(i["subject"].startswith("[PRUEBA] ") and not i["bloqueado"] for i in items)
     client.post(f"{URL}/n8n/outbox/{items[0]['contact_id']}/sent", headers=H, json={"message_id": "x", "thread_id": "y"})
     tok = items[0]["unsub_url"].split("t=", 1)[1]
     assert client.get(f"{URL}/baja?t={tok}").status_code == 200
     again = client.post(f"{URL}/n8n/test-emails", headers=H).json()["items"]
     assert again[0]["bloqueado"] is True and not again[1]["bloqueado"]
-    assert _run(pg_url, "SELECT COUNT(*)::int AS n FROM prospects WHERE is_test")[0]["n"] == 3
+    assert _run(pg_url, "SELECT COUNT(*)::int AS n FROM prospects WHERE is_test")[0]["n"] == 6
     _admin_map = _with_db(pg_url, lambda db: ps.map_data(db, {}))
     assert _admin_map["pins"] == [] and _admin_map["cards"]["prospectos"] == 0, "las pruebas no salen en el mapa"
 
@@ -492,7 +508,12 @@ def test_mapa_tarjetas_zonas_pines_y_ficha(client, pg_url, monkeypatch, geo):
     m = client.get(f"{URL}/admin/map").json()
     assert m["cards"]["prospectos"] == 14 and m["cards"]["con_correo"] == 2 and m["cards"]["abrieron"] == 1 and m["cards"]["respondieron"] == 1
     kc = next(z for z in m["zones"] if z["slug"] == "kennedy-central")
-    assert kc["prospectos"] == 14 and kc["puntaje"] == ps.zone_score(kc) and len(m["zones"]) == 6
+    assert kc["prospectos"] == 14 and kc["puntaje"] == ps.zone_score(kc)
+    assert len([z for z in m["zones"] if z["group_name"] != "Bogotá"]) == 6 and len(m["zones"]) == 25
+    rest = next(n for n in m["niches"] if n["key"] == "restaurante")
+    assert rest["prospectos"] == 14 and rest["page"] == "/restaurantes" and {n["key"] for n in m["niches"]} == set(ps.NICHES)
+    assert all(p["niche"] == "restaurante" for p in m["pins"])
+    assert client.get(f"{URL}/admin/map?nicho=taller").json()["pins"] == []
     pin = next(p for p in m["pins"] if p["name"] == "Panadería La Espiga")
     assert pin["email"] == "p•••@laespiga.com.co" and "pedidos@" not in str(m["pins"])
     assert m["heat_visits"] and m["heat_visits"][0]["city"] == "Bogotá" and m["heat_visits"][0]["total"] == 2
@@ -525,3 +546,71 @@ def test_zonas_nuevas_y_cadenas_desde_la_consola(client, pg_url, monkeypatch):
     s = client.put(f"{URL}/admin/settings", json={"daily_limit": 25, "signature": "Equipo Clonexa"}).json()["settings"]
     assert s["daily_limit"] == 25 and s["signature"] == "Equipo Clonexa"
     assert client.put(f"{URL}/admin/settings", json={"daily_limit": 26}).status_code == 422
+
+
+# ------------------------------------------------------------------ 025p: nichos
+def _bog(pg_url, slug="bogota-puente-aranda"):
+    return _zone(pg_url, slug)
+
+
+def _ingest_in(c, zone, btype, places, **kw):
+    return c.post(f"{URL}/n8n/places", headers=H, json={"zone_id": zone["id"], "business_type": btype, "places": places, **kw})
+
+
+def test_plan_por_nicho_respeta_limites_diarios_y_prioridad(client, pg_url):
+    plan = client.get(f"{URL}/n8n/scan-plan?max=40", headers=H).json()["plan"]
+    by = {}
+    for p in plan:
+        by[p["niche"]] = by.get(p["niche"], 0) + 1
+    assert all(by.get(n, 0) <= lim for n, lim in ps.pn.DEFAULT_SEARCH_LIMITS.items()), by
+    assert sum(by.values()) <= ps.pn.DAILY_MAX_SEARCHES
+    per_zone = {}
+    for p in plan:
+        per_zone[p["zone"]] = per_zone.get(p["zone"], 0) + 1
+    assert max(per_zone.values()) <= ps.pn.DEFAULT_ZONE_LIMIT
+    assert by.get("campo") == 12 and by.get("taller") == 8 and by.get("restaurante") == 8, "prioridad 1 y restaurantes llenan su cupo"
+    assert all(p["niche"] != "restaurante" or not p["zone"].startswith("bogota-") for p in plan)
+    campo = client.get(f"{URL}/n8n/scan-plan?max=40&nicho=campo", headers=H).json()["plan"]
+    assert campo and {p["niche"] for p in campo} == {"campo"}
+    assert {p["business_type"] for p in campo} <= {"electrico", "telecom", "construccion", "instalador", "aseo", "vigilancia"}
+    # lo gastado hoy cuenta: 12 busquedas de campo ya hechas -> el plan de campo queda vacio
+    z = _bog(pg_url)
+    for _ in range(12):
+        _ingest_in(client, z, "electrico", [])
+    assert client.get(f"{URL}/n8n/scan-plan?max=40&nicho=campo", headers=H).json()["plan"] == []
+    used = _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind = 'places_text' AND niche = 'campo'")[0]["n"]
+    assert used == 12
+    req = campo[0]["request"]
+    assert "(" not in req["body"]["textQuery"] and req["body"]["textQuery"].endswith(", Bogotá")
+
+
+def _taller(i, name, **kw):
+    p = _place(100 + i, name, lat=4.6150, lng=-74.1100, primary="clothing_store", **kw)
+    p["addressComponents"] = [{"types": ["neighborhood"], "longText": "Puente Aranda"}]
+    return p
+
+
+def test_talleres_en_bogota_sin_cadenas_del_nicho(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    z = _bog(pg_url)
+    places = [_taller(i, f"Confecciones Doña Marta {i}") for i in range(15)] + [_taller(50, "Offcorss Puente Aranda"), _taller(51, "Leonisa Fábrica")]
+    out = _ingest_in(client, z, "taller", places).json()
+    assert out["new"] == 15 and out["chain"] == 2, out
+    rows = _run(pg_url, "SELECT niche, business_type FROM prospects")
+    assert {(r["niche"], r["business_type"]) for r in rows} == {("taller", "taller")}
+    # cadenas del nicho se editan desde la consola
+    names = client.put(f"{URL}/admin/niches/taller/chains", json={"names": ["Confecciones Doña Marta 99", "Offcorss"]}).json()["chains"]
+    assert names == ["Confecciones Doña Marta 99", "Offcorss"]
+    assert client.put(f"{URL}/admin/niches/inventado/chains", json={"names": []}).status_code == 404
+    n = client.get(f"{URL}/admin/niches").json()
+    assert {x["key"] for x in n["niches"]} == set(ps.NICHES) and set(n["missing_pages"]) == {"transporte", "tienda"}
+    tl = next(x for x in n["niches"] if x["key"] == "taller")
+    assert tl["page"] == "talleres-y-fabricas" and "Offcorss" in tl["chains"] and set(tl["types"]) == {"taller", "fabrica"}
+    again = _ingest_in(client, z, "taller", [_taller(99, "Confecciones Doña Marta 99"), _taller(52, "Gef Centro")]).json()
+    assert again["chain"] == 1 and again["new"] == 1, "Gef ya no esta en la lista del nicho"
+
+
+@pytest.mark.parametrize("method,path", [("get", "/admin/niches"), ("put", "/admin/niches/taller/chains")])
+def test_nichos_sin_sesion_401(client, monkeypatch, method, path):
+    _admin(monkeypatch, ok=False)
+    assert client.request(method.upper(), URL + path, json={"names": []}, headers=H).status_code == 401

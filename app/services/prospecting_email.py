@@ -1,10 +1,15 @@
 """Correos de prospeccion de Nexa: plantillas por tipo de negocio (sin precios), enlaces con utm y
 pie legal (Ley 2300 de 2023 / Ley 1581 de 2012).
 
-Tres segmentos:
-- carta  (restaurante, comidas rapidas, cafe, panaderia): la CARTA EN VIDEO CON QR.
-- bar    : las 5 fugas de dinero (inventario, pedidos QR, mesas abiertas, caja, turnos).
-- taller : nomina en 5 minutos y costo por prenda.
+Un segmento por nicho (025p):
+- carta      (restaurante, comidas rapidas, cafe, panaderia): la CARTA EN VIDEO CON QR -> /restaurantes#carta-video.
+- bar        : las 5 fugas de dinero (inventario, pedidos QR, mesas abiertas, caja, turnos) -> /bares.
+- taller     (talleres de confeccion y fabricas pequenas): nomina en 5 minutos y costo por prenda -> /talleres-y-fabricas.
+- campo      (electricos, telecomunicaciones, construccion, instaladores, aseo, vigilancia): turnos con GPS y bot,
+               cortes por WhatsApp, materiales, nomina -> /personal-en-campo.
+- transporte : rutas, despachos y llamadas -> pagina principal #soluciones (no hay pagina propia).
+- tienda     : ventas e inventario -> pagina principal #soluciones (no hay pagina propia).
+Todos mencionan Negocio en vivo 3D en una linea.
 
 Todo correo lleva: por que le escribimos (correo publicado en su web), quien escribe, y el enlace
 "No quiero recibir más correos" (baja inmediata y permanente). Puro: no toca la base.
@@ -14,24 +19,28 @@ from __future__ import annotations
 import html
 from urllib.parse import quote, urlencode
 
+from app.services import prospecting_niches as pn
+
 WA_NUMBER = "573144798220"
 DEFAULT_LANDING = "https://www.clonexa.com.co/"
 DEFAULT_BACKEND = "https://clonexa-backend-production.up.railway.app"
 GIF_PATH = "clonexa-media/carta-video.gif"
 
-SEGMENT_OF = {
-    "restaurante": "carta", "comidas_rapidas": "carta", "cafe": "carta", "panaderia": "carta",
-    "bar": "bar", "taller": "taller",
-}
-TYPE_SLUG = {"restaurante": "restaurante", "comidas_rapidas": "comidas-rapidas", "cafe": "cafe",
-             "panaderia": "panaderia", "bar": "bar", "taller": "taller"}
-PAGE_OF_SEGMENT = {"carta": "", "bar": "bares", "taller": "talleres-y-fabricas"}
-ANCHOR_OF_SEGMENT = {"carta": "#carta-video", "bar": "", "taller": ""}
+# segmento de la plantilla = nicho (restaurantes y comidas se llama "carta" desde 025i)
+SEGMENT_OF_NICHE = {"restaurante": "carta", "bar": "bar", "taller": "taller", "campo": "campo", "transporte": "transporte",
+                    "tienda": "tienda"}
+NICHE_OF_SEGMENT = {v: k for k, v in SEGMENT_OF_NICHE.items()}
+SEGMENT_OF = {t: SEGMENT_OF_NICHE[pn.niche_of(t)] for t in pn.TYPES}
+TYPE_SLUG = pn.TYPE_SLUG
 WA_TEXT = {
     "carta": "Hola, vi la carta video (código {code})",
     "bar": "Hola, vi lo de las fugas de dinero del bar (código {code})",
     "taller": "Hola, vi lo de la nómina del taller (código {code})",
+    "campo": "Hola, vi lo del control del personal en campo (código {code})",
+    "transporte": "Hola, vi lo de las rutas y despachos (código {code})",
+    "tienda": "Hola, vi lo de las ventas e inventario de la tienda (código {code})",
 }
+LIVE3D_LINE = pn.LIVE3D_LINE
 
 PINK = "#ff2d6f"
 INK = "#1d1424"
@@ -39,11 +48,11 @@ MUTED = "#6b5d73"
 
 
 def segment(business_type: str) -> str:
-    return SEGMENT_OF.get(business_type, "carta")
+    return SEGMENT_OF.get(business_type) or SEGMENT_OF_NICHE.get(business_type, "carta")
 
 
 def campaign(zone_slug: str, business_type: str) -> str:
-    return f"{zone_slug or 'sin-zona'}-{TYPE_SLUG.get(business_type, business_type or 'negocio')}"
+    return pn.campaign(zone_slug, business_type)
 
 
 def utm_query(zone_slug: str, business_type: str, code: str) -> str:
@@ -51,11 +60,11 @@ def utm_query(zone_slug: str, business_type: str, code: str) -> str:
                       "utm_campaign": campaign(zone_slug, business_type), "utm_content": code})
 
 
-def demo_url(landing: str, zone_slug: str, business_type: str, code: str) -> str:
-    seg = segment(business_type)
-    base = (landing or DEFAULT_LANDING).rstrip("/") + "/"
-    page = PAGE_OF_SEGMENT[seg]
-    return f"{base}{page}?{utm_query(zone_slug, business_type, code)}{ANCHOR_OF_SEGMENT[seg]}"
+def demo_url(landing: str, zone_slug: str, business_type: str, code: str, source: str = "email") -> str:
+    """Pagina de la landing del nicho (/restaurantes, /bares, /talleres-y-fabricas, /personal-en-campo) o la
+    principal con #seccion si el nicho no tiene pagina. Siempre con utm."""
+    q = {"utm_source": source, "utm_medium": "prospeccion", "utm_campaign": campaign(zone_slug, business_type), "utm_content": code}
+    return pn.landing_url(landing or DEFAULT_LANDING, pn.niche_of(business_type), q)
 
 
 def wa_url(business_type: str, code: str, number: str = WA_NUMBER) -> str:
@@ -75,6 +84,9 @@ def _subject(seg: str, name: str, followup: bool) -> str:
         "carta": f"{name}: tu carta en video con QR",
         "bar": f"{name}: 5 fugas de dinero que se pueden cerrar esta semana",
         "taller": f"{name}: la nómina en 5 minutos y el costo real de cada prenda",
+        "campo": f"{name}: su personal en campo, con turnos y GPS desde el celular",
+        "transporte": f"{name}: rutas, despachos y personal en una sola herramienta",
+        "tienda": f"{name}: ventas e inventario que cuadran, desde el celular",
     }[seg]
     return f"Re: {base}" if followup else base
 
@@ -93,6 +105,15 @@ def _paragraphs(seg: str, name: str, followup: bool) -> list[str]:
             "taller": [f"Hola, equipo de {name}:",
                        "Les escribí hace una semana sobre la nómina en 5 minutos y el costo por prenda.",
                        "Si les sirve, les muestro cómo se ve con sus referencias. Si no, no les vuelvo a escribir."],
+            "campo": [f"Hola, equipo de {name}:",
+                      "Les escribí hace una semana sobre el control del personal en campo (turnos con GPS, materiales y nómina).",
+                      "Si les sirve, en 20 minutos les muestro cómo se vería con su equipo. Si no, no les vuelvo a escribir."],
+            "transporte": [f"Hola, equipo de {name}:",
+                           "Les escribí hace una semana sobre llevar rutas, despachos, llamadas y turnos en una sola herramienta.",
+                           "Si les sirve, en 20 minutos les muestro cómo se vería en su operación. Si no, no les vuelvo a escribir."],
+            "tienda": [f"Hola, equipo de {name}:",
+                       "Les escribí hace una semana sobre las ventas y el inventario de la tienda desde el celular.",
+                       "Si les sirve, en 20 minutos les muestro cómo se vería en su tienda. Si no, no les vuelvo a escribir."],
         }[seg]
     return {
         "carta": [f"Hola, equipo de {name}:",
@@ -114,6 +135,24 @@ def _paragraphs(seg: str, name: str, followup: bool) -> list[str]:
                    "Con Clonexa la nómina sale en 5 minutos (marcación desde el celular, horas y pagos listos) y "
                    "cada referencia muestra su costo real con el tiempo de producción.",
                    "¿Les muestro cómo se vería con sus referencias?"],
+        "campo": [f"Hola, equipo de {name}:",
+                  "Cuando el equipo trabaja en la calle, lo difícil es saber quién empezó, dónde está y cuántas horas lleva.",
+                  "Con Clonexa cada persona inicia y cierra su turno desde el celular o un bot de Telegram, con GPS por zona de "
+                  "trabajo; los cortes llegan por WhatsApp, las órdenes de materiales quedan con número y las horas salen listas "
+                  "para la nómina.",
+                  "¿Les muestro cómo se vería con su equipo?"],
+        "transporte": [f"Hola, equipo de {name}:",
+                       "En transporte y logística la información queda regada: despachos en un cuaderno, llamadas en el celular "
+                       "y turnos en otra hoja.",
+                       "Clonexa lo junta en una sola herramienta: despachos y llamadas registrados con su resultado, turnos del "
+                       "personal desde el celular y reportes del día.",
+                       "¿Les muestro cómo se vería en su operación?"],
+        "tienda": [f"Hola, equipo de {name}:",
+                   "En una tienda o minimercado la plata se pierde en lo que no cuadra: ventas sin registrar, inventario que "
+                   "no coincide y turnos sin control.",
+                   "Con Clonexa ven las ventas del día, el inventario que se descuenta con cada venta y los turnos del equipo, "
+                   "desde el celular y sin equipos especiales.",
+                   "¿Les muestro cómo se vería en su tienda?"],
     }[seg]
 
 
@@ -136,6 +175,7 @@ def render(prospect: dict, *, followup: bool, settings: dict, zone_slug: str) ->
     wa = wa_url(btype, code, settings.get("wa_number") or WA_NUMBER)
     baja = unsub_url(backend, prospect.get("unsub_token") or "")
     paras = _paragraphs(seg, name, followup)
+    paras.insert(len(paras) - 1, LIVE3D_LINE)   # cada correo menciona Negocio en vivo 3D en una linea
     subject = _subject(seg, name, followup)
 
     demo_label = "Ver demo de la carta video" if seg == "carta" else "Ver cómo funciona"
@@ -169,7 +209,7 @@ def render(prospect: dict, *, followup: bool, settings: dict, zone_slug: str) ->
         f"\n\n{demo_label}: {demo}\nEscríbenos por WhatsApp: {wa}\n\n{signature}\n\n{legal}\n"
         f"No quiero recibir más correos: {baja}\n")
     return {"subject": subject, "html": html_doc, "text": text_doc, "to": prospect.get("email") or "",
-            "demo_url": demo, "wa_url": wa, "unsub_url": baja, "segment": seg}
+            "demo_url": demo, "wa_url": wa, "unsub_url": baja, "segment": seg, "niche": pn.niche_of(btype)}
 
 
 def unsubscribed_page(name: str = "", already: bool = False) -> str:
