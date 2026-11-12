@@ -49,17 +49,23 @@ export function open(o) {
         TABLES.clear(); while (tablesG.children.length) tablesG.remove(tablesG.children[0]);
         for (let i = A.PICK.length - 1; i >= 0; i--) if (A.PICK[i].userData.table) A.PICK.splice(i, 1);
         const lay = P.layoutTables(labels);
-        for (const {label, pos: [x, z]} of lay.tables) {
-          mesh(new RB(1.1, .06, 1.1, 2, .02), wood, x, .75, z, tablesG); mesh(new THREE.CylinderGeometry(.05, .06, .73, 10), legM, x, .37, z, tablesG);
-          [[0, -.75, 0], [0, .75, Math.PI], [-.75, 0, Math.PI / 2], [.75, 0, -Math.PI / 2]].forEach(([a, b, r]) => { const c = new THREE.Group(); c.position.set(x + a, 0, z + b); c.rotation.y = r; tablesG.add(c);
+        A.archItems.splice(0, A.archItems.length);
+        for (const {label, pos: p0} of lay.tables) {
+          const [x, z] = A.archPos('mesa:' + label, p0);
+          const g = new THREE.Group(); g.position.set(x, 0, z); tablesG.add(g);
+          mesh(new RB(1.1, .06, 1.1, 2, .02), wood, 0, .75, 0, g); mesh(new THREE.CylinderGeometry(.05, .06, .73, 10), legM, 0, .37, 0, g);
+          [[0, -.75, 0], [0, .75, Math.PI], [-.75, 0, Math.PI / 2], [.75, 0, -Math.PI / 2]].forEach(([a, b, r]) => { const c = new THREE.Group(); c.position.set(a, 0, b); c.rotation.y = r; g.add(c);
             mesh(new RB(.44, .05, .42, 2, .02), chairM, 0, .46, 0, c); mesh(new RB(.42, .42, .04, 2, .02), chairM, 0, .72, .19, c); [[-.19, -.17], [.19, -.17], [-.19, .17], [.19, .17]].forEach(([u, v]) => mesh(new THREE.CylinderGeometry(.015, .015, .46, 6), legM, u, .23, v, c)); });
-          mesh(new THREE.CylinderGeometry(.005, .005, .8, 4), legM, x, 2.95, z, tablesG); mesh(new THREE.ConeGeometry(.2, .18, 20, 1, true), shadeM, x, 2.55, z, tablesG);
-          const bulb = mesh(new THREE.SphereGeometry(.06, 10, 8), bulbOff, x, 2.47, z, tablesG);
-          const soft = new THREE.Mesh(A.track(new THREE.CircleGeometry(1.2, 40)), softM); soft.rotation.x = -Math.PI / 2; soft.position.set(x, .013, z); soft.visible = false; tablesG.add(soft);
-          const plates = new THREE.Group(); tablesG.add(plates);
-          [0, 1].forEach(j => { mesh(new THREE.CylinderGeometry(.13, .13, .02, 20), plateM, x - .2 + j * .4, .79, z, plates); mesh(new THREE.SphereGeometry(.06, 10, 8), foodM2, x - .2 + j * .4, .82, z, plates); }); plates.visible = false;
-          const hit = new THREE.Mesh(A.track(new THREE.CylinderGeometry(.75, .75, 1, 12)), A.hitM); hit.position.set(x, .5, z); hit.userData.table = label; tablesG.add(hit); A.PICK.push(hit);
-          TABLES.set(label, {x, z, bulb, soft, plates, guests: [], tag: A.tag(A.at(x, .78, z), '', 'mesa off', .12, true)});
+          mesh(new THREE.CylinderGeometry(.005, .005, .8, 4), legM, 0, 2.95, 0, g); mesh(new THREE.ConeGeometry(.2, .18, 20, 1, true), shadeM, 0, 2.55, 0, g);
+          const bulb = mesh(new THREE.SphereGeometry(.06, 10, 8), bulbOff, 0, 2.47, 0, g);
+          const soft = new THREE.Mesh(A.track(new THREE.CircleGeometry(1.2, 40)), softM); soft.rotation.x = -Math.PI / 2; soft.position.set(0, .013, 0); soft.visible = false; g.add(soft);
+          const plates = new THREE.Group(); g.add(plates);
+          [0, 1].forEach(j => { mesh(new THREE.CylinderGeometry(.13, .13, .02, 20), plateM, -.2 + j * .4, .79, 0, plates); mesh(new THREE.SphereGeometry(.06, 10, 8), foodM2, -.2 + j * .4, .82, 0, plates); }); plates.visible = false;
+          const hit = new THREE.Mesh(A.track(new THREE.CylinderGeometry(.75, .75, 1, 12)), A.hitM); hit.position.set(0, .5, 0); hit.userData.table = label; g.add(hit); A.PICK.push(hit);
+          const at = A.at(x, .78, z), T = {x, z, bulb, soft, plates, guests: [], tag: A.tag(at, '', 'mesa off', .12, true)};
+          TABLES.set(label, T);
+          A.archItems.push({key: 'mesa:' + label, label: 'mesas', pick: [hit], get: () => [T.x, T.z, 0],
+            set: (nx, nz) => { T.x = nx; T.z = nz; g.position.set(nx, 0, nz); at.position.set(nx, .78, nz); }});
         }
         if (lay.overflow) A.warn(`${lay.overflow} mesas sin puesto en el plano`);
       }

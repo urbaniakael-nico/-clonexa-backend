@@ -45,6 +45,7 @@ from app.services import oficina_data as od
 from app.services import oficina_pisos as opi
 from app.services import oficina_recepcion as orc
 from app.services import oficina_vivo as ov
+from app.services import live3d as l3
 from app.web import admin_v2_routes as v2
 from app.web.admin_v2plus_companies import GUARD, _audit, _json
 
@@ -69,6 +70,7 @@ ASSETS = {
     "restaurante.js": ("oficina/oficina_restaurante.js", "application/javascript"),
     "campo.js": ("oficina/oficina_campo.js", "application/javascript"),
     "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),
+    "arquitecto.js": ("oficina/oficina_arquitecto.js", "application/javascript"),   # modo arquitecto de los pisos aprobados (live3d)
     "recepcion.js": ("oficina/oficina_recepcion.js", "application/javascript"),   # Recepcion con Nexa (025n)   # gestos de la camara (tactil, pellizco, sin "atras")
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
@@ -220,6 +222,7 @@ def reset_cache() -> None:
     of.N8N.reset()
     _LIVE.clear()
     opi.reset()
+    l3.reset()
 
 
 def _now() -> datetime:
@@ -410,6 +413,7 @@ async def piso(company_id: str, request: Request, db: AsyncSession = Depends(get
         raise HTTPException(status_code=422, detail="Nada que guardar.")
     await od.save_floor(db, cid, actor=ACTOR, **kwargs)
     reset_db_cache()
+    l3.drop_live(cid)
     await _audit(request, oficina_piso=cid, **{k: str(v) for k, v in kwargs.items()})
     return _json({"ok": True})
 
@@ -496,13 +500,10 @@ async def clonexa_vivo(rev: str = Query(""), db: AsyncSession = Depends(get_db))
     return _json(snap)
 
 
-@router.get(API + "/pisos/{company_id}/vivo", include_in_schema=False, dependencies=GUARD)
-async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends(get_db)):
-    c, row = await _live_company(db, company_id)
-    hit = _LIVE.get(c["id"])
-    if hit and time.monotonic() - hit[0] < LIVE_TTL:
-        snap = hit[1]
-    else:
+async def company_snapshot(db: AsyncSession, c: dict, row: dict) -> dict:
+    """Copia viva de una empresa, COMPARTIDA (live3d.shared_live): una sola construccion por empresa cada 7 s para
+    todas sus pantallas (la oficina de la consola y las del cliente con Negocio en vivo 3D)."""
+    async def build() -> dict:
         privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
         template = _template(c, row)
         live = APPROVED_LIVE.get(template) if od.floor_style(row, template) == "aprobado" else None
@@ -513,7 +514,23 @@ async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends
             snap = await ov.live(od.Reader(db), c, _now(), privacy, _dist(row.get("distribucion")))
             snap["style"] = od.floor_style(row, "bar")
         snap["floor_mb"] = round(floor_bytes("bar") / 1024 / 1024, 2)
-        _LIVE[c["id"]] = (time.monotonic(), snap)
+        # modo arquitecto de los pisos aprobados (posiciones guardadas de mesas, maquinas, cabina, pista...)
+        snap["arch"] = arch_items(row, template)
+        return snap
+    return await l3.shared_live(c["id"], build)
+
+
+def arch_items(row: dict, template: str) -> dict:
+    piso = _dist(row.get("distribucion")).get("piso")
+    if isinstance(piso, dict) and piso.get("plantilla") == template and isinstance(piso.get("items"), dict):
+        return piso["items"]
+    return {}
+
+
+@router.get(API + "/pisos/{company_id}/vivo", include_in_schema=False, dependencies=GUARD)
+async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends(get_db)):
+    c, row = await _live_company(db, company_id)
+    snap = await company_snapshot(db, c, row)
     if rev and rev == snap["rev"]:
         return _json({"ok": True, "same": True, "rev": snap["rev"]})
     return _json(snap)
@@ -525,30 +542,55 @@ async def _tables(db: AsyncSession, cid: str) -> list[str]:
     return await carta_links.mesa_labels(db, cid)
 
 
+def _approved_engine(c: dict, row: dict) -> Optional[str]:
+    """Plantilla si el piso abre un motor aprobado (bar de Mixamo o pisos 025m); None si es el piso realista."""
+    template = _template(c, row)
+    return template if od.floor_style(row, template) in ("bar", "aprobado") else None
+
+
 @router.put(API + "/pisos/{company_id}/distribucion", include_in_schema=False, dependencies=GUARD)
 async def guardar_distribucion(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    c, _row = await _live_company(db, company_id)
+    c, row = await _live_company(db, company_id)
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=422, detail="Datos no válidos.") from None
     tables = await _tables(db, c["id"])
+    dist = _dist(row.get("distribucion"))
+    engine = _approved_engine(c, row)
     try:
-        clean = ov.clean_layout(body, tables)
-    except of.Rejected as error:
-        raise _rejected(error) from None
-    await od.save_floor(db, c["id"], distribucion=clean, actor=ACTOR)
-    _LIVE.pop(c["id"], None)
-    await _audit(request, oficina_distribucion=c["id"], objetos=len(clean["items"]))
-    return _json({"ok": True, "layout": ov.merge_layout(tables, clean)})
+        if engine:
+            # pisos aprobados: mesas, maquinas, cabina, pista y plantas (coordenadas del piso aprobado). Lo del piso
+            # realista (dist["items"]) no se toca.
+            items = l3.clean_arch(body, engine, tables)
+            dist["piso"] = {"plantilla": engine, "items": items}
+        else:
+            dist.update(ov.clean_layout(body, tables))
+            items = dist["items"]
+    except (of.Rejected, ValueError) as error:
+        raise HTTPException(status_code=422, detail=getattr(error, "message", None) or str(error)) from None
+    await od.save_floor(db, c["id"], distribucion=dist, actor=ACTOR)
+    l3.drop_live(c["id"])
+    await _audit(request, oficina_distribucion=c["id"], objetos=len(items))
+    if engine:
+        return _json({"ok": True, "arch": items})
+    return _json({"ok": True, "layout": ov.merge_layout(tables, dist)})
 
 
 @router.delete(API + "/pisos/{company_id}/distribucion", include_in_schema=False, dependencies=GUARD)
 async def acomodar_automatico(company_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    c, _row = await _live_company(db, company_id)
-    await od.save_floor(db, c["id"], distribucion={}, actor=ACTOR)
-    _LIVE.pop(c["id"], None)
+    c, row = await _live_company(db, company_id)
+    dist = _dist(row.get("distribucion"))
+    engine = _approved_engine(c, row)
+    if engine:
+        dist.pop("piso", None)
+    else:
+        dist.pop("items", None)
+    await od.save_floor(db, c["id"], distribucion=dist, actor=ACTOR)
+    l3.drop_live(c["id"])
     await _audit(request, oficina_distribucion=c["id"], acomodar="automatico")
+    if engine:
+        return _json({"ok": True, "arch": {}})
     return _json({"ok": True, "layout": ov.merge_layout(await _tables(db, c["id"]), {})})
 
 
@@ -565,3 +607,4 @@ async def marca_logo(company_id: str, db: AsyncSession = Depends(get_db)):
 
 def reset_live_cache() -> None:
     _LIVE.clear()
+    l3.reset()

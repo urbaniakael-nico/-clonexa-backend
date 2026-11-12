@@ -25,8 +25,10 @@ export function open(o) {
       const machinesG = new THREE.Group(); S.add(machinesG); let MACH = [];
       function buildMachines(n) {
         while (machinesG.children.length) machinesG.remove(machinesG.children[0]); MACH.forEach(m => A.dropTag(m.tag));
-        MACH = P.machinePositions(n).map(([x, z], k) => {
-          const g = new THREE.Group(); g.position.set(x, 0, z); machinesG.add(g);
+        A.archItems.splice(0, A.archItems.length);
+        MACH = P.machinePositions(n).map((p0, k) => {
+          const [x, z, r] = A.archPos('maquina:' + k, p0);
+          const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = r; machinesG.add(g);
           mesh(new RB(1.25, .05, .7, 2, .02), tableTop, 0, .75, 0, g); [[-.56, -.28], [.56, -.28], [-.56, .28], [.56, .28]].forEach(([a, b]) => mesh(new THREE.BoxGeometry(.04, .75, .04), iron, a, .375, b, g)); mesh(new THREE.BoxGeometry(1.1, .03, .03), iron, 0, .15, .28, g);
           mesh(new RB(.58, .15, .24, 2, .05), machineM, .06, .85, -.05, g); mesh(new RB(.16, .36, .22, 2, .05), machineM, .28, 1.05, -.05, g); mesh(new RB(.52, .14, .2, 2, .06), machineM, .07, 1.25, -.05, g);
           mesh(new THREE.CylinderGeometry(.06, .06, .035, 20), iron, .38, 1.06, .08, g).rotation.x = Math.PI / 2; mesh(new THREE.CylinderGeometry(.008, .008, .16, 6), iron, -.14, 1.1, -.05, g);
@@ -35,7 +37,11 @@ export function open(o) {
           const lamp = mesh(new THREE.SphereGeometry(.03, 10, 8), lampOff, -.2, 1.2, .06, g);
           const c = new THREE.Group(); c.position.set(0, 0, .68); g.add(c); mesh(new RB(.42, .05, .4, 2, .02), seatM, 0, .46, 0, c); mesh(new RB(.4, .4, .04, 2, .02), seatM, 0, .72, .18, c);
           [[-.18, -.16], [.18, -.16], [-.18, .16], [.18, .16]].forEach(([a, b]) => mesh(new THREE.CylinderGeometry(.012, .012, .46, 6), iron, a, .23, b, c));
-          return {x, z, lamp, tag: A.tag(A.at(x, .8, z), '<span class="off">Máquina libre</span>', 'mesa off', .1, true)};
+          const at = A.at(x, .8, z), m = {x, z, r, lamp, tag: A.tag(at, '<span class="off">Máquina libre</span>', 'mesa off', .1, true)};
+          const hit = new THREE.Mesh(A.track(new THREE.BoxGeometry(1.3, 1.4, 1.4)), A.hitM); hit.position.set(0, .7, .3); g.add(hit);
+          A.archItems.push({key: 'maquina:' + k, label: 'máquinas', pick: [hit], turn: true, get: () => [m.x, m.z, m.r],
+            set: (nx, nz, nr) => { m.x = nx; m.z = nz; m.r = nr; g.position.set(nx, 0, nz); g.rotation.y = nr; at.position.set(nx, .8, nz); }});
+          return m;
         });
         R.shadowMap.needsUpdate = true;
       }
@@ -94,7 +100,7 @@ export function open(o) {
         A.setTag(rackTag, esc(m.rack), 'zn');
       }
       function cfgFor(p) { return P.personCfg(p.key, p.first, savedFor(o, 'staff', p.key, p.uniform || 'costura'), {}); }
-      function machineSpot(i) { const m = MACH[i]; return [m.x, m.z + .66, Math.PI]; }
+      function machineSpot(i) { const m = MACH[i], r = m.r || 0; return [m.x + Math.sin(r) * .66, m.z + Math.cos(r) * .66, Math.PI + r]; }
       function cafeSpot(i) { return T.CAFE_SEATS[i % T.CAFE_SEATS.length]; }
       function apply(snap, prev, first) {
         if (snap.machines !== nMach) { nMach = snap.machines; buildMachines(nMach); seats = new Map(); }

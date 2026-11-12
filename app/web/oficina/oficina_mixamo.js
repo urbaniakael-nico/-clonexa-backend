@@ -16,11 +16,16 @@ import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import * as BAR from '/admin-v2plus/oficina/bar_reglas.js';
 import * as P from '/admin-v2plus/oficina/pisos_reglas.js';
 import {attachGestures} from '/admin-v2plus/oficina/gestos.js';
+import {attachArchitect, savedPos} from '/admin-v2plus/oficina/arquitecto.js';
 
 export {THREE, RoundedBoxGeometry, P};
-const RES = '/admin-v2plus/oficina/recursos/';
-const MIX = '/admin-v2plus/oficina/bar/';
-export const API = '/admin-v2/api/oficina';
+// Las rutas salen del propio origen del motor: en la consola /admin-v2plus/oficina/; en el visor del cliente (Negocio en
+// vivo 3D) la ruta firmada de SU empresa (/panel/negocio-en-vivo/r/<empresa>/<firma>/), que exige su sesión.
+const ROOT = new URL('./', import.meta.url).pathname;
+const VIEWER = ROOT.startsWith('/panel/');
+const RES = ROOT + 'recursos/';
+const MIX = ROOT + 'bar/';
+export const API = VIEWER ? ROOT + 'api' : '/admin-v2/api/oficina';
 const WALK = 1.25;
 
 export function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -82,7 +87,7 @@ export async function openFloor(o, spec) {
   const {R, floor, getJson, log} = o;
   const ui = document.createElement('div'); ui.id = 'realUi'; document.body.appendChild(ui);
   const tagLayer = document.createElement('div'); tagLayer.id = 'barTags'; tagLayer.className = 'pisos ' + (spec.cls || ''); document.body.appendChild(tagLayer);
-  ui.innerHTML = `<div class="rbar glass"><button type="button" data-out>← Edificio</button><b>${esc(spec.title)}</b><span class="rchip" data-biz></span>
+  ui.innerHTML = `<div class="rbar glass"><button type="button" data-out>${esc(o.backLabel || '← Edificio')}</button><b>${esc(spec.title)}</b><span class="rchip" data-biz></span>
     <span class="rchip warn hidden" data-warn></span><span class="sp"></span><span class="rchip" data-mb></span><span class="rfps" data-fps>…</span></div>
     <div class="rload" data-load>Cargando el piso…</div>`;
   const $ = s => ui.querySelector(s);
@@ -239,12 +244,13 @@ export async function openFloor(o, spec) {
   // límites por piso (pisos_reglas.camLimits): la cámara nunca queda detrás de una pared ni bajo el piso
   let LIM = P.camLimits(spec.room, spec.camera); const clampCam = g => P.clampCam(g, LIM);
   const canvas = R.domElement; canvas.style.touchAction = 'none';
+  const archRef = {a: null};
   // gestos (oficina_gestos.js): arrastrar gira, pellizco/Ctrl+rueda acerca, rueda horizontal gira; el navegador nunca va "atrás"
   const gestures = attachGestures(canvas, {
     rotate: (dx, dy) => { goal.az -= dx * .005; goal.pol -= dy * .004; clampCam(goal); },
     pan: (dx, dy) => { goal.tx -= dx * .015 * Math.cos(cam.az) + dy * .015 * Math.sin(cam.az); goal.tz += dx * .015 * Math.sin(cam.az) - dy * .015 * Math.cos(cam.az); clampCam(goal); },
     zoom: f => { goal.dist *= f; clampCam(goal); },
-    tap: e => { if (e.target === canvas) click(e); },
+    tap: e => { if (e.target === canvas && !(archRef.a && archRef.a.on)) click(e); },
     reset: () => Object.assign(goal, home)});
   const ray = new THREE.Raycaster(), mv = new THREE.Vector2();
   function click(e) {
@@ -256,7 +262,9 @@ export async function openFloor(o, spec) {
   }
 
   // ------------------------------------------------------------------ escena del piso + copia viva
-  const api = {THREE, S, C, R, mesh, flat, M, glow, tex, point, canvasScreen, screen, clipText, tag, setTag, dropTag, at, zoneTag, tagHtml, esc, track,
+  // modo arquitecto (solo consola): cada piso registra sus objetos movibles; las posiciones guardadas llegan en snap.arch
+  let ARCH = {}; const archItems = []; const archPos = (key, def) => savedPos(ARCH, key, def);
+  const api = {archItems, archPos, THREE, S, C, R, mesh, flat, M, glow, tex, point, canvasScreen, screen, clipText, tag, setTag, dropTag, at, zoneTag, tagHtml, esc, track,
     makePerson, setRing, play, place, goTo, sitAt, arrive, leave, dropPerson, people, PICK, hitM, lite: () => lite, peopleOk: () => peopleOk, warn, chip, floor, o, RoundedBoxGeometry, loader: L};
   const scene = await spec.build(api);
   // paredes del piso (y lo pegado a ellas: logos, pantallas, ventanas): se ocultan si quedan entre la cámara y el centro
@@ -269,6 +277,7 @@ export async function openFloor(o, spec) {
     if (k === hidden) return; hidden = k; for (const [side, list] of Object.entries(WALLS)) list.forEach(m => { m.visible = !h[side]; }); R.shadowMap.needsUpdate = true; }
   let snap = null;
   try { snap = await getJson(spec.liveUrl); } catch (e) { chip('Sin conexión', false); }
+  ARCH = (snap && snap.arch) || {};
   try { await Promise.race([document.fonts.load('800 46px Inter'), new Promise(r => setTimeout(r, 1500))]); } catch (e) { /* fuente del sistema */ }
   $('[data-load]').textContent = 'Cargando las personas…';
   try { await loadPeople(); } catch (e) { warn('Personajes no disponibles: el piso se ve sin personas'); }
@@ -283,6 +292,7 @@ export async function openFloor(o, spec) {
     if (!lite) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), ...(spec.bloom || [.3, .4, .96]))); composer.addPass(new OutputPass()); }
   buildComposer(); $('[data-load]').remove();
   $('[data-out]').onclick = () => o.onClose && o.onClose();
+  const arch = archRef.a = attachArchitect(o, {THREE, S, C, R, ui, room: spec.room, items: archItems, cid: floor.company_id, getJson, api: API, esc});
   log && log(`<b>${esc(spec.title)}</b> · piso aprobado listo (${(weight().total / 1048576).toFixed(1)} MB)`);
 
   // consulta cada 7 s con rev (solo cambios), pausa si la pestaña no se ve
@@ -315,13 +325,14 @@ export async function openFloor(o, spec) {
       else { const sp = Math.min(d, dt * WALK); r.x += dx / d * sp; r.z += dz / d * sp; let dr = Math.atan2(dx, dz) - p.g.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); p.g.rotation.y += dr * Math.min(1, dt * 8); }
     }
     if (scene.tick) scene.tick(t, dt);
+    arch.tick();
     frameNo++; if (frameNo % (lite ? 4 : 3) === 0) R.shadowMap.needsUpdate = true;
     composer.render(); placeTags();
     frames++; fpsT += dt; if (fpsT >= 1) { fpsShown = Math.round(frames / fpsT); frames = 0; fpsT = 0; fpsSamples++; $('[data-fps]').textContent = `${fpsShown} FPS${lite ? ' · liviano' : ''}`;
       if (fpsSamples === 6 && fpsShown < 30 && !lite && o.liteChosen && o.liteChosen() == null) { o.onAutoLite && o.onAutoLite(); } }
   }
   function close() {
-    dead = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis);
+    arch.detach(); dead = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis);
     gestures.detach(); canvas.style.touchAction = ''; removeEventListener('resize', resize);
     people.slice().forEach(dropPerson); if (composer) composer.dispose();
     S.traverse(x => { if (x.geometry) x.geometry.dispose(); if (x.isInstancedMesh) x.dispose(); });

@@ -771,4 +771,11 @@ try:
 except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Oficina no pudo registrarse: %s", exc)
+try:
+    # Negocio en vivo 3D (modulo live3d): tarjeta de la consola, acceso del cliente y visor de SU piso.
+    from app.web.live3d_routes import router as live3d_router
+    app.include_router(live3d_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Negocio en vivo 3D no pudo registrarse: %s", exc)
 # END_CLONEXA_ADMIN_V2PLUS_ROUTE

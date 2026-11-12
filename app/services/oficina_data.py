@@ -136,8 +136,11 @@ def overnight(cfg: Optional[dict]) -> bool:
 
 
 async def floor_rows(r: Reader) -> dict[str, dict]:
-    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion FROM oficina_pisos",
+    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion, quien_ve, roles_ve, modo_tv, liviano FROM oficina_pisos",
                         tables=("oficina_pisos",))
+    if rows is None:  # base sin la migracion 025o (Negocio en vivo 3D)
+        rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion FROM oficina_pisos",
+                            tables=("oficina_pisos",))
     if rows is None:  # base sin la migracion 025k: lo de la fase 1
         rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad FROM oficina_pisos",
                             tables=("oficina_pisos",)) or []
@@ -384,28 +387,36 @@ KPI = {"taller": taller_kpis, "restaurante": restaurante_kpis, "bar": bar_kpis, 
 async def floors(r: Reader, now: datetime) -> list[dict]:
     companies = await registered_companies(r)
     saved = await floor_rows(r)
-    out = []
-    for index, c in enumerate(order_floors(companies, saved)):
-        row = saved.get(c["id"]) or {}
-        deduced = of.deduce_template(c["id"], c["modules"], has_locations=c["has_locations"], overnight=overnight(c.get("business_day")))
-        template = row.get("plantilla") or deduced or "general"
-        privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
-        style = floor_style(row, template)
-        shifts = await open_shifts(r, c["id"], now)
-        kpis, lines = await KPI[template](r, c, now, shifts)
-        last = await last_activity(r, c["id"])
-        if template == "general":
-            kpis.append(["Última actividad", of.ago_label(last, now)])
-        out.append({
-            "company_id": c["id"], "name": c["name"] or "Empresa", "template": template, "template_label": of.TEMPLATE_LABEL[template],
-            "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
-            "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
-            "style": style, "style_wanted": row.get("estilo") or "clasico",
-            "brand": await _brand(r, c) if style in ("realista", "bar", "aprobado") else None,
-            "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
-            "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
-        })
-    return out
+    return [await floor_out(r, c, saved.get(c["id"]) or {}, index, now) for index, c in enumerate(order_floors(companies, saved))]
+
+
+async def floor_for(r: Reader, company_id: str, now: datetime) -> Optional[dict]:
+    """El piso de UNA empresa registrada (Negocio en vivo 3D: el cliente solo ve el suyo). None si no existe."""
+    c = next((x for x in await registered_companies(r) if x["id"] == str(company_id)), None)
+    if not c:
+        return None
+    return await floor_out(r, c, (await floor_rows(r)).get(c["id"]) or {}, 0, now)
+
+
+async def floor_out(r: Reader, c: dict, row: dict, index: int, now: datetime) -> dict:
+    deduced = of.deduce_template(c["id"], c["modules"], has_locations=c["has_locations"], overnight=overnight(c.get("business_day")))
+    template = row.get("plantilla") or deduced or "general"
+    privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
+    style = floor_style(row, template)
+    shifts = await open_shifts(r, c["id"], now)
+    kpis, lines = await KPI[template](r, c, now, shifts)
+    last = await last_activity(r, c["id"])
+    if template == "general":
+        kpis.append(["Última actividad", of.ago_label(last, now)])
+    return {
+        "company_id": c["id"], "name": c["name"] or "Empresa", "template": template, "template_label": of.TEMPLATE_LABEL[template],
+        "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
+        "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
+        "style": style, "style_wanted": row.get("estilo") or "clasico",
+        "brand": await _brand(r, c) if style in ("realista", "bar", "aprobado") else None,
+        "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
+        "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
+    }
 
 
 async def _brand(r: Reader, c: dict) -> Optional[dict]:

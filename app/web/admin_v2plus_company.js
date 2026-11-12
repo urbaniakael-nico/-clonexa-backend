@@ -353,6 +353,7 @@
       ${F().panelsZone({ modules: model.modules, config: boardConfig(), present: mini.present, counts: (model.activity && model.activity.panels) || {},
         rest: F().restaurantState(model.modules), companyId: c.id, origin: origin(), ui: model.board })}
     </div>
+    ${window.CxLive3dCard ? window.CxLive3dCard.html(c.id) : ""}
     <p class="vp-login-hint">Solo encender, apagar y asignar módulos a los paneles. La configuración operativa (categorías, estaciones, porciones, imágenes, metas) no vive en la consola.
       ${waiterLink(c)}</p>
     ${crmCard(c)}

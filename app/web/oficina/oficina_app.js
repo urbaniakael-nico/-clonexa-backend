@@ -139,6 +139,24 @@ function queueSave(queue, key, base, patch) {
 }
 const LOOK_FIELDS = ['genero', 'personaje', 'tunica', 'barba', 'color_barba', 'color_pelo', 'color_ropa', 'nombre'];
 function changesLook(body) { return LOOK_FIELDS.some(k => k in (body || {})); }
+// Negocio en vivo 3D (consola -> tarjeta de la empresa): ?piso=<empresa>&arquitecto=1 abre ese piso en modo arquitecto;
+// ?piso=<empresa>&personajes=1 abre el editor filtrado a esa empresa (su representante, sus plantillas y su personal).
+function scopeFromQuery(search) {
+  const q = new URLSearchParams(search || '');
+  const piso = String(q.get('piso') || '').toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(piso)) return {cid: null, arch: false, chars: false};
+  return {cid: piso, arch: q.get('arquitecto') === '1', chars: q.get('personajes') === '1'};
+}
+function scopedEntries(groups, cid, companyName) {
+  if (!cid) return groups;
+  const out = [];
+  for (const [title, list] of groups) {
+    if (title === 'CLONEXA') continue;
+    if (title === 'PLANTILLAS DE PERSONAL') { out.push([title, list.map(en => Object.assign({}, en, {cid, sub: companyName || 'Esta empresa'}))]); continue; }
+    out.push([title, list.filter(en => en.cid === cid)]);
+  }
+  return out;
+}
 // ===== fin reglas puras =====
 
 if (typeof window !== 'undefined' && !window.__CX_OFICINA_TEST__) start();
@@ -167,6 +185,7 @@ async function getJson(url, opts = {}) {
 }
 
 function main(DATA, SAVED_IN) {
+  const SCOPE = scopeFromQuery(location.search); let archOpenFor = SCOPE.arch ? SCOPE.cid : null;
   // ---------------------------------------------------------------- render y escena
   const env = {coarse: matchMedia('(pointer: coarse)').matches, width: innerWidth, cores: navigator.hardwareConcurrency, memory: navigator.deviceMemory};
   let lite = decideLite(localStorage.getItem('cxOfiLite'), env);
@@ -578,6 +597,7 @@ function main(DATA, SAVED_IN) {
       // planta baja: Recepción con Nexa (interruptor oficina_ajustes.piso_recepcion, 025n)
       const mod = isLobby ? await import('/admin-v2plus/oficina/recepcion.js') : isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
       if (realFor !== p) return;
+      if (archOpenFor === p.cid) setTimeout(() => { archOpenFor = null; }, 0);
       const layers = (kind, k, uniform) => kind === 'rep' ? [SAVED.get(savedKey(p.cid, 'rep'))] : kind === 'agent' ? [SAVED.get(savedKey(null, 'agente:' + k))]
         : [SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))];
       const openFn = isCx || approved ? mod.open : isBar ? mod.openBar : mod.openReal;
@@ -585,6 +605,8 @@ function main(DATA, SAVED_IN) {
         repName: p.rep && p.rep.def.name,
         charCfg: (kind, k, uniform) => fromServerCfg(layers(kind, k, uniform)),
         rawCfg: (kind, k, uniform) => mergeRaw(layers(kind, k, uniform)),
+        architect: !isCx && !isLobby, architectOpen: archOpenFor === p.cid,
+        onReload: () => { const q = p; leaveReal(); setTimeout(() => setFocus(q), 60); },
         onClose: () => setFocus(null), onRep: () => showRep(p), onTable: t => showTable(t, p),
         onPerson: (info, kind) => kind === 'visitante' ? showVisitor(info) : (isCx && !isLobby && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
@@ -801,7 +823,7 @@ function main(DATA, SAVED_IN) {
       chars: () => CHARS.filter(c => c.kind === 'staff' && c.def.uniform === u.key), def: UNI[u.key], kind: 'plantilla'}))]);
     const staff = CHARS.filter(c => c.kind === 'staff' && !c.leaving);
     out.push(['PERSONAS EN TURNO AHORA', staff.map(c => ({label: c.def.name, sub: c.floor.name, clave: 'persona:' + c.id, cid: c.floor.cid, chars: () => [c], def: c.def, kind: 'persona'}))]);
-    return out;
+    return scopedEntries(out, SCOPE.cid, (BY_CID.get(SCOPE.cid) || {}).name);
   }
   let current = null;
   function openEd(ch) {
@@ -895,5 +917,8 @@ function main(DATA, SAVED_IN) {
   applyData(DATA); booting = false;
   goal.tgt.copy(home.tgt); goal.dist = home.dist; cam.tgt.copy(home.tgt); cam.dist = home.dist;
   setFocus(null); tick(); schedule(); document.getElementById('load').remove();
-  if (location.hash !== '#edificio') setTimeout(() => { if (!focus) setFocus(cx); }, 3500);
+  const scoped = SCOPE.cid && BY_CID.get(SCOPE.cid);
+  if (scoped && SCOPE.chars) { const h2 = document.querySelector('#ed .edhead h2'); if (h2) h2.textContent = 'Personajes · ' + scoped.name; openEd(); }
+  else if (scoped) setFocus(scoped);
+  else if (location.hash !== '#edificio') setTimeout(() => { if (!focus) setFocus(cx); }, 3500);
 }

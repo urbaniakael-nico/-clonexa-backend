@@ -192,7 +192,7 @@ test('código de producción sin números de ejemplo de las vistas previas, sin 
     assert.ok(!body.includes(' style="') && !/<[a-z][^>]*\son[a-z]+=/i.test(body), `${f}: sin estilos ni manejadores en línea`);
   }
   const eng = readFileSync(path.join(dir, 'oficina_mixamo.js'), 'utf8');
-  assert.ok(eng.includes("'/admin-v2plus/oficina/bar/'"), 'Mixamo solo por la ruta con sesión');
+  assert.ok(eng.includes("const MIX = ROOT + 'bar/';") && eng.includes("new URL('./', import.meta.url)"), 'Mixamo solo por la ruta con sesión (consola o visor firmado)');
   assert.ok(eng.includes('crossFadeTo') && eng.includes('document.hidden') && eng.includes('rev='), 'transiciones, pausa si no se ve y cambios incrementales');
   assert.ok(eng.includes('AMBIENTE') || readFileSync(path.join(dir, 'oficina_restaurante.js'), 'utf8').includes('AMBIENTE'), 'lo decorativo está marcado');
   assert.ok(!readdirSync(dir).some(f => /\.(fbx|glb)$/i.test(f)), 'ningún archivo de Mixamo junto al código');

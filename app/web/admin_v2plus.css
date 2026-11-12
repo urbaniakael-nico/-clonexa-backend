@@ -1027,3 +1027,27 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
   .vpm-detail { max-height: none; }
   .vpm-jump { margin-left: 0; }
 }
+
+/* Negocio en vivo 3D (módulo live3d) · tarjeta debajo de Mini paneles (modulo-3d-consola.png) */
+.cx3d-card { border: 1px solid rgba(242, 11, 109, .45); background: linear-gradient(135deg, rgba(40, 10, 32, .85), rgba(14, 6, 14, .9)); }
+.cx3d-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cx3d-head h2 { margin: 0; font-family: var(--vp-title); letter-spacing: .08em; font-size: 22px; }
+.cx3d-head .vp-switch-btn { margin-left: auto; }
+.cx3d-pill { padding: 3px 12px; border-radius: 999px; font-weight: 700; font-size: 12px; background: rgba(255, 255, 255, .1); color: var(--vp-muted); }
+.cx3d-pill.is-on { background: #e11d48; color: #fff; }
+.cx3d-sub { margin: 6px 0 14px; color: var(--vp-muted); }
+.cx3d-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); gap: 16px; align-items: start; }
+.cx3d-prev { border-radius: 12px; overflow: hidden; border: 1px solid var(--vp-line); background: #0b0710; aspect-ratio: 16 / 9; }
+.cx3d-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cx3d-noprev { height: 100%; display: grid; place-items: center; align-content: center; gap: 8px; padding: 14px; text-align: center; color: var(--vp-muted); }
+.cx3d-noprev b { font-size: 34px; }
+.cx3d-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cx3d-f { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--vp-line); background: rgba(255, 255, 255, .04); min-width: 0; }
+.cx3d-f > span { font-size: 12px; color: var(--vp-muted); }
+.cx3d-f select, .cx3d-f input { width: 100%; min-width: 0; background: #120a12; color: var(--vp-text); border: 1px solid var(--vp-line); border-radius: 8px; padding: 6px 8px; font: inherit; color-scheme: dark; }
+.cx3d-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cx3d-actions { margin-top: 14px; flex-wrap: wrap; }
+.cx3d-actions .vp-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.cx3d-msg { margin: 10px 0 0; color: var(--vp-ok); }
+@media (max-width: 900px) { .cx3d-body { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) { .cx3d-grid { grid-template-columns: minmax(0, 1fr); } }
