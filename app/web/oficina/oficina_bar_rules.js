@@ -65,12 +65,13 @@ export function hipScale(charHipY, animHipY) {
   return a > 0 && c > 0 ? c / a : 1;
 }
 
-// Hips.position escalada; "en el sitio" (caminar, bailar, ...) deja X/Z fijos en el primer cuadro: sin deriva.
-// anchor: la cadera queda sobre el asiento (X/Z relativos al primer cuadro) para las animaciones sentadas recortadas.
+// Hips.position escalada con X/Z FIJOS en TODAS las animaciones: ninguna desplaza a la persona de su puesto (la persona
+// se mueve solo con su grupo, al caminar por una ruta). "En el sitio": X/Z del primer cuadro; anchor (sentadas
+// recortadas): la cadera queda exactamente sobre el asiento (X/Z = 0). Solo la altura (Y) se anima.
 export function scaleHips(values, k, inPlace, anchor) {
   const v = Array.from(values), x0 = v[0], z0 = v[2];
   for (let i = 0; i < v.length; i += 3) {
-    v[i] = anchor ? (v[i] - x0) * k : (inPlace ? x0 : v[i]) * k; v[i + 1] *= k; v[i + 2] = anchor ? (v[i + 2] - z0) * k : (inPlace ? z0 : v[i + 2]) * k;
+    v[i] = anchor ? 0 : x0 * k; v[i + 1] *= k; v[i + 2] = anchor ? 0 : z0 * k;
   }
   return v;
 }
@@ -87,7 +88,7 @@ export function seatedStart(times, values) {
 // Plan de retargeting de una animación para un personaje: nombre nuevo de cada pista y qué pista se escala.
 export function retargetPlan(trackNames, hipsName, charHipY, animHipY, clipName, trimmed = false) {
   const prefix = bonePrefix(hipsName);
-  return {prefix, k: hipScale(charHipY, animHipY), inPlace: IN_PLACE.has(clipName), anchor: !!trimmed,
+  return {prefix, k: hipScale(charHipY, animHipY), inPlace: true, anchor: !!trimmed,
     tracks: trackNames.map(n => ({from: n, to: retargetName(n, prefix), hips: /Hips\.position$/.test(n)}))};
 }
 
@@ -156,8 +157,13 @@ export function staffSpot(uniform, idx, paused) {
   if (uniform === 'cocina') return {pos: [BAR.x - 0.75, -3.8, Math.PI / 2], clip: 'Idle'};
   return {pos: [BAR.x + 1.3 + (idx % 3) * 0.6, 3.4, -Math.PI * 0.6], clip: 'Idle'};   // mesero: al final de la barra (recoge pedidos)
 }
-// El barman trabaja (Bartending) si hay pedidos por preparar; si no, espera (Idle).
-export function barmanClip(task) { return /^Preparando/.test(String(task || '')) ? 'Bartending' : 'Idle'; }
+// El barman trabaja (Bartending) SOLO si prepara un pedido real; si no, alterna Idle y Talking (cada ~9 s, desfasado
+// por persona para que no cambien todos a la vez).
+export const BARMAN_SWAP_S = 9;
+export function barmanClip(task, seconds = 0, key = '') {
+  if (/^Preparando/.test(String(task || ''))) return 'Bartending';
+  return Math.floor((Number(seconds) || 0) / BARMAN_SWAP_S + (hashOf(key) % 2)) % 2 ? 'Talking' : 'Idle';
+}
 
 export function staffTitle(p) {
   const r = String((p && p.role) || '').trim();

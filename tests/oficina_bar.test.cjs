@@ -50,7 +50,8 @@ test('escala de la cadera = cadera del personaje / cadera de la animación; cami
   for (let i = 0; i < inPlace.length; i += 3) { near(inPlace[i], 0); near(inPlace[i + 2], 0.01 * k); }
   near(inPlace[4], 0.93 * k);
   const free = R.scaleHips(walk, k, false);
-  near(free[8], 1.64 * k);
+  for (let i = 0; i < free.length; i += 3) { near(free[i], 0); near(free[i + 2], 0.01 * k); }   // TODAS fijan X/Z (live3d A3)
+  assert.equal(R.retargetPlan([], 'mixamorigHips', 1, 1, 'Bartending').inPlace, true, 'Bartending tampoco desplaza al barman');
   assert.ok(R.IN_PLACE.has('Walking') && R.IN_PLACE.has('Rumba_Dancing') && R.IN_PLACE.has('Silly_Dancing') && !R.IN_PLACE.has('Bartending'));
 });
 
@@ -61,7 +62,7 @@ test('animaciones sentadas que empiezan de pie: solo la parte sentada y la cader
   assert.equal(R.seatedStart(times, v), 4);
   assert.equal(R.seatedStart([0, 1], [0, .58, 0, 0, .58, 0]), 0, 'ya sentada desde el inicio');
   const anchored = R.scaleHips([-.31, .49, 2.66, -.3, .49, 2.64], 1, false, true);
-  near(anchored[0], 0); near(anchored[2], 0); near(anchored[5], -0.02);
+  near(anchored[0], 0); near(anchored[2], 0); near(anchored[3], 0); near(anchored[5], 0); near(anchored[4], 0.49);
   assert.equal(R.retargetPlan([], 'mixamorigHips', 1, 1, 'Sitting_Drinking', true).anchor, true);
 });
 
@@ -104,7 +105,11 @@ test('abrir y cerrar mesa; pedido entregado -> el mesero lo lleva (la primera co
   assert.deepEqual(R.diffBar(c, d), [{ type: 'pedido_entregado', table: 'Mesa 7', items: 3 }]);
   assert.deepEqual(R.diffBar(null, d), [{ type: 'mesa_abierta', table: 'Mesa 7', guests: R.guestsFor({ label: 'Mesa 7' }), instant: true }]);
   assert.equal(R.barmanClip('Preparando 3 productos · Mesa 7'), 'Bartending');
-  assert.equal(R.barmanClip('Atendiendo la barra'), 'Idle');
+  assert.equal(R.barmanClip('Preparando 1 producto · Barra', 40, 'k1'), 'Bartending', 'con pedido real: siempre Bartending');
+  // sin pedido: nunca Bartending; alterna Idle y Talking cada BARMAN_SWAP_S segundos
+  const seen = new Set([0, 1, 2, 3].map(i => R.barmanClip('Atendiendo la barra', i * R.BARMAN_SWAP_S + 1, 'k1')));
+  assert.deepEqual([...seen].sort(), ['Idle', 'Talking']);
+  assert.notEqual(R.barmanClip('', 5, 'k2'), 'Bartending');
 });
 
 test('personal: en su puesto, en pausa se aparta con Idle; el mesero llega detrás de la barra sin atravesarla', async () => {

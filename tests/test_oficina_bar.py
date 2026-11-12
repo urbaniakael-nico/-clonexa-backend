@@ -175,7 +175,7 @@ def test_motor_del_bar_sin_cdn_sin_codigo_en_linea_y_con_transiciones():
     bar = (ROOT / "app/web/oficina/oficina_bar.js").read_text(encoding="utf-8")
     rules = (ROOT / "app/web/oficina/oficina_bar_rules.js").read_text(encoding="utf-8")
     for imp in re.findall(r"^import .* from '([^']+)';$", bar, re.M):
-        own = ("/admin-v2plus/oficina/bar_reglas.js", "/admin-v2plus/oficina/pisos_reglas.js", "/admin-v2plus/oficina/gestos.js")   # limites de camara y gestos
+        own = ("/admin-v2plus/oficina/bar_reglas.js", "/admin-v2plus/oficina/pisos_reglas.js", "/admin-v2plus/oficina/gestos.js", "/admin-v2plus/oficina/arquitecto.js")   # modo arquitecto (live3d); limites de camara y gestos
         assert imp == "three" or imp in own or "examples/jsm/" + imp.removeprefix("three/addons/") in routes.THREE, imp
     assert "import " not in rules
     for body in (bar, rules):
@@ -183,7 +183,8 @@ def test_motor_del_bar_sin_cdn_sin_codigo_en_linea_y_con_transiciones():
         assert ' style="' not in body and not re.search(r"<[a-z][^>]*\son[a-z]+=", body, re.I)
     assert "crossFadeTo" in bar and "AnimationMixer" in bar and "SkeletonUtils" in bar
     assert "UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .4, .45, .92)" in bar, "brillo suave como bar.html"
-    assert "'/admin-v2plus/oficina/bar/'" in bar, "los .glb de Mixamo solo por la ruta con sesión"
+    # los .glb de Mixamo solo por la ruta con sesion: la de la consola (/admin-v2plus/oficina/bar/) o la firmada del visor
+    assert "const ROOT = new URL('./', import.meta.url).pathname;" in bar and "const MIX = ROOT + 'bar/';" in bar
     assert routes.ASSETS["bar.js"][0] == "oficina/oficina_bar.js" and routes.ASSETS["bar_reglas.js"][0] == "oficina/oficina_bar_rules.js"
     app_js = (ROOT / "app/web/oficina/oficina_app.js").read_text(encoding="utf-8")
     assert "import('/admin-v2plus/oficina/bar.js')" in app_js, "el bar se carga solo al abrir ese piso"

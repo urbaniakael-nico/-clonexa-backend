@@ -15,10 +15,15 @@ import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import * as RULES from '/admin-v2plus/oficina/bar_reglas.js';
 import * as PR from '/admin-v2plus/oficina/pisos_reglas.js';
 import {attachGestures} from '/admin-v2plus/oficina/gestos.js';
+import {attachArchitect, savedPos, follow} from '/admin-v2plus/oficina/arquitecto.js';
 
-const RES = '/admin-v2plus/oficina/recursos/';
-const MIX = '/admin-v2plus/oficina/bar/';
-const API = '/admin-v2/api/oficina';
+// Las rutas salen del propio origen del motor: en la consola /admin-v2plus/oficina/; en el visor del cliente (Negocio en
+// vivo 3D) la ruta firmada de SU empresa (/panel/negocio-en-vivo/r/<empresa>/<firma>/), que exige su sesion.
+const ROOT = new URL('./', import.meta.url).pathname;
+const VIEWER = ROOT.startsWith('/panel/');
+const RES = ROOT + 'recursos/';
+const MIX = ROOT + 'bar/';
+const API = VIEWER ? ROOT + 'api' : '/admin-v2/api/oficina';
 const WALK = 1.25;   // m/s
 const {W: RW, D: RD, WALL: WH} = RULES.ROOM;
 
@@ -31,7 +36,7 @@ export async function openBar(o) {
   const cid = floor.company_id;
   const ui = document.createElement('div'); ui.id = 'realUi'; document.body.appendChild(ui);
   const tagLayer = document.createElement('div'); tagLayer.id = 'barTags'; document.body.appendChild(tagLayer);
-  ui.innerHTML = `<div class="rbar glass"><button type="button" data-out>← Edificio</button><b>${esc(floor.name)}</b><span class="rchip" data-biz></span>
+  ui.innerHTML = `<div class="rbar glass"><button type="button" data-out>${esc(o.backLabel || '← Edificio')}</button><b>${esc(floor.name)}</b><span class="rchip" data-biz></span>
     <span class="rchip warn hidden" data-warn></span><span class="sp"></span><span class="rchip" data-mb></span><span class="rfps" data-fps>…</span></div>
     <div class="rload" data-load>Cargando el bar…</div>`;
   const $ = s => ui.querySelector(s);
@@ -69,6 +74,8 @@ export async function openBar(o) {
 
   let snap = await getJson(`${API}/pisos/${cid}/vivo`);
   const brandAccent = new THREE.Color((snap.brand && snap.brand.accent) || '#f20b6d');
+  const ARCH = snap.arch || {};   // modo arquitecto: posiciones guardadas (mesas, cabina, pista, plantas)
+  const ARCH_ITEMS = [];
 
   // ------------------------------------------------------------- utilidades de bar.html
   const mesh = (g, m, x = 0, y = 0, z = 0, p = S) => { const k = new THREE.Mesh(track(g), m); k.position.set(x, y, z); k.castShadow = k.receiveShadow = true; p.add(k); return k; };
@@ -136,6 +143,8 @@ export async function openBar(o) {
     for (let i = 0; i < (lite ? 0 : 6); i++) { const pl = new THREE.PointLight(0x9dffc4, 0, 3.2, 2); pl.position.set(0, -10, 0); S.add(pl); LAMP_LIGHTS.push(pl); }
   }
   let layout = {tables: [], stools: {}, overflow: 0}, layoutKey = '';
+  const CHAIR_OFFS = [[0, -.78, 0], [0, .78, Math.PI], [-.78, 0, Math.PI / 2], [.78, 0, -Math.PI / 2]];
+  function chairSpots() { const out = []; for (const t of TABLES.values()) if (t.stool == null) CHAIR_OFFS.forEach(([dx, dz, r]) => out.push([t.x + dx, t.z + dz, r])); return out; }
   function buildTables() {
     const labels = (snap.tables || []).map(t => t.label);
     const key = labels.join('|'); if (key === layoutKey) return; layoutKey = key;
@@ -143,29 +152,46 @@ export async function openBar(o) {
     TABLES.clear(); while (tablesG.children.length) tablesG.remove(tablesG.children[0]); chairParts = [];
     for (let i = PICK.length - 1; i >= 0; i--) if (PICK[i].userData.table) PICK.splice(i, 1);
     layout = RULES.layoutTables(labels);
-    const spots = [];
-    for (const {label, pos: [x, z]} of layout.tables) {
-      const g = new THREE.Group(); tablesG.add(g);
-      if (mesa) { const t = fit(mesa.clone(), .76); t.position.x = x; t.position.z = z; shadows(t);
+    ARCH_ITEMS.splice(0, ARCH_ITEMS.length, ...ARCH_ITEMS.filter(it => !it.key.startsWith('mesa:')));
+    for (const {label, pos: p0} of layout.tables) {
+      const [x, z] = savedPos(ARCH, 'mesa:' + label, p0);
+      const g = new THREE.Group(); g.position.set(x, 0, z); tablesG.add(g);
+      if (mesa) { const t = fit(mesa.clone(), .76); shadows(t);
         const bb = new THREE.Box3().setFromObject(t); const w = bb.max.x - bb.min.x; if (w > 1.1 || w < .6) { const k = .85 / w; t.scale.x *= k; t.scale.z *= k; } g.add(t); }
-      [[0, -.78, 0], [0, .78, Math.PI], [-.78, 0, Math.PI / 2], [.78, 0, -Math.PI / 2]].forEach(([dx, dz, r]) => spots.push([x + dx, z + dz, r]));
-      mesh(new THREE.CylinderGeometry(.005, .005, .9, 4), cordM, x, 2.95, z, g); mesh(new THREE.ConeGeometry(.2, .18, 20, 1, true), shadeM, x, 2.5, z, g);
-      const bulb = mesh(new THREE.SphereGeometry(.065, 12, 10), bulbOff, x, 2.42, z, g);
-      const soft = new THREE.Mesh(track(new THREE.CircleGeometry(1.15, 48)), softM); soft.rotation.x = -Math.PI / 2; soft.position.set(x, .013, z); soft.visible = false; g.add(soft);
-      const hit = new THREE.Mesh(track(new THREE.CylinderGeometry(.75, .75, 1, 12)), hitM); hit.position.set(x, .5, z); hit.userData.table = label; g.add(hit); PICK.push(hit);
-      const tg = tag({position: new THREE.Vector3(x, .76, z)}, '', 'mesa off', .15, true);
-      TABLES.set(label, {g, x, z, bulb, soft, tag: tg, guests: [], seats: Object.fromEntries(Object.entries(RULES.SEATS).map(([k, [dx, dz, r]]) => [k, [x + dx, z + dz, r]]))});
+      mesh(new THREE.CylinderGeometry(.005, .005, .9, 4), cordM, 0, 2.95, 0, g); mesh(new THREE.ConeGeometry(.2, .18, 20, 1, true), shadeM, 0, 2.5, 0, g);
+      const bulb = mesh(new THREE.SphereGeometry(.065, 12, 10), bulbOff, 0, 2.42, 0, g);
+      const soft = new THREE.Mesh(track(new THREE.CircleGeometry(1.15, 48)), softM); soft.rotation.x = -Math.PI / 2; soft.position.set(0, .013, 0); soft.visible = false; g.add(soft);
+      const hit = new THREE.Mesh(track(new THREE.CylinderGeometry(.75, .75, 1, 12)), hitM); hit.position.set(0, .5, 0); hit.userData.table = label; g.add(hit); PICK.push(hit);
+      const tagAt = new THREE.Vector3(x, .76, z);
+      const tg = tag({position: tagAt}, '', 'mesa off', .15, true);
+      const T = {g, x, z, bulb, soft, tag: tg, guests: [], seats: {}};
+      const seatsAt = () => { T.seats = Object.fromEntries(Object.entries(RULES.SEATS).map(([k, [dx, dz, r]]) => [k, [T.x + dx, T.z + dz, r]])); };
+      seatsAt(); TABLES.set(label, T);
+      ARCH_ITEMS.push({key: 'mesa:' + label, label: 'mesas', pick: [hit], get: () => [T.x, T.z, 0],
+        set: (nx, nz) => { T.x = nx; T.z = nz; g.position.set(nx, 0, nz); tagAt.set(nx, .76, nz); seatsAt(); }, done: () => buildChairs(chairSpots())});
     }
     for (const [label, idx] of Object.entries(layout.stools)) TABLES.set(label, {stool: idx, guests: [], x: barX + .78, z: RULES.stoolZ(idx), seats: {n: [barX + .78, RULES.stoolZ(idx), -Math.PI / 2]}});
-    buildChairs(spots);
+    buildChairs(chairSpots());
     if (layout.overflow) warn(`${layout.overflow} mesas sin puesto en el plano`);
     R.shadowMap.needsUpdate = true;
   }
 
   // ------------------------------------------------------------- pista LED 4 x 3, cabina de DJ, logo y pantalla
   const tiles = [];
-  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { const t = mesh(new THREE.BoxGeometry(.95, .03, .95), neon(new THREE.Color().setHSL((i * 3 + j) / 12 * .25 + .75, 1, .5), 1.6), 3.0 + i, .016, -4.3 + j); t.castShadow = false; tiles.push(t); }
-  const dj = new THREE.Group(); dj.position.set(RULES.DJ.booth[0], 0, RULES.DJ.booth[1]); S.add(dj);
+  const PISTA0 = [4.5, -3.3, 0], PISTA = savedPos(ARCH, 'pista', PISTA0);
+  const pistaG = new THREE.Group(); pistaG.position.set(PISTA[0], 0, PISTA[1]); pistaG.rotation.y = PISTA[2]; S.add(pistaG);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { const t = mesh(new THREE.BoxGeometry(.95, .03, .95), neon(new THREE.Color().setHSL((i * 3 + j) / 12 * .25 + .75, 1, .5), 1.6), 3.0 + i - PISTA0[0], .016, -4.3 + j - PISTA0[1], pistaG); t.castShadow = false; tiles.push(t); }
+  const pistaHit = new THREE.Mesh(track(new THREE.BoxGeometry(4, .1, 3)), hitM); pistaG.add(pistaHit);
+  ARCH_ITEMS.push({key: 'pista', label: 'pista', pick: [pistaHit], turn: true, get: () => [pistaG.position.x, pistaG.position.z, pistaG.rotation.y],
+    set: (x, z, r) => { pistaG.position.set(x, 0, z); pistaG.rotation.y = r; PISTA[0] = x; PISTA[1] = z; PISTA[2] = r; }});
+  const DJ0 = [RULES.DJ.booth[0], RULES.DJ.booth[1], 0], DJP = savedPos(ARCH, 'dj', DJ0);
+  const dj = new THREE.Group(); dj.position.set(DJP[0], 0, DJP[1]); dj.rotation.y = DJP[2]; S.add(dj);
+  const djHit = new THREE.Mesh(track(new THREE.BoxGeometry(3.2, 1.4, 1)), hitM); djHit.position.y = .7; dj.add(djHit);
+  ARCH_ITEMS.push({key: 'dj', label: 'cabina del DJ', pick: [djHit], turn: true, get: () => [dj.position.x, dj.position.z, dj.rotation.y],
+    set: (x, z, r) => { dj.position.set(x, 0, z); dj.rotation.y = r; DJP[0] = x; DJP[1] = z; DJP[2] = r; }});
+  // puestos que siguen a lo que se movió (DJ detrás de su cabina, bailarines en la pista)
+  const movedSpot = (pos, from, to) => { const [x, z] = follow(pos, from, to); return [x, z, (pos[2] || 0) + (to[2] - from[2])]; };
+  const spotOf = (uniform, idx, paused) => { const sp = RULES.staffSpot(uniform, idx, paused); if (uniform === 'dj' && !paused) sp.pos = movedSpot(sp.pos, DJ0, DJP); return sp; };
   mesh(new THREE.BoxGeometry(1.8, 1.05, .75), M(0x101014, {roughness: .3, metalness: .4}), 0, .525, 0, dj);
   mesh(new THREE.BoxGeometry(1.82, .05, .06), neon(0xe879f9, 6), 0, .9, .39, dj);
   const platters = [-.45, .45].map(x => mesh(new THREE.CylinderGeometry(.16, .16, .03, 24), M(0x222), x, 1.07, 0, dj));
@@ -230,7 +256,8 @@ export async function openBar(o) {
     }
     st.needsUpdate = true;
   }
-  if (planta) [[7.4, 4.9], [-7.4, 4.9], [7.4, -.8]].forEach(([px, pz]) => { const p = fit(planta.clone(), 1.4); p.position.x = px; p.position.z = pz; shadows(p); S.add(p); });
+  if (planta) [[7.4, 4.9], [-7.4, 4.9], [7.4, -.8]].forEach((p0, i) => { const [px, pz] = savedPos(ARCH, 'planta:' + i, p0); const p = fit(planta.clone(), 1.4); p.position.x = px; p.position.z = pz; shadows(p); S.add(p);
+    ARCH_ITEMS.push({key: 'planta:' + i, label: 'plantas', pick: [p], get: () => [p.position.x, p.position.z, 0], set: (x, z) => { p.position.x = x; p.position.z = z; }}); });
 
   // ------------------------------------------------------------- luces (igual a bar.html)
   const amb = new THREE.AmbientLight(0x2a1838, .6); S.add(amb);
@@ -374,7 +401,7 @@ export async function openBar(o) {
     const want = {dancers: RULES.dancersFor(snap), ...RULES.ambientFor(snap)};
     const realStools = new Set(Object.values(layout.stools));
     const sets = {
-      dancers: i => { const [x, z, r] = RULES.DANCERS[i]; return {model: ['Ch22_nonPBR', 'Remy', 'Ch21_nonPBR', 'Ch42_nonPBR'][i], clip: i === 2 ? 'Silly_Dancing' : 'Rumba_Dancing', seat: [x, z, r], y: 0, tint: RULES.HAPPY[i * 3]}; },
+      dancers: i => { const [x, z, r] = movedSpot(RULES.DANCERS[i], PISTA0, PISTA); return {model: ['Ch22_nonPBR', 'Remy', 'Ch21_nonPBR', 'Ch42_nonPBR'][i], clip: i === 2 ? 'Silly_Dancing' : 'Rumba_Dancing', seat: [x, z, r], y: 0, tint: RULES.HAPPY[i * 3]}; },
       stools: i => { const idx = RULES.AMBIENT_STOOLS[i]; return realStools.has(idx) ? null : {model: ['Ch42_nonPBR', 'Ch21_nonPBR', 'Remy'][i], clip: ['Sitting_Drinking', 'Sitting_Talking', 'Sitting_Laughing'][i], seat: [barX + .78, RULES.stoolZ(idx), -Math.PI / 2], y: .3, tint: RULES.HAPPY[i * 4 + 1]}; },
       standers: i => { const [x, z, r, clip] = RULES.STANDERS[i]; return {model: ['Ch06_nonPBR', 'Ch22_nonPBR'][i], clip, seat: [x, z, r], y: 0, tint: RULES.HAPPY[i + 5]}; },
     };
@@ -400,8 +427,8 @@ export async function openBar(o) {
     for (const person of list || []) {
       seen.add(person.key);
       const slot = person.paused ? 'pausa' : (person.uniform || ''); const idx = counters[slot] = (counters[slot] ?? -1) + 1;
-      const spot = RULES.staffSpot(person.uniform, idx, person.paused);
-      const clip = person.uniform === 'barman' && !person.paused ? RULES.barmanClip(person.task) : spot.clip;
+      const spot = spotOf(person.uniform, idx, person.paused);
+      const clip = person.uniform === 'barman' && !person.paused ? RULES.barmanClip(person.task, performance.now() / 1000, person.key) : spot.clip;
       let s = STAFF.get(person.key);
       if (!s) {
         const models = RULES.STAFF_MODEL[person.uniform] || RULES.STAFF_MODEL[''];
@@ -464,7 +491,7 @@ export async function openBar(o) {
   function djTag() {   // sin DJ en turno pero con canción sonando: el globo queda sobre la cabina
     const hasDj = [...STAFF.values()].some(s => s.data.uniform === 'dj');
     const now = RULES.nowPlaying(snap);
-    if (!hasDj && now && !closed) { if (!boothTag) boothTag = tag({position: new THREE.Vector3(RULES.DJ.booth[0], 1.1, RULES.DJ.booth[1])}, '', '', 1.0, true);
+    if (!hasDj && now && !closed) { if (!boothTag) boothTag = tag({position: new THREE.Vector3(DJP[0], 1.1, DJP[1])}, '', '', 1.0, true);
       setTag(boothTag, `<i></i>Cabina <small>· Sonando: ${esc(now)}</small>`); }
     else if (boothTag) { dropTag(boothTag); boothTag = null; }
   }
@@ -489,11 +516,12 @@ export async function openBar(o) {
   // límites del bar (pisos_reglas.camLimits, giro hasta 1.0 como antes) y gestos sin "atrás" del navegador (oficina_gestos.js)
   const LIM = Object.assign(PR.camLimits(RULES.ROOM, RULES.CAMERA), {azMin: -1.0, azMax: 1.0}); const clampCam = g => PR.clampCam(g, LIM);
   const canvas = R.domElement; canvas.style.touchAction = 'none';
+  let arch = {on: false, tick() {}, detach() {}};   // modo arquitecto (solo consola): se arma al final
   const gestures = attachGestures(canvas, {
     rotate: (dx, dy) => { goal.az -= dx * .005; goal.pol -= dy * .004; clampCam(goal); },
     pan: (dx, dy) => { goal.tx -= dx * .015 * Math.cos(cam.az) + dy * .015 * Math.sin(cam.az); goal.tz += dx * .015 * Math.sin(cam.az) - dy * .015 * Math.cos(cam.az); clampCam(goal); },
     zoom: f => { goal.dist *= f; clampCam(goal); },
-    tap: e => { if (e.target === canvas) click(e); },
+    tap: e => { if (e.target === canvas && !arch.on) click(e); },
     reset: () => Object.assign(goal, home)});
   // paredes entre la cámara y el centro: se ocultan (las del bar se marcan al armarlo)
   const WALLS = {back: [], front: [], left: [], right: []}; let hidden = null;
@@ -532,12 +560,13 @@ export async function openBar(o) {
   applySnap(snap, true); buildComposer();
   $('[data-load]').remove(); schedule();
   $('[data-out]').onclick = () => o.onClose && o.onClose();
+  arch = attachArchitect(o, {THREE, S, C, R, ui, room: RULES.ROOM, items: ARCH_ITEMS, cid, getJson, api: API, esc});
   log && log(`<b>${esc(floor.name)}</b> · bar listo (${(wt.total / 1048576).toFixed(1)} MB)`);
   function resize() { C.aspect = innerWidth / innerHeight; C.updateProjectionMatrix(); R.setSize(innerWidth, innerHeight, false); if (composer) composer.setSize(innerWidth, innerHeight); }
   addEventListener('resize', resize); resize();
 
   const clock = new THREE.Clock();
-  let frames = 0, fpsT = 0, fpsShown = 0, fpsSamples = 0, frameNo = 0, lastScreen = 0;
+  let frames = 0, fpsT = 0, fpsShown = 0, fpsSamples = 0, frameNo = 0, lastScreen = 0, barmanSwap = 0;
   function tick() {
     const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime, k = 1 - Math.pow(.003, dt);
     for (const q of ['az', 'pol', 'dist', 'tx', 'tz']) cam[q] += (goal[q] - cam[q]) * k;
@@ -550,17 +579,20 @@ export async function openBar(o) {
       if (d < .04) { r.x = x; r.z = z; p.path.shift(); if (!p.path.length) { const f = p.then; p.then = null; if (f) f(); else play(p, 'Idle'); } }
       else { const sp = Math.min(d, dt * WALK); r.x += dx / d * sp; r.z += dz / d * sp; let dr = Math.atan2(dx, dz) - p.g.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); p.g.rotation.y += dr * Math.min(1, dt * 8); }
     }
+    if (t - barmanSwap > 1) { barmanSwap = t;   // barra sin pedidos: el barman alterna Idle / Talking en su puesto
+      for (const s of STAFF.values()) { if (s.data.uniform !== 'barman' || s.data.paused || s.busy || s.p.path.length) continue;
+        const c = RULES.barmanClip(s.data.task, performance.now() / 1000, s.data.key); if (c !== s.clip) { s.clip = c; play(s.p, c); } } }
     if (rep && !rep.path.length && t - repWave > 10) { repWave = t; play(rep, 'Waving'); setTimeout(() => { if (rep && people.includes(rep)) play(rep, 'Idle'); }, 3200); }
     if (!closed) platters.forEach(m => { m.rotation.y = t * 3.5; });
     if (t - lastScreen > 2) { lastScreen = t; drawScreen(); }
     frameNo++; if (frameNo % (lite ? 4 : 3) === 0) R.shadowMap.needsUpdate = true;
-    composer.render(); placeTags();
+    arch.tick(); composer.render(); placeTags();
     frames++; fpsT += dt; if (fpsT >= 1) { fpsShown = Math.round(frames / fpsT); frames = 0; fpsT = 0; fpsSamples++; $('[data-fps]').textContent = `${fpsShown} FPS${lite ? ' · liviano' : ''}`;
       if (fpsSamples === 6 && fpsShown < 30 && !lite && o.liteChosen && o.liteChosen() == null) { o.onAutoLite && o.onAutoLite(); } }
   }
 
   function close() {
-    dead = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis);
+    arch.detach(); dead = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis);
     gestures.detach(); canvas.style.touchAction = ''; removeEventListener('resize', resize);
     people.slice().forEach(dropPerson); if (composer) composer.dispose();
     S.traverse(x => { if (x.geometry) x.geometry.dispose(); if (x.isInstancedMesh) x.dispose(); });
