@@ -79,6 +79,7 @@ def test_velvet_turno_pausa_y_cierre(client, db, monkeypatch):
          {"c": VELVET, "e": kriss, "t": now - timedelta(minutes=50)})
     snap = _vivo(client, VELVET)
     assert [(p["label"], p["status"], p["reference"], p["first"]) for p in snap["people"]] == [("Kriss M. · Operario", "working", "REF 210", "Kriss")]
+    assert snap["people"][0]["uniform"] == "costura", "la plantilla del editor es la misma que en el edificio"
     _open(db, VELVET, laura, now - timedelta(hours=1), status="on_break")
     _run(db, "INSERT INTO workforce_attendance_events (company_id, employee_id, event_type, occurred_at) VALUES (CAST(:c AS uuid), CAST(:e AS uuid), 'break_start', :t)",
          {"c": VELVET, "e": laura, "t": now - timedelta(minutes=10)})
@@ -163,6 +164,20 @@ def test_editor_genero_guarda_y_recarga_y_otras_empresas_sin_cambios(client, db,
     item = next(i for i in client.get(f"{API}/personajes").json()["items"] if i["clave"] == key)
     assert (item["genero"], item["personaje"], item["barba"]) == ("hombre", "Ch42_nonPBR", "no")
     assert client.put(f"{API}/personajes", json={"clave": key, "company_id": VELVET, "genero": "mujer", "barba": "si"}).status_code == 422
+    # Hombre -> Mujer sin decir el personaje: el personaje de hombre guardado se borra (Automático de mujer) y persiste al recargar
+    r = client.put(f"{API}/personajes", json={"clave": key, "company_id": VELVET, "genero": "mujer"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["item"]["genero"], r.json()["item"]["personaje"]) == ("mujer", "")
+    item = next(i for i in client.get(f"{API}/personajes").json()["items"] if i["clave"] == key)
+    assert (item["genero"], item["personaje"], item["barba"]) == ("mujer", "", "no")
+    r = client.put(f"{API}/personajes", json={"clave": key, "company_id": VELVET, "personaje": "Ch21_nonPBR"})
+    assert r.status_code == 200 and r.json()["item"]["personaje"] == "Ch21_nonPBR"
+    item = next(i for i in client.get(f"{API}/personajes").json()["items"] if i["clave"] == key)
+    assert (item["genero"], item["personaje"]) == ("mujer", "Ch21_nonPBR"), "Mujer + personaje elegido persisten al recargar"
+    r = client.put(f"{API}/personajes", json={"clave": key, "company_id": VELVET, "genero": "hombre"})
+    assert (r.json()["item"]["genero"], r.json()["item"]["personaje"]) == ("hombre", ""), "Mujer -> Hombre también"
+    # la plantilla de la empresa también se guarda (los pisos la combinan con la persona sin que un "" la tape)
+    assert client.put(f"{API}/personajes", json={"clave": "plantilla:costura", "company_id": VELVET, "genero": "mujer"}).status_code == 200
     ceo = client.put(f"{API}/personajes", json={"clave": "agente:director", "barba": "no", "color_pelo": "#c0c0c0"})
     assert ceo.status_code == 200 and ceo.json()["item"]["barba"] == "no"
     oficina_routes.reset_cache()

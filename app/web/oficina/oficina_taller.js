@@ -93,7 +93,7 @@ export function open(o) {
         });
         A.setTag(rackTag, esc(m.rack), 'zn');
       }
-      function cfgFor(p) { return P.personCfg(p.key, p.first, savedFor(o, 'staff', p.key, 'costura'), {}); }
+      function cfgFor(p) { return P.personCfg(p.key, p.first, savedFor(o, 'staff', p.key, p.uniform || 'costura'), {}); }
       function machineSpot(i) { const m = MACH[i]; return [m.x, m.z + .66, Math.PI]; }
       function cafeSpot(i) { return T.CAFE_SEATS[i % T.CAFE_SEATS.length]; }
       function apply(snap, prev, first) {
@@ -126,7 +126,7 @@ export function open(o) {
         }
         for (const [k, s] of PEOPLE) if (!seen.has(k)) { PEOPLE.delete(k); A.leave(s.p, door); }
         MACH.forEach((m, i) => { const busy = [...plan.seat.values()].includes(i); m.lamp.material = busy ? lampOn : lampOff; m.tag.hidden = busy; });
-        if (!rep) { rep = A.makePerson({model: 'Ch07_nonPBR', kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, [7.4, 4.0, -.5], 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
+        if (!rep) { rep = A.makePerson({...P.repCfg(savedFor(o, 'rep', 'rep')), kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, [7.4, 4.0, -.5], 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
         A.setTag(rep.tag, A.tagHtml('rep', 'Representante', P.repTaller(snap)), 'rep');
       }
       return {apply, key, reset() { PEOPLE.clear(); rep = null; }};

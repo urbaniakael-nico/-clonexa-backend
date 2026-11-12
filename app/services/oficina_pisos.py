@@ -110,6 +110,7 @@ def taller_people(team: Optional[dict], privacy: str, now: datetime) -> list[dic
         status = "paused" if p.get("status") == "on_break" else "working"
         out.append({"key": person_key(p["employee_id"]), "label": person_label(p.get("name"), p.get("role"), privacy),
                     "first": first_name(p.get("name")) if privacy != "cargo" else "", "status": status,
+                    "uniform": of.uniform_for(p.get("role"), "taller"),   # la misma plantilla del editor que en el edificio
                     "reference": (p.get("reference_name") or None) if status == "working" else None,
                     "paused_min": paused_minutes(p.get("paused_since"), now) if status == "paused" else None})
     return out

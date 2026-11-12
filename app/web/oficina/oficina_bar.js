@@ -428,7 +428,7 @@ export async function openBar(o) {
   let rep = null, repWave = 0;
   function buildRep() {
     if (!peopleOk || rep) return;
-    rep = makePerson(RULES.REP_MODEL, {kind: 'rep', info: {name: o.repName || 'Representante', role: 'Representante de ' + floor.name}});
+    rep = makePerson(RULES.staffModel(RULES.REP_MODEL, (o.rawCfg && o.rawCfg('rep', 'rep')) || {}, 'rep'), {kind: 'rep', info: {name: o.repName || 'Representante', role: 'Representante de ' + floor.name}});
     sitAt(rep, RULES.REP, 'Waving'); rep.tag = tag(rep.g, '', 'rep');
   }
   function lights() {
@@ -567,6 +567,9 @@ export async function openBar(o) {
   }
   return {tick, close, setLite, resize, get fps() { return fpsShown; }, get snap() { return snap; }, get scene() { return S; }, get people() { return people.length; },
     get weight() { return weight(); }, get camera() { return C; }, apply: n => applySnap(n, false),
+    rebuild() {   // el editor cambió un personaje (género, personaje, túnica...): el personal y el representante se rehacen en vivo
+      for (const [, s] of STAFF) { dropTag(s.p.tag); s.p.tag = null; dropPerson(s.p); } STAFF.clear(); if (rep) { dropPerson(rep); rep = null; }
+      if (snap) { syncStaff((snap.staff || {}).people, true); buildRep(); } },
     view(pos, look) { const t = new THREE.Vector3(...look), d = new THREE.Vector3(...pos).sub(t);   // mover la cámara (pruebas y recorridos)
       Object.assign(goal, {dist: d.length(), pol: Math.acos(d.y / d.length()), az: Math.atan2(d.x, d.z), tx: t.x, tz: t.z}); Object.assign(cam, goal); T0.y = t.y; }};
 }

@@ -78,7 +78,7 @@ export function open(o) {
             A.setTag(c.p.tag, A.tagHtml(s.outside ? 'err' : s.tag.cls === 'pausa' ? 'wait' : 'work', s.tag.text, s.tag.small), s.tag.cls);
           } });
         for (const [k, c] of CREW) if (!seen.has(k)) { CREW.delete(k); A.setRing(c.p, null); A.leave(c.p, door); }
-        if (!rep) { rep = A.makePerson({model: 'Ch07_nonPBR', kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, CP.REP, 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
+        if (!rep) { rep = A.makePerson({...P.repCfg(savedFor(o, 'rep', 'rep')), kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, CP.REP, 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
         A.setTag(rep.tag, A.tagHtml('rep', 'Representante', P.repCampo(snap)), 'rep');
       }
       return {apply, key, reset() { CREW.clear(); rep = null; }};

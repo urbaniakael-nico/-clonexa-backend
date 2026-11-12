@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {genderFromName} from '/admin-v2plus/oficina/pisos_reglas.js';
 
 // ===== reglas puras (probadas en tests/oficina_app.test.cjs) =====
 const API = '/admin-v2/api/oficina';
@@ -115,14 +116,27 @@ function isRealFloor(f) {
 function buildingInputAllowed(realOpen) {
   return !realOpen;
 }
-// Género por defecto del editor (igual que oficina_pisos_rules.genderFromName): nombre en "a" -> Mujer, salvo
-// nombres masculinos conocidos (KRISS de Velvet es hombre). Editable.
-const MALE_A = new Set(['kriss', 'kris', 'cris', 'luca', 'nicola', 'andrea', 'josua', 'joshua', 'elia', 'borja', 'santi']);
+// Género por defecto del editor: la MISMA regla que usan los pisos (oficina_pisos_rules.genderFromName), así lo
+// que dice el editor es lo que se ve en el piso. Editable.
 function guessGender(name) {
-  const n = String(name || '').trim().split(/\s+/)[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  if (!n) return 'hombre';
-  return MALE_A.has(n) ? 'hombre' : /a$/.test(n) ? 'mujer' : 'hombre';
+  return genderFromName(name) || 'hombre';
 }
+// Capas del editor (plantilla global -> plantilla de la empresa -> persona) -> lo que reciben los pisos aprobados.
+// El servidor devuelve todas las columnas ("" si no se tocaron): un "" de arriba NO borra lo de abajo.
+function mergeRaw(layers) {
+  const out = {};
+  for (const l of layers || []) if (l) for (const [k, v] of Object.entries(l)) if (v !== '' && v !== null && v !== undefined) out[k] = v;
+  return out;
+}
+// Cola de guardado POR personaje (clave + empresa): cambiar de persona antes de que se guarde la anterior ya no
+// pierde su cambio (antes había una sola cola y el cambio de la primera persona nunca llegaba al servidor).
+function queueSave(queue, key, base, patch) {
+  const cur = queue.get(key) || Object.assign({}, base);
+  Object.assign(cur, patch); queue.set(key, cur);
+  return cur;
+}
+const LOOK_FIELDS = ['genero', 'personaje', 'tunica', 'barba', 'color_barba', 'color_pelo', 'color_ropa', 'nombre'];
+function changesLook(body) { return LOOK_FIELDS.some(k => k in (body || {})); }
 // ===== fin reglas puras =====
 
 if (typeof window !== 'undefined' && !window.__CX_OFICINA_TEST__) start();
@@ -234,6 +248,7 @@ function main(DATA, SAVED_IN) {
   function buildBody(ch) {
     const g = ch.body; while (g.children.length) g.remove(g.children[0]);
     const c = mergeCfg(ch.def, layersOf(ch).filter(Boolean)); if (ch.kind !== 'agent') { c.name = ch.def.name; } ch.cfg = c; ch.armL = ch.armR = null;
+    if (c.hairStyle === 'largo' || (c.gender === 'mujer' && (!c.hairStyle || c.hairStyle === 'corto'))) c.long = true;   // el género del editor también se ve en el edificio
     const mb = M(c.color, {roughness: .8}), ms = M(c.style === 'lego' ? '#ffd34d' : c.skin, {roughness: .6}), mh = M(c.hair, {roughness: .9}), ml = M(c.legs || '#22202b', {roughness: .85}), shoe = M('#141216', {roughness: .5});
     let headY = 1.6, hr = .15, front = .15;
     if (c.style === 'lego') { [-.11, .11].forEach(x => { rbox(.2, .5, .26, ml, x, .25, 0, g, .03); }); rbox(.48, .12, .28, ml, 0, .55, 0, g, .03);
@@ -566,7 +581,7 @@ function main(DATA, SAVED_IN) {
       REAL = await openFn({R, floor: isCx ? {company_id: null, name: 'CLONEXA', template: 'clonexa'} : p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
         repName: p.rep && p.rep.def.name,
         charCfg: (kind, k, uniform) => fromServerCfg(layers(kind, k, uniform)),
-        rawCfg: (kind, k, uniform) => Object.assign({}, ...layers(kind, k, uniform).filter(Boolean)),
+        rawCfg: (kind, k, uniform) => mergeRaw(layers(kind, k, uniform)),
         onClose: () => setFocus(null), onRep: () => showRep(p), onTable: t => showTable(t, p),
         onPerson: (info, kind) => (isCx && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
@@ -785,7 +800,7 @@ function main(DATA, SAVED_IN) {
         if (!first) first = [en, b]; if (ch && !mine && en.kind !== 'plantilla' && en.chars().includes(ch)) mine = [en, b]; }); });
     if (mine || first) sel(...(mine || first));
   }
-  let saveTimer = null, pending = {};
+  const PENDING = new Map(), TIMERS = new Map(); let rebuildT = null;
   function sel(en, b) {
     current = en; edList.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
     const saved = SAVED.get(savedKey(en.cid, en.clave)); const v = mergeCfg(Object.assign({style: 'anime', color: '#f20b6d', skin: SKIN[0], hair: '#2b1b12', acc: 'none'}, en.def || {}), [saved].filter(Boolean));
@@ -836,11 +851,12 @@ function main(DATA, SAVED_IN) {
     if (en.kind === 'agent') applyNames();
     if (en.kind === 'rep') { const p = BY_CID.get(en.cid); if (p) repNames(p); }
     en.chars().forEach(rebuild);
-    pending = Object.assign(pending.clave === en.clave && pending.company_id === en.cid ? pending : {clave: en.clave, company_id: en.cid}, toServer(o));
-    clearTimeout(saveTimer); saveTimer = setTimeout(async () => { const body = pending; pending = {};
-      if (REAL && REAL.rebuild && ('genero' in body || 'personaje' in body || 'tunica' in body || 'barba' in body || 'color_barba' in body || 'color_pelo' in body || 'color_ropa' in body || 'nombre' in body)) REAL.rebuild();
-      try { const r = await getJson(API + '/personajes', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); SAVED.set(savedKey(r.item.company_id, r.item.clave), r.item); say('Guardado ✓'); }
-      catch (err) { say('No se guardó: ' + err.message, true); } }, 600);
+    const patch = toServer(o);
+    queueSave(PENDING, k, {clave: en.clave, company_id: en.cid}, patch);
+    if (REAL && REAL.rebuild && changesLook(patch)) { clearTimeout(rebuildT); rebuildT = setTimeout(() => REAL && REAL.rebuild && REAL.rebuild(), 120); }   // el piso abierto cambia al instante (antes de guardar)
+    clearTimeout(TIMERS.get(k)); TIMERS.set(k, setTimeout(async () => { const body = PENDING.get(k); PENDING.delete(k); TIMERS.delete(k); if (!body) return;
+      try { const r = await getJson(API + '/personajes', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); SAVED.set(savedKey(r.item.company_id, r.item.clave), Object.assign({}, r.item, PENDING.get(k) || {})); say('Guardado ✓'); }
+      catch (err) { say('No se guardó: ' + err.message, true); } }, 600));
   }
 
   // ---------------------------------------------------------------- bucle

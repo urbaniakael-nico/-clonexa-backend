@@ -160,16 +160,18 @@ test('The Time Machine: el personal usa el selector de género del editor (sin n
   assert.equal(B.staffModel('Ch01_nonPBR', { personaje: 'Ch17_nonPBR' }, 'k'), 'Ch01_nonPBR', 'Ch17 no está en el bar');
 });
 
-test('editor: género Hombre/Mujer, personaje, túnica y barba se guardan con los nombres del servidor', () => {
+test('editor: género Hombre/Mujer, personaje, túnica y barba se guardan con los nombres del servidor', async () => {
   const src = readFileSync('app/web/oficina/oficina_app.js', 'utf8').replace(/\r\n/g, '\n');
   const start = src.indexOf('// ===== reglas puras'), end = src.indexOf('// ===== fin reglas puras =====');
-  const ctx = vm.createContext({});
+  const P = await load();
+  const ctx = vm.createContext({ genderFromName: P.genderFromName });   // el editor importa la regla de los pisos
   vm.runInContext(src.slice(start, end) + '\nthis.out = {fromServer, toServer, guessGender, isRealFloor, MIXAMO};', ctx);
   const { fromServer, toServer, guessGender, isRealFloor, MIXAMO } = ctx.out;
   assert.deepEqual(JSON.parse(JSON.stringify(toServer({ gender: 'hombre', model: 'Ch42_nonPBR', tunic: 'si', beard: 'no', beardColor: '#111111' }))),
     { genero: 'hombre', personaje: 'Ch42_nonPBR', tunica: 'si', barba: 'no', color_barba: '#111111' });
   assert.deepEqual(JSON.parse(JSON.stringify(fromServer({ genero: 'mujer', personaje: 'Ch21_nonPBR' }))), { gender: 'mujer', model: 'Ch21_nonPBR' });
   assert.equal(guessGender('Kriss'), 'hombre'); assert.equal(guessGender('Lucía P. · Operaria'), 'mujer');
+  for (const n of ['Isabel', 'Gelo', 'Raquel', 'Andrea', 'Nicole', 'Luz', 'Carlos']) assert.equal(guessGender(n), P.genderFromName(n), `editor y piso dicen lo mismo: ${n}`);
   assert.equal(MIXAMO.hombre.length, 5); assert.equal(MIXAMO.mujer.length, 3);
   assert.equal(isRealFloor({ style: 'aprobado', template: 'taller' }), true);
   assert.equal(isRealFloor({ style: 'aprobado', template: 'general' }), false, 'solo plantillas con motor aprobado');

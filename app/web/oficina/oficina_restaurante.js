@@ -151,7 +151,7 @@ export function open(o) {
           if (!s.busy) A.setTag(s.p.tag, A.tagHtml(p.paused ? 'wait' : 'work', p.label, P.restStaffTask(p, snap)), p.paused ? 'pausa' : '');
         }
         for (const [k, s] of STAFF) if (!seen.has(k)) { STAFF.delete(k); A.leave(s.p, RT.DOOR); }
-        if (!rep) { rep = A.makePerson({model: 'Ch07_nonPBR', kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, RT.REP, 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
+        if (!rep) { rep = A.makePerson({...P.repCfg(savedFor(o, 'rep', 'rep')), kind: 'rep', info: {name: 'Representante', role: o.floor.name}}); A.sitAt(rep, RT.REP, 'Talking'); rep.tag = A.tag(rep.g, '', 'rep', 1.95); }
         A.setTag(rep.tag, A.tagHtml('rep', 'Representante', P.repRestaurante(snap)), 'rep');
       }
       function tick(t, dt) {

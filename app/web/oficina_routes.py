@@ -323,6 +323,13 @@ async def guardar_personaje(request: Request, db: AsyncSession = Depends(get_db)
     await _check_scope(db, clave, cid)
     if not fields:
         raise HTTPException(status_code=422, detail="Nada que guardar.")
+    if fields.get("genero") in of.MIXAMO_BY_GENDER and ("personaje" not in fields or (fields["genero"] == "mujer" and "barba" not in fields)):
+        # cambiar de genero sin decir el personaje: el guardado del otro genero no puede quedar (saldria el de antes)
+        cur = await od.get_character(db, cid, clave) or {}
+        if "personaje" not in fields and (cur.get("personaje") or "") not in ("", *of.MIXAMO_BY_GENDER[fields["genero"]]):
+            fields["personaje"] = ""
+        if fields["genero"] == "mujer" and "barba" not in fields and cur.get("barba") == "si":
+            fields["barba"] = ""
     row = await od.save_character(db, cid, clave, fields, ACTOR)
     await _audit(request, oficina_personaje=clave, empresa=cid or "clonexa", campos=",".join(sorted(fields)))
     return _json({"ok": True, "item": od.character_out(row)})

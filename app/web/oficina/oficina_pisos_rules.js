@@ -51,6 +51,22 @@ export function personCfg(key, first, saved = {}, floorDefaults = {}) {
     hair: saved.color_pelo || null, beardColor: saved.color_barba || saved.color_pelo || null};
 }
 
+// Capas guardadas en el editor (plantilla global -> plantilla de la empresa -> persona). El servidor devuelve
+// TODAS las columnas ("" si no se tocaron): un "" de la capa de arriba NO borra lo de abajo (antes la fila de la
+// persona con genero "" tapaba el "Mujer" de su plantilla y salía un hombre).
+export function mergeSaved(...layers) {
+  const out = {};
+  for (const l of layers.flat()) if (l && typeof l === 'object') for (const [k, v] of Object.entries(l)) if (v !== '' && v !== null && v !== undefined) out[k] = v;
+  return out;
+}
+// Representante de la empresa (los pisos aprobados): por defecto Ch07 (mujer, traje); el editor manda.
+export function repCfg(saved = {}, def = 'Ch07_nonPBR') {
+  const gender = saved.genero || genderOf(def); const pool = (gender === 'mujer' ? WOMEN : MEN).filter(m => m !== 'Ch17_nonPBR' || saved.personaje === m);
+  const model = saved.personaje && pool.includes(saved.personaje) ? saved.personaje : pool.includes(def) ? def : pool[0];
+  return {gender, model, tunic: saved.tunica === 'si', beard: gender === 'hombre' && saved.barba === 'si', tint: saved.color_ropa || null,
+    hair: saved.color_pelo || null, beardColor: saved.color_barba || saved.color_pelo || null};
+}
+
 // ------------------------------------------------------------------ altura y retargeting (igual al bar aprobado)
 export const heightFor = (name, tall) => (WOMEN.includes(String(name)) ? 1.65 : (tall ? 1.8 : 1.77));
 
