@@ -82,7 +82,7 @@ test('consulta cada 30 s y se pausa si la pestaña no se ve', () => {
 
 test('three solo desde el propio backend (sin CDN) y sin estilos ni manejadores en línea', () => {
   const imports = [...source.matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
-  assert.deepEqual(imports, ['three', 'three/addons/environments/RoomEnvironment.js', 'three/addons/geometries/RoundedBoxGeometry.js', '/admin-v2plus/oficina/pisos_reglas.js'],
+  assert.deepEqual(imports, ['three', 'three/addons/environments/RoomEnvironment.js', 'three/addons/geometries/RoundedBoxGeometry.js', '/admin-v2plus/oficina/pisos_reglas.js', '/admin-v2plus/oficina/gestos.js'],
     'three del propio backend y la regla de género de los pisos (misma para editor y pisos)');
   assert.doesNotMatch(source, /https?:\/\/(cdn|unpkg|jsdelivr)/i);
   assert.doesNotMatch(source, /\sstyle="/);

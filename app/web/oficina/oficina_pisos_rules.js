@@ -70,6 +70,45 @@ export function repCfg(saved = {}, def = 'Ch07_nonPBR') {
 // ------------------------------------------------------------------ altura y retargeting (igual al bar aprobado)
 export const heightFor = (name, tall) => (WOMEN.includes(String(name)) ? 1.65 : (tall ? 1.8 : 1.77));
 
+// ------------------------------------------------------------------ cámara: nunca detrás de una pared ni bajo el piso
+// Límites por piso (según su tamaño y la cámara aprobada): ángulo, distancia, giro y centro dentro del salón.
+export function camLimits(room, camera) {
+  const {W, D} = room; const [px, py, pz] = camera.pos, [lx, ly, lz] = camera.look;
+  const d0 = Math.hypot(px - lx, py - ly, pz - lz);
+  return {polMin: 0.25, polMax: 1.18, distMin: 5, distMax: Math.max(Math.max(W, D) * 1.6, d0 * 1.3), azMin: -1.1, azMax: 1.1,
+    tx: [-W / 2 + 1, W / 2 - 1], tz: [-D / 2 + 1, D / 2 - 1], minY: 1.2, lookY: ly};
+}
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+export function clampCam(g, lim) {
+  g.az = clampN(g.az, lim.azMin, lim.azMax); g.dist = clampN(g.dist, lim.distMin, lim.distMax);
+  // altura mínima de la cámara: y = lookY + dist * cos(pol) >= minY (nunca bajo el piso, aun muy cerca)
+  const polY = Math.acos(clampN((lim.minY - lim.lookY) / g.dist, -1, 1));
+  g.pol = clampN(g.pol, lim.polMin, Math.min(lim.polMax, polY));
+  g.tx = clampN(g.tx, lim.tx[0], lim.tx[1]); g.tz = clampN(g.tz, lim.tz[0], lim.tz[1]);
+  return g;
+}
+// Posición de la cámara para un estado (az, pol, dist alrededor del centro tx, lookY, tz).
+export function camPos(g, lookY) {
+  return [g.tx + g.dist * Math.sin(g.pol) * Math.sin(g.az), lookY + g.dist * Math.cos(g.pol), g.tz + g.dist * Math.sin(g.pol) * Math.cos(g.az)];
+}
+// Paredes que quedan ENTRE la cámara y el centro del piso (la cámara está del lado de afuera): se ocultan.
+export function wallsToHide(pos, room) {
+  const {W, D} = room; const [x, , z] = pos;
+  return {back: z < -D / 2, front: z > D / 2, left: x < -W / 2, right: x > W / 2};
+}
+// Clasifica una pieza de la escena por su caja (min/max): pared (o algo pegado a ella) de qué lado, o nada.
+export function wallSide(box, room) {
+  const {W, D} = room, band = 0.75;
+  const [x0, y0, z0] = box.min, [x1, y1, z1] = box.max;
+  if (y1 < 0.6) return null;   // piso, zócalo, alfombras
+  const thinX = x1 - x0 < 0.6, thinZ = z1 - z0 < 0.6;
+  if (thinZ && z1 < -D / 2 + band && x1 - x0 > 0.05) return 'back';
+  if (thinZ && z0 > D / 2 - band && x1 - x0 > 0.05) return 'front';
+  if (thinX && x1 < -W / 2 + band && z1 - z0 > 0.05) return 'left';
+  if (thinX && x0 > W / 2 - band && z1 - z0 > 0.05) return 'right';
+  return null;
+}
+
 // Quién entra, quién sale y quién cambia (por la clave estable de cada persona).
 export function diffPeople(prevKeys, people) {
   const now = new Set(people.map(p => p.key));

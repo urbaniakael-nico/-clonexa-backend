@@ -169,7 +169,8 @@ test('clic dentro del piso: persona -> ficha, mesa -> estado, nunca cambia de pi
   assert.equal(ctx.f(null), true); assert.equal(ctx.f({}), false);
   assert.equal(ctx.r({ style: 'bar' }), true); assert.equal(ctx.r({ style: 'clasico' }), false);
   assert.match(app, /e\.target === canvas && buildingInputAllowed\(REAL \|\| realFor\)\) click\(e\)/);
-  assert.match(app, /drag = buildingInputAllowed\(REAL \|\| realFor\) \?/);
+  assert.match(app, /rotate: \(dx, dy\) => \{ if \(!buildingInputAllowed\(REAL \|\| realFor\)\) return;/, 'arrastrar no gira el edificio con un piso abierto');
+  assert.match(app, /zoom: f => \{ if \(!buildingInputAllowed\(REAL \|\| realFor\)\) return;/);
   const bar = readFileSync('app/web/oficina/oficina_bar.js', 'utf8');
   assert.doesNotMatch(bar, /setFocus|onFloor/, 'el motor del bar no puede cambiar de piso');
 });

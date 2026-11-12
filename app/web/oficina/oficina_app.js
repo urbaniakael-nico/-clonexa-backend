@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {genderFromName} from '/admin-v2plus/oficina/pisos_reglas.js';
+import {attachGestures} from '/admin-v2plus/oficina/gestos.js';
 
 // ===== reglas puras (probadas en tests/oficina_app.test.cjs) =====
 const API = '/admin-v2/api/oficina';
@@ -617,10 +618,12 @@ function main(DATA, SAVED_IN) {
     if (p) { goal.tgt.set(0, p.y + .6, 1.5); goal.dist = p.key === 'clonexa' ? 38 : 30; goal.pol = .8; goal.az = -.32; } else { goal.tgt.copy(home.tgt); goal.dist = home.dist; goal.pol = 1.12; goal.az = -.6; }
     if (p) { if (p.key === 'clonexa') showFloorInfo(); else if (p.rep) showRep(p); else hideInfo(); } else hideInfo();
   }
-  let drag = null; canvas.addEventListener('pointerdown', e => { drag = buildingInputAllowed(REAL || realFor) ? {x: e.clientX, y: e.clientY, m: 0} : null; });
-  addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY; goal.az -= dx * .005; goal.pol = Math.max(.2, Math.min(1.48, goal.pol - dy * .004)); });
-  addEventListener('pointerup', e => { if (drag && drag.m < 6 && e.target === canvas && buildingInputAllowed(REAL || realFor)) click(e); drag = null; });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); if (!buildingInputAllowed(REAL || realFor)) return; goal.dist = Math.max(8, Math.min(260, goal.dist * (1 + Math.sign(e.deltaY) * .1))); }, {passive: false});
+  // gestos del edificio (oficina_gestos.js): arrastrar gira, pellizco/rueda acerca; Chrome ya no hace "atrás". Con un piso abierto, el piso manda.
+  const gestures = attachGestures(canvas, {
+    rotate: (dx, dy) => { if (!buildingInputAllowed(REAL || realFor)) return; goal.az -= dx * .005; goal.pol = Math.max(.2, Math.min(1.48, goal.pol - dy * .004)); },
+    zoom: f => { if (!buildingInputAllowed(REAL || realFor)) return; goal.dist = Math.max(8, Math.min(260, goal.dist * f)); },
+    tap: e => { if (e.target === canvas && buildingInputAllowed(REAL || realFor)) click(e); }});
+  const drag = {get on() { return gestures.dragging; }};
   const ray = new THREE.Raycaster(), mv = new THREE.Vector2(); const vis = o => { while (o) { if (!o.visible) return false; o = o.parent; } return true; };
   function click(e) { mv.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mv, C); const hit = ray.intersectObjects(PICK.filter(vis), false)[0]; if (!hit) return;
     const ch = hit.object.userData.ch; if (ch) { if (focus !== ch.floor) setFocus(ch.floor); ch.kind === 'rep' ? showRep(ch.floor) : showChar(ch); } else if (hit.object.userData.floor) setFocus(hit.object.userData.floor); }
@@ -866,7 +869,7 @@ function main(DATA, SAVED_IN) {
   function tick() {
     const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime; const k = 1 - Math.pow(.002, dt);
     if (!fpsDone) { frames++; fpsT += dt; if (fpsT > 5) { fpsDone = true; if (frames / fpsT < 28 && !lite && localStorage.getItem('cxOfiLite') == null) setLite(true, 'modo liviano activado (este equipo va lento)'); } }
-    cam.az += (goal.az - cam.az) * k; cam.pol += (goal.pol - cam.pol) * k; cam.dist += (goal.dist - cam.dist) * k; cam.tgt.lerp(goal.tgt, k); if (!focus && !drag) goal.az += dt * .035;
+    cam.az += (goal.az - cam.az) * k; cam.pol += (goal.pol - cam.pol) * k; cam.dist += (goal.dist - cam.dist) * k; cam.tgt.lerp(goal.tgt, k); if (!focus && !drag.on) goal.az += dt * .035;
     C.position.set(cam.tgt.x + cam.dist * Math.sin(cam.pol) * Math.sin(cam.az), cam.tgt.y + cam.dist * Math.cos(cam.pol), cam.tgt.z + cam.dist * Math.sin(cam.pol) * Math.cos(cam.az)); C.lookAt(cam.tgt);
     sun.position.set(cam.tgt.x + 45, cam.tgt.y + 90, cam.tgt.z + 60); sun.target.position.copy(cam.tgt);
     CHARS.forEach(ch => { ch.t += dt; const r = ch.root;

@@ -15,6 +15,7 @@ import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import * as BAR from '/admin-v2plus/oficina/bar_reglas.js';
 import * as P from '/admin-v2plus/oficina/pisos_reglas.js';
+import {attachGestures} from '/admin-v2plus/oficina/gestos.js';
 
 export {THREE, RoundedBoxGeometry, P};
 const RES = '/admin-v2plus/oficina/recursos/';
@@ -231,18 +232,16 @@ export async function openFloor(o, spec) {
   // ------------------------------------------------------------------ cámara (inicial como la escena aprobada) y clics
   const T0 = new THREE.Vector3(...spec.camera.look), P0 = new THREE.Vector3(...spec.camera.pos).sub(T0);
   const cam = {dist: P0.length(), pol: Math.acos(P0.y / P0.length()), az: Math.atan2(P0.x, P0.z), tx: T0.x, tz: T0.z}; const goal = Object.assign({}, cam); const home = Object.assign({}, cam);
-  const clampCam = g => { g.az = Math.max(-1.1, Math.min(1.1, g.az)); g.pol = Math.max(.3, Math.min(1.3, g.pol)); g.dist = Math.max(5, Math.min(45, g.dist));
-    g.tx = Math.max(-RW / 2 + 1, Math.min(RW / 2 - 1, g.tx)); g.tz = Math.max(-RD / 2 + 1, Math.min(RD / 2 - 1, g.tz)); };
-  const canvas = R.domElement; let drag = null;
-  const onDown = e => { drag = {x: e.clientX, y: e.clientY, m: 0, pan: e.button === 2 || e.shiftKey}; };
-  const onMove = e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.m += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
-    if (drag.pan) { goal.tx -= dx * .015 * Math.cos(cam.az) + dy * .015 * Math.sin(cam.az); goal.tz += dx * .015 * Math.sin(cam.az) - dy * .015 * Math.cos(cam.az); }
-    else { goal.az -= dx * .005; goal.pol -= dy * .004; } clampCam(goal); };
-  const onUp = e => { if (drag && drag.m < 6 && e.target === canvas) click(e); drag = null; };
-  const onWheel = e => { e.preventDefault(); goal.dist *= 1 + Math.sign(e.deltaY) * .08; clampCam(goal); };
-  const onCtx = e => e.preventDefault(); const onDbl = () => Object.assign(goal, home);
-  canvas.addEventListener('pointerdown', onDown); addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
-  canvas.addEventListener('wheel', onWheel, {passive: false}); canvas.addEventListener('contextmenu', onCtx); canvas.addEventListener('dblclick', onDbl);
+  // límites por piso (pisos_reglas.camLimits): la cámara nunca queda detrás de una pared ni bajo el piso
+  let LIM = P.camLimits(spec.room, spec.camera); const clampCam = g => P.clampCam(g, LIM);
+  const canvas = R.domElement; canvas.style.touchAction = 'none';
+  // gestos (oficina_gestos.js): arrastrar gira, pellizco/Ctrl+rueda acerca, rueda horizontal gira; el navegador nunca va "atrás"
+  const gestures = attachGestures(canvas, {
+    rotate: (dx, dy) => { goal.az -= dx * .005; goal.pol -= dy * .004; clampCam(goal); },
+    pan: (dx, dy) => { goal.tx -= dx * .015 * Math.cos(cam.az) + dy * .015 * Math.sin(cam.az); goal.tz += dx * .015 * Math.sin(cam.az) - dy * .015 * Math.cos(cam.az); clampCam(goal); },
+    zoom: f => { goal.dist *= f; clampCam(goal); },
+    tap: e => { if (e.target === canvas) click(e); },
+    reset: () => Object.assign(goal, home)});
   const ray = new THREE.Raycaster(), mv = new THREE.Vector2();
   function click(e) {
     mv.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mv, C);
@@ -256,6 +255,14 @@ export async function openFloor(o, spec) {
   const api = {THREE, S, C, R, mesh, flat, M, glow, tex, point, canvasScreen, screen, clipText, tag, setTag, dropTag, at, zoneTag, tagHtml, esc, track,
     makePerson, setRing, play, place, goTo, sitAt, arrive, leave, dropPerson, people, PICK, hitM, lite: () => lite, peopleOk: () => peopleOk, warn, chip, floor, o, RoundedBoxGeometry, loader: L};
   const scene = await spec.build(api);
+  // paredes del piso (y lo pegado a ellas: logos, pantallas, ventanas): se ocultan si quedan entre la cámara y el centro
+  const WALLS = {back: [], front: [], left: [], right: []}; const wb = new THREE.Box3();
+  S.updateMatrixWorld(true);
+  S.traverse(x => { if (!x.isMesh || x.isSkinnedMesh || x.userData.person || x.userData.personShadow) return; wb.setFromObject(x); if (wb.isEmpty()) return;
+    const side = P.wallSide({min: wb.min.toArray(), max: wb.max.toArray()}, spec.room); if (side) WALLS[side].push(x); });
+  let hidden = '';
+  function cutaway() { const h = P.wallsToHide(C.position.toArray(), spec.room); const k = Object.keys(h).filter(s => h[s]).join(',');
+    if (k === hidden) return; hidden = k; for (const [side, list] of Object.entries(WALLS)) list.forEach(m => { m.visible = !h[side]; }); R.shadowMap.needsUpdate = true; }
   let snap = null;
   try { snap = await getJson(spec.liveUrl); } catch (e) { chip('Sin conexión', false); }
   try { await Promise.race([document.fonts.load('800 46px Inter'), new Promise(r => setTimeout(r, 1500))]); } catch (e) { /* fuente del sistema */ }
@@ -296,7 +303,7 @@ export async function openFloor(o, spec) {
   function tick() {
     const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime, k = 1 - Math.pow(.003, dt);
     for (const q of ['az', 'pol', 'dist', 'tx', 'tz']) cam[q] += (goal[q] - cam[q]) * k;
-    C.position.set(cam.tx + cam.dist * Math.sin(cam.pol) * Math.sin(cam.az), T0.y + cam.dist * Math.cos(cam.pol), cam.tz + cam.dist * Math.sin(cam.pol) * Math.cos(cam.az)); C.lookAt(cam.tx, T0.y, cam.tz);
+    C.position.set(...P.camPos(cam, T0.y)); C.lookAt(cam.tx, T0.y, cam.tz); cutaway();
     for (const p of people) {
       p.mixer.update(dt); if (!p.path.length) continue;
       const [x, z] = p.path[0]; const r = p.g.position; const dx = x - r.x, dz = z - r.z, d = Math.hypot(dx, dz);
@@ -311,8 +318,7 @@ export async function openFloor(o, spec) {
   }
   function close() {
     dead = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis);
-    canvas.removeEventListener('pointerdown', onDown); removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp);
-    canvas.removeEventListener('wheel', onWheel); canvas.removeEventListener('contextmenu', onCtx); canvas.removeEventListener('dblclick', onDbl); removeEventListener('resize', resize);
+    gestures.detach(); canvas.style.touchAction = ''; removeEventListener('resize', resize);
     people.slice().forEach(dropPerson); if (composer) composer.dispose();
     S.traverse(x => { if (x.geometry) x.geometry.dispose(); if (x.isInstancedMesh) x.dispose(); });
     disposables.forEach(d => { try { d.dispose(); } catch (e) { /* ya liberado */ } });
@@ -322,7 +328,8 @@ export async function openFloor(o, spec) {
   return {tick, close, setLite, resize, get fps() { return fpsShown; }, get snap() { return snap; }, get scene() { return S; }, get people() { return people.length; },
     get weight() { return weight(); }, get camera() { return C; }, apply: n => apply(n, !snap),
     rebuild() { people.slice().forEach(dropPerson); if (scene.reset) scene.reset(); if (snap) apply(snap, true); },   // el editor cambió un personaje
-    view(pos, look) { const t = new THREE.Vector3(...look), d = new THREE.Vector3(...pos).sub(t); Object.assign(goal, {dist: d.length(), pol: Math.acos(d.y / d.length()), az: Math.atan2(d.x, d.z), tx: t.x, tz: t.z}); Object.assign(cam, goal); T0.y = t.y; }};
+    view(pos, look) { const t = new THREE.Vector3(...look), d = new THREE.Vector3(...pos).sub(t); Object.assign(goal, {dist: d.length(), pol: Math.acos(d.y / d.length()), az: Math.atan2(d.x, d.z), tx: t.x, tz: t.z}); Object.assign(cam, goal); T0.y = t.y; },
+    get cameraState() { return Object.assign({}, cam); }, get limits() { return LIM; }, get hiddenWalls() { return hidden; }, get dragging() { return gestures.dragging; }};
 }
 
 // Configuración guardada (editor) de una persona: capas plantilla global -> plantilla de la empresa -> persona.

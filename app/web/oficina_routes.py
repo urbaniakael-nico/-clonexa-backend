@@ -67,6 +67,7 @@ ASSETS = {
     "taller.js": ("oficina/oficina_taller.js", "application/javascript"),
     "restaurante.js": ("oficina/oficina_restaurante.js", "application/javascript"),
     "campo.js": ("oficina/oficina_campo.js", "application/javascript"),
+    "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),   # gestos de la camara (tactil, pellizco, sin "atras")
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
