@@ -86,7 +86,9 @@ test('tarjetas: prospectos, correos, aperturas, respuestas, demos y clientes con
   const { M } = load();
   const html = M.cards(SAMPLE);
   for (const t of ['Prospectos', 'Correos enviados', 'Abrieron la landing', 'Respondieron', 'Demos', 'Clientes', '30%', '10%', '2 con correo']) assert.match(html, new RegExp(t));
+  M.model.allZones = true;
   const zt = M.zonesTable(SAMPLE);
+  M.model.allZones = false;
   assert.match(zt, /% por zona/);
   assert.match(zt, /Polígono &lt;x&gt;/);
   assert.doesNotMatch(zt, /<x>/);
@@ -136,7 +138,12 @@ test('capas: un pin por prospecto con color de su estado; calor de visitas por c
   assert.match(heat[0].tooltip, /Bogotá, Bogota D\.C\.: 20 visitas/);
   assert.equal(made.polygons.length, 1);
   assert.match(made.circles.find((c) => c.args.o.dashArray).tooltip, /puntaje 99/);
-  assert.equal(map.layers.size, 5, 'las 5 capas prendidas (con la de volantes)');
+  assert.equal(map.layers.size, 4, 'sin prospeccion_visitas la capa de volantes no se pinta');
+  M.model.data = { ...SAMPLE, ajustes: { prospeccion_visitas: true } };
+  const map2 = window.L.map({}, {});
+  M._setMap(map2);
+  M.drawLayers(window.L);
+  assert.equal(map2.layers.size, 5, 'las 5 capas prendidas (con la de volantes)');
 });
 
 test('montar: abre en Bogotá, límites de Colombia y carga el mapa del servidor', async () => {
@@ -245,7 +252,7 @@ test('025p canales: ficha con íconos, enlaces seguros y fuente; % por zona', ()
   assert.match(html, /nunca escribe en frío/);
   assert.doesNotMatch(html, /javascript:/);
   const zt = M.zonesTable({ zones: [{ id: 1, name: 'Puente Aranda', active: true, prospectos: 4, con_correo: 1, con_redes: 3, con_whatsapp: 1, enviados: 0 }] });
-  assert.match(zt, /% IG\/FB/);
+  assert.match(zt, /% Instagram\/Facebook/);
   assert.match(zt, /75%/);
   assert.match(zt, /25%/);
 });
@@ -261,6 +268,7 @@ test('025p ruta del día, volante PDF y calor por volante', async () => {
     if (url.includes('/visited')) return { status: 200, body: { ok: true, mensaje: '✅ Visitado: Taller 2' } };
     return { status: 200, body: SAMPLE };
   } });
+  M.model.data = { ...SAMPLE, ajustes: { prospeccion_visitas: true } };
   await M.openRoute(7);
   assert.ok(calls.some((c) => c === 'GET /api/v1/prospecting/admin/route?zone_id=7'));
   const html = M.routePanel();
@@ -273,12 +281,118 @@ test('025p ruta del día, volante PDF y calor por volante', async () => {
   assert.doesNotMatch(html, /javascript:/);
   assert.doesNotMatch(html, /\sstyle=/);
   assert.equal(M.flyerUrl(7, 'taller'), '/api/v1/prospecting/admin/flyer?zone_id=7&nicho=taller');
-  const zt = M.zonesTable(SAMPLE);
-  assert.match(zt, /data-vpm-route="1"/);
-  assert.match(zt, /data-vpm-flyer="1"/);
-  M.model.data = { ...SAMPLE, heat_flyers: [{ zone: 'Puente Aranda', nicho: 'Talleres', lat: 4.6, lng: -74.1, radius_m: 2500, total: 9, visitantes: 4 }] };
+  M.model.data = { ...SAMPLE, ajustes: { prospeccion_visitas: true } };
+  const vb = M.visitsBar(M.model.data);
+  assert.match(vb, /data-vpm-route="1"/);
+  assert.match(vb, /data-vpm-flyer="1"/);
+  M.model.data = { ...SAMPLE, ajustes: { prospeccion_visitas: true }, heat_flyers: [{ zone: 'Puente Aranda', nicho: 'Talleres', lat: 4.6, lng: -74.1, radius_m: 2500, total: 9, visitantes: 4 }] };
   M._setMap(window.L.map({}, {}));
   M.drawLayers(window.L);
   const fl = made.circles.find((c) => c.args.o.fillColor === '#38bdf8');
   assert.ok(fl && /9 visitas por el QR del volante/.test(fl.tooltip));
+});
+
+// ------------------------------------------------------------ ajuste prospeccion_visitas y tabla % por zona compacta
+const ZONES3 = { ...SAMPLE, zones: [
+  { id: 1, name: 'Kennedy Central', group_name: 'Kennedy', active: true, prospectos: 14, con_correo: 7, con_redes: 3, con_whatsapp: 2, enviados: 10, respondieron: 2, por_verificar: 1, puntaje: 99 },
+  { id: 2, name: 'Zona Vacía', group_name: 'Usme', active: true, prospectos: 0, enviados: 0, respondieron: 0, por_verificar: 0, puntaje: 0 },
+  { id: 3, name: 'Apagada', active: false, prospectos: 5 },
+] };
+const clickOn = (sel, attrs) => ({ target: { closest: (s) => (s === sel ? { getAttribute: (k) => attrs[k] } : null) } });
+
+test('ajuste apagado (por defecto): sin Ruta del día ni Volante PDF en el HTML, sin botones ni selector', async () => {
+  const { M, calls, window } = load({ responder: () => ({ status: 200, body: ZONES3 }) });
+  for (const data of [ZONES3, { ...ZONES3, ajustes: { prospeccion_visitas: false } }]) {
+    M.model.data = data;
+    M.model.route = { zone_id: 1, data: { zone: { name: 'Kennedy' }, stops: [] } };
+    const html = M.pane() + M.zonesTable(data) + M.visitsBar(data) + M.routePanel();
+    for (const t of [/Ruta del día/, /Volante/, /data-vpm-route="/, /data-vpm-route-send/, /data-vpm-flyer/, /data-vpm-visit-zone/, /data-vpm-layer="volantes"/, /🗺️/, /🖨️/]) assert.doesNotMatch(html, t, String(t));
+    assert.equal(M.visitsOn(), false);
+  }
+  M.model.route = null;
+  // aunque llegue un clic viejo, no llama al servidor ni abre el PDF
+  const host = { innerHTML: '', listeners: {}, querySelector: () => null, addEventListener(t, f) { this.listeners[t] = f; } };
+  let opened = '';
+  window.open = (u) => { opened = u; };
+  M.mount(host);
+  await new Promise((r) => setTimeout(r, 0));
+  M.model.data = ZONES3;
+  const before = calls.length;
+  await host.listeners.click(clickOn('[data-vpm-route]', { 'data-vpm-route': '1' }));
+  await host.listeners.click(clickOn('[data-vpm-flyer]', { 'data-vpm-flyer': '1' }));
+  assert.equal(calls.slice(before).filter((c) => /\/route|\/flyer/.test(c)).length, 0);
+  assert.equal(opened, '');
+});
+
+test('ajuste prendido: vuelven Ruta del día y Volante PDF (fuera de la tabla) y funcionan igual', async () => {
+  const ROUTE = { zone: { id: 1, name: 'Kennedy Central' }, total_m: 1000, route_url: 'https://www.google.com/maps/dir/?api=1', stops: [{ id: 's1', name: 'Taller', desde_anterior_m: 10 }] };
+  const ON = { ...ZONES3, ajustes: { prospeccion_visitas: true } };
+  const { M, calls, window } = load({ responder: (url) => (url.includes('/route?') ? { status: 200, body: ROUTE } : { status: 200, body: ON }) });
+  const host = { innerHTML: '', listeners: {}, querySelector: (s) => (s === '[data-vpm-flyer-niche="1"]' ? { value: 'taller' } : null), addEventListener(t, f) { this.listeners[t] = f; } };
+  let opened = '';
+  window.open = (u) => { opened = u; };
+  M.mount(host);
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(M.visitsOn(), true);
+  const html = M.pane();
+  for (const t of ['🗺️ Ruta del día', '🖨️ Volante PDF', 'data-vpm-visit-zone', 'data-vpm-flyer-niche="1"', 'data-vpm-layer="volantes"', 'aria-label="Visitas en la calle"']) assert.ok(html.includes(t), t);
+  assert.doesNotMatch(M.visitsBar(ON), /Apagada/, 'solo zonas activas');
+  assert.doesNotMatch(M.zonesTable(ON), /data-vpm-route|data-vpm-flyer|<button/, 'nada de botones dentro de la tabla');
+  await host.listeners.click(clickOn('[data-vpm-route]', { 'data-vpm-route': '1' }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(calls.includes('GET /api/v1/prospecting/admin/route?zone_id=1'));
+  assert.match(M.routePanel(), /Ruta del día · Kennedy Central/);
+  await host.listeners.click(clickOn('[data-vpm-flyer]', { 'data-vpm-flyer': '1' }));
+  assert.equal(opened, '/api/v1/prospecting/admin/flyer?zone_id=1&nicho=taller');
+});
+
+test('% por zona: oculta zonas en 0 (casilla "ver todas"), columnas pedidas, números a la derecha, sin botones', () => {
+  const { M } = load();
+  M.model.allZones = false;
+  const zt = M.zonesTable(ZONES3);
+  assert.match(zt, /Kennedy Central/);
+  assert.match(zt, /<small>Kennedy<\/small>/, 'localidad debajo de la zona');
+  assert.doesNotMatch(zt, /Zona Vacía/);
+  assert.doesNotMatch(zt, /Apagada/);
+  assert.match(zt, /data-vpm-all-zones/);
+  assert.match(zt, /Ver todas \(1 en 0\)/);
+  const heads = [...zt.matchAll(/<th scope="col"[^>]*>([^<]+)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(heads, ['Zona', 'Prospectos', '% correo', '% Instagram/Facebook', '% WhatsApp publicado', 'Enviados', 'Respuestas', 'Por verificar']);
+  const cells = [...zt.matchAll(/<td class="is-num">([^<]*)<\/td>/g)].map((m) => m[1]);
+  assert.deepEqual(cells, ['14', '50%', '21.4%', '14.3%', '10', '2', '1']);
+  assert.doesNotMatch(zt, /<button|<select|\sstyle=/);
+  M.model.allZones = true;
+  const all = M.zonesTable(ZONES3);
+  assert.match(all, /Zona Vacía/);
+  assert.doesNotMatch(all, /Apagada/);
+  M.model.allZones = false;
+  assert.match(M.zonesTable({ zones: [ZONES3.zones[1]] }), /Ninguna zona tiene prospectos/);
+});
+
+test('selects del Mapa comercial: fondo oscuro, letra clara (color-scheme dark, AA) y con nombre', () => {
+  const css = readFileSync('app/web/admin_v2plus.css', 'utf8');
+  const rule = css.match(/\.vpm select \{([^}]*)\}/);
+  assert.ok(rule, 'regla .vpm select');
+  assert.match(rule[1], /color-scheme: dark/);
+  assert.match(rule[1], /background-color: #140d18/);
+  assert.match(rule[1], /color: var\(--vp-text\)/);
+  assert.match(css, /\.vpm select option, \.vpm select optgroup \{[^}]*background-color: #140d18; color: var\(--vp-text\)/);
+  // contraste #F4ECEC (--vp-text) sobre #140d18 >= 4.5 (AA)
+  assert.match(css, /--vp-text: #F4ECEC;/);
+  const lum = (hex) => { const c = hex.match(/\w\w/g).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (lum('F4ECEC') + 0.05) / (lum('140d18') + 0.05);
+  assert.ok(ratio >= 4.5, `contraste ${ratio}`);
+  // cada select con nombre: dentro de un <label> o con aria-label; opciones con texto
+  const { M } = load();
+  M.model.data = { ...ZONES3, ajustes: { prospeccion_visitas: true } };
+  const html = M.pane() + M.visitsBar(M.model.data);
+  const selects = [...html.matchAll(/<select[^>]*>/g)];
+  assert.ok(selects.length >= 8, String(selects.length));
+  for (const m of selects) {
+    const before = html.slice(0, m.index);
+    const inLabel = before.lastIndexOf('<label') > before.lastIndexOf('</label>');
+    assert.ok(inLabel || /aria-label=/.test(m[0]), m[0]);
+  }
+  for (const m of html.matchAll(/<option[^>]*>([^<]*)<\/option>/g)) assert.ok(m[1].trim(), 'opción sin nombre');
 });

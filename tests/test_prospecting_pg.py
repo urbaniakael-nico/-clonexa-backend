@@ -1002,3 +1002,26 @@ def test_resenas_activadas_piden_el_campo_y_cuentan_su_sku(client, pg_url):
     row = _run(pg_url, "SELECT vigencia, vigencia_reason, last_activity_at FROM prospects WHERE name = 'Taller Viejo'")[0]
     assert row["vigencia"] == "por_verificar" and "última reseña" in row["vigencia_reason"]
     assert "no se guarda" not in str(_run(pg_url, "SELECT * FROM prospects WHERE name = 'Taller Viejo'")), "el texto de la resena no se guarda"
+
+
+# ------------------------------------------------------------------ ajuste prospeccion_visitas (ruta del dia y volante en la consola)
+def test_prospeccion_visitas_apagado_por_defecto_y_se_prende_en_ajustes(client, pg_url, monkeypatch):
+    assert ps.DEFAULT_SETTINGS["prospeccion_visitas"] is False
+    _admin(monkeypatch, ok=False)
+    assert client.get(f"{URL}/admin/map").status_code == 401, "sin sesion no hay mapa ni ajuste"
+    assert client.put(f"{URL}/admin/settings", json={"prospeccion_visitas": True}).status_code == 401
+    assert client.get(f"{URL}/admin/route?zone_id=1").status_code == 401
+    assert client.get(f"{URL}/admin/flyer?zone_id=1&nicho=bar").status_code == 401
+    _admin(monkeypatch)
+    assert client.get(f"{URL}/admin/map").json()["ajustes"] == {"prospeccion_visitas": False}
+    assert client.get(f"{URL}/admin/settings").json()["settings"]["prospeccion_visitas"] is False
+    saved = client.put(f"{URL}/admin/settings", json={"prospeccion_visitas": True}).json()["settings"]
+    assert saved["prospeccion_visitas"] is True and saved["daily_limit"] == ps.DEFAULT_SETTINGS["daily_limit"], "solo cambia esa clave"
+    assert client.get(f"{URL}/admin/map").json()["ajustes"] == {"prospeccion_visitas": True}
+    # los endpoints de ruta y volante siguen igual con el ajuste prendido o apagado (solo cambia la pantalla)
+    z = _zone(pg_url)
+    assert client.get(f"{URL}/admin/route?zone_id={z['id']}").status_code == 200
+    client.put(f"{URL}/admin/settings", json={"prospeccion_visitas": False})
+    assert client.get(f"{URL}/admin/map").json()["ajustes"] == {"prospeccion_visitas": False}
+    assert client.get(f"{URL}/admin/route?zone_id={z['id']}").status_code == 200
+    assert client.put(f"{URL}/admin/settings", json={"prospeccion_visitas": "si"}).status_code == 422

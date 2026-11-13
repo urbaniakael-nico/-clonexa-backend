@@ -76,7 +76,12 @@
     filters: EMPTY_FILTERS(), colorBy: "estado",
     layers: { prospectos: true, visitas: true, leads: true, volantes: true, zonas: true }, route: null,
     data: null, error: "", loading: false, detail: null, detailError: "", confirm: "", newZone: null, notice: "",
+    allZones: false, visitZone: "", visitNiche: "restaurante",
   };
+  // Ajuste interno "prospeccion_visitas" (prospect_settings, apagado por defecto; se prende en Interruptores):
+  // con el ajuste apagado no se pinta nada de ruta del día ni de volante (los endpoints siguen igual).
+  const visitsOn = () => Boolean(model.data && model.data.ajustes && model.data.ajustes.prospeccion_visitas === true);
+  const layerList = () => LAYERS.filter(([k]) => k !== "volantes" || visitsOn());
   let host = null;
   let map = null;
   let groups = null;
@@ -120,18 +125,35 @@
       ${ch.whatsapp ? `<p class="vp-login-hint">El WhatsApp publicado solo se muestra: Nexa nunca escribe en frío.</p>` : ""}`;
   }
 
+  // % por zona: solo zonas con prospectos (casilla "ver todas"), sin botones dentro de las filas
+  const zoneCells = (z) => [num(z.prospectos), pct(z.con_correo || 0, z.prospectos || 0), pct(z.con_redes || 0, z.prospectos || 0),
+    pct(z.con_whatsapp || 0, z.prospectos || 0), num(z.enviados), num(z.respondieron), num(z.por_verificar)];
   function zonesTable(d) {
+    const active = arr(d && d.zones).filter((z) => z.active !== false);
+    if (!active.length) return "";
+    const zs = model.allZones ? active : active.filter((z) => Number(z.prospectos || 0) > 0);
+    const hidden = active.length - zs.length;
+    const heads = ["Prospectos", "% correo", "% Instagram/Facebook", "% WhatsApp publicado", "Enviados", "Respuestas", "Por verificar"];
+    return `<section class="vp-panel vp-section vpm-zones"><div class="vp-row-between"><h2>% por zona</h2>
+      <label class="vpm-layer"><input type="checkbox" data-vpm-all-zones ${model.allZones ? "checked" : ""}> Ver todas${hidden ? ` (${h(hidden)} en 0)` : ""}</label></div>
+      ${zs.length ? `<div class="vpm-table-wrap"><table class="vpm-table vpm-ztable">
+      <thead><tr><th scope="col">Zona</th>${heads.map((x) => `<th scope="col" class="is-num">${h(x)}</th>`).join("")}</tr></thead>
+      <tbody>${zs.map((z) => `<tr><th scope="row"><b>${h(z.name)}</b>${z.group_name ? `<small>${h(z.group_name)}</small>` : ""}</th>
+        ${zoneCells(z).map((v) => `<td class="is-num">${h(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+      : `<p class="vp-empty">Ninguna zona tiene prospectos con estos filtros.</p>`}</section>`;
+  }
+
+  // Ruta del día y volante (solo con prospeccion_visitas): una barra fuera de la tabla
+  function visitsBar(d) {
+    if (!visitsOn()) return "";
     const zs = arr(d && d.zones).filter((z) => z.active !== false);
     if (!zs.length) return "";
-    return `<section class="vp-panel vp-section"><h2>% por zona</h2><div class="vpm-table-wrap"><table class="vpm-table">
-      <thead><tr><th>Zona</th><th>Prospectos</th><th>% correo</th><th>% IG/FB</th><th>% WhatsApp publicado</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
-      <tbody>${zs.map((z) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-zone="${h(z.id)}">${h(z.name)}</button><small>${h(z.group_name || "")}</small>
-        <span class="vpm-zone-tools"><button class="vp-btn vp-btn-sm" type="button" data-vpm-route="${h(z.id)}">🗺️ Ruta del día</button>
-        <select data-vpm-flyer-niche="${h(z.id)}" aria-label="Nicho del volante">${FLYER_NICHES.map((k) => `<option value="${h(k)}">${h((NICHES[k] || [k])[0])}</option>`).join("")}</select>
-        <button class="vp-btn vp-btn-sm" type="button" data-vpm-flyer="${h(z.id)}">🖨️ Volante PDF</button></span></td>
-        <td>${h(num(z.prospectos))}</td>${chanCells(z)}<td>${h(num(z.enviados))}</td><td>${h(pct(z.abrieron, z.enviados))}</td><td>${h(pct(z.respondieron, z.enviados))}</td>
-        <td>${h(num(z.demos))}</td><td>${h(num(z.clientes))}</td><td class="vp-mono">${h(num(z.puntaje))}</td></tr>`).join("")}</tbody></table></div>
-      <p class="vp-login-hint">Puntaje = prospectos ×1 + correos ×2 + aperturas ×5 + respuestas ×10 + demos ×20 + clientes ×40.</p></section>`;
+    const cur = model.visitZone && zs.some((z) => String(z.id) === String(model.visitZone)) ? String(model.visitZone) : String(zs[0].id);
+    return `<section class="vp-panel vp-section vpm-visits" aria-label="Visitas en la calle">
+      <label class="vp-field">Zona para visitar<select data-vpm-visit-zone>${zs.map((z) => `<option value="${h(z.id)}" ${String(z.id) === cur ? "selected" : ""}>${h(z.name)}${z.group_name ? ` · ${h(z.group_name)}` : ""}</option>`).join("")}</select></label>
+      <button class="vp-btn" type="button" data-vpm-route="${h(cur)}">🗺️ Ruta del día</button>
+      <label class="vp-field">Nicho del volante<select data-vpm-flyer-niche="${h(cur)}">${FLYER_NICHES.map((k) => `<option value="${h(k)}" ${model.visitNiche === k ? "selected" : ""}>${h((NICHES[k] || [k])[0])}</option>`).join("")}</select></label>
+      <button class="vp-btn" type="button" data-vpm-flyer="${h(cur)}">🖨️ Volante PDF</button></section>`;
   }
 
   function filtersForm(d) {
@@ -151,7 +173,7 @@
   }
 
   function layerToggles() {
-    return `<div class="vpm-layers" role="group" aria-label="Capas del mapa">${LAYERS.map(([k, l]) => `<label class="vpm-layer"><input type="checkbox" data-vpm-layer="${k}" ${model.layers[k] ? "checked" : ""}> ${h(l)}</label>`).join("")}
+    return `<div class="vpm-layers" role="group" aria-label="Capas del mapa">${layerList().map(([k, l]) => `<label class="vpm-layer"><input type="checkbox" data-vpm-layer="${k}" ${model.layers[k] ? "checked" : ""}> ${h(l)}</label>`).join("")}
       <label class="vpm-layer">Color de los pines <select data-vpm-color><option value="estado" ${model.colorBy === "estado" ? "selected" : ""}>por estado</option><option value="nicho" ${model.colorBy === "nicho" ? "selected" : ""}>por nicho</option></select></label>
       <span class="vpm-jump"><button class="vp-btn vp-btn-sm" type="button" data-vpm-jump="bogota">Bogotá</button><button class="vp-btn vp-btn-sm" type="button" data-vpm-jump="colombia">Colombia</button>
       <button class="vp-btn vp-btn-sm" type="button" data-vpm-new-zone>＋ Zona</button></span></div>`;
@@ -229,7 +251,7 @@
 
   function routePanel() {
     const r = model.route;
-    if (!r) return "";
+    if (!r || !visitsOn()) return "";
     const d = r.data;
     const zone = d ? d.zone.name : "";
     const stops = arr(d && d.stops);
@@ -257,11 +279,12 @@
       <div data-vpm-filters-host>${filtersForm(d)}</div>
       <div data-vpm-newzone-host>${newZoneForm()}</div>
       <div data-vpm-route-host>${routePanel()}</div>
-      <section class="vp-panel vp-section vpm-mapbox">${layerToggles()}
+      <section class="vp-panel vp-section vpm-mapbox" data-vpm-mapbox><div data-vpm-layers-host>${layerToggles()}</div>
         <div class="vpm-grid"><div class="vpm-map" data-vpm-canvas role="region" aria-label="Mapa comercial de Colombia"></div><div data-vpm-detail-host>${detailPanel()}</div></div>
         <p class="vpm-attrib">Mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> ·
           Ubicación de visitas: <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a> (precisión de ciudad, no de barrio).
           Las aperturas con código de prospecto sí son exactas.</p></section>
+      <div data-vpm-visits>${d ? visitsBar(d) : ""}</div>
       <div data-vpm-zones>${d ? zonesTable(d) : ""}</div>
       <div data-vpm-niches>${d ? nichesTable(d) : ""}</div>
     </div>`;
@@ -345,15 +368,16 @@
       mk.on("click", () => openDetail(p.id));
       groups.prospectos.addLayer(mk);
     });
-    Object.entries(groups).forEach(([k, g]) => { if (model.layers[k]) g.addTo(map); });
+    Object.entries(groups).forEach(([k, g]) => { if (model.layers[k] && (k !== "volantes" || visitsOn())) g.addTo(map); });
   }
 
   function syncLayers() {
     if (!map || !groups) return;
     Object.entries(groups).forEach(([k, g]) => {
       const on = map.hasLayer(g);
-      if (model.layers[k] && !on) g.addTo(map);
-      if (!model.layers[k] && on) g.remove();
+      const want = model.layers[k] && (k !== "volantes" || visitsOn());
+      if (want && !on) g.addTo(map);
+      if (!want && on) g.remove();
     });
   }
 
@@ -365,6 +389,8 @@
       set("[data-vpm-cards]", model.data ? cards(model.data) : (model.error ? "" : `<p class="vp-loading">Cargando el mapa comercial…</p>`));
       set("[data-vpm-filters-host]", filtersForm(model.data));
       set("[data-vpm-zones]", model.data ? zonesTable(model.data) : "");
+      set("[data-vpm-visits]", model.data ? visitsBar(model.data) : "");
+      if (host.querySelector("[data-vpm-mapbox]")) set("[data-vpm-layers-host]", layerToggles());
       set("[data-vpm-niches]", model.data ? nichesTable(model.data) : "");
     }
     if (!part || part === "detail" || part === "data") set("[data-vpm-detail-host]", detailPanel());
@@ -405,7 +431,7 @@
     if (t.closest("[data-vpm-new-zone]")) { model.newZone = model.newZone ? null : { radius_m: 700, city: "Bogotá" }; paint("newzone"); return; }
     if (t.closest("[data-vpm-zone-cancel]")) { model.newZone = null; paint("newzone"); return; }
     const rb = t.closest("[data-vpm-route]");
-    if (rb) { openRoute(rb.getAttribute("data-vpm-route")); return; }
+    if (rb && visitsOn()) { openRoute(rb.getAttribute("data-vpm-route")); return; }
     if (t.closest("[data-vpm-route-close]")) { model.route = null; paint("route"); return; }
     if (t.closest("[data-vpm-route-send]") && model.route) {
       try { const r = await api.routeSend(model.route.zone_id, model.route.nicho); model.route.notice = r.ok ? `Ruta enviada a Telegram (${r.paradas} negocios).` : "No hay negocios para enviar."; model.route.error = ""; }
@@ -421,7 +447,7 @@
       paint("route"); return;
     }
     const fb = t.closest("[data-vpm-flyer]");
-    if (fb) {
+    if (fb && visitsOn()) {
       const zid = fb.getAttribute("data-vpm-flyer");
       const sel = host.querySelector && host.querySelector(`[data-vpm-flyer-niche="${zid}"]`);
       const nicho = (sel && sel.value) || "restaurante";
@@ -430,12 +456,6 @@
     }
     const nb = t.closest("[data-vpm-niche]");
     if (nb) { model.filters = { ...model.filters, nicho: nb.getAttribute("data-vpm-niche") || "" }; load(); return; }
-    const zb = t.closest("[data-vpm-zone]");
-    if (zb) {
-      const z = arr(model.data && model.data.zones).find((x) => String(x.id) === zb.getAttribute("data-vpm-zone"));
-      if (z && map) map.setView([z.center_lat, z.center_lng], 15);
-      return;
-    }
     const st = t.closest("[data-vpm-status]");
     if (st && model.detail && model.detail.prospect) {
       const estado = st.getAttribute("data-vpm-status");
@@ -450,6 +470,14 @@
 
   function onChange(event) {
     const t = event.target;
+    if (t && t.matches && t.matches("[data-vpm-all-zones]")) { model.allZones = Boolean(t.checked); paint("data"); return; }
+    if (t && t.matches && t.matches("[data-vpm-visit-zone]")) {
+      model.visitZone = String(t.value || "");
+      const z = arr(model.data && model.data.zones).find((x) => String(x.id) === model.visitZone);
+      if (z && map) map.setView([z.center_lat, z.center_lng], 15);
+      paint("data"); return;
+    }
+    if (t && t.matches && t.matches("[data-vpm-flyer-niche]")) { model.visitNiche = String(t.value || "restaurante"); return; }
     if (t && t.matches && t.matches("[data-vpm-color]")) { model.colorBy = t.value === "nicho" ? "nicho" : "estado"; paint("detail"); if (window.L && map) drawLayers(window.L); return; }
     if (!t || !t.matches || !t.matches("[data-vpm-layer]")) return;
     model.layers[t.getAttribute("data-vpm-layer")] = Boolean(t.checked);
@@ -503,6 +531,6 @@
     if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
-  window.CxConsoleMapa = { routePanel, openRoute, flyerUrl, CHANNELS, channelsList, VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
+  window.CxConsoleMapa = { visitsBar, visitsOn, routePanel, openRoute, flyerUrl, CHANNELS, channelsList, VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
     _setMap: (m) => { map = m; } };
 })();

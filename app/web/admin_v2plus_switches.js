@@ -144,6 +144,16 @@
       { method: "PUT", headers: auditNote({ ajuste: "cupo_carta_video", motivo: reason }), body: JSON.stringify(body) }),
   };
 
+  // ------------------------------------------------- interno de Clonexa (sin empresa): ajustes de prospección
+  // Viven en prospect_settings (GET/PUT /api/v1/prospecting/admin/settings, solo Admin V2). Apagados por defecto.
+  const INTERNAL = [{ key: "prospeccion_visitas", label: "Prospección: visitas en la calle",
+    description: "Muestra «Ruta del día» y «Volante PDF» en Landing → Mapa comercial. Apagado: no aparece ningún botón ni selector de ruta o volante." }];
+  const internalApi = {
+    get: () => request(`${API}/prospecting/admin/settings`),
+    save: (key, on, reason) => request(`${API}/prospecting/admin/settings`,
+      { method: "PUT", headers: auditNote({ ajuste: key, valor: on, motivo: reason }), body: JSON.stringify({ [key]: on }) }),
+  };
+
   const QUOTA_KIND = { nuevo: "Plato nuevo", cambio: "Cambio de foto/video", solicitud: "Pidió más cupo" };
   function quotaCard(q) {
     if (!q) return `<article class="vp-panel-card"><header><b>Carta en video · cupo mensual</b></header><p class="vp-loading">Cargando…</p></article>`;
@@ -162,7 +172,7 @@
   }
 
   // ------------------------------------------------------------ estado
-  const model = { data: null, error: "", notice: "", query: "", kind: "registrada", modal: null, focusKey: "", cfg: { companyId: "", qrRow: null, modules: null, policy: null, error: "" } };
+  const model = { internal: { settings: null, error: "" }, data: null, error: "", notice: "", query: "", kind: "registrada", modal: null, focusKey: "", cfg: { companyId: "", qrRow: null, modules: null, policy: null, error: "" } };
   let ctx = null;
   let bound = false;
 
@@ -246,6 +256,36 @@
       <article class="vp-panel-card"><header><b>Corte diario de sesiones</b><span class="vp-state-pill">${h((pol && pol.cutoff_time) || "00:00")}</span></header>${policy}</article>${quotaCard(cfg.quota)}</div></section>`;
   }
 
+  function internalView() {
+    const st = model.internal;
+    const body = st.error ? `<div class="vp-alert" role="alert"><span>${h(st.error)}</span></div>`
+      : !st.settings ? `<p class="vp-loading">Cargando…</p>`
+      : `<table class="vp-table vp-table-compact vp-sw-matrix"><tbody>${INTERNAL.map((it) => { const on = st.settings[it.key] === true;
+        return `<tr><th scope="row"><b>${h(it.label)}</b><small class="vp-mono-muted">prospect_settings · ${h(it.key)}</small><small>${h(it.description)}</small></th>
+          <td><button class="vp-switch-btn ${on ? "is-on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}"
+          aria-label="${h(it.label)}: ${on ? "encendido" : "apagado"}" data-vpw-internal="${h(it.key)}"><span></span></button></td></tr>`; }).join("")}</tbody></table>`;
+    return `<section class="vp-panel vp-section" data-vpw-internal-host><h2>Interno de Clonexa</h2>
+      <p class="vp-login-hint">Ajustes de la consola de Clonexa (prospección). No cambian nada en las empresas cliente.</p>${body}</section>`;
+  }
+
+  function openInternal(key) {
+    const it = INTERNAL.find((x) => x.key === key);
+    const st = model.internal.settings;
+    if (!it || !st) return;
+    const nextOn = st[key] !== true;
+    model.modal = { type: "config", title: `${nextOn ? "Encender" : "Apagar"} ajuste interno`, scope: "Interno de Clonexa: no cambia ninguna empresa cliente.", reason: "",
+      message: `${nextOn ? "Encender" : "Apagar"} «${it.label}». ${it.description}`,
+      run: async (reason) => { const r = await internalApi.save(key, nextOn, reason); model.internal.settings = (r && r.settings) || { ...st, [key]: nextOn }; return r; },
+      done: `«${it.label}» ${nextOn ? "encendido" : "apagado"}.` };
+    draw();
+  }
+
+  async function loadInternal() {
+    try { const r = await internalApi.get(); model.internal = { settings: (r && r.settings) || {}, error: "" }; }
+    catch (error) { model.internal = { settings: null, error: error.message || "No se pudieron leer los ajustes internos." }; }
+    draw();
+  }
+
   function modalView() {
     const md = model.modal;
     if (!md) return "";
@@ -264,7 +304,7 @@
         ${p.needsAck ? `<label class="vp-check"><input type="checkbox" data-vpw-ack ${md.ack ? "checked" : ""}> Entiendo lo que deja de funcionar</label>` : ""}
         ${err}<div class="vp-actions"><button class="vp-btn ${nextOn ? "vp-btn-primary" : "vp-btn-danger"}" type="button" data-vpw-go ${md.busy ? "disabled" : ""}>${nextOn ? "Encender" : "Apagar"} solo en ${h(company.name)}</button><button class="vp-btn" type="button" data-vpw-close>Cancelar</button></div>`;
     } else {
-      body = `<p class="vp-login-hint">${h(md.message)}</p><p class="vp-sw-only"><b>Solo esta empresa:</b> ${h(md.companyName)}.</p>
+      body = `<p class="vp-login-hint">${h(md.message)}</p><p class="vp-sw-only">${md.scope ? `<b>${h(md.scope)}</b>` : `<b>Solo esta empresa:</b> ${h(md.companyName)}.`}</p>
         <label class="vp-field">Motivo (queda en la auditoría)<input data-vpw-reason maxlength="200" value="${h(md.reason || "")}"></label>
         ${err}<div class="vp-actions"><button class="vp-btn vp-btn-primary" type="button" data-vpw-go ${md.busy ? "disabled" : ""}>Guardar</button><button class="vp-btn" type="button" data-vpw-close>Cancelar</button></div>`;
     }
@@ -275,7 +315,7 @@
     return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · INTERRUPTORES</p><h1 class="vp-title">Interruptores</h1></div>
       <div class="vp-head-actions"><button class="vp-btn" type="button" data-vpw-refresh>Refrescar</button></div></header>
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}${model.error && model.data ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}
-      <section class="vp-panel vp-section">${matrixView()}</section>${model.data ? configView() : ""}${modalView()}`;
+      <section class="vp-panel vp-section">${matrixView()}</section>${internalView()}${model.data ? configView() : ""}${modalView()}`;
   }
 
   const FOCUS = ["[data-vpw-search]", "[data-vpw-reason]", "[data-vpw-name]"];
@@ -353,7 +393,7 @@
         await md.run(reason);
         model.notice = md.done;
         model.modal = null;
-        await loadConfig(model.cfg.companyId);
+        if (!md.scope) await loadConfig(model.cfg.companyId);
       }
     } catch (error) {
       if (model.modal) { model.modal.busy = false; model.modal.error = error.message || "No se pudo guardar."; }
@@ -366,6 +406,8 @@
     if (!t || !t.closest) return;
     const c = t.closest("[data-vpw-cell]");
     if (c) { const [key, cid] = c.getAttribute("data-vpw-cell").split("|"); openSwitch(key, cid); return; }
+    const ib = t.closest("[data-vpw-internal]");
+    if (ib) { openInternal(ib.getAttribute("data-vpw-internal")); return; }
     const k = t.closest("[data-vpw-kind]");
     if (k) { model.kind = k.getAttribute("data-vpw-kind"); draw(); return; }
     if (t.closest("[data-vpw-refresh]")) { model.notice = ""; load(true); return; }
@@ -438,9 +480,10 @@
         bound = true;
       }
       draw();
+      loadInternal();
       load(true).then(() => { const sw = params.key && Registry.get(params.key); if (sw && model.query === params.key) { model.query = sw.label; draw(); } });
     },
   };
   window.CxSwitchRegistry = Registry;
-  window.CxConsoleSwitches = { model, view, plan, saveSwitch, config, qrNormalize, qrPayload, openSwitch, confirm, V2_WARNING, _setCache: (d) => { cache = d; model.data = d; } };
+  window.CxConsoleSwitches = { model, view, INTERNAL, internalView, openInternal, loadInternal, plan, saveSwitch, config, qrNormalize, qrPayload, openSwitch, confirm, V2_WARNING, _setCache: (d) => { cache = d; model.data = d; } };
 })();

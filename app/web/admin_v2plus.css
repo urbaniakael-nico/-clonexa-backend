@@ -1037,8 +1037,24 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .vpm-channels li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
 .vpm-channels a { color: var(--vp-text); }
 .vpm-channels small { color: var(--vp-muted); flex-basis: 100%; padding-left: 22px; }
-.vpm-zone-tools { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.vpm-zone-tools select { max-width: 160px; font-size: 12px; }
+/* Mapa comercial: todos los select oscuros con letra clara (contraste AA) */
+.vpm select { color-scheme: dark; background-color: #140d18; color: var(--vp-text); border: 1px solid rgba(255, 255, 255, .22); }
+.vpm select option, .vpm select optgroup { background-color: #140d18; color: var(--vp-text); }
+.vpm select:focus-visible { outline: 2px solid var(--vp-purple); outline-offset: 1px; }
+.vpm-layer select { min-height: 32px; padding: 4px 8px; border-radius: 8px; font: inherit; }
+/* Ruta del día y volante (solo con prospeccion_visitas) */
+.vpm-visits { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
+.vpm-visits .vp-field { min-width: min(100%, 200px); }
+/* % por zona: filas compactas, números a la derecha */
+.vpm-zones h2 { margin: 0; }
+.vpm-ztable { font-size: 14px; }
+.vpm-ztable th, .vpm-ztable td { padding: 5px 10px; line-height: 1.3; }
+.vpm-ztable tbody th { color: var(--vp-text); font-weight: 400; text-align: left; white-space: normal; min-width: 160px; }
+.vpm-ztable tbody th b { font-weight: 600; }
+.vpm-ztable tbody th small { display: block; color: var(--vp-muted); font-size: 12px; }
+.vpm-ztable .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.vpm-ztable thead th.is-num { white-space: normal; min-width: 72px; }
+.vpm-ztable tbody tr:hover { background: rgba(255, 255, 255, .04); }
 .vpm-route { display: grid; gap: 8px; min-width: 0; }
 .vpm-route h2 { margin: 0; font-size: 18px; }
 .vpm-stops { margin: 0; padding-left: 22px; display: grid; gap: 10px; }

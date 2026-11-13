@@ -88,6 +88,8 @@ DEFAULT_SETTINGS = {
     "vigencia_min_reviews": 3,
     # fecha de la ultima resena para la vigencia (SKU Enterprise + Atmosphere). Activado por el dueno 2026-11-12.
     "vigencia_reviews": True,
+    # consola: "Ruta del día" y "Volante PDF" en el Mapa comercial. Apagado por defecto; se prende en Interruptores.
+    "prospeccion_visitas": False,
 }
 
 
@@ -449,6 +451,7 @@ async def save_settings(db: AsyncSession, changes: dict) -> dict:
     cfg["vigencia_months"] = max(3, min(36, int(cfg["vigencia_months"])))
     cfg["vigencia_min_reviews"] = max(0, min(50, int(cfg["vigencia_min_reviews"])))
     cfg["vigencia_reviews"] = bool(cfg["vigencia_reviews"])
+    cfg["prospeccion_visitas"] = cfg.get("prospeccion_visitas") is True
     await db.execute(text("""INSERT INTO prospect_settings (id, config, updated_at) VALUES (1, CAST(:c AS jsonb), now())
                              ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()"""),
                      {"c": json.dumps(cfg)})

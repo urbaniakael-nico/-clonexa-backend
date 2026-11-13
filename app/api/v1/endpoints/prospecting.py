@@ -279,7 +279,9 @@ async def admin_map(zone_id: Optional[int] = None, tipo: str = Query(default="",
     await landing_analytics._ensure_storage(db)
     await landing_analytics.backfill_geo(db)
     data = await ps.map_data(db, {"zone_id": zone_id, "type": tipo, "niche": nicho, "vigencia": vigencia, "status": estado, "desde": desde, "hasta": hasta})
-    return {**data, "attribution": {"map": "© OpenStreetMap", "ip": "IP Geolocation by DB-IP", "ip_url": "https://db-ip.com"}}
+    cfg = await ps.get_settings(db)
+    return {**data, "ajustes": {"prospeccion_visitas": cfg.get("prospeccion_visitas") is True},
+            "attribution": {"map": "© OpenStreetMap", "ip": "IP Geolocation by DB-IP", "ip_url": "https://db-ip.com"}}
 
 
 @router.get("/admin/prospects/{prospect_id}", dependencies=admin)
@@ -395,6 +397,7 @@ class SettingsIn(BaseModel):
     vigencia_months: Optional[int] = Field(default=None, ge=3, le=36)
     vigencia_min_reviews: Optional[int] = Field(default=None, ge=0, le=50)
     vigencia_reviews: Optional[bool] = None
+    prospeccion_visitas: Optional[bool] = None
 
 
 @router.get("/admin/settings", dependencies=admin)

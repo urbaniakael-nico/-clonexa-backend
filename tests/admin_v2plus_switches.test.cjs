@@ -196,3 +196,46 @@ test('la Ficha muestra los interruptores encendidos de la empresa con enlace a I
   const company = readFileSync('app/web/admin_v2plus_company.js', 'utf8');
   assert.match(company, /setView\("switches", \{ companyId: model\.id \}\)/);
 });
+
+// --------------------------------------------- interno de Clonexa: prospeccion_visitas (apagado por defecto)
+test('Interno de Clonexa: prospeccion_visitas se lee y se guarda en ajustes de prospección, SOLO esa clave, con motivo', async () => {
+  let saved = false;
+  const { S, calls } = load((c) => {
+    if (c.url === '/api/v1/prospecting/admin/settings' && c.method === 'PUT') { saved = c.body.prospeccion_visitas; return { status: 200, body: { settings: { prospeccion_visitas: saved, daily_limit: 25 } } }; }
+    if (c.url === '/api/v1/prospecting/admin/settings') return { status: 200, body: { settings: { prospeccion_visitas: false, daily_limit: 25 } } };
+    return { status: 200, body: {} };
+  });
+  S._setCache(DATA);
+  await S.loadInternal();
+  let html = S.view();
+  assert.match(html, /Interno de Clonexa/);
+  assert.match(html, /data-vpw-internal="prospeccion_visitas"/);
+  assert.match(html, /aria-checked="false"[^>]*aria-label="Prospección: visitas en la calle: apagado"/);
+  assert.match(html, /No cambian nada en las empresas cliente/);
+  S.openInternal('prospeccion_visitas');
+  html = S.view();
+  assert.match(html, /Encender ajuste interno/);
+  assert.match(html, /no cambia ninguna empresa cliente/);
+  assert.doesNotMatch(html, /Solo esta empresa:/);
+  await S.confirm();
+  assert.match(S.model.modal.error, /motivo/);
+  S.model.modal.reason = 'prueba de visitas';
+  await S.confirm();
+  const put = calls.find((c) => c.method === 'PUT');
+  assert.equal(put.url, '/api/v1/prospecting/admin/settings');
+  assert.deepEqual(plain(put.body), { prospeccion_visitas: true });
+  assert.match(decodeURIComponent(put.headers['X-Cx-Audit-Note']), /prueba de visitas/);
+  assert.equal(S.model.internal.settings.prospeccion_visitas, true);
+  assert.match(S.view(), /aria-label="Prospección: visitas en la calle: encendido"/);
+  assert.ok(!calls.some((c) => /\/companies\//.test(c.url)), 'no toca ninguna empresa');
+});
+
+test('Interno de Clonexa: sin sesión muestra el error y no enciende nada', async () => {
+  const { S } = load(() => ({ status: 401, body: { detail: 'Sesión requerida' } }));
+  S._setCache(DATA);
+  await S.loadInternal();
+  assert.equal(S.model.internal.settings, null);
+  assert.match(S.view(), /Sesión requerida/);
+  S.openInternal('prospeccion_visitas');
+  assert.equal(S.model.modal, null);
+});
