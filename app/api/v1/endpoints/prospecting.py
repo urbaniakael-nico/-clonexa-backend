@@ -649,3 +649,16 @@ async def admin_cola_accion(contact_id: int, body: ColaActionIn, db: AsyncSessio
         return await pc.cola_action(db, contact_id, body.accion)
     except LookupError:
         raise HTTPException(status_code=404, detail="no_existe") from None
+
+
+# ---------------------------------------------------------------- 2026-11-13: Telegram mas liviano (2 mensajes al dia)
+@router.post("/n8n/assisted/morning", dependencies=n8n)
+async def assisted_morning(db: AsyncSession = Depends(get_db)) -> dict:
+    """8:30: arma la cola y devuelve UN mensaje con el boton "Abrir la cola" (ya no un mensaje por negocio)."""
+    return {"ok": True, **await pc.morning_message(db)}
+
+
+@router.get("/n8n/assisted/summary", dependencies=n8n)
+async def assisted_summary(db: AsyncSession = Depends(get_db)) -> dict:
+    """17:00: enviados N de M, saltados, no contactar, respondieron hoy y seguidores nuevos de @clonexaapp."""
+    return {"ok": True, **await pc.summary_message(db)}

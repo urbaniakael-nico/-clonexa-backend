@@ -290,6 +290,7 @@ async def cola_action(db: AsyncSession, contact_id: int, action: str, at: Option
         if c["status"] != "enviado":
             return {"ok": False, "mensaje": "Solo se marca en un mensaje ya enviado."}
         await ps._promote(db, c["pid"], "respondio", "replied_at")
+        await db.execute(text("UPDATE prospects SET replied_at = :t WHERE id = CAST(:p AS uuid)"), {"t": at or ps.now(), "p": c["pid"]})
         await ps.log_contact(db, c["pid"], "instagram", "respuesta", detail={"origen": "cola_de_hoy", "contacto": contact_id})
         await db.commit()
         return {"ok": True, "mensaje": "💬 Marcado como respondió: ya no recibe seguimiento."}
@@ -297,6 +298,63 @@ async def cola_action(db: AsyncSession, contact_id: int, action: str, at: Option
         raise ValueError("accion_invalida")
     r = await assisted_action(db, contact_id, action, at=at)
     return {"ok": bool(r.get("ok")), "mensaje": r.get("mensaje", "")}
+
+
+# ---------------------------------------------------------------- Telegram mas liviano (2026-11-13)
+# Solo 2 mensajes programados al dia: 8:30 "Cola de hoy" (con el boton "Abrir la cola") y 17:00 el resumen.
+NICHE_SHORT = {"restaurante": "Restaurantes", "bar": "Bares", "taller": "Talleres", "campo": "Campo", "tienda": "Tiendas", "transporte": "Transporte"}
+COLA_URL = "https://clonexa-backend-production.up.railway.app/admin-v2plus#cola"
+
+
+async def morning_message(db: AsyncSession, at: Optional[datetime] = None) -> dict:
+    """8:30: arma la cola del dia (idempotente) y devuelve UN mensaje corto con el conteo por nicho."""
+    v = await cola_view(db, at)
+    pend, segs = v["pendientes"], v["seguimientos"]
+    n = len(pend) + len(segs)
+    if not n:
+        return {"enviar": False, "mensaje": "", "url": COLA_URL, "motivo": v.get("motivo") or "sin_prospectos"}
+    by: dict[str, int] = {}
+    for i in pend + segs:
+        by[i["niche"]] = by.get(i["niche"], 0) + 1
+    nichos = " · ".join(f"{NICHE_SHORT.get(k, k)} {c}" for k, c in sorted(by.items(), key=lambda kv: (-kv[1], kv[0])))
+    msg = f"☀️ <b>Cola de hoy: {n} negocios</b>\n{len(pend)} primeros mensajes · {len(segs)} seguimientos\n{_esc(nichos)}"
+    return {"enviar": True, "mensaje": msg, "url": COLA_URL, "total": n}
+
+
+async def new_followers_today(db: AsyncSession, day) -> tuple[Optional[int], str]:
+    """Seguidores nuevos de @clonexaapp hoy: diferencia diaria de followers en social_daily_metrics (lo que trae n8n
+    con la credencial de Meta). Sin el dato de hoy o de ayer -> (None, motivo)."""
+    if not (await ps._one(db, "SELECT to_regclass('public.social_daily_metrics') AS t") or {}).get("t"):
+        return None, "sin tabla de métricas"
+    rows = await ps._rows(db, """SELECT metric_date, followers FROM social_daily_metrics WHERE network = 'instagram' AND followers IS NOT NULL
+                                 AND metric_date <= :d ORDER BY metric_date DESC LIMIT 2""", {"d": day})
+    if not rows or rows[0]["metric_date"] != day:
+        return None, "Meta todavía no trajo el dato de hoy"
+    if len(rows) < 2:
+        return None, "falta el dato de un día anterior"
+    return int(rows[0]["followers"]) - int(rows[1]["followers"]), ""
+
+
+async def summary_message(db: AsyncSession, at: Optional[datetime] = None) -> dict:
+    """17:00: enviados N de M · saltados · no contactar · respondieron hoy · seguidores nuevos de @clonexaapp."""
+    t = at or ps.now()
+    day = ps.bogota(t).date()
+    rows = await ps._rows(db, """
+        SELECT c.status, p.status AS pst, p.name, p.replied_at FROM prospect_contacts c JOIN prospects p ON p.id = c.prospect_id
+        WHERE c.local_date = :d AND c.channel IN ('instagram', 'facebook') AND c.kind IN ('inicial', 'seguimiento')
+          AND NOT COALESCE((c.detail ->> 'prueba')::boolean, false)""", {"d": day})
+    if not rows:
+        return {"enviar": False, "mensaje": ""}
+    sent = sum(1 for r in rows if r["status"] == "enviado")
+    skipped = sum(1 for r in rows if r["status"] == "saltado")
+    blocked = sum(1 for r in rows if r["pst"] == "baja")
+    replied = [r["name"] for r in rows if r["replied_at"] and ps.bogota(r["replied_at"]).date() == day]
+    followers, why = await new_followers_today(db, day)
+    seg = "—" if followers is None else (f"+{followers}" if followers > 0 else str(followers))
+    msg = (f"🌙 <b>Resumen</b>: enviados {sent} de {len(rows)} · saltados {skipped} · no contactar {blocked}\n"
+           f"Respondieron hoy: {len(replied)}{(' (' + _esc(', '.join(replied[:5])) + ')') if replied else ''}\n"
+           f"Nuevos seguidores de @clonexaapp hoy: {seg}{(' (' + _esc(why) + ')') if why else ''}")
+    return {"enviar": True, "mensaje": msg, "seguidores": followers, "seguidores_motivo": why}
 
 
 # ---------------------------------------------------------------- ruta de visitas

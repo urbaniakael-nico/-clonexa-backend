@@ -82,7 +82,7 @@ AGENDAR LA DEMO
 - Las demos son de lunes a viernes, de 9:00 a. m. a 5:00 p. m., hora de Colombia.
 - Si el contacto ya tiene demo agendada (demo_at), no ofrezcas otra salvo que quiera cambiarla.
 
-PASAR A UNA PERSONA: si pide hablar con una persona, si pregunta algo que no está en esta guía (integraciones puntuales, temas legales, soporte de una cuenta que ya existe, precios después de ofrecer la demo) o si hay una queja: responde que Nicolás, del equipo de Clonexa, le escribe pronto por este mismo chat; etapa "pidio_persona"; accion "pasar_a_persona"; en resumen, una línea con lo que necesita. No inventes la respuesta.
+PASAR A UNA PERSONA: si pide hablar con una persona, si pregunta algo que no está en esta guía (integraciones puntuales, temas legales, soporte de una cuenta que ya existe, precios después de ofrecer la demo) o si hay una queja: responde que alguien del equipo de Clonexa le escribe pronto por este mismo chat; etapa "pidio_persona"; accion "pasar_a_persona"; en resumen, una línea con lo que necesita. No inventes la respuesta.
 
 OTRAS ETAPAS: "no_interesado" si dice claramente que no le interesa (despídete amable, sin insistir). "baja" solo si pide no recibir más mensajes. Si nada cambia, repite la etapa actual del contacto.
 
@@ -163,17 +163,17 @@ const T = {
     intro: 'Hola, soy Nexa, la asistente virtual con IA de Clonexa.',
     consent: 'Al continuar aceptas el tratamiento de tus datos para atenderte: https://www.clonexa.com.co/privacidad',
     elegir: 'Elige un horario para la demo (30 min por Google Meet, hora de Colombia).', correo: ' Si me dejas tu correo, te llega la invitación.',
-    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Nicolás, del equipo de Clonexa, te escribe para cuadrar la demo.',
+    ocupado: 'Ese horario se acaba de ocupar. Te propongo estos:', sin_horarios: 'Estos días la agenda está llena. Alguien del equipo de Clonexa te escribe para cuadrar la demo.',
     listo: (when, link, mail) => `¡Listo! Tu demo quedó agendada ${when}.${link ? `\nEnlace de Google Meet: ${link}` : ''}${mail ? `\nTe llega la invitación a ${mail}.` : ''}`,
-    no_cita: 'No pude agendarla en este momento. Nicolás, del equipo de Clonexa, te confirma el horario en breve.',
+    no_cita: 'No pude agendarla en este momento. Alguien del equipo de Clonexa te confirma el horario en breve.',
     espera: 'Ya te respondemos en un momento.', lista: 'Elegir' },
   en: { solo_texto: 'For now I can only read text messages. Write me your question or, if you prefer, we can book a demo with the team.',
     intro: "Hi, I'm Nexa, Clonexa's AI virtual assistant.",
     consent: 'By continuing you accept the processing of your data to assist you: https://www.clonexa.com.co/privacidad',
     elegir: 'Pick a time for the demo (30 min on Google Meet, Colombia time).', correo: " If you share your email, you'll get the invite.",
-    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Nicolás from Clonexa will message you to set up the demo.',
+    ocupado: 'That time was just taken. Here are other options:', sin_horarios: 'The calendar is full these days. Someone from the Clonexa team will message you to set up the demo.',
     listo: (when, link, mail) => `Done! Your demo is booked for ${when}.${link ? `\nGoogle Meet link: ${link}` : ''}${mail ? `\nThe invite is on its way to ${mail}.` : ''}`,
-    no_cita: "I couldn't book it right now. Nicolás from Clonexa will confirm the time shortly.",
+    no_cita: "I couldn't book it right now. Someone from the Clonexa team will confirm the time shortly.",
     espera: "We'll get back to you in a moment.", lista: 'Choose' },
 };
 const tx = (c) => T[isEn(c) ? 'en' : 'es'];

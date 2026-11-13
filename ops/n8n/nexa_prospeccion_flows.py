@@ -116,6 +116,7 @@ const r = $json || {};
 const opts = $('Opciones').first().json;
 let errs = [];
 try { errs = $('Para el backend').all().map(x => x.json.error).filter(Boolean); } catch (e) {}
+if (r.sin_busqueda === true && !opts.prueba && !errs.length) return [];   // 025s: hay suficientes listos, no se busco (queda en el backend)
 const msg = (opts.prueba ? '🧪 <b>Prueba</b> · ' : '') + (r.mensaje || '⚠️ No pude leer el resumen de la prospección.') +
   (errs.length ? '\\n⚠️ Google Places: ' + errs.slice(0, 2).join(' | ') : '');
 return [{ json: { msg } }];
@@ -242,22 +243,25 @@ def flow_cola(cred: dict, secret: str) -> v2.Flow:
     """Cola ASISTIDA de Instagram/Facebook: Nexa prepara el texto, el dueno lo envia a mano. Nunca se envia nada
     automatico a Instagram ni a Facebook (la API no lo permite y Meta bloquea bots)."""
     f = v2.Flow()
-    # 1) cola del dia (L-V 8:30) o simulada (webhook de prueba con los negocios de prueba)
+    # 1) 2026-11-13 Telegram mas liviano: SOLO 2 mensajes programados al dia. L-V 8:30 "Cola de hoy" (un mensaje
+    #    con el conteo por nicho y el boton "Abrir la cola" -> consola v2+ #cola) y L-V 17:00 el resumen del dia.
+    #    El webhook de prueba sigue armando la cola SIMULADA con los negocios de prueba (solo la cabecera).
     f.cron("L-V 8:30", "30 8 * * 1-5")
-    be(f, "Cola de hoy", "POST", "/n8n/assisted/today", cred, body="{}")
+    be(f, "Cola de hoy", "POST", "/n8n/assisted/morning", cred, body="{}")
+    f.iff("¿Hay cola?", "$json.enviar === true")
+    tg_buttons(f, "Telegram: cola de hoy", "={{ $json.mensaje }}", [[("Abrir la cola ➜", "url", "={{ $json.url }}")]])
+    f.chain("L-V 8:30", "Cola de hoy", "¿Hay cola?", "Telegram: cola de hoy")
+    f.cron("L-V 17:00", "0 17 * * 1-5")
+    be(f, "Resumen del día", "GET", "/n8n/assisted/summary", cred)
+    f.iff("¿Hubo cola?", "$json.enviar === true")
+    f.tg("Telegram: resumen", "={{ $json.mensaje }}")
+    f.chain("L-V 17:00", "Resumen del día", "¿Hubo cola?", "Telegram: resumen")
     f.webhook("Prueba (webhook)", "nexa-cola-asistida-prueba")
     f.code("¿Autorizado?", "if ((($json.query || {}).k) !== '__SECRET__') throw new Error('Acceso no autorizado'); return [{ json: {} }];"
            .replace("__SECRET__", secret))
     be(f, "Cola simulada", "POST", "/n8n/assisted/test", cred, body="{}")
-    f.iff("¿Hay cola?", "$json.enviar === true")
-    f.tg("Telegram: cabecera", "={{ $json.cabecera }}")
-    f.code("Uno por negocio", "return ($('¿Hay cola?').first().json.items || []).map(i => ({ json: i }));")
-    tg_buttons(f, "Telegram: negocio", "={{ $json.mensaje }}", [
-        [("📋 Copiar texto", "cb", "={{ $json.botones.copiar }}"), ("📲 Abrir perfil", "url", "={{ $json.perfil }}")],
-        [("✅ Enviado", "cb", "={{ $json.botones.enviado }}"), ("⏭ Saltar", "cb", "={{ $json.botones.saltar }}")],
-        [("🚫 No contactar", "cb", "={{ $json.botones.bloquear }}")]])
-    f.chain("L-V 8:30", "Cola de hoy", "¿Hay cola?", "Telegram: cabecera", "Uno por negocio", "Telegram: negocio")
-    f.chain("Prueba (webhook)", "¿Autorizado?", "Cola simulada", "¿Hay cola?")
+    f.tg("Telegram: prueba", "={{ $json.cabecera }}")
+    f.chain("Prueba (webhook)", "¿Autorizado?", "Cola simulada", "Telegram: prueba")
     # 2) botones (los llama el Bot de comandos): pa:copiar|enviado|saltar|bloquear:<id> y pv:visitado:<codigo>
     f.sub_trigger("Botón de la cola")
     f.iff("¿Visita?", "$json.ns === 'pv'")
@@ -296,8 +300,9 @@ return [{ json: { texto: r.texto || '', editar: visita ? !!r.ok : !!r.editar, me
     tg_buttons(f, "Telegram: parada", "={{ $json.mensaje }}", [[("📍 Google Maps", "url", "={{ $json.maps_url }}"), ("✅ Visitado", "cb", "={{ $json.callback }}")]])
     f.chain("Ruta (backend)", "Telegram: ruta", "Una por parada", "Telegram: parada")
     _layout(f, {
-        "L-V 8:30": (0, 0), "Cola de hoy": (240, 0), "Prueba (webhook)": (0, 200), "¿Autorizado?": (240, 200), "Cola simulada": (480, 200),
-        "¿Hay cola?": (720, 80), "Telegram: cabecera": (960, 80), "Uno por negocio": (1200, 80), "Telegram: negocio": (1440, 80),
+        "L-V 8:30": (0, 0), "Cola de hoy": (240, 0), "¿Hay cola?": (480, 0), "Telegram: cola de hoy": (720, 0),
+        "L-V 17:00": (0, 160), "Resumen del día": (240, 160), "¿Hubo cola?": (480, 160), "Telegram: resumen": (720, 160),
+        "Prueba (webhook)": (0, 320), "¿Autorizado?": (240, 320), "Cola simulada": (480, 320), "Telegram: prueba": (720, 320),
         "Botón de la cola": (0, 480), "¿Visita?": (240, 480), "Registrar visita": (480, 400), "Acción de la cola": (480, 560),
         "Resultado": (720, 480), "¿Copiar?": (960, 480), "Telegram: texto para copiar": (1200, 400), "¿Editar?": (1200, 580),
         "Editar mensaje": (1440, 520), "Telegram: aviso": (1440, 660),

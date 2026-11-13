@@ -1212,3 +1212,45 @@ def test_cola_de_hoy_api_con_sesion(client, pg_url, monkeypatch):
     assert client.get(f"{URL}/admin/cola/pendientes").json()["pendientes"] == 14
     assert client.post(f"{URL}/admin/cola/999999/accion", json={"accion": "enviado"}).status_code == 404
     assert client.post(f"{URL}/admin/cola/1/accion", json={"accion": "borrar"}).status_code == 422
+
+
+# ------------------------------------------------------------------ Telegram mas liviano: 8:30 y 17:00
+def test_telegram_manana_un_solo_mensaje_con_conteo_y_boton(client, pg_url):
+    _seed_social(pg_url)
+    tue = _at(2026, 11, 17, 8, 30)
+    m = _with_db(pg_url, lambda db: pc.morning_message(db, tue))
+    assert m["enviar"] is True and m["total"] == 15 and m["url"].endswith("/admin-v2plus#cola")
+    assert m["mensaje"].startswith("☀️ <b>Cola de hoy: 15 negocios</b>\n15 primeros mensajes · 0 seguimientos\n")
+    assert "Talleres 15" in m["mensaje"] or "Talleres" in m["mensaje"]
+    assert m["mensaje"].count("\n") == 2, "un solo mensaje corto (no uno por negocio)"
+    sat = _at(2026, 11, 21, 8, 30)
+    assert _with_db(pg_url, lambda db: pc.morning_message(db, sat))["enviar"] is False, "fin de semana: nada"
+
+
+def test_telegram_resumen_17_y_seguidores(client, pg_url):
+    _seed_social(pg_url)
+    tue = _at(2026, 11, 17, 8, 30)
+    v = _cola(pg_url, tue)
+    a, b, c, d = v["pendientes"][:4]
+    _cact(pg_url, a["id"], "enviado", _at(2026, 11, 17, 9, 0))
+    _cact(pg_url, b["id"], "enviado", _at(2026, 11, 17, 9, 5))
+    _cact(pg_url, b["id"], "respondio", _at(2026, 11, 17, 10, 0))
+    _cact(pg_url, c["id"], "saltar", tue)
+    _cact(pg_url, d["id"], "bloquear", tue)
+    at17 = _at(2026, 11, 17, 17, 0)
+    s = _with_db(pg_url, lambda db: pc.summary_message(db, at17))
+    assert s["mensaje"].startswith("🌙 <b>Resumen</b>: enviados 2 de 15 · saltados 1 · no contactar 1\nRespondieron hoy: 1 (")
+    assert b["name"] in s["mensaje"]
+    assert s["seguidores"] is None and "Nuevos seguidores de @clonexaapp hoy: —" in s["mensaje"], "sin dato de Meta: — y el motivo"
+    _run(pg_url, """CREATE TABLE IF NOT EXISTS social_daily_metrics (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), network varchar(20) NOT NULL,
+        metric_date date NOT NULL, followers integer NULL)""", fetch=False)
+    _run(pg_url, "INSERT INTO social_daily_metrics (network, metric_date, followers) VALUES ('instagram', '2026-11-16', 120), ('instagram', '2026-11-17', 123), ('tiktok', '2026-11-17', 9)", fetch=False)
+    s = _with_db(pg_url, lambda db: pc.summary_message(db, at17))
+    assert s["seguidores"] == 3 and s["mensaje"].endswith("Nuevos seguidores de @clonexaapp hoy: +3")
+    _run(pg_url, "DROP TABLE social_daily_metrics", fetch=False)
+
+
+@pytest.mark.parametrize("method,path", [("post", "/n8n/assisted/morning"), ("get", "/n8n/assisted/summary")])
+def test_telegram_endpoints_n8n_401(client, monkeypatch, method, path):
+    assert client.request(method.upper(), URL + path, json={}).status_code == 401
+    assert client.request(method.upper(), URL + path, json={}, headers=H).status_code == 200
