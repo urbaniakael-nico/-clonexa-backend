@@ -149,6 +149,13 @@ async def admin_v2plus_nexa_js():
     return _file("admin_v2plus_nexa.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-radar.js", include_in_schema=False)
+async def admin_v2plus_radar_js(request: Request, db: AsyncSession = Depends(get_db)):
+    """Radar · Innovación (NEXUS): el recurso tambien exige sesion de Admin V2 (401 sin ella)."""
+    await _require_session_json(request, db)
+    return _file("admin_v2plus_radar.js", "application/javascript")
+
+
 @router.get("/admin-v2plus-mapa.js", include_in_schema=False)
 async def admin_v2plus_mapa_js():
     return _file("admin_v2plus_mapa.js", "application/javascript")

@@ -316,3 +316,12 @@ def test_generar_desde_la_consola_respeta_el_tope(client, monkeypatch):
     _admin(monkeypatch, ok=False)
     assert client.post(f"{URL}/admin/generar", json={}).status_code == 401
     assert client.post(f"{URL}/n8n/finish", json={"informe_id": 1}).status_code == 401
+
+
+def test_recurso_del_modulo_exige_sesion(client, monkeypatch):
+    from app.web import admin_v2plus_routes as plus
+    monkeypatch.setattr(plus, "_active_session", AsyncMock(return_value=False))
+    assert client.get("/admin-v2plus-radar.js").status_code == 401
+    monkeypatch.setattr(plus, "_active_session", AsyncMock(return_value=True))
+    r = client.get("/admin-v2plus-radar.js")
+    assert r.status_code == 200 and "CxConsoleRadar" in r.text

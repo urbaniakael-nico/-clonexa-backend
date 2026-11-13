@@ -119,5 +119,5 @@ test('el textos que llegan del servidor se escapan', () => {
 
 test('Consola v2+: "🏢 Ir a la oficina" justo debajo de "Conversaciones Nexa"', () => {
   const html = readFileSync('app/web/admin_v2plus.html', 'utf8').replace(/\r\n/g, '\n');
-  assert.match(html, /data-vp-view="nexa">Conversaciones Nexa<\/button>\n\s*<a class="vp-nav-item vp-nav-link" href="\/admin-v2plus\/oficina" data-vp-oficina>🏢 Ir a la oficina<\/a>\n\s*<\/nav>/);
+  assert.match(html, /data-vp-view="nexa">Conversaciones Nexa<\/button>\r?\n\s*<button class="vp-nav-item" type="button" data-vp-view="radar">Radar · Innovación<\/button>\r?\n\s*<a class="vp-nav-item vp-nav-link" href="\/admin-v2plus\/oficina" data-vp-oficina>🏢 Ir a la oficina<\/a>\r?\n\s*<\/nav>/);
 });
