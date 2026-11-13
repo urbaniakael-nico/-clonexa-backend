@@ -584,7 +584,7 @@ def test_plan_por_nicho_respeta_limites_diarios_y_prioridad(client, pg_url):
     for _ in range(12):
         _ingest_in(client, z, "electrico", [])
     assert client.get(f"{URL}/n8n/scan-plan?max=40&nicho=campo", headers=H).json()["plan"] == []
-    used = _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind = 'places_text' AND niche = 'campo'")[0]["n"]
+    used = _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind LIKE 'places_text%' AND niche = 'campo'")[0]["n"]
     assert used == 12
     req = campo[0]["request"]
     assert "(" not in req["body"]["textQuery"] and req["body"]["textQuery"].endswith(", Bogotá")
@@ -646,7 +646,7 @@ def test_vigencia_por_verificar_no_entra_a_correo_y_se_ve_en_mapa(client, pg_url
     _run(pg_url, "UPDATE prospects SET rating_count = 2 WHERE id = CAST(:i AS uuid)", {"i": pid}, fetch=False)
     r = client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "place": {**places[1], "userRatingCount": 4}}).json()
     assert r["vigencia"] == "activo"
-    assert _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind = 'places_details'")[0]["n"] == 1
+    assert _run(pg_url, "SELECT SUM(calls)::int AS n FROM prospect_api_usage WHERE kind = 'places_details_atmos'")[0]["n"] == 1
     # ya no aparece en Google -> por verificar
     r = client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "not_found": True}).json()
     assert _run(pg_url, "SELECT vigencia FROM prospects WHERE id = CAST(:i AS uuid)", {"i": pid})[0]["vigencia"] == "por_verificar"
@@ -922,8 +922,8 @@ def test_reporte_semanal_de_gasto(client, pg_url, monkeypatch):
     client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "place": _taller(9, "Taller Gasto")})
     r = client.get(f"{URL}/n8n/cost-report", headers=H).json()
     rows = {x["sku"]: x for x in r["rows"]}
-    assert rows["Text Search Enterprise"]["llamadas"] == 5 and rows["Text Search Enterprise"]["usd_lista"] == 0.17
-    assert rows["Place Details Enterprise"]["llamadas"] == 1
+    assert rows["Text Search Enterprise + Atmosphere"]["llamadas"] == 5 and rows["Text Search Enterprise + Atmosphere"]["usd_lista"] == 0.2
+    assert rows["Place Details Enterprise + Atmosphere"]["llamadas"] == 1
     assert r["busquedas_por_nicho"] == {"campo": 3, "taller": 2} and r["claude_tokens"] == 0
     assert "Gasto estimado" in r["mensaje"] and "uso gratis" in r["mensaje"] and "0 tokens" in r["mensaje"]
     assert client.get(f"{URL}/admin/cost-report").json()["usd_lista"] == r["usd_lista"]
@@ -982,3 +982,23 @@ def test_nexa_pregunta_tipo_de_negocio_y_zona_y_lo_guarda(pg_url, client, monkey
     assert "/personal-en-campo?" in last["prospecto"]["pitch"] and "Negocio en vivo 3D" in last["prospecto"]["pitch"]
     row = _run(pg_url, "SELECT business_type, zone, origin FROM wa_contacts WHERE wa_id = '573005550003'")[0]
     assert row == {"business_type": "Contratista eléctrico", "zone": "Puente Aranda", "origin": "prospecto"}
+
+
+def test_resenas_activadas_piden_el_campo_y_cuentan_su_sku(client, pg_url):
+    plan = client.get(f"{URL}/n8n/scan-plan?max=1", headers=H).json()["plan"]
+    assert "places.reviews" in plan[0]["request"]["field_mask"]
+    assert client.get(f"{URL}/n8n/refresh-due", headers=H).json()["field_mask"].endswith(",reviews")
+    _run(pg_url, "UPDATE prospect_settings SET config = '{\"vigencia_reviews\": false}'::jsonb", fetch=False)
+    plan = client.get(f"{URL}/n8n/scan-plan?max=1", headers=H).json()["plan"]
+    assert "places.reviews" not in plan[0]["request"]["field_mask"], "se puede apagar desde ajustes"
+    z = _bog(pg_url)
+    _ingest_in(client, z, "taller", [])
+    assert _run(pg_url, "SELECT kind FROM prospect_api_usage") == [{"kind": "places_text"}]
+    # con resenas: una de hace 2 anios manda (por verificar) aunque tenga horario y muchas resenas
+    _run(pg_url, "UPDATE prospect_settings SET config = '{}'::jsonb", fetch=False)
+    old = _taller(600, "Taller Viejo")
+    old["reviews"] = [{"publishTime": "2024-01-10T00:00:00Z", "text": {"text": "no se guarda"}}]
+    _ingest_in(client, z, "taller", [old])
+    row = _run(pg_url, "SELECT vigencia, vigencia_reason, last_activity_at FROM prospects WHERE name = 'Taller Viejo'")[0]
+    assert row["vigencia"] == "por_verificar" and "última reseña" in row["vigencia_reason"]
+    assert "no se guarda" not in str(_run(pg_url, "SELECT * FROM prospects WHERE name = 'Taller Viejo'")), "el texto de la resena no se guarda"

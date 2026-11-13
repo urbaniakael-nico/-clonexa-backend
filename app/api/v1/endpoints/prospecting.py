@@ -104,7 +104,8 @@ async def scan_report(desde: str = Query(default="", max_length=40), db: AsyncSe
 
 @router.get("/n8n/refresh-due", dependencies=n8n)
 async def refresh_due(limit: int = Query(default=40, ge=1, le=200), db: AsyncSession = Depends(get_db)) -> dict:
-    return {"items": await ps.refresh_due(db, limit), "field_mask": ps.DETAIL_FIELD_MASK}
+    cfg = await ps.get_settings(db)
+    return {"items": await ps.refresh_due(db, limit), "field_mask": ps.detail_field_mask(bool(cfg["vigencia_reviews"]))}
 
 
 class RefreshIn(BaseModel):
@@ -393,6 +394,7 @@ class SettingsIn(BaseModel):
     assisted_daily_limit: Optional[int] = Field(default=None, ge=0, le=30)
     vigencia_months: Optional[int] = Field(default=None, ge=3, le=36)
     vigencia_min_reviews: Optional[int] = Field(default=None, ge=0, le=50)
+    vigencia_reviews: Optional[bool] = None
 
 
 @router.get("/admin/settings", dependencies=admin)

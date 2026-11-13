@@ -49,13 +49,14 @@ SEARCH = pn.SEARCH
 FIELD_MASK = ",".join([
     "places.id", "places.displayName", "places.formattedAddress", "places.addressComponents", "places.location",
     "places.types", "places.primaryType", "places.businessStatus", "places.nationalPhoneNumber", "places.websiteUri",
-    # vigencia: mismo SKU (Enterprise, ya lo es por telefono y web). Las resenas (con fecha) serian Enterprise +
-    # Atmosphere: NO se piden (ver prospecting_niches.SKU_PRICE).
+    # vigencia: horario y numero de resenas son del mismo SKU (Enterprise, ya lo es por telefono y web). Las
+    # resenas con fecha (places.reviews) suben a Enterprise + Atmosphere: se agregan solo con vigencia_reviews.
     "places.regularOpeningHours", "places.userRatingCount",
     "nextPageToken",
 ])
 DETAIL_FIELD_MASK = ("id,displayName,formattedAddress,addressComponents,location,types,primaryType,businessStatus,"
                      "nationalPhoneNumber,websiteUri,regularOpeningHours,userRatingCount")
+REVIEWS_FIELD = "places.reviews"           # Enterprise + Atmosphere (US$40 por 1.000 vs 35): aprobado por el dueno 2026-11-12
 RESCAN_DAYS = 30  # una busqueda agotada (sin pagina siguiente) no se repite antes de 30 dias (ahorro)
 REFRESH_DAYS = 30
 FOLLOWUP_DAYS = 7
@@ -85,6 +86,8 @@ DEFAULT_SETTINGS = {
     # vigencia: sin actividad visible en N meses -> por verificar
     "vigencia_months": 12,
     "vigencia_min_reviews": 3,
+    # fecha de la ultima resena para la vigencia (SKU Enterprise + Atmosphere). Activado por el dueno 2026-11-12.
+    "vigencia_reviews": True,
 }
 
 
@@ -445,6 +448,7 @@ async def save_settings(db: AsyncSession, changes: dict) -> dict:
     cfg["assisted_daily_limit"] = max(0, min(30, int(cfg["assisted_daily_limit"])))
     cfg["vigencia_months"] = max(3, min(36, int(cfg["vigencia_months"])))
     cfg["vigencia_min_reviews"] = max(0, min(50, int(cfg["vigencia_min_reviews"])))
+    cfg["vigencia_reviews"] = bool(cfg["vigencia_reviews"])
     await db.execute(text("""INSERT INTO prospect_settings (id, config, updated_at) VALUES (1, CAST(:c AS jsonb), now())
                              ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()"""),
                      {"c": json.dumps(cfg)})
@@ -539,7 +543,23 @@ async def save_zone(db: AsyncSession, data: dict, zone_id: Optional[int] = None)
 PAREN_RE = re.compile(r"\s*\(.*?\)")
 
 
-def places_request(zone: dict, business_type: str, page_token: str = "") -> dict:
+def field_mask(reviews: bool) -> str:
+    return FIELD_MASK.replace(",nextPageToken", "," + REVIEWS_FIELD + ",nextPageToken") if reviews else FIELD_MASK
+
+
+def detail_field_mask(reviews: bool) -> str:
+    return DETAIL_FIELD_MASK + (",reviews" if reviews else "")
+
+
+def text_sku(reviews: bool) -> str:
+    return "places_text_atmos" if reviews else "places_text"
+
+
+def details_sku(reviews: bool) -> str:
+    return "places_details_atmos" if reviews else "places_details"
+
+
+def places_request(zone: dict, business_type: str, page_token: str = "", reviews: bool = False) -> dict:
     query, included = SEARCH[business_type]
     where = PAREN_RE.sub("", zone["name"]).strip()
     body: dict[str, Any] = {
@@ -552,7 +572,7 @@ def places_request(zone: dict, business_type: str, page_token: str = "") -> dict
         body["includedType"] = included
     if page_token:
         body["pageToken"] = page_token
-    return {"url": "https://places.googleapis.com/v1/places:searchText", "field_mask": FIELD_MASK, "body": body}
+    return {"url": "https://places.googleapis.com/v1/places:searchText", "field_mask": field_mask(reviews), "body": body}
 
 
 async def usage_today(db: AsyncSession, kind: str = "places_text", at: Optional[datetime] = None) -> tuple[dict, dict]:
@@ -588,6 +608,11 @@ async def scan_plan(db: AsyncSession, *, max_searches: int = 12, zone_slug: str 
     state = {(r["zone_id"], r["business_type"]): r for r in await _rows(db, "SELECT * FROM prospect_zone_scans")}
     cut = (at or now()) - timedelta(days=int(cfg["rescan_days"]))
     used_n, used_z = await usage_today(db, at=at)
+    a_n, a_z = await usage_today(db, "places_text_atmos", at=at)
+    for k, v in a_n.items():
+        used_n[k] = used_n.get(k, 0) + v
+    for k, v in a_z.items():
+        used_z[k] = used_z.get(k, 0) + v
     limits = cfg["search_limits"]
     zone_limit = int(cfg["zone_search_limit"])
     cand = []
@@ -611,7 +636,7 @@ async def scan_plan(db: AsyncSession, *, max_searches: int = 12, zone_slug: str 
         used_n[n] = used_n.get(n, 0) + 1
         used_z[z["id"]] = used_z.get(z["id"], 0) + 1
         plan.append({"zone_id": z["id"], "zone": z["slug"], "zone_name": z["name"], "business_type": t, "niche": n,
-                     "request": places_request(z, t, token)})
+                     "request": places_request(z, t, token, reviews=bool(cfg["vigencia_reviews"]))})
         if len(plan) >= max(1, min(40, max_searches)):
             break
     return plan
@@ -666,9 +691,10 @@ async def ingest_places(db: AsyncSession, *, zone_id: int, business_type: str, p
     if business_type not in TYPES:
         raise ValueError("tipo_invalido")
     niche = pn.niche_of(business_type)
-    await record_usage(db, "places_text", niche=niche, zone_id=zone_id)   # cada busqueda es 1 llamada, traiga o no resultados
-    chain_names = [c["name"] for c in await chains(db)] + await niche_chains(db, niche)
     cfg = await get_settings(db)
+    # cada busqueda es 1 llamada, traiga o no resultados (con resenas = SKU Enterprise + Atmosphere)
+    await record_usage(db, text_sku(bool(cfg["vigencia_reviews"])), niche=niche, zone_id=zone_id)
+    chain_names = [c["name"] for c in await chains(db)] + await niche_chains(db, niche)
     out = {"found": len(places), "new": 0, "duplicate": 0, "chain": 0, "closed": 0, "outside": 0, "excluded": 0,
            "with_email": 0, "new_ids": []}
     new_rows = []
@@ -815,7 +841,7 @@ async def apply_refresh(db: AsyncSession, prospect_id: str, place: Optional[dict
         await db.execute(text("""UPDATE prospects SET business_status = 'NOT_FOUND', place_refreshed_at = now(), updated_at = now(),
                                  vigencia = 'por_verificar', vigencia_reason = 'ya no aparece en Google', vigencia_at = now()
                                  WHERE id = CAST(:i AS uuid)"""), {"i": prospect_id})
-        await record_usage(db, "places_details")
+        await record_usage(db, details_sku(bool((await get_settings(db))["vigencia_reviews"])))
         await db.commit()
         return {"ok": True, "estado": "no_encontrado"}
     loc = place.get("location") or {}
@@ -836,7 +862,7 @@ async def apply_refresh(db: AsyncSession, prospect_id: str, place: Optional[dict
         "ph": str(place.get("nationalPhoneNumber") or "")[:60], "w": str(place.get("websiteUri") or "")[:500],
         "lat": loc.get("latitude"), "lng": loc.get("longitude"), "bs": str(place.get("businessStatus") or "OPERATIONAL")[:40],
         "t": json.dumps((place.get("types") or [])[:20]), "i": prospect_id})
-    await record_usage(db, "places_details")
+    await record_usage(db, details_sku(bool(cfg["vigencia_reviews"])))
     await db.commit()
     return {"ok": True, "estado": str(place.get("businessStatus") or "OPERATIONAL"), "vigencia": vg["estado"]}
 
@@ -1439,7 +1465,7 @@ async def cost_report(db: AsyncSession, days: int = 7, at: Optional[datetime] = 
     est = pn.estimate_cost(by_kind, {r["kind"]: r["calls"] for r in month})
     by_niche: dict[str, int] = {}
     for r in rows:
-        if r["kind"] == "places_text":
+        if r["kind"] in ("places_text", "places_text_atmos"):
             by_niche[r["niche"]] = by_niche.get(r["niche"], 0) + r["calls"]
     return {"desde": start.isoformat(), "hasta": end.isoformat(), **est, "busquedas_por_nicho": by_niche,
             "claude_tokens": 0, "claude_usd": 0.0}

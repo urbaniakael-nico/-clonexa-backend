@@ -259,7 +259,10 @@ def test_vigencia_regla_inicial_12_meses():
 
 
 def test_field_mask_de_vigencia_no_sube_el_sku():
-    assert "places.reviews" not in ps.FIELD_MASK and "reviews" not in ps.DETAIL_FIELD_MASK, "Atmosphere apagado"
+    assert "places.reviews" not in ps.FIELD_MASK and "reviews" not in ps.DETAIL_FIELD_MASK, "la base no sube el SKU"
+    assert ps.DEFAULT_SETTINGS["vigencia_reviews"] is True, "resenas con fecha activadas por el dueno (Atmosphere)"
+    assert "places.reviews" in ps.field_mask(True) and ps.field_mask(True).endswith("nextPageToken")
+    assert ps.text_sku(True) == "places_text_atmos" and ps.details_sku(False) == "places_details"
     assert "places.regularOpeningHours" in ps.FIELD_MASK and "places.userRatingCount" in ps.FIELD_MASK
 
 
