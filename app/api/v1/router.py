@@ -78,6 +78,7 @@ for _module_name, _prefix, _tags in [
     ("nexa_content", "/nexa-content", ["nexa_content"]),
     ("nexa_whatsapp", "/nexa-wa", ["nexa_whatsapp"]),
     ("prospecting", "/prospecting", ["prospecting"]),
+    ("radar", "/radar", ["radar"]),
     ("assemblies", "/assemblies", ["assemblies"]),
     ("shoplink", "/shoplink", ["shoplink"]),
     ("marketplace", "/marketplace", ["marketplace"]),
