@@ -6232,6 +6232,7 @@ function inventoryCreatePayload() {
 
       const createdItem = created?.item || created?.data || created;
       const createdItemId = createdItem?.id || created?.id || created?.item_id;
+      await cxIconsAfterCreate079A(createdItemId);
 
       if (shouldCreateInitialEntryWithInvoice) {
         if (!createdItemId) {
@@ -6800,9 +6801,312 @@ function inventoryCreatePayload() {
     if (mode === "modify") applyInventorySmartSearch(window.__cxInventorySearchQuery || "");
     if (mode === "fixed") cxFixLoad049M();
     if (mode === "compras" && carta049Q) cxInvRestockLoad049T();
+    cxIconsMount079A(mode);
   }
 
   /* CX_019E_R1_INVENTORY_HISTORY_ARCHIVE_CLIENT */
+  /* CLONEXA_079A_ICONOS_CARTA_START
+     Galería de íconos de carta de Clonexa (interruptor iconos_carta_clonexa, hoy
+     solo The Time Machine). Inventario: al crear, vista previa del ícono mientras
+     escriben el nombre ("✓ Reconocido: <palabra>" o "Sin reconocer"), "Cambiar
+     ícono" (galería con buscador), "Subir foto" (el flujo de foto de siempre) y
+     "Volver al automático"; en "Modificar material", lo mismo para cada artículo.
+     Apagado: no se agrega nada a la pantalla. */
+  const cxIcons079A = { on: false, gallery: [], items: [], pending: { key: null, file: null }, editing: "", query: "", filter: "" };
+
+  function cxIconFold079A(value) {
+    const plain = String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
+    return plain ? plain.split(/\s+/)[0] : "";
+  }
+
+  // Igual que carta_icons.recognize() del servidor: la palabra, sin "es" y sin "s".
+  function cxIconRecognize079A(name) {
+    const word = cxIconFold079A(name);
+    if (!word) return { key: "", word: "" };
+    for (const candidate of [word, word.replace(/es$/, ""), word.replace(/s$/, "")]) {
+      const hit = cxIcons079A.gallery.find((g) => (g.words || []).includes(candidate));
+      if (hit) return { key: hit.key, word };
+    }
+    return { key: "", word };
+  }
+
+  function cxIconOf079A(key) {
+    return cxIcons079A.gallery.find((g) => g.key === key) || cxIcons079A.gallery.find((g) => g.generic) || null;
+  }
+
+  function cxIconImg079A(url, alt) {
+    const safe = /^\/assets\/iconos-carta\/[a-z0-9-]+\.svg(\?v=[a-z0-9]+)?$/.test(String(url || "")) || /^\/api\/v1\/companies\/[0-9a-f-]+\/waiter-ordering\/products\/[0-9a-f-]+\/image(\?.*)?$/.test(String(url || "")) || /^blob:/.test(String(url || ""));
+    return safe ? `<img src="${h(url)}" alt="${h(alt)}" width="96" height="96">` : "";
+  }
+
+  function cxIconStyles079A() {
+    if (document.getElementById("cxIconos079AStyles")) return;
+    const style = document.createElement("style");
+    style.id = "cxIconos079AStyles";
+    style.textContent = `
+      .cx-ico-card-079a{grid-column:1/-1;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.03)}
+      .cx-ico-box-079a{flex:0 0 auto;width:96px;height:96px;border-radius:14px;background:#14121c;display:grid;place-items:center;overflow:hidden}
+      .cx-ico-box-079a img{width:80px;height:80px;object-fit:contain}
+      .cx-ico-box-079a.is-photo img{width:96px;height:96px;object-fit:cover}
+      .cx-ico-body-079a{flex:1 1 220px;min-width:0;display:grid;gap:8px}
+      .cx-ico-tag-079a{justify-self:start;padding:3px 10px;border-radius:8px;font-weight:700;font-size:14px;background:#14532d;color:#bbf7d0}
+      .cx-ico-tag-079a.is-generic{background:#422006;color:#fde68a}
+      .cx-ico-tag-079a.is-manual{background:#3b0764;color:#e9d5ff}
+      .cx-ico-actions-079a{display:flex;flex-wrap:wrap;gap:8px}
+      .cx-ico-actions-079a button,.cx-ico-actions-079a label{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid #a855f7;background:transparent;color:inherit;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+      .cx-ico-actions-079a input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+      .cx-ico-list-079a{display:grid;gap:10px}
+      .cx-ico-row-079a{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:12px}
+      .cx-ico-row-079a .cx-ico-box-079a{width:56px;height:56px}
+      .cx-ico-row-079a .cx-ico-box-079a img{width:48px;height:48px}
+      .cx-ico-row-079a .cx-ico-box-079a.is-photo img{width:56px;height:56px}
+      .cx-ico-row-079a strong{flex:1 1 160px;min-width:0;overflow-wrap:anywhere}
+      .cx-ico-modal-079a{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:grid;place-items:center;padding:16px}
+      .cx-ico-sheet-079a{width:min(760px,100%);max-height:90vh;overflow:auto;background:#121019;color:#f4f4f5;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:18px;display:grid;gap:12px}
+      .cx-ico-sheet-079a header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+      .cx-ico-sheet-079a h2{margin:0}
+      .cx-ico-sheet-079a input[type=search]{width:100%;min-height:46px;padding:0 14px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:#0b0a10;color:inherit;font-size:16px;box-sizing:border-box}
+      .cx-ico-grid-079a{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+      .cx-ico-grid-079a button{display:grid;justify-items:center;gap:6px;padding:10px 6px;border-radius:14px;border:2px solid rgba(255,255,255,.08);background:#1a1823;color:inherit;font-weight:700;cursor:pointer}
+      .cx-ico-grid-079a button.is-current{border-color:#22c55e}
+      .cx-ico-grid-079a img{width:64px;height:64px;object-fit:contain}
+    `;
+    document.head.appendChild(style);
+  }
+
+  async function cxIconsLoad079A() {
+    cxIcons079A.on = false;
+    const companyId = state?.companyId || "";
+    if (!companyId) return false;
+    try {
+      const data = await api(`/hospitality/companies/${encodeURIComponent(companyId)}/carta-iconos`);
+      cxIcons079A.on = data && data.on === true;
+      cxIcons079A.gallery = cxIcons079A.on ? (data.gallery || []) : [];
+      cxIcons079A.items = cxIcons079A.on ? (data.items || []) : [];
+    } catch (_) {
+      cxIcons079A.on = false;
+    }
+    return cxIcons079A.on;
+  }
+
+  // Tarjeta de vista previa (crear o editar). icon = lo que saldría hoy.
+  function cxIconCardHtml079A(name, opts = {}) {
+    const auto = cxIconRecognize079A(name);
+    const pending = opts.pending || {};
+    let tag;
+    let tagCls = "";
+    let url;
+    let photo = false;
+    if (pending.file) {
+      photo = true;
+      url = pending.preview || "";
+      tag = "📷 Foto propia";
+      tagCls = "is-manual";
+    } else if (opts.photoUrl) {
+      photo = true;
+      url = opts.photoUrl;
+      tag = "📷 Foto propia (la foto manda)";
+      tagCls = "is-manual";
+    } else if (pending.key) {
+      url = (cxIconOf079A(pending.key) || {}).url;
+      tag = `🎨 Elegido a mano: ${(cxIconOf079A(pending.key) || {}).label || pending.key}`;
+      tagCls = "is-manual";
+    } else if (auto.key) {
+      url = (cxIconOf079A(auto.key) || {}).url;
+      tag = `✓ Reconocido: ${auto.word}`;
+    } else {
+      url = (cxIconOf079A("") || {}).url;
+      tag = auto.word ? `Sin reconocer: saldrá el ícono genérico` : "Escribe el nombre para ver el ícono";
+      tagCls = "is-generic";
+    }
+    const id = h(opts.itemId || "");
+    const manual = Boolean(pending.key || pending.file);
+    return `
+      <div class="cx-ico-card-079a" data-ico-card-079a="${id}">
+        <div class="cx-ico-box-079a${photo ? " is-photo" : ""}">${cxIconImg079A(url, name || "Ícono")}</div>
+        <div class="cx-ico-body-079a">
+          <span class="cx-ico-tag-079a ${tagCls}" data-ico-tag-079a>${h(tag)}</span>
+          <span class="client-muted">Así se verá en la pantalla de la mesa (QR).</span>
+          <div class="cx-ico-actions-079a">
+            <button type="button" data-ico-change-079a="${id}">🎨 Cambiar ícono</button>
+            <label>📷 Subir foto<input type="file" accept="image/png,image/jpeg,image/webp" data-ico-photo-079a="${id}"></label>
+            ${manual ? `<button type="button" data-ico-auto-079a="${id}">↺ Volver al automático</button>` : ""}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function cxIconRefreshCreate079A() {
+    const host = document.querySelector('[data-ico-card-079a=""]');
+    const name = document.getElementById("inventoryCreateName")?.value || "";
+    if (host) host.outerHTML = cxIconCardHtml079A(name, { pending: cxIcons079A.pending });
+  }
+
+  function cxIconListHtml079A() {
+    const q = cxIconFold079A(cxIcons079A.filter);
+    const rows = cxIcons079A.items.filter((it) => !q || String(it.name || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().includes(q));
+    return rows.map((it) => {
+      const icon = it.icon || {};
+      const tag = icon.source === "photo" ? "📷 Foto propia" : icon.source === "manual" ? `🎨 Elegido a mano: ${(cxIconOf079A(icon.key) || {}).label || icon.key}`
+        : icon.source === "auto" ? `✓ Reconocido: ${icon.word || ""}` : "Sin reconocer: ícono genérico";
+      return `
+        <div class="cx-ico-row-079a" data-ico-row-079a="${h(it.id)}">
+          <div class="cx-ico-box-079a${icon.source === "photo" ? " is-photo" : ""}">${cxIconImg079A(icon.url, it.name)}</div>
+          <strong>${h(it.name)}</strong>
+          <span class="cx-ico-tag-079a ${icon.source === "generic" ? "is-generic" : icon.source === "auto" ? "" : "is-manual"}">${h(tag)}</span>
+          <div class="cx-ico-actions-079a">
+            <button type="button" data-ico-change-079a="${h(it.id)}">🎨 Cambiar ícono</button>
+            <label>📷 Subir foto<input type="file" accept="image/png,image/jpeg,image/webp" data-ico-photo-079a="${h(it.id)}"></label>
+            ${icon.source === "manual" ? `<button type="button" data-ico-auto-079a="${h(it.id)}">↺ Volver al automático</button>` : ""}
+          </div>
+        </div>`;
+    }).join("") || `<p class="client-muted">Ningún artículo coincide.</p>`;
+  }
+
+  function cxIconPanelHtml079A() {
+    return `
+      <section class="client-panel" id="cxIconPanel079A">
+        <div class="client-eyebrow">Pantalla de la mesa (QR)</div>
+        <h2>Íconos de la carta</h2>
+        <p class="client-muted">Cada artículo sale con el ícono de su primera palabra. Si no te gusta, cámbialo o sube una foto: la foto manda.</p>
+        <input type="search" class="cx-inv-search" placeholder="Buscar artículo" value="${h(cxIcons079A.filter)}" data-ico-filter-079a aria-label="Buscar artículo">
+        <div class="cx-ico-list-079a" data-ico-list-079a>${cxIconListHtml079A()}</div>
+      </section>`;
+  }
+
+  function cxIconGalleryHtml079A() {
+    const q = cxIconFold079A(cxIcons079A.query);
+    const current = cxIcons079A.editing === "" ? cxIcons079A.pending.key
+      : ((cxIcons079A.items.find((it) => it.id === cxIcons079A.editing) || {}).icon || {}).key;
+    const tiles = cxIcons079A.gallery.filter((g) => !q || cxIconFold079A(g.label).startsWith(q) || g.key.startsWith(q) || (g.words || []).some((w) => w.startsWith(q)));
+    return `
+      <div class="cx-ico-modal-079a" data-ico-modal-079a role="dialog" aria-modal="true" aria-label="Galería de íconos">
+        <div class="cx-ico-sheet-079a">
+          <header><h2>Galería de íconos</h2><button class="client-btn" type="button" data-ico-close-079a aria-label="Cerrar">✕</button></header>
+          <input type="search" placeholder="🔎 Buscar: guaro, papas, entrada..." value="${h(cxIcons079A.query)}" data-ico-search-079a aria-label="Buscar ícono por nombre o sinónimo">
+          <div class="cx-ico-grid-079a">${tiles.map((g) => `
+            <button type="button" class="${g.key === current ? "is-current" : ""}" data-ico-pick-079a="${h(g.key)}">${cxIconImg079A(g.url, g.label)}<span>${h(g.label)}</span></button>`).join("") || `<p class="client-muted">Sin resultados.</p>`}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function cxIconOpenGallery079A(itemId) {
+    cxIcons079A.editing = itemId || "";
+    cxIcons079A.query = "";
+    document.querySelector("[data-ico-modal-079a]")?.remove();
+    document.body.insertAdjacentHTML("beforeend", cxIconGalleryHtml079A());
+    document.querySelector("[data-ico-search-079a]")?.focus();
+  }
+
+  async function cxIconSave079A(itemId, key) {
+    const companyId = state?.companyId || "";
+    const res = await api(`/hospitality/companies/${encodeURIComponent(companyId)}/carta-iconos/items/${encodeURIComponent(itemId)}`,
+      { method: "PUT", body: JSON.stringify({ icono_key: key || null }) });
+    const it = cxIcons079A.items.find((x) => x.id === itemId);
+    if (it && res && res.icon && !(it.icon && it.icon.source === "photo")) it.icon = res.icon;
+    return res;
+  }
+
+  async function cxIconUpload079A(itemId, file) {
+    const companyId = state?.companyId || "";
+    const form = new FormData();
+    form.append("image", file);
+    await apiForm(`/companies/${encodeURIComponent(companyId)}/waiter-ordering/products/${encodeURIComponent(itemId)}/image`, form);
+  }
+
+  function cxIconRedrawList079A() {
+    const list = document.querySelector("[data-ico-list-079a]");
+    if (list) list.innerHTML = cxIconListHtml079A();
+  }
+
+  // Después de crear el artículo: guarda el ícono elegido o la foto (si los hay).
+  async function cxIconsAfterCreate079A(itemId) {
+    if (!cxIcons079A.on || !itemId) return;
+    const { key, file } = cxIcons079A.pending;
+    cxIcons079A.pending = { key: null, file: null };
+    try {
+      if (key) await cxIconSave079A(itemId, key);
+      if (file) await cxIconUpload079A(itemId, file);
+    } catch (error) {
+      setTimeout(() => showInventoryNotice(`Artículo creado, pero no se guardó el ícono: ${error.message || error}`, "error"), 120);
+    }
+  }
+
+  async function cxIconsMount079A(mode) {
+    if (mode !== "create" && mode !== "modify") return;
+    if (!(await cxIconsLoad079A())) return;
+    cxIconStyles079A();
+    if (mode === "create") {
+      const field = document.getElementById("inventoryCreateName")?.closest(".cx-inv-field");
+      if (field && !document.querySelector('[data-ico-card-079a=""]')) {
+        field.insertAdjacentHTML("afterend", cxIconCardHtml079A(document.getElementById("inventoryCreateName").value || "", { pending: cxIcons079A.pending }));
+      }
+    } else if (!document.getElementById("cxIconPanel079A")) {
+      document.querySelector(".client-main")?.insertAdjacentHTML("beforeend", cxIconPanelHtml079A());
+    }
+  }
+
+  document.addEventListener("input", (event) => {
+    const t = event.target;
+    if (!t || !t.matches || !cxIcons079A.on) return;
+    if (t.id === "inventoryCreateName") { cxIconRefreshCreate079A(); return; }
+    if (t.matches("[data-ico-search-079a]")) {
+      cxIcons079A.query = t.value;
+      const grid = document.querySelector(".cx-ico-grid-079a");
+      const tmp = document.createElement("div");
+      tmp.innerHTML = cxIconGalleryHtml079A();
+      if (grid) grid.innerHTML = tmp.querySelector(".cx-ico-grid-079a").innerHTML;
+      return;
+    }
+    if (t.matches("[data-ico-filter-079a]")) { cxIcons079A.filter = t.value; cxIconRedrawList079A(); }
+  });
+
+  document.addEventListener("change", async (event) => {
+    const t = event.target;
+    if (!t || !t.matches || !t.matches("[data-ico-photo-079a]") || !cxIcons079A.on) return;
+    const file = t.files && t.files[0];
+    if (!file) return;
+    const itemId = t.getAttribute("data-ico-photo-079a");
+    if (!itemId) {
+      cxIcons079A.pending = { key: null, file, preview: URL.createObjectURL(file) };
+      cxIconRefreshCreate079A();
+      return;
+    }
+    try {
+      await cxIconUpload079A(itemId, file);
+      await cxIconsLoad079A();
+      cxIconRedrawList079A();
+      showInventoryNotice("Foto guardada: la foto manda sobre el ícono.");
+    } catch (error) {
+      showInventoryNotice(`No se pudo subir la foto: ${error.message || error}`, "error");
+    }
+  });
+
+  document.addEventListener("click", async (event) => {
+    const t = event.target;
+    if (!t || !t.closest || !cxIcons079A.on) return;
+    const change = t.closest("[data-ico-change-079a]");
+    if (change) { cxIconOpenGallery079A(change.getAttribute("data-ico-change-079a")); return; }
+    if (t.closest("[data-ico-close-079a]") || (t.matches && t.matches("[data-ico-modal-079a]"))) { document.querySelector("[data-ico-modal-079a]")?.remove(); return; }
+    const pick = t.closest("[data-ico-pick-079a]");
+    if (pick) {
+      const key = pick.getAttribute("data-ico-pick-079a");
+      document.querySelector("[data-ico-modal-079a]")?.remove();
+      if (cxIcons079A.editing === "") { cxIcons079A.pending = { key, file: null }; cxIconRefreshCreate079A(); return; }
+      try { await cxIconSave079A(cxIcons079A.editing, key); cxIconRedrawList079A(); showInventoryNotice("Ícono guardado."); }
+      catch (error) { showInventoryNotice(`No se pudo guardar el ícono: ${error.message || error}`, "error"); }
+      return;
+    }
+    const auto = t.closest("[data-ico-auto-079a]");
+    if (auto) {
+      const itemId = auto.getAttribute("data-ico-auto-079a");
+      if (!itemId) { cxIcons079A.pending = { key: null, file: null }; cxIconRefreshCreate079A(); return; }
+      try { await cxIconSave079A(itemId, null); cxIconRedrawList079A(); showInventoryNotice("Volvió al ícono automático."); }
+      catch (error) { showInventoryNotice(`No se pudo cambiar: ${error.message || error}`, "error"); }
+    }
+  });
+  /* CLONEXA_079A_ICONOS_CARTA_END */
   /* CX_INVENTORY_BASE_015B_END */
 
   /* CLONEXA_024T_STOCK_PANEL_START */

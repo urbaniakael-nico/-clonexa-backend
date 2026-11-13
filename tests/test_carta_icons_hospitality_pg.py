@@ -215,3 +215,52 @@ def test_menu_de_mesero_caja_y_domicilios_con_iconos_solo_encendido(client, pg_u
     off = _with_db(pg_url, lambda db: wo.build_waiter_menu(db, uuid.UUID(OTRA)))
     assert "iconos_carta" not in off and all("icon" not in c for c in off["categories"])
     assert all("icon" not in p for c in off["categories"] for p in c["products"])
+
+
+# ------------------------------------------------------------------ 2) Inventario: Cambiar ícono / Volver al automático
+def _admin_v2(monkeypatch, ok=True):
+    from app.api.v1.endpoints import company_users
+    monkeypatch.setattr(company_users, "active_admin_v2_session", AsyncMock(return_value=ok))
+
+
+def test_endpoints_nuevos_exigen_sesion_401(client, pg_url, monkeypatch):
+    _admin_v2(monkeypatch, ok=False)
+    ids = _items(pg_url, TTM, ["Aguardiente"])
+    assert client.get(f"/api/v1/hospitality/companies/{TTM}/carta-iconos").status_code == 401
+    r = client.put(f"/api/v1/hospitality/companies/{TTM}/carta-iconos/items/{ids[0]}", json={"icono_key": "ron"})
+    assert r.status_code == 401
+    assert _run(pg_url, "SELECT icono_key FROM inventory_items")[0]["icono_key"] is None
+    bad = client.get(f"/api/v1/hospitality/companies/{TTM}/carta-iconos", headers={"Authorization": "Bearer no-es-un-token"})
+    assert bad.status_code in (401, 403)
+
+
+def test_cambiar_icono_guarda_icono_key_y_volver_al_automatico(client, pg_url, monkeypatch):
+    _admin_v2(monkeypatch)
+    ids = _items(pg_url, TTM, ["Aguardiente Antioqueño 375", "Hookah"])
+    state = client.get(f"/api/v1/hospitality/companies/{TTM}/carta-iconos").json()
+    assert state["on"] is True and state["generic"] == "bebida"
+    assert [g["key"] for g in state["gallery"]][:3] == ["agua", "aguardiente", "cerveza"] and len(state["gallery"]) == 15
+    assert "guaro" in next(g for g in state["gallery"] if g["key"] == "aguardiente")["words"], "el buscador busca por sinónimos"
+    assert {i["name"]: i["icon"]["source"] for i in state["items"]} == {"Aguardiente Antioqueño 375": "auto", "Hookah": "generic"}
+    r = client.put(f"/api/v1/hospitality/companies/{TTM}/carta-iconos/items/{ids[1]}", json={"icono_key": "tiket"})
+    assert r.status_code == 200 and r.json()["icon"]["source"] == "manual"
+    assert _run(pg_url, "SELECT icono_key FROM inventory_items WHERE id = CAST(:i AS uuid)", {"i": ids[1]})[0]["icono_key"] == "tiket"
+    qr = {i["id"]: i["icon"] for i in _lite(client, TTM)["inventory"]}
+    assert qr[ids[1]]["key"] == "tiket", "la pantalla QR ya lo muestra"
+    back = client.put(f"/api/v1/hospitality/companies/{TTM}/carta-iconos/items/{ids[1]}", json={"icono_key": None})
+    assert back.json()["icon"]["source"] == "generic"
+    assert _run(pg_url, "SELECT icono_key FROM inventory_items WHERE id = CAST(:i AS uuid)", {"i": ids[1]})[0]["icono_key"] is None
+    assert client.put(f"/api/v1/hospitality/companies/{TTM}/carta-iconos/items/{ids[0]}", json={"icono_key": "x"}).status_code == 422
+
+
+def test_empresa_a_nunca_toca_ni_ve_los_iconos_de_b(client, pg_url, monkeypatch):
+    _admin_v2(monkeypatch)
+    ttm = _items(pg_url, TTM, ["Ron"])
+    other = _items(pg_url, OTRA, ["Aguardiente"])
+    # por la URL de TTM no se puede cambiar un artículo de otra empresa
+    assert client.put(f"/api/v1/hospitality/companies/{TTM}/carta-iconos/items/{other[0]}", json={"icono_key": "ron"}).status_code == 404
+    assert _run(pg_url, "SELECT icono_key FROM inventory_items WHERE id = CAST(:i AS uuid)", {"i": other[0]})[0]["icono_key"] is None
+    assert [i["id"] for i in client.get(f"/api/v1/hospitality/companies/{TTM}/carta-iconos").json()["items"]] == ttm
+    # la otra empresa (interruptor apagado): nada que ver ni guardar
+    assert client.get(f"/api/v1/hospitality/companies/{OTRA}/carta-iconos").json() == {"ok": True, "on": False}
+    assert client.put(f"/api/v1/hospitality/companies/{OTRA}/carta-iconos/items/{other[0]}", json={"icono_key": "ron"}).status_code == 403

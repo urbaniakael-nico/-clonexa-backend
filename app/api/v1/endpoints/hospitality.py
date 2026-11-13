@@ -6675,3 +6675,63 @@ async def cancel_hospitality_order(
     await db.commit()
     saved = await _fetch_order(db, company_id, order_id)
     return {"ok": True, "loss_registered": True, "order": saved, "table": saved}
+
+
+# ---------------------------------------------------------------------------
+# 079A: galería de íconos de carta de Clonexa (interruptor iconos_carta_clonexa).
+# Inventario del portal: vista previa al escribir el nombre, "Cambiar ícono"
+# (guarda icono_key en el artículo) y "Volver al automático". Solo Admin V2 o el
+# dueño / administrador de ESA empresa; nunca datos de otra empresa.
+# ---------------------------------------------------------------------------
+async def _require_icon_admin_079a(
+    company_id: uuid.UUID,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    from app.api.v1.endpoints.company_users import require_company_user_admin_access
+
+    await require_company_user_admin_access(company_id, request, authorization, db)
+
+
+class CartaIconChoiceIn(BaseModel):
+    icono_key: str | None = Field(default=None, max_length=40)
+
+
+@router.get("/companies/{company_id}/carta-iconos")
+async def carta_icons_state_079a(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(_require_icon_admin_079a),
+) -> dict[str, Any]:
+    """Galería, tabla de palabras y artículos de ESTA empresa con su ícono. Apagado: {on: false}."""
+    if not await carta_icons.is_on(db, company_id):
+        return {"ok": True, "on": False}
+    lite = await hospitality_inventory_lite(company_id, limit=500, db=db)
+    items = [{"id": i["id"], "name": i["name"], "icon": i.get("icon")} for i in lite.get("inventory") or []]
+    return {"ok": True, "on": True, "gallery": carta_icons.gallery(), "generic": carta_icons.GENERIC[0], "items": items}
+
+
+@router.put("/companies/{company_id}/carta-iconos/items/{item_id}")
+async def carta_icons_choose_079a(
+    company_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: CartaIconChoiceIn,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(_require_icon_admin_079a),
+) -> dict[str, Any]:
+    """Guarda el ícono elegido a mano; icono_key vacío = volver al automático."""
+    if not await carta_icons.is_on(db, company_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="iconos_carta_apagado")
+    key = (body.icono_key or "").strip() or None
+    if key is not None and key not in carta_icons.BY_KEY:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="icono_desconocido")
+    row = (await db.execute(text("""
+        UPDATE inventory_items SET icono_key = :k
+        WHERE id = :i AND company_id = :c
+        RETURNING id::text AS id, COALESCE(NULLIF(name_reference, ''), NULLIF(name, ''), NULLIF(reference, ''), sku, id::text) AS name"""),
+        {"k": key, "i": str(item_id), "c": str(company_id)})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="articulo_no_existe")
+    await db.commit()
+    return {"ok": True, "id": row["id"], "icono_key": key, "icon": carta_icons.resolve(row["name"], icono_key=key)}
