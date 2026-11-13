@@ -318,7 +318,7 @@ def test_lote_aprobacion_horario_espaciado_y_seguimiento_unico(client, pg_url):
     _with_db(pg_url, lambda db: ps.decide_batch(db, bid, True, at=tue))
     assert _claim(pg_url, _at(2026, 11, 10, 7, 59))["motivo"] == "fuera_de_horario"
     first = _claim(pg_url, _at(2026, 11, 10, 8, 0))["item"]
-    assert first["to"] == "pedidos@laespiga.com.co" and "carta en video" in first["subject"] and "utm_content=" in first["html"]
+    assert first["to"] == "pedidos@laespiga.com.co" and "carta en video" in first["subject"] and "https://clonexa.com.co/r/" in first["html"]
     assert _claim(pg_url, _at(2026, 11, 10, 8, 3))["motivo"] == "espaciado", "no todos en el mismo minuto"
     _sent(pg_url, first["contact_id"], _at(2026, 11, 10, 8, 1))
     second = _claim(pg_url, _at(2026, 11, 10, 8, 10))["item"]
@@ -407,10 +407,10 @@ def test_correos_de_prueba_solo_a_clonexa_y_la_baja_los_bloquea(client, pg_url):
     items = client.post(f"{URL}/n8n/test-emails", headers=H).json()["items"]
     assert [i["to"] for i in items] == ["equipo+carta@clonexa.test", "equipo+bar@clonexa.test", "equipo+taller@clonexa.test",
                                         "equipo+campo@clonexa.test", "equipo+transporte@clonexa.test", "equipo+tienda@clonexa.test"]
-    pages = [i["demo_url"].split("?")[0] for i in items]
-    assert pages == ["https://www.clonexa.com.co/restaurantes", "https://www.clonexa.com.co/bares", "https://www.clonexa.com.co/talleres-y-fabricas",
-                     "https://www.clonexa.com.co/personal-en-campo", "https://www.clonexa.com.co/", "https://www.clonexa.com.co/"]
-    assert all("Negocio en vivo 3D" in i["html"] for i in items)
+    pages = [i["demo_url"].rsplit("/", 1)[0] for i in items]   # enlace corto de cada nicho (la landing redirige con los utm)
+    assert pages == ["https://clonexa.com.co/r", "https://clonexa.com.co/b", "https://clonexa.com.co/t",
+                     "https://clonexa.com.co/c", "https://clonexa.com.co/l", "https://clonexa.com.co/s"]
+    assert all("<b>CLONEXA</b>" in i["html"] and "Nicol" not in i["html"] for i in items)
     assert all(i["subject"].startswith("[PRUEBA] ") and not i["bloqueado"] for i in items)
     client.post(f"{URL}/n8n/outbox/{items[0]['contact_id']}/sent", headers=H, json={"message_id": "x", "thread_id": "y"})
     tok = items[0]["unsub_url"].split("t=", 1)[1]
@@ -730,8 +730,8 @@ def test_cola_asistida_15_sin_correo_sin_por_verificar_y_5_botones(client, pg_ur
     assert _queue(pg_url, mon)["items"] == q["items"], "idempotente por dia"
     it = q["items"][0]
     assert it["network"] == "instagram" and it["profile_url"].startswith("https://www.instagram.com/")
-    assert it["name"] in it["text"] and "Negocio en vivo 3D" in it["text"] and "respondan NO" in it["text"]
-    assert "utm_source=instagram" in it["text"] and "/talleres-y-fabricas" in it["text"]
+    assert it["name"] in it["text"] and "Somos CLONEXA" in it["text"] and it["text"].endswith("respondan NO.")
+    assert "👉 clonexa.com.co/t/" in it["text"], "enlace corto del nicho (taller)"
     assert not _re.search(r"\$\s?\d|precio|COP", it["text"], _re.I)
     tg = pc.telegram_item(it)
     assert set(tg["botones"]) == {"copiar", "enviado", "saltar", "bloquear"} and tg["perfil"] == it["profile_url"]
@@ -786,7 +786,7 @@ def test_seguimiento_asistido_unico_a_los_7_dias(client, pg_url):
     nxt = _queue(pg_url, _at(2026, 11, 20, 8, 30))["items"]
     assert nxt and nxt[0]["kind"] == "inicial" and nxt[0]["prospect_id"] != it["prospect_id"], "antes de 7 dias no hay seguimiento"
     fu = _queue(pg_url, _at(2026, 11, 25, 8, 30))["items"][0]
-    assert fu["kind"] == "seguimiento" and fu["prospect_id"] == it["prospect_id"] and "hace una semana" in fu["text"]
+    assert fu["kind"] == "seguimiento" and fu["prospect_id"] == it["prospect_id"] and fu["text"].startswith("¡Hola de nuevo, ")
     assert _act(pg_url, fu["contact_id"], "enviado", _at(2026, 11, 25, 10))["ok"]
     later = [i for i in _queue(pg_url, _at(2026, 12, 9, 8, 30))["items"] if i["prospect_id"] == it["prospect_id"]]
     assert later == [], "nada despues del seguimiento"

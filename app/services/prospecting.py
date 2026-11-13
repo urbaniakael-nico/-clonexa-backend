@@ -69,7 +69,7 @@ DEFAULT_SETTINGS = {
     "min_gap_minutes": 9,
     "window_start": 8,
     "window_end": 17,
-    "signature": "Nicolás Gómez · Clonexa",
+    "signature": "CLONEXA",
     "sender_name": "Clonexa",
     "sender_email": "",  # vacio = la cuenta de Gmail conectada en n8n
     "reply_to": "",

@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 from urllib.parse import quote, urlencode
 
+from app.services import prospecting_messages as pm
 from app.services import prospecting_niches as pn
 
 WA_NUMBER = "573144798220"
@@ -162,31 +163,34 @@ def _button(url: str, label: str, color: str) -> str:
             f"{html.escape(label)}</a>")
 
 
+def boomerang_gif_url(landing: str, niche: str) -> str:
+    """GIF liviano del bumeran del nicho (publico, en la landing). Tienda y transporte: sin bumeran por ahora."""
+    return (landing or DEFAULT_LANDING).rstrip("/") + f"/clonexa-media/bumeran-{niche}.gif"
+
+
 def render(prospect: dict, *, followup: bool, settings: dict, zone_slug: str) -> dict:
-    """{subject, html, text, to}. prospect: name, business_type, code, unsub_token, email."""
-    name = " ".join(str(prospect.get("name") or "su negocio").split())[:120]
+    """{subject, html, text, to}. prospect: name, business_type, code, unsub_token, email.
+    2026-11-13: mismo texto y tono que Instagram/Facebook (prospecting_messages), firmado como CLONEXA, con el GIF del
+    bumeran del nicho en lugar del video, el enlace corto y el enlace de baja."""
+    name = pm.business_name(prospect.get("name"))
     btype = prospect.get("business_type") or "restaurante"
     seg = segment(btype)
+    niche = pn.niche_of(btype)
     code = prospect.get("code") or ""
     landing = settings.get("landing_url") or DEFAULT_LANDING
     backend = settings.get("backend_url") or DEFAULT_BACKEND
-    signature = settings.get("signature") or "Nicolás Gómez · Clonexa"
-    demo = demo_url(landing, zone_slug, btype, code)
+    link = pm.short_link(niche, code, scheme=True)
+    link_text = pm.short_link(niche, code)
     wa = wa_url(btype, code, settings.get("wa_number") or WA_NUMBER)
     baja = unsub_url(backend, prospect.get("unsub_token") or "")
-    paras = _paragraphs(seg, name, followup)
-    paras.insert(len(paras) - 1, LIVE3D_LINE)   # cada correo menciona Negocio en vivo 3D en una linea
-    subject = _subject(seg, name, followup)
-
-    demo_label = "Ver demo de la carta video" if seg == "carta" else "Ver cómo funciona"
+    message = pm.followup_message(name=name, niche=niche) if followup else pm.first_message(name=name, niche=niche, link=link_text)
+    subject = pm.subject(name=name, niche=niche, followup=followup)
     image = ""
-    if seg == "carta" and not followup:
-        image = (f'<a href="{html.escape(demo, quote=True)}"><img src="{html.escape(gif_url(landing), quote=True)}" width="220" '
-                 'alt="Carta en video con QR de Clonexa" style="display:block;width:220px;max-width:100%;border-radius:16px;'
-                 'border:0;margin:8px 0 14px"></a>')
-    body_html = "".join(f'<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:{INK}">{html.escape(p)}</p>'
-                        for p in paras)
-    legal = (f"Te escribimos porque el correo de {name} aparece publicado en su página web. "
+    if pm.has_boomerang(niche):
+        image = (f'<a href="{html.escape(link, quote=True)}"><img src="{html.escape(boomerang_gif_url(landing, niche), quote=True)}" width="260" '
+                 f'alt="{html.escape(name)} en vivo con Clonexa" style="display:block;width:260px;max-width:100%;border-radius:16px;'
+                 'border:0;margin:0 0 16px"></a>')
+    legal = (f"Le escribimos porque el correo de {name} aparece publicado en su página web. "
              "Es un solo correo y, como máximo, un recordatorio. Clonexa · Bogotá, Colombia.")
     html_doc = (
         '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
@@ -195,9 +199,9 @@ def render(prospect: dict, *, followup: bool, settings: dict, zone_slug: str) ->
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f3f8"><tr><td align="center" style="padding:20px 12px">'
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px">'
         '<tr><td style="padding:24px 24px 8px;font-family:Segoe UI,Arial,sans-serif">'
-        f"{body_html}{image}"
-        f"<div>{_button(demo, demo_label, PINK)}{_button(wa, 'Escríbenos por WhatsApp', '#1f9d55')}</div>"
-        f'<p style="margin:16px 0 4px;font-size:15px;color:{INK}">{html.escape(signature)}</p>'
+        f"{image}{pm.email_html_body(message, link_url=link, link_text=link_text)}"
+        f"{'' if followup else _button(link, 'Ver cómo funciona', PINK)}"
+        f"{pm.signature_html()}"
         "</td></tr>"
         '<tr><td style="padding:12px 24px 22px;font-family:Segoe UI,Arial,sans-serif">'
         f'<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:{MUTED}">{html.escape(legal)}</p>'
@@ -205,11 +209,9 @@ def render(prospect: dict, *, followup: bool, settings: dict, zone_slug: str) ->
         "No quiero recibir más correos</a></p>"
         "</td></tr></table></td></tr></table></body></html>"
     )
-    text_doc = "\n\n".join(paras) + (
-        f"\n\n{demo_label}: {demo}\nEscríbenos por WhatsApp: {wa}\n\n{signature}\n\n{legal}\n"
-        f"No quiero recibir más correos: {baja}\n")
+    text_doc = message.replace(link_text, link) + f"\n\n{pm.signature_text()}\n\n{legal}\nNo quiero recibir más correos: {baja}\n"
     return {"subject": subject, "html": html_doc, "text": text_doc, "to": prospect.get("email") or "",
-            "demo_url": demo, "wa_url": wa, "unsub_url": baja, "segment": seg, "niche": pn.niche_of(btype)}
+            "demo_url": link, "wa_url": wa, "unsub_url": baja, "segment": seg, "niche": niche}
 
 
 def unsubscribed_page(name: str = "", already: bool = False) -> str:

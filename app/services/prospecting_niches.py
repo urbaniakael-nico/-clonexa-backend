@@ -286,17 +286,10 @@ AUDIENCE = {"restaurante": "restaurantes", "bar": "bares", "taller": "talleres y
 
 
 def assisted_text(*, name: str, niche: str, url: str, followup: bool) -> str:
-    """Texto CORTO para enviar a mano por Instagram o Facebook. Sin precios y con salida."""
-    tema, detalle = PITCH.get(niche, PITCH["restaurante"])
-    who = " ".join(str(name or "su negocio").split())[:80]
-    kind = AUDIENCE.get(niche, "negocios")
-    if followup:
-        body = (f"Hola de nuevo, equipo de {who}. Les escribí hace una semana sobre {tema}. "
-                f"Si les sirve, en 20 minutos les muestro cómo se vería en su negocio: {url}")
-    else:
-        body = (f"Hola, equipo de {who}. Soy Nicolás, de Clonexa: software para {kind} en Bogotá. "
-                f"En corto: {detalle}. Aquí lo ven funcionando: {url}")
-    return f"{body}\n{LIVE3D_LINE}\nSi no quieren recibir más mensajes, respondan NO y no les escribimos más."
+    """Compatibilidad: el texto vive en app/services/prospecting_messages.py (CLONEXA, sin nombre de una persona)."""
+    from app.services import prospecting_messages as pm
+
+    return pm.followup_message(name=name, niche=niche) if followup else pm.first_message(name=name, niche=niche, link=url)
 
 
 # ---------------------------------------------------------------- ruta de visitas

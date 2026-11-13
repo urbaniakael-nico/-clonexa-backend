@@ -147,34 +147,32 @@ PAGE_OF = {"carta": "/restaurantes", "bar": "/bares", "taller": "/talleres-y-fab
                                            ("instalador", "campo"), ("aseo", "campo"), ("vigilancia", "campo"),
                                            ("transporte", "transporte"), ("tienda", "tienda")])
 def test_plantillas_utm_whatsapp_y_baja(btype, segment):
+    # 2026-11-13: correo con el mismo texto de Instagram/Facebook, enlace corto, GIF del bumeran y firma CLONEXA
     mail = pe.render({**P, "business_type": btype}, followup=False, settings=ps.DEFAULT_SETTINGS, zone_slug="kennedy-central")
     assert mail["segment"] == segment and mail["to"] == "hola@laespiga.com.co"
-    assert mail["subject"].startswith("Panadería La Espiga")
-    demo = urlparse(mail["demo_url"])
-    q = parse_qs(demo.query)
-    assert q == {"utm_source": ["email"], "utm_medium": ["prospeccion"],
-                 "utm_campaign": [f"kennedy-central-{pe.TYPE_SLUG[btype]}"], "utm_content": ["K7M2QD"]}
-    assert demo.netloc == "www.clonexa.com.co" and demo.path == PAGE_OF[segment], "pagina de su nicho (o la principal)"
-    if segment in ("transporte", "tienda"):
-        assert demo.fragment == "soluciones", "nicho sin pagina: principal con #seccion"
-    assert "Negocio en vivo 3D" in mail["html"] and "Negocio en vivo 3D" in mail["text"]
+    assert mail["subject"].startswith("Panadería La Espiga: ")
+    letter = {"carta": "r", "bar": "b", "taller": "t", "campo": "c", "transporte": "l", "tienda": "s"}[segment]
+    assert mail["demo_url"] == f"https://clonexa.com.co/{letter}/K7M2QD", "enlace corto de su nicho"
+    assert f"clonexa.com.co/{letter}/K7M2QD" in mail["text"] and f'href="https://clonexa.com.co/{letter}/K7M2QD"' in mail["html"]
     wa = urlparse(mail["wa_url"])
     assert wa.netloc == "wa.me" and wa.path == "/573144798220"
     assert "(código K7M2QD)" in unquote(parse_qs(wa.query)["text"][0])
-    if segment == "carta":
-        assert unquote(parse_qs(wa.query)["text"][0]) == "Hola, vi la carta video (código K7M2QD)"
-        assert demo.fragment == "carta-video" and "carta-video.gif" in mail["html"]
-        assert "de frente y de perfil" in mail["html"]
+    gif = f"/clonexa-media/bumeran-{pe.NICHE_OF_SEGMENT[segment]}.gif"
+    assert (gif in mail["html"]) == (segment in ("carta", "bar", "taller", "campo")), "tienda y transporte: sin bumeran por ahora"
     assert mail["unsub_url"].endswith("/api/v1/prospecting/baja?t=tok_123")
     assert "No quiero recibir más correos" in mail["html"] and mail["unsub_url"] in mail["text"]
-    assert "Nicolás Gómez · Clonexa" in mail["html"]
+    assert "Si no quieren más mensajes, respondan NO." in mail["text"]
+    assert "<b>CLONEXA</b>" in mail["html"] and "instagram.com/clonexaapp" in mail["html"] and "tiktok.com/@clonexxa" in mail["html"]
+    assert "facebook.com/" in mail["html"]
+    assert "Nicol" not in mail["html"] and "Nicol" not in mail["text"], "sin el nombre del dueño"
     assert not re.search(r"\$\s?\d|precio|COP|USD", mail["html"], re.I), "sin precios"
 
 
 def test_seguimiento_es_corto_y_promete_no_insistir():
     mail = pe.render(P, followup=True, settings=ps.DEFAULT_SETTINGS, zone_slug="timiza")
-    assert mail["subject"].startswith("Re: ") and "no les vuelvo a escribir" in mail["text"]
-    assert "carta-video.gif" not in mail["html"]
+    assert mail["subject"].startswith("Re: ") and "Si no, no les escribimos más." in mail["text"]
+    assert "Les dejamos otro ejemplo de carta en video 👆" in mail["text"]
+    assert "bumeran-restaurante.gif" in mail["html"], "el seguimiento también lleva el ejemplo"
 
 
 def test_correo_oculto_en_el_mapa():

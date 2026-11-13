@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import prospecting as ps
 from app.services import prospecting_email as pe
+from app.services import prospecting_messages as pm
 from app.services import prospecting_niches as pn
 
 ASSISTED_CHANNELS = ("instagram", "facebook")
@@ -62,11 +63,13 @@ def assisted_url(p: dict, network: str, settings: dict) -> str:
 
 
 def render_assisted(p: dict, *, followup: bool, settings: dict) -> dict:
+    """Mensaje nuevo (CLONEXA, sin nombre de una persona): primero el bumeran del nicho y luego este texto, con el
+    enlace corto clonexa.com.co/<letra>/<codigo> (la landing redirige con los utm y cuenta la apertura)."""
     network = _network(p.get("channels") or {}) or "instagram"
     niche = p.get("niche") or pn.niche_of(p.get("business_type") or "")
-    url = assisted_url(p, network, settings)
     return {"network": network, "profile_url": ((p.get("channels") or {}).get(network) or {}).get("url", ""),
-            "text": pn.assisted_text(name=p.get("name") or "", niche=niche, url=url, followup=followup), "url": url}
+            "text": pm.text(name=p.get("name"), niche=niche, code=p.get("code") or "", followup=followup),
+            "url": pm.short_link(niche, p.get("code") or "", scheme=True), "niche": niche}
 
 
 def telegram_item(item: dict) -> dict:
