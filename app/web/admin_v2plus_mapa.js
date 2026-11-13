@@ -74,7 +74,8 @@
   // ------------------------------------------------------------ estado
   const model = {
     filters: EMPTY_FILTERS(), colorBy: "estado",
-    layers: { prospectos: true, visitas: true, leads: true, volantes: true, zonas: true }, route: null,
+    // "Calor: visitas a la landing" y "Calor: respuestas y leads" arrancan apagadas (se prenden en las casillas)
+    layers: { prospectos: true, visitas: false, leads: false, volantes: true, zonas: true }, route: null,
     data: null, error: "", loading: false, detail: null, detailError: "", confirm: "", newZone: null, notice: "",
     allZones: false, visitZone: "", visitNiche: "restaurante",
   };

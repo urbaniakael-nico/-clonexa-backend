@@ -138,7 +138,8 @@ test('capas: un pin por prospecto con color de su estado; calor de visitas por c
   assert.match(heat[0].tooltip, /Bogotá, Bogota D\.C\.: 20 visitas/);
   assert.equal(made.polygons.length, 1);
   assert.match(made.circles.find((c) => c.args.o.dashArray).tooltip, /puntaje 99/);
-  assert.equal(map.layers.size, 4, 'sin prospeccion_visitas la capa de volantes no se pinta');
+  assert.equal(map.layers.size, 2, 'al abrir: pines y zonas; calor de visitas y de respuestas apagados; volantes sin prospeccion_visitas');
+  M.model.layers.visitas = true; M.model.layers.leads = true;   // se prenden en las casillas
   M.model.data = { ...SAMPLE, ajustes: { prospeccion_visitas: true } };
   const map2 = window.L.map({}, {});
   M._setMap(map2);
@@ -395,4 +396,14 @@ test('selects del Mapa comercial: fondo oscuro, letra clara (color-scheme dark, 
     assert.ok(inLabel || /aria-label=/.test(m[0]), m[0]);
   }
   for (const m of html.matchAll(/<option[^>]*>([^<]*)<\/option>/g)) assert.ok(m[1].trim(), 'opción sin nombre');
+});
+
+test('capas de calor apagadas al abrir: casillas sin marcar; pines y zonas siguen prendidos', () => {
+  const { M } = load();
+  M.model.data = SAMPLE;
+  const html = M.pane();
+  assert.match(html, /data-vpm-layer="visitas" >/);
+  assert.match(html, /data-vpm-layer="leads" >/);
+  assert.match(html, /data-vpm-layer="prospectos" checked/);
+  assert.match(html, /data-vpm-layer="zonas" checked/);
 });
