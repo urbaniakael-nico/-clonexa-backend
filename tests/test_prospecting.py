@@ -299,3 +299,11 @@ def test_escaneo_de_la_web_trae_correo_y_redes_con_su_fuente():
     assert ps.google_channels({"websiteUri": "https://facebook.com/TallerX", "nationalPhoneNumber": "601 234 5678"}) == {
         "phone": {"value": "601 234 5678", "url": "tel:6012345678", "source": "google:telefono"},
         "facebook": {"value": "tallerx", "url": "https://www.facebook.com/TallerX", "source": "google:website"}}
+
+
+def test_costo_estimado_por_sku():
+    e = pn.estimate_cost({"places_text": 700, "places_details": 40}, {"places_text": 1200})
+    rows = {r["sku"]: r for r in e["rows"]}
+    assert rows["Text Search Enterprise"]["usd_lista"] == 24.5 and rows["Text Search Enterprise"]["sobre_gratis"] == 200
+    assert rows["Place Details Enterprise"]["usd_lista"] == 0.8 and e["usd_lista"] == 25.3
+    assert pn.SKU_PRICE["places_text_atmos"][1] > pn.SKU_PRICE["places_text"][1], "resenas con fecha cuestan mas: apagado"

@@ -1397,3 +1397,49 @@ async def prospect_detail(db: AsyncSession, prospect_id: str, *, full_email: boo
         d = h.get("detail") or {}
         h["detail"] = {k: d[k] for k in ("motivo", "no", "campana", "primera", "primera_vez", "asunto", "error") if k in d}
     return {"prospect": public_prospect(p, full_email=full_email), "history": history}
+
+
+# ---------------------------------------------------------------- 025p: ahorro de saldo
+WEB_RECHECK_DAYS = 30
+
+
+async def scan_web_due(db: AsyncSession, limit: int = 30, fetch=None) -> dict:
+    """Revisa la web (correo y redes) de negocios ya guardados que nunca se revisaron o hace mas de 30 dias.
+    Nunca los que no tienen web o cuya "web" es una red social. No llama a Google (cero costo de Places)."""
+    rows = await _rows(db, """SELECT id::text AS id, website, name FROM prospects
+                              WHERE NOT is_test AND status <> 'baja' AND website <> ''
+                                AND (email_checked_at IS NULL OR email_checked_at < now() - make_interval(days => :d))
+                              ORDER BY email_checked_at NULLS FIRST, created_at LIMIT :l""",
+                       {"d": WEB_RECHECK_DAYS, "l": max(1, min(100, limit))})
+    targets = [r for r in rows if not is_social(r["website"])]
+    skipped = [r for r in rows if is_social(r["website"])]
+    for r in skipped:   # la "web" es una red: se guarda como canal y no se vuelve a pedir
+        ch = pn.channel_from_website(r["website"])
+        cur = await _one(db, "SELECT channels FROM prospects WHERE id = CAST(:i AS uuid)", {"i": r["id"]}) or {}
+        merged = pn.merge_channels(cur.get("channels") or {}, dict([ch]) if ch else {})
+        await db.execute(text("""UPDATE prospects SET channels = CAST(:c AS jsonb), email_checked_at = now(), email_status = 'sin_web'
+                                 WHERE id = CAST(:i AS uuid)"""), {"c": json.dumps(merged, ensure_ascii=False), "i": r["id"]})
+    await db.commit()
+    found = await scan_many(db, targets, fetch=fetch) if targets else 0
+    return {"revisadas": len(targets), "redes_como_web": len(skipped), "con_correo": found}
+
+
+async def cost_report(db: AsyncSession, days: int = 7, at: Optional[datetime] = None) -> dict:
+    """Gasto estimado de la prospeccion: llamadas a Google Places por SKU (de prospect_api_usage) y tokens de
+    Claude (0: los textos de prospeccion son plantillas, no usan Claude)."""
+    end = bogota(at).date()
+    start = end - timedelta(days=days - 1)
+    rows = await _rows(db, """SELECT kind, niche, SUM(calls)::int AS calls FROM prospect_api_usage
+                              WHERE day BETWEEN :s AND :e GROUP BY kind, niche ORDER BY kind, niche""", {"s": start, "e": end})
+    month = await _rows(db, """SELECT kind, SUM(calls)::int AS calls FROM prospect_api_usage
+                               WHERE day >= date_trunc('month', CAST(:e AS date)) AND day <= :e GROUP BY kind""", {"e": end})
+    by_kind: dict[str, int] = {}
+    for r in rows:
+        by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + r["calls"]
+    est = pn.estimate_cost(by_kind, {r["kind"]: r["calls"] for r in month})
+    by_niche: dict[str, int] = {}
+    for r in rows:
+        if r["kind"] == "places_text":
+            by_niche[r["niche"]] = by_niche.get(r["niche"], 0) + r["calls"]
+    return {"desde": start.isoformat(), "hasta": end.isoformat(), **est, "busquedas_por_nicho": by_niche,
+            "claude_tokens": 0, "claude_usd": 0.0}

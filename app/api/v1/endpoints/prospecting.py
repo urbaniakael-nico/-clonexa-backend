@@ -540,3 +540,34 @@ async def admin_flyer(zone_id: int, nicho: str = Query(max_length=20), db: Async
     pdf, _ = await asyncio.to_thread(pf.render_pdf, z["slug"], z["name"], nicho, cfg.get("landing_url") or pe.DEFAULT_LANDING)
     name = f"volante-{z['slug']}-{nicho}.pdf"
     return Response(pdf, media_type="application/pdf", headers={**NO_STORE, "Content-Disposition": f'inline; filename="{name}"'})
+
+
+# ---------------------------------------------------------------- 025p: ahorro de saldo
+@router.post("/n8n/web-rescan", dependencies=n8n)
+async def web_rescan(limit: int = Query(default=30, ge=1, le=100), db: AsyncSession = Depends(get_db)) -> dict:
+    return {"ok": True, **await ps.scan_web_due(db, limit)}
+
+
+@router.get("/n8n/cost-report", dependencies=n8n)
+async def n8n_cost_report(dias: int = Query(default=7, ge=1, le=31), db: AsyncSession = Depends(get_db)) -> dict:
+    rep = await ps.cost_report(db, dias)
+    lines = [f"💸 <b>Gasto estimado de la prospección</b> ({rep['desde']} a {rep['hasta']})"]
+    for r in rep["rows"]:
+        free = f" · mes: {r['mes']} de {r['gratis_mes']} gratis" if r["gratis_mes"] else ""
+        lines.append(f"• {_esc(r['sku'])}: {r['llamadas']} llamadas · US${r['usd_lista']:.2f} a precio de lista{free}")
+    if not rep["rows"]:
+        lines.append("• Sin llamadas a Google Places esta semana.")
+    if rep["busquedas_por_nicho"]:
+        lines.append("Búsquedas por nicho: " + ", ".join(f"{_esc(ps.NICHES.get(k, {}).get('label', k))} {v}"
+                                                         for k, v in sorted(rep["busquedas_por_nicho"].items())))
+    over = [r for r in rep["rows"] if r["sobre_gratis"]]
+    lines.append(f"Total a precio de lista: US${rep['usd_lista']:.2f}. " + (
+        "⚠️ Ya se pasó el uso gratis del mes en: " + ", ".join(_esc(r["sku"]) for r in over) if over else
+        "Dentro del uso gratis mensual de Google (1.000 por SKU): costo real US$0."))
+    lines.append("Claude en la prospección: 0 tokens (los textos son plantillas).")
+    return {**rep, "mensaje": "\n".join(lines)}
+
+
+@router.get("/admin/cost-report", dependencies=admin)
+async def admin_cost_report(dias: int = Query(default=7, ge=1, le=31), db: AsyncSession = Depends(get_db)) -> dict:
+    return await ps.cost_report(db, dias)

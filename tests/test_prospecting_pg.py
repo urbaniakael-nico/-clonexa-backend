@@ -887,3 +887,47 @@ def test_025p_n8n_sin_token_401(client, monkeypatch, method, path):
     assert client.request(method.upper(), URL + path, json={}).status_code == 401
     monkeypatch.delenv(ep.TOKEN_ENV)
     assert client.request(method.upper(), URL + path, json={}, headers=H).status_code == 503
+
+
+# ------------------------------------------------------------------ 025p: ahorro de saldo
+def test_webs_no_se_revisan_antes_de_30_dias_ni_sin_web(client, pg_url, monkeypatch):
+    calls = []
+
+    async def counting(url):
+        calls.append(url)
+        return url, PAGES.get(url, "")
+
+    monkeypatch.setattr(ps, "fetch_page", counting)
+    z = _bog(pg_url)
+    _ingest_in(client, z, "taller", [_taller(1, "Taller Marta", web="https://tallermarta.co/"), _taller(2, "Sin web"),
+                                     _taller(3, "Solo IG", web="https://www.instagram.com/soloig")])
+    first = len(calls)
+    assert first == 2 and all("tallermarta" in u for u in calls), "solo la web propia; nada para sin web ni Instagram"
+    r = client.post(f"{URL}/n8n/web-rescan", headers=H).json()
+    assert r["revisadas"] == 0 and len(calls) == first, "revisada hace menos de 30 dias: no se vuelve a pedir"
+    _run(pg_url, "UPDATE prospects SET email_checked_at = now() - interval '31 days' WHERE name = 'Taller Marta'", fetch=False)
+    r = client.post(f"{URL}/n8n/web-rescan", headers=H).json()
+    assert r["revisadas"] == 1 and r["con_correo"] == 1 and len(calls) > first
+    again = client.post(f"{URL}/n8n/web-rescan", headers=H).json()
+    assert again["revisadas"] == 0
+
+
+def test_reporte_semanal_de_gasto(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    z = _bog(pg_url)
+    for _ in range(3):
+        _ingest_in(client, z, "electrico", [])
+    _ingest_in(client, z, "taller", [])
+    pid = _ingest_in(client, z, "taller", [_taller(9, "Taller Gasto")]) and _run(pg_url, "SELECT id::text AS id FROM prospects")[0]["id"]
+    client.post(f"{URL}/n8n/refresh", headers=H, json={"prospect_id": pid, "place": _taller(9, "Taller Gasto")})
+    r = client.get(f"{URL}/n8n/cost-report", headers=H).json()
+    rows = {x["sku"]: x for x in r["rows"]}
+    assert rows["Text Search Enterprise"]["llamadas"] == 5 and rows["Text Search Enterprise"]["usd_lista"] == 0.17
+    assert rows["Place Details Enterprise"]["llamadas"] == 1
+    assert r["busquedas_por_nicho"] == {"campo": 3, "taller": 2} and r["claude_tokens"] == 0
+    assert "Gasto estimado" in r["mensaje"] and "uso gratis" in r["mensaje"] and "0 tokens" in r["mensaje"]
+    assert client.get(f"{URL}/admin/cost-report").json()["usd_lista"] == r["usd_lista"]
+    assert client.get(f"{URL}/n8n/cost-report").status_code == 401
+    _admin(monkeypatch, ok=False)
+    assert client.get(f"{URL}/admin/cost-report").status_code == 401
+    assert client.post(f"{URL}/n8n/web-rescan").status_code == 401

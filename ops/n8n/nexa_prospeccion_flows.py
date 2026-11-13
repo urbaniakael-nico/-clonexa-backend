@@ -83,12 +83,12 @@ const desde = new Date().toISOString();
 if (q) {
   if (q.k !== '__SECRET__') throw new Error('Acceso no autorizado');
   const n = (v, d, max) => { const x = parseInt(v, 10); return Number.isFinite(x) && x > 0 ? Math.min(x, max) : d; };
-  return [{ json: { prueba: true, desde, zona: String(q.zona || '').slice(0, 60), tipos: String(q.tipos || '').slice(0, 200),
+  return [{ json: { prueba: true, desde, zona: String(q.zona || '').slice(0, 60), tipos: String(q.tipos || '').slice(0, 200), nicho: String(q.nicho || '').slice(0, 20),
     max: n(q.max, 6, 40), limite: q.limite ? n(q.limite, 20, 60) : null } }];
 }
-return [{ json: { prueba: false, desde, zona: '', tipos: '', max: 12, limite: null } }];
+return [{ json: { prueba: false, desde, zona: '', tipos: '', nicho: '', max: 34, limite: null } }];
 """.replace("__SECRET__", secret))
-    be(f, "Plan del backend", "GET", "/n8n/scan-plan?max={{ $json.max }}&zona={{ encodeURIComponent($json.zona) }}&tipos={{ encodeURIComponent($json.tipos) }}", cred)
+    be(f, "Plan del backend", "GET", "/n8n/scan-plan?max={{ $json.max }}&zona={{ encodeURIComponent($json.zona) }}&tipos={{ encodeURIComponent($json.tipos) }}&nicho={{ encodeURIComponent($json.nicho || '') }}", cred)
     f.code("Búsquedas", """
 const plan = ($json.plan || []);
 if (!plan.length) return [{ json: { vacio: true } }];
@@ -140,12 +140,20 @@ return $input.all().map((it, i) => { const r = it.json || {}; const nf = !!(r.er
     be(f, "Guardar refresco", "POST", "/n8n/refresh", cred, body="={{ $json.body }}")
     f.link("Opciones", "¿Corrida diaria?")
     f.chain("¿Corrida diaria?", "Por refrescar", "Uno por negocio", "Google: detalle", "Refresco", "Guardar refresco")
+    # 025p ahorro: webs ya guardadas, una vez cada 30 dias (sin Google); reporte semanal de gasto (lunes 8:00)
+    be(f, "Revisar webs (30 días)", "POST", "/n8n/web-rescan?limit=30", cred, body="{}")
+    f.link("¿Corrida diaria?", "Revisar webs (30 días)")
+    f.cron("Lunes 8:00", "0 8 * * 1")
+    be(f, "Gasto de la semana", "GET", "/n8n/cost-report?dias=7", cred)
+    f.tg("Telegram: gasto", "={{ $json.mensaje || '⚠️ No pude leer el gasto de la prospección.' }}")
+    f.chain("Lunes 8:00", "Gasto de la semana", "Telegram: gasto")
     _layout(f, {
         "L-V 7:00": (0, 0), "Prueba (webhook)": (0, 200), "Opciones": (240, 100), "Plan del backend": (480, 100), "Búsquedas": (720, 100),
         "¿Hay búsquedas?": (960, 100), "Google Places": (1200, 0), "Para el backend": (1440, 0), "Guardar en el backend": (1680, 0),
         "Resumen del backend": (1920, 100), "Mensaje": (2160, 100), "Telegram: resumen": (2400, 100),
         "¿Corrida diaria?": (480, 420), "Por refrescar": (720, 420), "Uno por negocio": (960, 420), "Google: detalle": (1200, 420),
-        "Refresco": (1440, 420), "Guardar refresco": (1680, 420)})
+        "Refresco": (1440, 420), "Guardar refresco": (1680, 420), "Revisar webs (30 días)": (720, 600),
+        "Lunes 8:00": (0, 800), "Gasto de la semana": (240, 800), "Telegram: gasto": (480, 800)})
     fix_ids(f, F_PROSP)
     return f
 
