@@ -78,11 +78,15 @@ def _secret(name: str, pattern: str = r"[\w-]{20,}") -> str:
     sys.exit(f"{name} no tiene el valor esperado (no se muestra el contenido).")
 
 
-KEY = _secret("n8n-key.txt", r"eyJ[\w-]+\.[\w-]+\.[\w-]+|n8n_api_[\w-]{20,}")
+# La clave solo hace falta para hablar con n8n (call); sin el archivo (p. ej. en CI) los constructores de flujos
+# se pueden importar y probar.
+KEY = _secret("n8n-key.txt", r"eyJ[\w-]+\.[\w-]+\.[\w-]+|n8n_api_[\w-]{20,}") if (REFS / "n8n-key.txt").exists() else ""
 
 
 def call(method: str, path: str, body=None):
     data = json.dumps(body).encode() if body is not None else None
+    if not KEY:
+        sys.exit("Falta referencias/n8n-key.txt (no se muestra el contenido).")
     req = urllib.request.Request(API + path, data=data, method=method,
                                  headers={"X-N8N-API-KEY": KEY, "Content-Type": "application/json", "Accept": "application/json"})
     try:
