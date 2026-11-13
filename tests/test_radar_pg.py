@@ -218,3 +218,101 @@ def test_chat_ignorado_solo_huella(client, pg_url):
     assert client.post(f"{URL}/n8n/ignored", headers=H, json={"chat_hash": hsh, "tipo": "mensaje"}).json()["ok"]
     assert client.post(f"{URL}/n8n/ignored", headers=H, json={"chat_hash": "999"}).status_code == 422
     assert _run(pg_url, "SELECT chat_hash FROM radar_ignorados") == [{"chat_hash": hsh}]
+
+
+# ------------------------------------------------------------------ punto 2: informe con Claude (respuesta simulada)
+import json as _json  # noqa: E402
+
+from app.services import radar_ai as ai  # noqa: E402
+
+
+def _claude(ideas, urls, *, stop="end_turn", searches=3):
+    return {"type": "message", "model": "claude-sonnet-5-5", "stop_reason": stop,
+            "content": [{"type": "server_tool_use", "id": "s1", "name": "web_search", "input": {"query": "x"}},
+                        {"type": "web_search_tool_result", "tool_use_id": "s1",
+                         "content": [{"type": "web_search_result", "url": u, "title": "t"} for u in urls]},
+                        {"type": "text", "text": _json.dumps({"ideas": ideas}, ensure_ascii=False)}],
+            "usage": {"input_tokens": 20000, "output_tokens": 3000, "cache_read_input_tokens": 1000, "server_tool_use": {"web_search_requests": searches}}}
+
+
+SRC = "https://innpulsacolombia.com/convocatorias/software-2026"
+
+
+def _raw(t, url=SRC, fecha="2026-11-02", **kw):
+    return {"titulo": t, "resumen": "r", "por_que": "p", "categoria": "fondos", "impacto": "alto", "esfuerzo": "medio", "costo": "bajo",
+            "costo_estimado": "US$0", "fecha_limite": "2026-12-05", "fuentes": [{"url": url, "titulo": "iNNpulsa", "fecha": fecha}], **kw}
+
+
+def test_peticion_a_claude_con_busqueda_web_y_tope(client, monkeypatch):
+    r = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": "fondos para startups de software en Colombia",
+                                                          "origen": "telegram"}).json()
+    req = r["request"]
+    assert req["model"] == "claude-sonnet-5-5" and req["output_config"] == {"effort": "medium"}
+    tool = req["tools"][0]
+    assert tool["type"] == "web_search_20260209" and tool["max_uses"] == 8 and tool["user_location"]["country"] == "CO"
+    assert "fondos para startups de software en Colombia" in req["messages"][0]["content"] and "Trae 3 ideas" in req["messages"][0]["content"]
+    assert "Herramientas y APIs que nos sirvan" in req["messages"][0]["content"], "temas activos de la tabla"
+
+
+def test_sin_fuente_o_fuente_inventada_se_descarta_y_repetida_no_sale(client, pg_url):
+    inf = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": "fondos"}).json()
+    ideas = [_raw("Convocatoria iNNpulsa para empresas de software"),
+             _raw("Idea sin fuente alguna", fuentes=[]),
+             _raw("Idea con fuente inventada fuera de la búsqueda", url="https://inventado.example/x"),
+             _raw("Idea con fuente sin fecha", fecha=""),
+             _raw("MinTIC abre fondo de apps", url="https://www.mintic.gov.co/portal/fondo-apps")]
+    resp = _claude(ideas, [SRC, "https://mintic.gov.co/portal/fondo-apps/"])
+    out = client.post(f"{URL}/n8n/finish", headers=H, json={"informe_id": inf["informe_id"], "request": inf["request"], "responses": [resp]}).json()
+    assert out["ok"] and len(out["ideas"]) == 2 and out["descartadas"] == 3
+    assert out["cabecera"].startswith("🛰️ <b>Radar a pedido · fondos · 2 ideas</b>")
+    one = out["ideas"][0]
+    assert set(one["botones"]) == {"interesa", "backlog", "descartar"} and SRC in out["ideas"][0]["mensaje"] + out["ideas"][1]["mensaje"]
+    row = _run(pg_url, "SELECT costo_usd::float AS c, busquedas, n_ideas, descartadas, estado, tokens_in FROM radar_informes WHERE id = :i",
+               {"i": inf["informe_id"]})[0]
+    # 20.000 * 2 + 3.000 * 10 + 1.000 * 0.1 por millon + 3 busquedas * 0,01
+    assert row == {"c": 0.1001, "busquedas": 3, "n_ideas": 2, "descartadas": 3, "estado": "listo", "tokens_in": 21000}
+    inf2 = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": "fondos"}).json()
+    again = client.post(f"{URL}/n8n/finish", headers=H, json={"informe_id": inf2["informe_id"], "request": inf2["request"],
+                                                              "responses": [_claude([_raw("Convocatoria de iNNpulsa para empresas de software")], [SRC])]}).json()
+    assert again["ok"] and again["ideas"] == [] and again["repetidas"] == 1 and "sin ideas nuevas" in again["cabecera"]
+    assert "Convocatoria iNNpulsa para empresas de software" in inf2["request"]["messages"][0]["content"], "Claude ve lo ya propuesto"
+
+
+def test_error_de_claude_o_sin_json_falla_con_aviso(client, pg_url):
+    inf = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "semanal"}).json()
+    bad = client.post(f"{URL}/n8n/finish", headers=H, json={"informe_id": inf["informe_id"],
+                                                            "responses": [{"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}]}).json()
+    assert bad["ok"] is False and "Overloaded" in bad["mensaje"]
+    assert _with_db(pg_url, lambda db: rd.office_snapshot(db))["state"] == "err"
+    inf2 = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "semanal"}).json()
+    nojs = {"stop_reason": "end_turn", "content": [{"type": "text", "text": "No encontré nada"}], "usage": {}}
+    assert client.post(f"{URL}/n8n/finish", headers=H, json={"informe_id": inf2["informe_id"], "responses": [nojs]}).json()["ok"] is False
+    assert client.post(f"{URL}/n8n/fail", headers=H, json={"error": "timeout"}).json()["ok"]
+
+
+def test_pause_turn_continua_con_lo_hecho(client):
+    req = {"model": "m", "messages": [{"role": "user", "content": "hola"}]}
+    r = client.post(f"{URL}/n8n/continue", headers=H, json={"informe_id": 1, "request": req,
+                                                            "responses": [{"stop_reason": "pause_turn", "content": [{"type": "text", "text": "..."}]}]}).json()
+    assert r["request"]["messages"][-1] == {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
+
+
+def test_generar_desde_la_consola_respeta_el_tope(client, monkeypatch):
+    from app.api.v1.endpoints import radar as ep
+    _admin(monkeypatch)
+    calls = []
+
+    async def hook(path, payload):
+        calls.append((path, payload))
+        return True
+
+    monkeypatch.setattr(ep, "_hook", hook)
+    assert client.post(f"{URL}/admin/generar", json={"tema": "pagos"}).json()["ok"]
+    assert calls == [("nexus-radar", {"tema": "pagos", "origen": "consola"})]
+    for i in range(3):
+        r = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": f"t{i}"}).json()
+        client.post(f"{URL}/n8n/fail", headers=H, json={"informe_id": r["informe_id"]})
+    assert client.post(f"{URL}/admin/generar", json={}).status_code == 429
+    _admin(monkeypatch, ok=False)
+    assert client.post(f"{URL}/admin/generar", json={}).status_code == 401
+    assert client.post(f"{URL}/n8n/finish", json={"informe_id": 1}).status_code == 401

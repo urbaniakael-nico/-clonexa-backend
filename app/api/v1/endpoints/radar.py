@@ -17,6 +17,7 @@ from app.api.deps import get_db
 from app.api.v1.endpoints.prospecting import require_n8n
 from app.api.v1.endpoints.social_metrics import require_admin_v2_session
 from app.services import radar as rd
+from app.services import radar_ai as ai
 
 router = APIRouter()
 n8n = [Depends(require_n8n)]
@@ -34,19 +35,66 @@ class StartIn(BaseModel):
 
 @router.post("/n8n/start", dependencies=n8n)
 async def n8n_start(body: StartIn, db: AsyncSession = Depends(get_db)) -> dict:
-    return await rd.start_report(db, tipo=body.tipo, tema=body.tema, origen=body.origen)
+    """Abre el informe y devuelve la peticion completa para Claude (el prompt vive en el repo: app/services/radar_ai.py)."""
+    out = await rd.start_report(db, tipo=body.tipo, tema=body.tema, origen=body.origen)
+    if not out.get("ok"):
+        return out
+    excluded = [r["titulo"] for r in await rd.recent_titles(db)]
+    req = ai.build_request(tipo=out["tipo"], tema=body.tema, temas=await rd.temas(db, active_only=True), excluded=excluded,
+                           n=out["n"], hoy=rd.today())
+    return {**out, "request": req}
+
+
+class FinishIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    informe_id: int = Field(ge=1)
+    request: dict = Field(default_factory=dict)
+    responses: list[dict] = Field(default_factory=list, max_length=3)
+
+
+@router.post("/n8n/continue", dependencies=n8n)
+async def n8n_continue(body: FinishIn) -> dict:
+    """pause_turn: la peticion para que Claude termine (se reenvia lo que ya hizo)."""
+    return {"request": ai.continuation(body.request, body.responses[-1] if body.responses else {})}
+
+
+@router.post("/n8n/finish", dependencies=n8n)
+async def n8n_finish(body: FinishIn, db: AsyncSession = Depends(get_db)) -> dict:
+    """Valida lo que trajo Claude (fuente real con fecha, sin repetir), guarda y arma los mensajes para NEXUS."""
+    inf = await rd._one(db, "SELECT id, tipo, tema, estado FROM radar_informes WHERE id = :i", {"i": body.informe_id})
+    if not inf or inf["estado"] != "corriendo":
+        return {"ok": False, "mensaje": "⚠️ NEXUS: ese informe ya estaba cerrado."}
+    err = ai.api_error(body.responses)
+    usage = ai.usage_of(body.responses)
+    if err:
+        await rd.fail_report(db, body.informe_id, err)
+        return {"ok": False, "mensaje": f"⚠️ NEXUS: el informe #{body.informe_id} falló: {rd.esc(err)}."}
+    data = ai.parse_json(ai.final_text(body.responses))
+    if data is None:
+        await rd.fail_report(db, body.informe_id, "respuesta sin JSON")
+        return {"ok": False, "mensaje": f"⚠️ NEXUS: el informe #{body.informe_id} falló: Claude no devolvió el JSON."}
+    valid, discarded = ai.validate(data, ai.search_urls(body.responses))
+    saved = await rd.save_report(db, body.informe_id, valid, discarded=discarded, usage=usage)
+    items = [rd.telegram_item(await rd.idea(db, i)) for i in saved["ids"]]
+    return {"ok": True, "cabecera": ai.header(inf["tipo"], inf["tema"], len(items), discarded + saved["repetidas"], usage["costo_usd"]),
+            "ideas": items, "costo_usd": usage["costo_usd"], "descartadas": discarded, "repetidas": saved["repetidas"]}
 
 
 class FailIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    informe_id: int = Field(ge=1)
+    informe_id: int = Field(default=0, ge=0)   # 0 = el que este corriendo (lo usa el flujo de errores)
     error: str = Field(default="", max_length=500)
 
 
 @router.post("/n8n/fail", dependencies=n8n)
 async def n8n_fail(body: FailIn, db: AsyncSession = Depends(get_db)) -> dict:
-    await rd.fail_report(db, body.informe_id, body.error)
-    return {"ok": True, "mensaje": f"⚠️ NEXUS: el informe #{body.informe_id} falló ({rd.esc(body.error[:120]) or 'error'})."}
+    iid = body.informe_id
+    if not iid:
+        row = await rd._one(db, "SELECT id FROM radar_informes WHERE estado = 'corriendo' ORDER BY id DESC LIMIT 1")
+        iid = row["id"] if row else 0
+    if iid:
+        await rd.fail_report(db, iid, body.error)
+    return {"ok": True, "mensaje": f"⚠️ NEXUS: el informe{f' #{iid}' if iid else ''} falló ({rd.esc(body.error[:120]) or 'error'})."}
 
 
 class StateIn(BaseModel):
@@ -121,6 +169,8 @@ async def admin_idea_patch(idea_id: int, body: IdeaPatch, db: AsyncSession = Dep
         i = await rd.update_idea(db, idea_id, estado=body.estado, notas=body.notas)
     except LookupError:
         raise HTTPException(status_code=404, detail="no_existe") from None
+    if body.estado is not None and i.get("tg_message_id"):
+        await _hook("nexus-editar", rd.telegram_item(i))   # el mensaje de NEXUS muestra el estado nuevo
     return {"ok": True, "idea": i}
 
 
@@ -157,3 +207,42 @@ async def admin_tema_update(tema_id: int, body: TemaIn, db: AsyncSession = Depen
         return {"ok": True, "tema": await rd.save_tema(db, body.model_dump(), tema_id)}
     except LookupError:
         raise HTTPException(status_code=404, detail="no_existe") from None
+
+
+# ---------------------------------------------------------------- consola -> n8n (generar ahora y reflejar en Telegram)
+N8N_BASE_ENV = "NEXUS_N8N_BASE"
+N8N_BASE_DEFAULT = "https://main-production-54df.up.railway.app"
+
+
+async def _hook(path: str, payload: dict) -> bool:
+    """Llama un webhook de n8n con el mismo token de servicio (X-Nexa-Token). Sin token o sin respuesta: False."""
+    import os
+
+    import httpx
+
+    from app.api.v1.endpoints.prospecting import TOKEN_ENV
+    token = os.getenv(TOKEN_ENV, "").strip()
+    if not token:
+        return False
+    base = (os.getenv(N8N_BASE_ENV, "").strip() or N8N_BASE_DEFAULT).rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(f"{base}/webhook/{path}", json=payload, headers={"X-Nexa-Token": token})
+        return r.status_code < 300
+    except httpx.HTTPError:
+        return False
+
+
+class GenerateIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    tema: str = Field(default="", max_length=300)
+
+
+@router.post("/admin/generar", dependencies=admin)
+async def admin_generate(body: GenerateIn, db: AsyncSession = Depends(get_db)) -> dict:
+    used = await rd.on_demand_today(db)
+    if used >= rd.DAILY_ON_DEMAND:
+        raise HTTPException(status_code=429, detail="tope_diario")
+    if not await _hook("nexus-radar", {"tema": body.tema, "origen": "consola"}):
+        raise HTTPException(status_code=502, detail="n8n_no_disponible")
+    return {"ok": True, "usados": used + 1, "tope": rd.DAILY_ON_DEMAND}
