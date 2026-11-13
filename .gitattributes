@@ -6,3 +6,5 @@ Dockerfile text eol=lf*.pdf binary
 app/web/vendor/** -text
 # Oficina 3D: recursos binarios (modelos, texturas, HDRI) tal cual, sin conversiones de fin de línea
 app/web/oficina/recursos/** -text
+# Bumeranes de la cola de hoy (videos y GIF): tal cual
+app/web/bumeranes/** -text

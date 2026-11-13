@@ -321,3 +321,23 @@ async def passkeys_delete(passkey_id: str, request: Request, db: AsyncSession = 
     if not await pk.delete_passkey(db, passkey_id):
         raise HTTPException(status_code=404, detail="Huella no encontrada.")
     return _no_store(JSONResponse({"ok": True, "passkeys": [pk.public_row(r) for r in await pk.list_passkeys(db)]}))
+
+
+# ------------------------------------------------------------------ bumeranes de la Cola de hoy (Nexa)
+# Videos de 6 s por nicho (y su GIF) para "Guardar video": solo con sesion de Admin V2 (401 sin ella). Viven en
+# app/web/bumeranes/, que ninguna ruta estatica sirve. Tienda y transporte: sin bumeran por ahora.
+BOOMERANG_NICHES = ("restaurante", "bar", "taller", "campo")
+
+
+@router.get("/admin-v2plus/bumeranes/{nicho}.{ext}", include_in_schema=False)
+async def admin_v2plus_boomerang(nicho: str, ext: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await _require_session_json(request, db)
+    if nicho not in BOOMERANG_NICHES or ext not in ("mp4", "gif"):
+        raise HTTPException(status_code=404, detail="Sin bumerán para ese nicho.")
+    path = WEB_DIR / "bumeranes" / f"bumeran-{nicho}.{ext}"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Sin bumerán para ese nicho.")
+    response = FileResponse(path, media_type="video/mp4" if ext == "mp4" else "image/gif",
+                            filename=f"clonexa-{nicho}.{ext}", content_disposition_type="attachment")
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
