@@ -236,7 +236,7 @@ def is_answerable(kind: str) -> bool:
 # ---------------------------------------------------------------- base de datos
 CONTACT_COLS = """id::text AS id, wa_id, profile_name, language, business_type, city, size, main_pain, email, stage, stage_at,
     nexa_paused, consent_seen, first_message_at, last_message_at, last_inbound_at, last_preview, demo_at, demo_link, notes,
-    admin_seen_at, created_at"""
+    admin_seen_at, created_at, zone, origin"""
 
 
 async def upsert_contact(db: AsyncSession, wa_id: str, profile_name: Optional[str]) -> dict:
@@ -354,7 +354,8 @@ def next_stage(current: str, proposed: Optional[str]) -> str:
 def contact_public(c: dict) -> dict:
     iso = lambda v: v.isoformat() if v else None  # noqa: E731
     return {"id": c["id"], "wa_id": c["wa_id"], "nombre": c.get("profile_name"), "idioma": c.get("language"),
-            "tipo_negocio": c.get("business_type"), "ciudad": c.get("city"), "tamano": c.get("size"), "dolor": c.get("main_pain"),
+            "tipo_negocio": c.get("business_type"), "ciudad": c.get("city"), "zona": c.get("zone"), "origen": c.get("origin"),
+            "tamano": c.get("size"), "dolor": c.get("main_pain"),
             "correo": c.get("email"), "etapa": c.get("stage"), "nexa_pausada": bool(c.get("nexa_paused")),
             "consentimiento_visto": bool(c.get("consent_seen")), "demo_at": iso(c.get("demo_at")), "demo_link": c.get("demo_link"),
             "primer_mensaje_at": iso(c.get("first_message_at")), "ultimo_mensaje_at": iso(c.get("last_message_at")),
@@ -517,8 +518,40 @@ async def _link_prospect(db: AsyncSession, m: dict, contact: dict) -> Optional[d
                                  "Nexa le responde con la demo de la carta video.")
         except Exception:  # noqa: BLE001
             pass
+    niche = p.get("niche") or prospecting.pn.niche_of(p["business_type"])
+    try:   # el contacto queda con su tipo de negocio y zona: en la Recepcion ya no sale como "Interesado"
+        await db.execute(text("""UPDATE wa_contacts SET business_type = COALESCE(NULLIF(business_type, ''), :b),
+                                 zone = COALESCE(NULLIF(zone, ''), :z), origin = 'prospecto', updated_at = now()
+                                 WHERE id = CAST(:i AS uuid)"""),
+                         {"b": prospecting.TYPE_LABEL.get(p["business_type"], p["business_type"])[:120],
+                          "z": (p.get("zone_name") or "")[:120] or None, "i": contact["id"]})
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        log.warning("nexa_wa tipo_de_prospecto_no_guardado (%s)", type(exc).__name__)
     return {"codigo": p["code"], "negocio": p["name"], "tipo": p["business_type"], "zona": p.get("zone_name") or "",
+            "nicho": niche, "pitch": prospect_pitch(p, niche),
             "estado": p["status"], "baja": p["status"] == "baja"}
+
+
+DEMO_LEAD = re.compile(r"vengo de (instagram|facebook)", re.I)
+
+
+def origin_of(text_: str, prospect: Optional[dict]) -> str:
+    if prospect:
+        return "prospecto"
+    return "leads_demo" if DEMO_LEAD.search(text_ or "") else "directo"
+
+
+def prospect_pitch(p: dict, niche: str) -> str:
+    """Lo que Nexa cuenta en 2 lineas al negocio que escribio con su codigo, con la pagina de su nicho."""
+    from app.services import prospecting_email as pe
+    from app.services import prospecting_niches as pn
+
+    tema, detalle = pn.PITCH.get(niche, pn.PITCH["restaurante"])
+    url = pe.demo_url(pe.DEFAULT_LANDING, "", p["business_type"], p["code"], source="whatsapp")
+    return (f"Habla de {tema} en 2 líneas ({detalle}) y comparte este enlace: {url} . "
+            f"Menciona en una línea {pn.LIVE3D_LINE[7:].rstrip('.')}.")
 
 
 async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, send: Sender, fwd: Forwarder,
@@ -577,6 +610,13 @@ async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, 
         out["skipped"] += 1
         return
     contact = await contact_by_id(db, contact["id"]) or contact
+    if not contact.get("origin"):
+        try:
+            await db.execute(text("UPDATE wa_contacts SET origin = :o WHERE id = CAST(:i AS uuid) AND origin IS NULL"),
+                             {"o": origin_of(m["text"] or "", prospect), "i": contact["id"]})
+            await db.commit()
+        except Exception:  # noqa: BLE001 - columna de 025p: si falta, no tumba el mensaje
+            await db.rollback()
     body = {
         "mensaje": {"meta_id": m["meta_id"], "tipo": m["type"], "texto": m["text"] or "", "reply_id": m["reply_id"],
                     "respondible": is_answerable(m["type"]), "creado": (m["at"] or now()).isoformat()},
@@ -584,6 +624,9 @@ async def _process_message(db: AsyncSession, raw: dict, names: dict, out: dict, 
         "historial": await history(db, contact["id"]),
         "primer_mensaje": not contact["consent_seen"],
         "prospecto": prospect,
+        # 025p: si no esta ligado a un prospecto y no sabemos su tipo de negocio, Nexa lo pregunta (y la zona)
+        "preguntar_negocio": not prospect and not (contact.get("business_type") or "").strip(),
+        "origen": origin_of(m["text"] or "", prospect),
         "ahora": datetime.now(BOGOTA).isoformat(),
     }
     LAST_FORWARD_ERROR["detail"] = ""
@@ -685,6 +728,7 @@ async def record_outbound(db: AsyncSession, contact: dict, data: dict) -> dict:
     await db.execute(text("""
         UPDATE wa_contacts SET
             language = COALESCE(:language, language), business_type = COALESCE(:business, business_type), city = COALESCE(:city, city),
+            zone = COALESCE(:zone, zone),
             size = COALESCE(:size, size), main_pain = COALESCE(:pain, main_pain), email = COALESCE(:email, email),
             profile_name = COALESCE(profile_name, :name),
             consent_seen = consent_seen OR :consent,
@@ -693,7 +737,7 @@ async def record_outbound(db: AsyncSession, contact: dict, data: dict) -> dict:
             updated_at = now()
         WHERE id = CAST(:id AS uuid)
     """), {"id": contact["id"], "language": _clip(d.get("idioma"), 8), "business": _clip(d.get("tipo_negocio"), 120),
-           "city": _clip(d.get("ciudad"), 120), "size": _clip(d.get("tamano"), 200), "pain": _clip(d.get("dolor"), 500),
+           "city": _clip(d.get("ciudad"), 120), "zone": _clip(d.get("zona"), 120), "size": _clip(d.get("tamano"), 200), "pain": _clip(d.get("dolor"), 500),
            "email": email[:254] if _EMAIL.match(email) else None, "name": _clip(d.get("nombre"), 200),
            "consent": bool(data.get("consentimiento_visto")), "demo_at": _when(demo.get("inicio")),
            "demo_link": _clip(demo.get("enlace"), 500), "note": _clip(data.get("nota"), 1000)})

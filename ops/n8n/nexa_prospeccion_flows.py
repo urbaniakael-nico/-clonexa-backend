@@ -423,6 +423,25 @@ WA_PROMPT_NEW = ("{ type: 'text', text: 'CONTEXTO DE ESTA CONVERSACIÓN:\\n' + J
                  "'Luego ofrece agendar una demo de 20 minutos (sigue las reglas de AGENDAR). Sin precios.' : '') }")
 
 
+MARK2 = "/* negocio-025p */"
+# esquema: datos_detectados.zona (barrio o localidad)
+WA_SCHEMA_OLD = ('"required": ["nombre", "idioma", "tipo_negocio", "ciudad", "tamano", "dolor", "correo"], "properties": {"nombre": {"type": "string"},')
+WA_SCHEMA_NEW = ('"required": ["nombre", "idioma", "tipo_negocio", "ciudad", "zona", "tamano", "dolor", "correo"], "properties": {"nombre": {"type": "string"}, '
+                 '"zona": {"type": "string"},')
+WA_CTX2_OLD = "ciudad: c.ciudad || '',"
+WA_CTX2_NEW = "ciudad: c.ciudad || '', zona: c.zona || '', origen: body.origen || '', " + MARK2
+# prospecto de cualquier nicho: el backend manda el "pitch" con la pagina de su nicho
+WA_PITCH_OLD = "(['bar'].includes(body.prospecto.tipo) ?"
+WA_PITCH_NEW = "(body.prospecto.pitch ? body.prospecto.pitch + ' ' : ['bar'].includes(body.prospecto.tipo) ?"
+WA_ASK_OLD = "'Luego ofrece agendar una demo de 20 minutos (sigue las reglas de AGENDAR). Sin precios.' : '') }"
+WA_ASK_NEW = ("'Luego ofrece agendar una demo de 20 minutos (sigue las reglas de AGENDAR). Sin precios.' : '') + "
+              "(body.preguntar_negocio ? '\\n\\nTIPO DE NEGOCIO " + MARK2 + ": este contacto no está ligado a un negocio de la prospección y "
+              "todavía no sabemos su tipo de negocio. En tu PRIMERA respuesta pregúntale amablemente qué tipo de negocio tiene y en qué zona o "
+              "barrio está (si usas el mensaje tipo list del tipo de negocio, pon la pregunta de la zona en el texto de ese mismo mensaje). ' + "
+              "(body.origen === 'leads_demo' ? 'Viene de un comentario DEMO en Instagram o Facebook: agradécele por comentar. ' : '') + "
+              "'Guarda lo que responda en datos_detectados.tipo_negocio y datos_detectados.zona (barrio o localidad; la ciudad va en ciudad).' : '') }")
+
+
 def patch_wa(flow: dict) -> dict:
     flow = copy.deepcopy(flow)
     prep = _node(flow, "Preparar")
@@ -430,6 +449,11 @@ def patch_wa(flow: dict) -> dict:
     if MARK not in js:
         assert WA_CONTEXT_OLD in js and WA_PROMPT_OLD in js, "Preparar cambio: revisar el parche de prospeccion"
         js = js.replace(WA_CONTEXT_OLD, WA_CONTEXT_NEW).replace(WA_PROMPT_OLD, WA_PROMPT_NEW)
+    if MARK2 not in js:
+        for old in (WA_SCHEMA_OLD, WA_CTX2_OLD, WA_PITCH_OLD, WA_ASK_OLD):
+            assert js.count(old) == 1, f"Preparar cambio: revisar el parche 025p ({old[:40]})"
+        js = (js.replace(WA_SCHEMA_OLD, WA_SCHEMA_NEW).replace(WA_CTX2_OLD, WA_CTX2_NEW)
+              .replace(WA_PITCH_OLD, WA_PITCH_NEW).replace(WA_ASK_OLD, WA_ASK_NEW))
     prep["parameters"]["jsCode"] = js
     return flow
 

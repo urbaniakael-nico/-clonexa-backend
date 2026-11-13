@@ -931,3 +931,54 @@ def test_reporte_semanal_de_gasto(client, pg_url, monkeypatch):
     _admin(monkeypatch, ok=False)
     assert client.get(f"{URL}/admin/cost-report").status_code == 401
     assert client.post(f"{URL}/n8n/web-rescan").status_code == 401
+
+
+# ------------------------------------------------------------------ 025p: Nexa pregunta el tipo de negocio
+def _wa(wa_id, mid, body):
+    return {"object": "whatsapp_business_account", "entry": [{"changes": [{"field": "messages", "value": {
+        "metadata": {"phone_number_id": nw.phone_id()}, "contacts": [{"profile": {"name": "Cliente"}, "wa_id": wa_id}],
+        "messages": [{"from": wa_id, "id": mid, "timestamp": str(int(time.time())), "type": "text", "text": {"body": body}}]}}]}]}
+
+
+def test_nexa_pregunta_tipo_de_negocio_y_zona_y_lo_guarda(pg_url, client, monkeypatch):
+    forwarded = []
+
+    async def fwd(body):
+        forwarded.append(body)
+        return True
+
+    async def send(wa, body):
+        return {"ok": True, "meta_id": "x"}
+
+    async def alert(t):
+        return True
+
+    monkeypatch.setattr(nw, "_deliver_alert", alert)
+    nw.PER_NUMBER.hits.clear()
+    _with_db(pg_url, lambda db: nw.process_webhook(db, _wa("573005550001", "wamid.n1", "Hola, quiero información"), send=send, fwd=fwd))
+    assert forwarded[0]["preguntar_negocio"] is True and forwarded[0]["origen"] == "directo"
+    # lo que Nexa detecto en su respuesta (n8n -> /outbound) queda guardado: tipo y zona
+    contact = _with_db(pg_url, lambda db: nw.contact_by_wa(db, "573005550001"))
+    _with_db(pg_url, lambda db: nw.record_outbound(db, contact, {"mensajes": [], "datos_detectados": {
+        "tipo_negocio": "Taller de confección", "zona": "Restrepo", "ciudad": "Bogotá"}}))
+    row = _run(pg_url, "SELECT business_type, zone, city, origin FROM wa_contacts WHERE wa_id = '573005550001'")[0]
+    assert row == {"business_type": "Taller de confección", "zone": "Restrepo", "city": "Bogotá", "origin": "directo"}
+    _with_db(pg_url, lambda db: nw.process_webhook(db, _wa("573005550001", "wamid.n2", "somos 12 personas"), send=send, fwd=fwd))
+    assert forwarded[1]["preguntar_negocio"] is False, "ya sabemos el tipo: no se vuelve a preguntar"
+    assert forwarded[1]["contacto"]["zona"] == "Restrepo"
+    # lead de comentario DEMO que pasa a conversacion: tambien se le pregunta
+    _with_db(pg_url, lambda db: nw.process_webhook(db, _wa("573005550002", "wamid.n3", "Hola, vengo de Instagram y quiero una demo de Clonexa"),
+                                                   send=send, fwd=fwd))
+    assert forwarded[2]["preguntar_negocio"] is True and forwarded[2]["origen"] == "leads_demo"
+    assert _run(pg_url, "SELECT origin FROM wa_contacts WHERE wa_id = '573005550002'")[0]["origin"] == "leads_demo"
+    # prospecto de campo que escribe con su codigo: no se le pregunta y queda con su tipo y zona
+    z = _bog(pg_url)
+    _ingest_in(client, z, "electrico", [_taller(77, "Eléctricos del Sur")])
+    code = _run(pg_url, "SELECT code FROM prospects WHERE name = 'Eléctricos del Sur'")[0]["code"]
+    _with_db(pg_url, lambda db: nw.process_webhook(db, _wa("573005550003", "wamid.n4", f"Hola, vi lo del control del personal (código {code})"),
+                                                   send=send, fwd=fwd))
+    last = forwarded[3]
+    assert last["preguntar_negocio"] is False and last["origen"] == "prospecto" and last["prospecto"]["nicho"] == "campo"
+    assert "/personal-en-campo?" in last["prospecto"]["pitch"] and "Negocio en vivo 3D" in last["prospecto"]["pitch"]
+    row = _run(pg_url, "SELECT business_type, zone, origin FROM wa_contacts WHERE wa_id = '573005550003'")[0]
+    assert row == {"business_type": "Contratista eléctrico", "zone": "Puente Aranda", "origin": "prospecto"}

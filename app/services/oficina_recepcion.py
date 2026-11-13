@@ -56,9 +56,14 @@ BUSINESS = (
     (r"taller|confecci|costura|textil|ropa|moda", "Taller"),
     (r"tienda|minimercado|supermercado|droguer|almac[eé]n", "Tienda"),
     (r"hotel|hostal", "Hotel"),
-    (r"constru|obra|el[eé]ctric|t[eé]cnic|mantenimiento", "Servicios técnicos"),
+    (r"constru|obra|el[eé]ctric|t[eé]cnic|mantenimiento|telecomunic|instalaci|instalador", "Servicios técnicos"),
+    (r"vigilancia|seguridad privada|aseo|limpieza|personal en campo|campo", "Empresa de campo"),
+    (r"transporte|log[ií]stic|mensajer|despacho|acarreo|mudanza", "Transporte"),
 )
 PROSPECT_TYPE = {"restaurante": "Restaurante", "bar": "Bar", "cafe": "Café", "panaderia": "Panadería", "taller": "Taller",
+                 "fabrica": "Fábrica", "comidas_rapidas": "Comidas rápidas", "electrico": "Eléctricos", "telecom": "Telecomunicaciones",
+                 "construccion": "Construcción", "instalador": "Instaladores", "aseo": "Aseo", "vigilancia": "Vigilancia",
+                 "transporte": "Transporte",
                  "tienda": "Tienda", "hotel": "Hotel", "discoteca": "Bar"}
 EMAIL_RE = re.compile(r"\S+@\S+")
 PHONE_RE = re.compile(r"\+?\d[\d\s().-]{5,}\d")
@@ -201,7 +206,7 @@ def arrange(visitors: list[dict], limit: int = VISIBLE) -> dict:
 # ------------------------------------------------------------------ fuentes
 async def _whatsapp(r: od.Reader, now: datetime) -> Optional[list[dict]]:
     rows = await r.rows("""
-        SELECT c.id::text AS id, c.business_type, c.city, c.main_pain, c.stage, c.nexa_paused, c.first_message_at, c.last_message_at,
+        SELECT c.id::text AS id, c.business_type, COALESCE(NULLIF(c.zone, ''), c.city) AS city, c.main_pain, c.stage, c.nexa_paused, c.first_message_at, c.last_message_at,
                c.last_inbound_at, c.last_preview, c.demo_at,
                (SELECT m.direction FROM wa_messages m WHERE m.contact_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_dir,
                (SELECT max(m.created_at) FROM wa_messages m WHERE m.contact_id = c.id AND m.direction = 'out') AS last_out,

@@ -56,7 +56,11 @@ def _migration() -> list[str]:
     module = importlib.import_module("migrations.versions.024w_nexa_whatsapp")
     module.op = Op()
     module.upgrade()
-    return statements
+    extra: list[str] = []   # 025p agrega zone y origin a wa_contacts
+    p25 = importlib.import_module("migrations.versions.025p_prospect_multicanal")
+    p25.op = type("Op2", (), {"execute": lambda self, sql: extra.append(str(sql))})()
+    p25.upgrade()
+    return statements + [x for x in extra if "wa_contacts" in x]
 
 
 @pytest.fixture(scope="module")

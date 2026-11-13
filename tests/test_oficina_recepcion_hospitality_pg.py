@@ -31,7 +31,7 @@ def rdb(pg_url, client):
     if not _run(pg_url, "SELECT 1 FROM information_schema.columns WHERE table_name = 'wa_contacts' AND column_name = 'business_type'"):
         _run(pg_url, "DROP TABLE IF EXISTS wa_messages")
         _run(pg_url, "DROP TABLE IF EXISTS wa_contacts CASCADE")
-    for name in ("024w_nexa_whatsapp", "025i_prospecting", "025n_oficina_recepcion", "025n_oficina_recepcion"):
+    for name in ("024w_nexa_whatsapp", "025i_prospecting", "025n_oficina_recepcion", "025n_oficina_recepcion", "025p_prospect_multicanal"):
         for stmt in _migration(name):
             _run(pg_url, stmt)
     for t in ("wa_messages", "wa_contacts", "prospect_contacts", "prospects"):
