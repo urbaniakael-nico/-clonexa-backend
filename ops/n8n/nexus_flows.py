@@ -58,6 +58,28 @@ def nx(f: v2.Flow, name: str, text: str, buttons: list | None = None, html: bool
     return f.add(name, "n8n-nodes-base.telegram", p, 1.2, C_NX, **extra)
 
 
+# codigo de los nodos (constantes: tests/nexus_flows_js.test.cjs las ejecuta sin la clave de n8n)
+OPCIONES_JS = """
+const j = $json || {};
+let tipo = 'semanal', tema = '', origen = 'cron';
+if (j.body && typeof j.body === 'object') { tipo = 'a_pedido'; tema = String(j.body.tema || ''); origen = j.body.origen === 'telegram' ? 'telegram' : 'consola'; }
+else if (j.origen) { tipo = 'a_pedido'; tema = String(j.tema || ''); origen = 'telegram'; }
+return [{ json: { tipo, tema: tema.slice(0, 300), origen } }];
+"""
+LEER_JS = """
+const u = $json || {}; const DUENO = '__CHAT__';
+if (u.callback_query) {
+  const q = u.callback_query, m = q.message || {}; const chat = String(((m.chat || {}).id) || ((q.from || {}).id) || '');
+  const [ns, estado, id] = String(q.data || '').split(':');
+  return [{ json: { tipo: ns === 'rx' ? 'boton' : 'ayuda', ok: chat === DUENO && String((q.from || {}).id) === DUENO, chat, cb_id: q.id,
+    estado: String(estado || ''), id: Number(id) || 0, msg_id: m.message_id } }];
+}
+const m = u.message || {}; const chat = String((m.chat || {}).id || ''); const t = String(m.text || '').trim();
+const [first, ...rest] = t.split(/\\s+/); const cmd = (first || '').toLowerCase().replace(/@.*$/, '');
+const tipo = cmd === '/radar' ? 'radar' : cmd === '/ideas' ? 'ideas' : cmd === '/backlog' ? 'backlog' : 'ayuda';
+return [{ json: { tipo, ok: chat === DUENO && (m.chat || {}).type === 'private', chat, tema: rest.join(' ').slice(0, 300) } }];
+"""
+
 IDEA_BUTTONS = [[("⭐ Me interesa", "={{ $json.botones.interesa }}"), ("🗂 Al backlog", "={{ $json.botones.backlog }}"),
                  ("✖ Descartar", "={{ $json.botones.descartar }}")]]
 
@@ -70,13 +92,7 @@ def flow_radar(cred: dict) -> v2.Flow:
                                                          "authentication": "headerAuth", "options": {}}, 2, cred,
           webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, "hook/nexus-radar")))
     f.sub_trigger("Desde Comandos")
-    f.code("Opciones", """
-const j = $json || {};
-let tipo = 'semanal', tema = '', origen = 'cron';
-if (j.body && typeof j.body === 'object') { tipo = 'a_pedido'; tema = String(j.body.tema || ''); origen = j.body.origen === 'telegram' ? 'telegram' : 'consola'; }
-else if (j.origen) { tipo = 'a_pedido'; tema = String(j.tema || ''); origen = 'telegram'; }
-return [{ json: { tipo, tema: tema.slice(0, 300), origen } }];
-""")
+    f.code("Opciones", OPCIONES_JS)
     be(f, "Abrir informe", "POST", "/n8n/start", cred, body="={{ JSON.stringify($json) }}")
     f.iff("¿Abierto?", "$json.ok === true")
     f.http("Claude", "POST", "https://api.anthropic.com/v1/messages", v2.C_ANTH, cred_type="anthropicApi",
@@ -127,6 +143,75 @@ def flow_errores(cred: dict) -> v2.Flow:
        html=False)
     f.chain("Si falla", "Cerrar informe", "NEXUS: falló")
     fix(f, F_ERR, {"Si falla": (0, 0), "Cerrar informe": (240, 0), "NEXUS: falló": (480, 0)})
+    return f
+
+
+# ------------------------------------------------------------------ NEXUS - Comandos
+def nx_edit(f: v2.Flow, name: str, msg_id: str, text: str, with_buttons: bool = True) -> str:
+    p: dict = {"operation": "editMessageText", "messageType": "message", "chatId": CHAT, "messageId": msg_id, "text": text,
+               "additionalFields": {"parse_mode": "HTML", "disable_web_page_preview": True}}
+    if with_buttons:
+        p["replyMarkup"] = "inlineKeyboard"
+        p["inlineKeyboard"] = {"rows": [{"row": {"buttons": [{"text": t, "additionalFields": {"callback_data": d}} for t, d in row]}}
+                                        for row in IDEA_BUTTONS]}
+    return f.add(name, "n8n-nodes-base.telegram", p, 1.2, C_NX)
+
+
+def flow_comandos(cred: dict, radar_id: str) -> v2.Flow:
+    f = v2.Flow()
+    f.add("NEXUS (Telegram)", "n8n-nodes-base.telegramTrigger", {"updates": ["message", "callback_query"], "additionalFields": {}}, 1.1, C_NX,
+          webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, "nexus/comandos/telegram")))
+    f.code("Leer", LEER_JS.replace("__CHAT__", CHAT))
+    f.iff("¿Es el dueño?", "$json.ok === true")
+    # otros chats: se ignoran (sin respuesta) y se registra solo la huella
+    f.add("Huella del chat", "n8n-nodes-base.crypto", {"action": "hash", "type": "SHA256", "value": "={{ $json.chat }}",
+                                                       "dataPropertyName": "huella", "encoding": "hex"}, 1)
+    be(f, "Registrar ignorado", "POST", "/n8n/ignored", cred, body="={{ JSON.stringify({ chat_hash: $json.huella, tipo: $json.tipo }) }}")
+    # botones de una idea
+    f.iff("¿Botón?", "$json.tipo === 'boton'")
+    f.add("Responder botón", "n8n-nodes-base.telegram", {"resource": "callback", "operation": "answerQuery",
+                                                         "queryId": "={{ $('Leer').first().json.cb_id }}", "additionalFields": {"text": "Listo"}}, 1.2, C_NX)
+    be(f, "Cambiar estado", "POST", "/n8n/ideas/{{ $('Leer').first().json.id }}/state", cred,
+       body="={{ JSON.stringify({ estado: $('Leer').first().json.estado }) }}")
+    nx_edit(f, "Editar idea", "={{ $('Leer').first().json.msg_id }}", "={{ $json.mensaje || 'No pude cambiar la idea.' }}")
+    # /radar <tema>
+    f.iff("¿/radar?", "$json.tipo === 'radar'")
+    f.iff("¿Con tema?", "!!$json.tema")
+    f.code("Para el Radar", "return [{ json: { tema: $('Leer').first().json.tema, origen: 'telegram' } }];")
+    f.run("Informe a pedido", radar_id, wait=False)
+    nx(f, "NEXUS: investigando", "={{ '🔎 Investigando «' + $('Leer').first().json.tema + '»… te aviso cuando esté (máximo 3 informes a pedido al día).' }}",
+       html=False)
+    nx(f, "NEXUS: uso de /radar", "Escribe el tema así: /radar fondos para startups de software en Colombia", html=False)
+    # /ideas, /backlog, /ayuda
+    f.iff("¿Lista?", "$json.tipo === 'ideas' || $json.tipo === 'backlog'")
+    be(f, "Leer lista", "GET", "/n8n/list?que={{ $('Leer').first().json.tipo }}", cred)
+    be(f, "Leer ayuda", "GET", "/n8n/help", cred)
+    nx(f, "NEXUS: respuesta", "={{ $json.mensaje || 'Sin datos.' }}")
+    f.chain("NEXUS (Telegram)", "Leer", "¿Es el dueño?", "¿Botón?", "Responder botón", "Cambiar estado", "Editar idea")
+    f.link("¿Es el dueño?", "Huella del chat", 1)
+    f.link("Huella del chat", "Registrar ignorado")
+    f.link("¿Botón?", "¿/radar?", 1)
+    f.chain("¿/radar?", "¿Con tema?", "Para el Radar", "Informe a pedido")
+    f.link("Para el Radar", "NEXUS: investigando")
+    f.link("¿Con tema?", "NEXUS: uso de /radar", 1)
+    f.link("¿/radar?", "¿Lista?", 1)
+    f.chain("¿Lista?", "Leer lista", "NEXUS: respuesta")
+    f.link("¿Lista?", "Leer ayuda", 1)
+    f.link("Leer ayuda", "NEXUS: respuesta")
+    # la consola cambio el estado: se edita el mensaje en NEXUS (el backend llama con X-Nexa-Token)
+    f.add("Desde la consola", "n8n-nodes-base.webhook", {"httpMethod": "POST", "path": "nexus-editar", "responseMode": "onReceived",
+                                                         "authentication": "headerAuth", "options": {}}, 2, cred,
+          webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, "hook/nexus-editar")))
+    f.iff("¿Tiene mensaje?", "!!($json.body || {}).message_id")
+    f.code("Datos del mensaje", "const b = $json.body || {}; return [{ json: { message_id: b.message_id, mensaje: b.mensaje, botones: b.botones } }];")
+    nx_edit(f, "Editar desde la consola", "={{ $json.message_id }}", "={{ $json.mensaje }}")
+    f.chain("Desde la consola", "¿Tiene mensaje?", "Datos del mensaje", "Editar desde la consola")
+    fix(f, F_CMD, {"NEXUS (Telegram)": (0, 200), "Leer": (240, 200), "¿Es el dueño?": (480, 200), "Huella del chat": (720, 480),
+                   "Registrar ignorado": (960, 480), "¿Botón?": (720, 120), "Responder botón": (960, 0), "Cambiar estado": (1200, 0),
+                   "Editar idea": (1440, 0), "¿/radar?": (960, 200), "¿Con tema?": (1200, 160), "Para el Radar": (1440, 120),
+                   "Informe a pedido": (1680, 60), "NEXUS: investigando": (1680, 180), "NEXUS: uso de /radar": (1440, 280),
+                   "¿Lista?": (1200, 360), "Leer lista": (1440, 340), "Leer ayuda": (1440, 440), "NEXUS: respuesta": (1680, 380),
+                   "Desde la consola": (0, 720), "¿Tiene mensaje?": (240, 720), "Datos del mensaje": (480, 720), "Editar desde la consola": (720, 720)})
     return f
 
 
