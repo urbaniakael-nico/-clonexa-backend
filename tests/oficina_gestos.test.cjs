@@ -127,7 +127,7 @@ test('cámara por piso: nunca bajo el piso ni más lejos/cerca del límite; pare
       const c = P.clampCam(g, L); const pos = P.camPos(c, L.lookY);
       assert.ok(pos[1] >= L.minY - 1e-9, `${name}: cámara bajo el piso (${pos[1].toFixed(2)})`);
       assert.ok(c.dist >= L.distMin && c.dist <= L.distMax, `${name}: distancia ${c.dist}`);
-      assert.ok(Math.abs(c.az) <= 1.1 + 1e-9 && Math.abs(c.tx) <= F.ROOM.W / 2 && Math.abs(c.tz) <= F.ROOM.D / 2, `${name}: giro/centro`);
+      assert.ok(Math.abs(c.az) <= 1.1 + 1e-9 && Math.abs(c.tx - (F.ROOM.X0 || 0)) <= F.ROOM.W / 2 && Math.abs(c.tz) <= F.ROOM.D / 2, `${name}: giro/centro`);
     }
     // girado al máximo a la izquierda y lejos: la cámara queda fuera de la pared izquierda -> se oculta
     const side = P.clampCam({ ...home, az: -1.1, dist: L.distMax }, L);

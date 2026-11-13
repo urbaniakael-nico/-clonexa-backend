@@ -8,24 +8,24 @@
 import {openFloor, THREE, P, API, esc, savedFor} from '/admin-v2plus/oficina/mixamo.js';
 
 export function open(o) {
-  const CX = P.CLONEXA, {W: RW, D: RD, WALL: WH} = CX.ROOM;
+  const CX = P.CLONEXA, {W: RW, D: RD, WALL: WH} = CX.ROOM, X0 = CX.ROOM.X0 || 0, XL = X0 - RW / 2, XR = X0 + RW / 2;
   return openFloor(o, {title: 'CLONEXA · piso principal', room: CX.ROOM, camera: CX.CAMERA, exposure: .85, bloom: [.4, .4, .97], bg: 0x04030a, cls: 'clonexa',
     liveUrl: `${API}/clonexa/vivo`, models: P.CHARACTERS.filter(n => n !== 'Ch17_nonPBR'),
     clips: ['Idle', 'Walking', 'Typing', 'Sitting', 'Talking', 'Drinking', 'Sitting_Drinking'],
     async build(A) {
       const {mesh, flat, M, glow, RoundedBoxGeometry: RB, S, track} = A;
-      const fl = flat(new THREE.PlaneGeometry(RW, RD), track(new THREE.MeshPhysicalMaterial({color: 0x2a2733, roughness: .18, metalness: .2, clearcoat: 1, clearcoatRoughness: .05}))); fl.rotation.x = -Math.PI / 2;
+      const fl = flat(new THREE.PlaneGeometry(RW, RD), track(new THREE.MeshPhysicalMaterial({color: 0x2a2733, roughness: .18, metalness: .2, clearcoat: 1, clearcoatRoughness: .05})), X0, 0, 0); fl.rotation.x = -Math.PI / 2;
       const gridM = glow(0x8b5cf6, .5);
-      for (let x = -RW / 2 + 3; x < RW / 2; x += 3) { const l = flat(new THREE.PlaneGeometry(.025, RD), gridM, x, .004, 0); l.rotation.x = -Math.PI / 2; }
-      for (let z = -RD / 2 + 3; z < RD / 2; z += 3) { const l = flat(new THREE.PlaneGeometry(RW, .025), gridM, 0, .004, z); l.rotation.x = -Math.PI / 2; }
+      for (let x = XL + 3; x < XR; x += 3) { const l = flat(new THREE.PlaneGeometry(.025, RD), gridM, x, .004, 0); l.rotation.x = -Math.PI / 2; }
+      for (let z = -RD / 2 + 3; z < RD / 2; z += 3) { const l = flat(new THREE.PlaneGeometry(RW, .025), gridM, X0, .004, z); l.rotation.x = -Math.PI / 2; }
       const wallM = track(new THREE.MeshPhysicalMaterial({color: 0x07060b, roughness: .08, metalness: .6, clearcoat: 1}));
-      mesh(new THREE.BoxGeometry(RW, WH, .2), wallM, 0, WH / 2, -RD / 2 - .1); mesh(new THREE.BoxGeometry(.2, WH, RD), wallM, -RW / 2 - .1, WH / 2, 0);
+      mesh(new THREE.BoxGeometry(RW, WH, .2), wallM, X0, WH / 2, -RD / 2 - .1); mesh(new THREE.BoxGeometry(.2, WH, RD), wallM, XL - .1, WH / 2, 0);
       const stripM = glow(0x8b5cf6, 1.6), neonM = glow(0xf20b6d, 3);
-      for (let i = -RW / 2 + 1.5; i < RW / 2; i += 3) flat(new THREE.BoxGeometry(.04, WH - .4, .04), stripM, i, WH / 2, -RD / 2 + .02);
-      for (let i = -RD / 2 + 1.5; i < RD / 2; i += 3) flat(new THREE.BoxGeometry(.04, WH - .4, .04), stripM, -RW / 2 + .02, WH / 2, i);
-      flat(new THREE.BoxGeometry(RW, .05, .05), neonM, 0, WH - .1, -RD / 2 + .03); flat(new THREE.BoxGeometry(.05, .05, RD), neonM, -RW / 2 + .03, WH - .1, 0);
-      flat(new THREE.BoxGeometry(RW + .6, .35, RD + .6), M(0x0a090e, {metalness: .7, roughness: .25}), 0, -.18, 0);
-      flat(new THREE.BoxGeometry(RW + .62, .04, .04), glow(0xf20b6d, 4), 0, -.02, RD / 2 + .3); flat(new THREE.BoxGeometry(.04, .04, RD + .62), glow(0xf20b6d, 4), RW / 2 + .3, -.02, 0);
+      for (let i = XL + 1.5; i < XR; i += 3) flat(new THREE.BoxGeometry(.04, WH - .4, .04), stripM, i, WH / 2, -RD / 2 + .02);
+      for (let i = -RD / 2 + 1.5; i < RD / 2; i += 3) flat(new THREE.BoxGeometry(.04, WH - .4, .04), stripM, XL + .02, WH / 2, i);
+      flat(new THREE.BoxGeometry(RW, .05, .05), neonM, X0, WH - .1, -RD / 2 + .03); flat(new THREE.BoxGeometry(.05, .05, RD), neonM, XL + .03, WH - .1, 0);
+      flat(new THREE.BoxGeometry(RW + .6, .35, RD + .6), M(0x0a090e, {metalness: .7, roughness: .25}), X0, -.18, 0);
+      flat(new THREE.BoxGeometry(RW + .62, .04, .04), glow(0xf20b6d, 4), X0, -.02, RD / 2 + .3); flat(new THREE.BoxGeometry(.04, .04, RD + .62), glow(0xf20b6d, 4), XR + .3, -.02, 0);
       // áreas sin tabiques: línea de luz de su color y su nombre
       for (const [key, [x, z, w, d, col, name, tz]] of Object.entries(CX.ZONES)) {
         const g = new THREE.Group(); g.position.set(x, .006, z); S.add(g); const m = glow(col, 1.4);
@@ -88,7 +88,7 @@ export function open(o) {
       flat(new THREE.CylinderGeometry(.9, 1.25, 2.6, 48, 1, true), track(new THREE.MeshBasicMaterial({color: 0xa855f7, transparent: true, opacity: .07, side: THREE.DoubleSide, depthWrite: false})), 0, 1.4, .4);
       const wmP = flat(new THREE.PlaneGeometry(2.6, .54), track(new THREE.MeshBasicMaterial({map: wm, transparent: true, toneMapped: false, side: THREE.DoubleSide})), 0, .75, 1.9); wmP.rotation.x = -.4;
       // Ventas: mapa comercial (lista real de prospección)
-      const mapScreen = A.canvasScreen(4.2, 2.0, 1024, 488); holo(-RW / 2 + .3, 2.2, 5.6, 4.2, 2.0, mapScreen, Math.PI / 2);
+      const mapScreen = A.canvasScreen(4.2, 2.0, 1024, 488); holo(XL + .3, 2.2, 5.6, 4.2, 2.0, mapScreen, Math.PI / 2);
       // Bots y operaciones: torre de servidores
       for (let i = 0; i < 4; i++) { const x = -4.6 + i * 1.0; mesh(new RB(.85, 2.6, .9, 2, .04), M(0x08080b, {metalness: .7, roughness: .25}), x, 1.3, 8.75);
         for (let k = 0; k < 10; k++) flat(new THREE.BoxGeometry(.6, .02, .02), glow(k % 3 ? 0x38bdf8 : 0xa855f7, 3), x, .4 + k * .22, 8.29); }
@@ -101,6 +101,58 @@ export function open(o) {
       [[9.6, 4.9], [13.0, 4.9]].forEach(([x, z]) => { mesh(new THREE.CylinderGeometry(.55, .55, .04, 32), white, x, .45, z); mesh(new THREE.CylinderGeometry(.06, .06, .43, 12), black, x, .22, z); });
       [[8.4, 8.6], [14.4, 2.6], [-14, -2], [14.2, -2.5]].forEach(([x, z], j) => { const g = new THREE.Group(); g.position.set(x, 0, z); S.add(g); mesh(new THREE.CylinderGeometry(.32, .26, .6, 20), white, 0, .3, 0, g);
         for (let i = 0; i < 9; i++) { const l = mesh(new THREE.SphereGeometry(.22 + ((i * 37 + j) % 10) / 100, 10, 8), M(0x2f7a46, {roughness: .8}), (((i * 13 + j) % 10) / 10 - .5) * .45, .8 + ((i * 29) % 10) / 14, (((i * 7 + j) % 10) / 10 - .5) * .45, g); l.scale.y = 1.4; } });
+      // Innovación (nexus.html): escritorio blanco de NEXUS con dos pantallas holográficas, radar sobre pedestal,
+      // pantalla grande "NEXUS · Radar de innovación" y tablero "Backlog" en la pared del fondo. Todo con datos REALES.
+      const IN = CX.INNOVACION, CY = 0x22d3ee, [DX, DZ] = IN.DESK, [RX, RZ] = IN.RADAR;
+      const radarScreen = A.canvasScreen(IN.SCREEN[2], IN.SCREEN[3], 1400, 620), boardScreen = A.canvasScreen(IN.BOARD[2], IN.BOARD[3], 560, 560);
+      const bigG = A.screen(IN.SCREEN[0], IN.SCREEN[1], -RD / 2 + .1, IN.SCREEN[2], IN.SCREEN[3], radarScreen);
+      const boardG = A.screen(IN.BOARD[0], IN.BOARD[1], -RD / 2 + .1, IN.BOARD[2], IN.BOARD[3], boardScreen);
+      [[bigG, IN.SCREEN[2], IN.SCREEN[3]], [boardG, IN.BOARD[2], IN.BOARD[3]]].forEach(([g, w, h]) => {   // tocar la pantalla abre el Radar
+        const hit = flat(new THREE.PlaneGeometry(w, h), A.hitM, 0, 0, .06, g); hit.userData.link = P.RADAR_LINK; A.PICK.push(hit); });
+      mesh(new RB(2.0, .06, .9, 3, .03), white, DX, .75, DZ); flat(new THREE.BoxGeometry(1.9, .015, .015), glow(CY, 3), DX, .725, DZ + .45);
+      mesh(new RB(.08, .72, .75, 2, .03), black, DX - .95, .36, DZ); mesh(new RB(.08, .72, .75, 2, .03), black, DX + .95, .36, DZ);
+      const holoL = A.canvasScreen(.9, .53, 512, 300), holoR = A.canvasScreen(.9, .53, 512, 300);
+      holo(DX - 1.25, 1.25, DZ - .25, .9, .53, holoL, .75); holo(DX + 1.25, 1.25, DZ - .25, .9, .53, holoR, -.75);
+      { const c = new THREE.Group(); c.position.set(DX, 0, DZ - .72); c.rotation.y = Math.PI; S.add(c); mesh(new RB(.5, .08, .48, 2, .03), white, 0, .47, 0, c);
+        mesh(new RB(.48, .6, .07, 2, .03), white, 0, .8, .22, c); mesh(new THREE.CylinderGeometry(.03, .03, .4, 8), black, 0, .25, 0, c); mesh(new THREE.CylinderGeometry(.26, .28, .03, 20), black, 0, .03, 0, c); }
+      mesh(new THREE.CylinderGeometry(.6, .7, .5, 40), M(0x0c0b10, {metalness: .7, roughness: .25}), RX, .25, RZ);
+      flat(new THREE.TorusGeometry(.62, .02, 8, 60), glow(CY, 4), RX, .5, RZ).rotation.x = Math.PI / 2;
+      const radarTex = A.canvasScreen(1.7, 1.7, 512, 512), radarDiscs = [];
+      for (let i = 0; i < 2; i++) { const d = flat(new THREE.CircleGeometry(.85, 48), track(new THREE.MeshBasicMaterial({map: radarTex.texture, transparent: true, opacity: i ? .35 : .9, toneMapped: false, side: THREE.DoubleSide, depthWrite: false})), RX, 1.15 + i * .35, RZ); d.rotation.x = -Math.PI / 2; radarDiscs.push(d); }
+      flat(new THREE.CylinderGeometry(.85, .55, .7, 48, 1, true), track(new THREE.MeshBasicMaterial({color: CY, transparent: true, opacity: .07, toneMapped: false, side: THREE.DoubleSide, depthWrite: false})), RX, .85, RZ);
+      const radarPt = new THREE.Group(); radarPt.position.set(RX, 1.6, RZ); S.add(radarPt); const radarTagEl = A.tag(radarPt, '', 'nx', .3);
+      [[16.6, -8.9], [25.2, -3.4]].forEach(([x, z], j) => { const g = new THREE.Group(); g.position.set(x, 0, z); S.add(g); mesh(new THREE.CylinderGeometry(.3, .24, .55, 20), white, 0, .28, 0, g);
+        for (let i = 0; i < 8; i++) { const l = mesh(new THREE.SphereGeometry(.2 + ((i * 31 + j) % 10) / 100, 10, 8), M(0x2f7a46, {roughness: .8}), (((i * 13 + j) % 10) / 10 - .5) * .4, .75 + ((i * 29) % 10) / 16, (((i * 7 + j) % 10) / 10 - .5) * .4, g); l.scale.y = 1.4; } });
+      A.point(CY, 2.5 * .55, 6, RX, 2.6, RZ); A.point(0xa855f7, 1.6 * .55, 6, DX, 2.6, DZ);
+
+      function drawRadar(radar) {
+        const top = (radar && radar.top) || [], counts = (radar && radar.counts) || null;
+        radarScreen.draw(top, (x, w, h) => { const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#04141a'); g.addColorStop(1, '#140826'); x.fillStyle = g; x.fillRect(0, 0, w, h);
+          x.fillStyle = '#fff'; x.font = '800 46px Inter,sans-serif'; x.fillText('NEXUS · Radar de innovación', 32, 64); x.fillStyle = '#22d3ee'; x.font = '600 26px Inter,sans-serif';
+          x.fillText('Ideas del último informe · por puntaje', 32, 102); x.fillRect(32, 118, w - 64, 3);
+          if (!top.length) { x.fillStyle = '#cbd5e1'; x.font = '500 34px Inter,sans-serif'; x.fillText('Sin ideas aún', 32, 200); return; }
+          top.slice(0, 3).forEach((it, i) => { const y = 140 + i * 118; x.fillStyle = 'rgba(255,255,255,.06)'; x.fillRect(32, y, w - 64, 100); x.fillStyle = P.RADAR_LEVEL_COLOR[it.impacto] || '#22d3ee'; x.fillRect(32, y, 8, 100);
+            x.fillStyle = '#fff'; x.font = '800 32px Inter,sans-serif'; x.fillText(A.clipText(it.titulo, 52), 58, y + 44); x.fillStyle = '#cbd5e1'; x.font = '500 26px Inter,sans-serif';
+            x.fillText(`Impacto ${it.impacto} · Esfuerzo ${it.esfuerzo}${it.fecha_limite ? ` · cierra ${it.fecha_limite}` : ''} · ${it.puntaje} pts`, 58, y + 82);
+            x.fillStyle = 'rgba(34,211,238,.18)'; x.fillRect(w - 300, y + 30, 240, 44); x.fillStyle = '#67e8f9'; x.font = '700 24px Inter,sans-serif'; x.fillText(A.clipText(it.estado_label || it.estado, 16), w - 284, y + 60); }); });
+        boardScreen.draw(counts, (x, w, h) => { x.fillStyle = '#0b0814'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff'; x.font = '800 40px Inter,sans-serif'; x.fillText('Backlog', 30, 60); x.fillStyle = '#22d3ee'; x.fillRect(30, 78, w - 60, 3);
+          if (!counts) { x.fillStyle = '#cbd5e1'; x.font = '500 30px Inter,sans-serif'; x.fillText('Sin datos', 30, 150); return; }
+          P.RADAR_COUNTS.forEach(([k, l, col], i) => { const y = 130 + i * 86; x.fillStyle = col; x.beginPath(); x.arc(46, y - 12, 10, 0, 7); x.fill(); x.fillStyle = '#e2e8f0'; x.font = '600 34px Inter,sans-serif'; x.fillText(l, 70, y);
+            x.fillStyle = col; x.font = '800 40px Inter,sans-serif'; x.fillText(String(counts[k] || 0), w - 80, y); }); });
+        const st = P.nexusState(radar), n = Math.min(12, (radar && radar.nuevas) || 0);
+        radarTex.draw([n, st.cls], (x, w) => { const c = w / 2; x.strokeStyle = 'rgba(34,211,238,.9)'; x.lineWidth = 4; [.95, .7, .45, .2].forEach(r => { x.beginPath(); x.arc(c, c, c * r, 0, 7); x.stroke(); });
+          x.beginPath(); x.moveTo(c, 0); x.lineTo(c, w); x.moveTo(0, c); x.lineTo(w, c); x.stroke(); const g = x.createLinearGradient(c, c, c + c * .9, c - c * .6); g.addColorStop(0, 'rgba(34,211,238,.7)'); g.addColorStop(1, 'rgba(34,211,238,0)');
+          x.fillStyle = g; x.beginPath(); x.moveTo(c, c); x.arc(c, c, c * .95, -1.1, -.3); x.fill();
+          for (let i = 0; i < n; i++) { const a = i * 2.39996, r = c * (.25 + ((i * 37) % 60) / 100); x.fillStyle = '#f0abfc'; x.beginPath(); x.arc(c + Math.cos(a) * r, c + Math.sin(a) * r, 12, 0, 7); x.fill(); } });
+        holoL.draw(st.cls, (x, w, h) => { x.fillStyle = 'rgba(4,20,26,.85)'; x.fillRect(0, 0, w, h); x.fillStyle = '#22d3ee'; x.fillRect(0, 0, w, 6); x.fillStyle = '#fff'; x.font = '700 30px Inter,sans-serif';
+          x.fillText(st.cls === 'work' ? 'Buscando fuentes' : st.cls === 'err' ? 'Último informe falló' : 'Esperando', 20, 48);
+          for (let i = 0; i < 5; i++) { x.fillStyle = 'rgba(255,255,255,.1)'; x.fillRect(20, 72 + i * 40, w - 40, 26); if (st.cls === 'work') { x.fillStyle = '#22d3ee'; x.fillRect(20, 72 + i * 40, (w - 40) * (.3 + ((i * 37) % 60) / 100), 26); } } });
+        holoR.draw(top.map(t => t.puntaje), (x, w, h) => { x.fillStyle = 'rgba(4,20,26,.85)'; x.fillRect(0, 0, w, h); x.fillStyle = '#22d3ee'; x.fillRect(0, 0, w, 6); x.fillStyle = '#fff'; x.font = '700 30px Inter,sans-serif'; x.fillText('Puntaje de ideas', 20, 48);
+          if (!top.length) { x.fillStyle = '#cbd5e1'; x.font = '500 24px Inter,sans-serif'; x.fillText('Sin ideas aún', 20, 110); return; }
+          top.slice(0, 5).forEach((t, i) => { x.fillStyle = 'rgba(255,255,255,.1)'; x.fillRect(20, 72 + i * 40, w - 40, 26); x.fillStyle = '#22d3ee'; x.fillRect(20, 72 + i * 40, (w - 40) * Math.max(.05, (t.puntaje || 0) / 100), 26); }); });
+        A.setTag(radarTagEl, A.tagHtml('nx', 'Radar', P.radarTag(radar)), 'nx');
+      }
+
       // luces (la versión aprobada, la más baja)
       S.add(new THREE.AmbientLight(0xf2eefc, .4)); S.add(new THREE.HemisphereLight(0xffffff, 0x2a2040, .3));
       const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(8, 18, 12); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, {left: -17, right: 17, top: 12, bottom: -12}); key.shadow.camera.updateProjectionMatrix(); key.shadow.bias = -.0005; S.add(key);
@@ -142,7 +194,19 @@ export function open(o) {
           const C = {respondio: '#22c55e', contactado: '#f59e0b', nuevo: '#60a5fa'};
           m.points.forEach(([px, py, k]) => { x.fillStyle = C[k] || '#60a5fa'; x.beginPath(); x.arc(40 + px * (w - 80), 90 + py * (h - 120), 6, 0, 7); x.fill(); }); });
       }
-      const WK = new Map(); let ceo = null, nx = null;
+      const WK = new Map(); let ceo = null, nx = null, nexus = null;
+      // NEXUS: Typing cuando el Radar investiga, Sitting cuando espera, rojo si el último informe falló. Tocarlo abre el Radar.
+      function applyNexus(snap) {
+        const radar = snap.radar || null, st = P.nexusState(radar);
+        drawRadar(radar);
+        if (!A.peopleOk()) return;
+        const info = {name: 'NEXUS', role: 'Innovación · Radar', task: st.text, link: P.RADAR_LINK, id: 'nexus'};
+        if (!nexus) { const cfg = P.agentCfg('nexus', savedFor(o, 'agent', 'nexus')); nexus = A.makePerson({...cfg, kind: 'nexus', info});
+          A.sitAt(nexus, CX.INNOVACION.SEAT, st.clip, 0); nexus.tag = A.tag(nexus.g, '', 'nx', 1.55); nexus.clip = st.clip; }
+        else if (nexus.clip !== st.clip) { nexus.clip = st.clip; A.play(nexus, st.clip); }
+        nexus.info = info; A.setRing(nexus, st.ring);
+        A.setTag(nexus.tag, A.tagHtml(st.cls, 'NEXUS · Radar', st.text), st.ring === 'red' ? 'red' : 'nx');
+      }
       const deskSeat = d => [d.x + Math.sin(d.ry) * .7, d.z + Math.cos(d.ry) * .7, d.ry + Math.PI];
       function workerName(w) { const s = savedFor(o, 'agent', w.id); return w.name || (s && s.nombre) || P.AGENT_NAME[w.id] || w.id; }
       function apply(snap, prev, first) {
@@ -151,7 +215,7 @@ export function open(o) {
         const plan = P.clonexaPlan(workers); const counts = {};
         for (const pl of plan) if (pl.desk) counts[pl.area] = Math.max(counts[pl.area] || 0, pl.deskIndex + 1);
         for (const a of Object.keys(CX.DESKS)) counts[a] = Math.max(counts[a] || 0, CX.DESKS[a].length);
-        buildDesks(counts); drawScreens(snap);
+        buildDesks(counts); drawScreens(snap); applyNexus(snap);
         const byId = new Map(workers.map(w => [w.id, w]));
         for (const pl of plan) { const w = byId.get(pl.id); if (pl.desk) { const d = DESKS[pl.area][pl.deskIndex]; if (d) drawDesk(d.cs, workerName(w), w.state, w.today || []); } }
         if (!A.peopleOk()) return;
@@ -184,7 +248,7 @@ export function open(o) {
         A.setRing(nx, asis && asis.state === 'err' ? 'red' : null);
         A.setTag(nx.tag, A.tagHtml(asis ? asis.state : 'nodata', nx.info.name, P.presenterTag(snap)), asis && asis.state === 'err' ? 'red' : '');
       }
-      function tick(t) { holoSym.rotation.y = -.35 + Math.sin(t * .4) * .25; }
-      return {apply, tick, key, reset() { WK.clear(); ceo = null; nx = null; }};
+      function tick(t) { holoSym.rotation.y = -.35 + Math.sin(t * .4) * .25; radarDiscs[0].rotation.z = -t * .9; radarDiscs[1].rotation.z = t * .5; }
+      return {apply, tick, key, reset() { WK.clear(); ceo = null; nx = null; nexus = null; }};
     }});
 }

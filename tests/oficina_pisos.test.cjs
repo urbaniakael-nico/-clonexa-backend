@@ -14,13 +14,14 @@ const loadBar = () => import(pathToFileURL(path.resolve('app/web/oficina/oficina
 
 test('medidas y cámaras iguales a las escenas aprobadas', async () => {
   const P = await load();
-  assert.deepEqual(P.CLONEXA.ROOM, { W: 30, D: 20, WALL: 4.2 });
-  assert.deepEqual(P.CLONEXA.CAMERA, { pos: [4.2, 15.5, 22.5], look: [0.5, 0, -1.2], fov: 30 }, 'encuadre de clonexa.png');
+  // piso de Clonexa ampliado 11 m a la derecha para el área Innovación (NEXUS): el borde izquierdo y las áreas no se movieron
+  assert.deepEqual(P.CLONEXA.ROOM, { W: 41, D: 20, WALL: 4.2, X0: 5.5 });
+  assert.deepEqual(P.CLONEXA.CAMERA, { pos: [10.2, 19.5, 29.5], look: [5.5, 0, -1.4], fov: 32 }, 'encuadre del piso ampliado');
   assert.deepEqual(P.TALLER.ROOM, { W: 18, D: 12, WALL: 3.4 }); assert.deepEqual(P.TALLER.CAMERA.pos, [1.6, 8.6, 11.4], 'encuadre de velvet.png');
   assert.deepEqual(P.RESTAURANTE.CAMERA, { pos: [3, 11, 17], look: [0.5, 0.3, -0.8], fov: 32 });
   assert.deepEqual(P.CAMPO.ROOM, { W: 20, D: 13, WALL: 3.6 });
   assert.equal(P.CAMPO.VISIBLE, 5);
-  assert.deepEqual(Object.keys(P.CLONEXA.ZONES), ['direccion', 'juntas', 'marketing', 'ventas', 'bots', 'tesoreria', 'lounge']);
+  assert.deepEqual(Object.keys(P.CLONEXA.ZONES), ['direccion', 'juntas', 'marketing', 'ventas', 'bots', 'tesoreria', 'lounge', 'innovacion']);
   assert.ok(P.LIVE_MS >= 5000 && P.LIVE_MS <= 10000, 'refresco cada 5-10 s');
 });
 

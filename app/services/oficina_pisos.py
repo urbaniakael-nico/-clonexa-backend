@@ -517,6 +517,22 @@ async def live_clonexa(r: od.Reader, now: datetime, n8n: dict, base: dict, agent
                           "leads": len(approvals.get("replied") or []) if approvals.get("replied_known") else None},
             "calendar": [{"fecha": x.get("fecha"), "formato": x.get("formato"), "tema": x.get("tema"), "estado": "Por aprobar"}
                          for x in (approvals.get("pieces") or [])[:4]] if cal and cal.get("ok") else None,
-            "next": (cal or {}).get("next") if cal and cal.get("ok") else None}
+            "next": (cal or {}).get("next") if cal and cal.get("ok") else None,
+            "radar": await radar_live(r, now)}
     snap["rev"] = ov.rev(snap)
     return snap
+
+
+async def radar_live(r: od.Reader, now: datetime) -> Optional[dict]:
+    """Area Innovacion (NEXUS): estado REAL del Radar (investigando / esperando / error), top 3 del ultimo informe,
+    conteos por estado y el proximo informe. Sin la tabla o si falla: None (la oficina muestra "Sin ideas aún")."""
+    if not await r.has("radar_informes"):
+        return None
+    try:
+        from app.services import radar
+
+        return await radar.office_snapshot(r.db, now)
+    except Exception as error:  # noqa: BLE001 - la oficina nunca se cae por el radar
+        log.warning("oficina: radar sin datos (%s)", type(error).__name__)
+        await r.db.rollback()
+        return None

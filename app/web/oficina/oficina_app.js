@@ -608,7 +608,8 @@ function main(DATA, SAVED_IN) {
         architect: !isCx && !isLobby, architectOpen: archOpenFor === p.cid,
         onReload: () => { const q = p; leaveReal(); setTimeout(() => setFocus(q), 60); },
         onClose: () => setFocus(null), onRep: () => showRep(p), onTable: t => showTable(t, p),
-        onPerson: (info, kind) => kind === 'visitante' ? showVisitor(info) : (isCx && !isLobby && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
+        onLink: link => openConsole(link),
+        onPerson: (info, kind) => kind === 'nexus' ? openConsole(info && info.link) : kind === 'visitante' ? showVisitor(info) : (isCx && !isLobby && info && info.id && AG[info.id]) ? showChar(AG[info.id]) : showPerson(info, kind, p),
         onAutoLite: () => setLite(true, 'modo liviano activado (este equipo va lento en el piso realista)')});
       log(`<b>${esc(p.name)}</b> · piso realista abierto`);
     } catch (e) {
@@ -627,6 +628,8 @@ function main(DATA, SAVED_IN) {
       <li>${t.pending ? esc(t.pending) + (t.pending === 1 ? ' producto pedido' : ' productos pedidos') + (p.data && p.data.template === 'restaurante' ? ' en preparación' : ' a la barra') : 'Sin pedidos pendientes'}</li>${t.songs ? `<li>${esc(t.songs)} canciones pedidas</li>` : ''}</ul>
       <div class="src">Solo actividad (sin dinero ni datos de los clientes).</div>`, 'mesa:' + t.label);
   }
+  // NEXUS o sus pantallas: abre el módulo Radar · Innovación de la consola (solo esa ruta).
+  function openConsole(link) { if (link === '/admin-v2plus#radar') window.open(link, '_blank', 'noopener'); }
   // Recepción: tocar un visitante abre su conversación en Conversaciones Nexa (o el prospecto en el Mapa comercial).
   function showVisitor(info) {
     const link = info && typeof info.link === 'string' && /^\/admin-v2plus#(nexa|mapa)\/[0-9a-fA-F-]{36}$/.test(info.link) ? info.link : null;

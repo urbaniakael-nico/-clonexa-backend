@@ -259,6 +259,7 @@ export async function openFloor(o, spec) {
     if (!h) return; const ud = h.object.userData;
     if (ud.person) { const p = ud.person; if (p.kind === 'rep') o.onRep && o.onRep(); else o.onPerson && o.onPerson(p.info, p.kind); }
     else if (ud.table && o.onTable) o.onTable(spec.tableInfo ? spec.tableInfo(snap, ud.table) : {label: ud.table});
+    else if (ud.link && o.onLink) o.onLink(ud.link);   // pantallas que abren un modulo de la consola (Radar)
   }
 
   // ------------------------------------------------------------------ escena del piso + copia viva

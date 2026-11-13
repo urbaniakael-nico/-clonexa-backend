@@ -325,3 +325,15 @@ def test_recurso_del_modulo_exige_sesion(client, monkeypatch):
     monkeypatch.setattr(plus, "_active_session", AsyncMock(return_value=True))
     r = client.get("/admin-v2plus-radar.js")
     assert r.status_code == 200 and "CxConsoleRadar" in r.text
+
+
+def test_piso_clonexa_trae_el_radar_real(client, pg_url):
+    from app.services import oficina_data as od
+    from app.services import oficina_pisos as opi
+    snap = _with_db(pg_url, lambda db: opi.radar_live(od.Reader(db), datetime.now(timezone.utc)))
+    assert snap["state"] == "nodata" and snap["top"] == [] and snap["counts"]["nueva"] == 0
+    inf = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "semanal"}).json()["informe_id"]
+    assert _with_db(pg_url, lambda db: opi.radar_live(od.Reader(db), datetime.now(timezone.utc)))["state"] == "work"
+    _with_db(pg_url, lambda db: rd.save_report(db, inf, [IDEA("Pagos con QR Bre-B en Colombia")], discarded=0, usage={}))
+    snap = _with_db(pg_url, lambda db: opi.radar_live(od.Reader(db), datetime.now(timezone.utc)))
+    assert snap["state"] == "wait" and snap["top"][0]["titulo"] == "Pagos con QR Bre-B en Colombia" and snap["nuevas"] == 1

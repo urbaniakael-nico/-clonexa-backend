@@ -73,10 +73,10 @@ export const heightFor = (name, tall) => (WOMEN.includes(String(name)) ? 1.65 : 
 // ------------------------------------------------------------------ cámara: nunca detrás de una pared ni bajo el piso
 // Límites por piso (según su tamaño y la cámara aprobada): ángulo, distancia, giro y centro dentro del salón.
 export function camLimits(room, camera) {
-  const {W, D} = room; const [px, py, pz] = camera.pos, [lx, ly, lz] = camera.look;
+  const {W, D} = room, X0 = room.X0 || 0; const [px, py, pz] = camera.pos, [lx, ly, lz] = camera.look;
   const d0 = Math.hypot(px - lx, py - ly, pz - lz);
   return {polMin: 0.25, polMax: 1.18, distMin: 5, distMax: Math.max(Math.max(W, D) * 1.6, d0 * 1.3), azMin: -1.1, azMax: 1.1,
-    tx: [-W / 2 + 1, W / 2 - 1], tz: [-D / 2 + 1, D / 2 - 1], minY: 1.2, lookY: ly};
+    tx: [X0 - W / 2 + 1, X0 + W / 2 - 1], tz: [-D / 2 + 1, D / 2 - 1], minY: 1.2, lookY: ly};
 }
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 export function clampCam(g, lim) {
@@ -93,19 +93,19 @@ export function camPos(g, lookY) {
 }
 // Paredes que quedan ENTRE la cámara y el centro del piso (la cámara está del lado de afuera): se ocultan.
 export function wallsToHide(pos, room) {
-  const {W, D} = room; const [x, , z] = pos;
-  return {back: z < -D / 2, front: z > D / 2, left: x < -W / 2, right: x > W / 2};
+  const {W, D} = room, X0 = room.X0 || 0; const [x, , z] = pos;
+  return {back: z < -D / 2, front: z > D / 2, left: x < X0 - W / 2, right: x > X0 + W / 2};
 }
 // Clasifica una pieza de la escena por su caja (min/max): pared (o algo pegado a ella) de qué lado, o nada.
 export function wallSide(box, room) {
-  const {W, D} = room, band = 0.75;
+  const {W, D} = room, band = 0.75, X0 = room.X0 || 0;
   const [x0, y0, z0] = box.min, [x1, y1, z1] = box.max;
   if (y1 < 0.6) return null;   // piso, zócalo, alfombras
   const thinX = x1 - x0 < 0.6, thinZ = z1 - z0 < 0.6;
   if (thinZ && z1 < -D / 2 + band && x1 - x0 > 0.05) return 'back';
   if (thinZ && z0 > D / 2 - band && x1 - x0 > 0.05) return 'front';
-  if (thinX && x1 < -W / 2 + band && z1 - z0 > 0.05) return 'left';
-  if (thinX && x0 > W / 2 - band && z1 - z0 > 0.05) return 'right';
+  if (thinX && x1 < X0 - W / 2 + band && z1 - z0 > 0.05) return 'left';
+  if (thinX && x0 > X0 + W / 2 - band && z1 - z0 > 0.05) return 'right';
   return null;
 }
 
@@ -127,11 +127,14 @@ export function diffPeople(prevKeys, people) {
 
 // ================================================================== CLONEXA (clonexa.html / clonexa.png)
 // Cámara: el encuadre de clonexa.png (algo más cerca que la cámara por defecto de clonexa.html).
-export const CLONEXA = {ROOM: {W: 30, D: 20, WALL: 4.2}, CAMERA: {pos: [4.2, 15.5, 22.5], look: [0.5, 0, -1.2], fov: 30},
+// El piso se amplio 11 m a la derecha (x de -15 a 26, centro X0 = 5,5) para el area Innovacion (NEXUS): nada existente se movio.
+export const CLONEXA = {ROOM: {W: 41, D: 20, WALL: 4.2, X0: 5.5}, CAMERA: {pos: [10.2, 19.5, 29.5], look: [5.5, 0, -1.4], fov: 32},
   ZONES: {direccion: [-10, -6, 8, 6.5, 0xa855f7, 'Dirección', -2.4], juntas: [0, -6, 9, 6.5, 0xf20b6d, 'Sala de juntas', -2.4],
     marketing: [10, -6, 8, 6.5, 0x8b5cf6, 'Marketing', -2.4], ventas: [-10.5, 5.5, 7.5, 7, 0x22c55e, 'Ventas', 9.2],
     bots: [-1.5, 5.5, 8.5, 7, 0x38bdf8, 'Bots y operaciones', 9.2], tesoreria: [5.5, 5.5, 4.5, 7, 0xeab308, 'Tesorería', 9.2],
-    lounge: [11, 5.5, 6.5, 7, 0xfb923c, 'Lounge', 9.2]},
+    lounge: [11, 5.5, 6.5, 7, 0xfb923c, 'Lounge', 9.2], innovacion: [20.5, -6, 9, 6.5, 0x22d3ee, 'Innovación', -2.4]},
+  // Innovacion (nexus.html): escritorio de NEXUS, radar holografico, pantalla grande y tablero Backlog en la pared del fondo
+  INNOVACION: {DESK: [19.0, -6.4], SEAT: [19.0, -7.12, 0], RADAR: [23.2, -5.9], SCREEN: [19.4, 2.45, 5.2, 2.3], BOARD: [24.1, 2.3, 2.4, 2.0]},
   // escritorios de clonexa.html por área [x, z, giro]; los que sobran quedan libres, si faltan se agregan en fila
   DESKS: {marketing: [[7.2, -7.3, .25], [10, -7.8, 0], [12.8, -7.3, -.25], [8.6, -4.6, .12], [11.4, -4.6, -.12]],
     ventas: [[-12.2, 4.2, Math.PI], [-9.2, 4.2, Math.PI], [-12.2, 7.2, Math.PI], [-9.2, 7.2, Math.PI]],
@@ -143,10 +146,10 @@ export const CLONEXA = {ROOM: {W: 30, D: 20, WALL: 4.2}, CAMERA: {pos: [4.2, 15.
     [9.0, 3.62, Math.PI, 'Sitting_Drinking'], [13.6, 3.62, Math.PI, 'Sitting_Drinking'], [14.0, 6.6, -1.8, 'Drinking'], [9.4, 6.4, 1.2, 'Drinking']],
 };
 // Nombre y personaje de cada agente (como clonexa.html); el editor puede renombrarlos y cambiar su personaje.
-export const AGENT_NAME = {director: 'Tú · CEO', asistente: 'Nexa Asistente', creativo: 'Director creativo', contenido: 'Nexa Contenido', planb: 'Plan B',
+export const AGENT_NAME = {nexus: 'NEXUS', director: 'Tú · CEO', asistente: 'Nexa Asistente', creativo: 'Director creativo', contenido: 'Nexa Contenido', planb: 'Plan B',
   tiktok: 'Nexa TikTok', analista: 'Analista', ventas: 'Nexa Ventas', correos: 'Nexa Correos', prospecta: 'Prospectora', comunidad: 'Nexa Comunidad',
   mensajero: 'Mensajero VOLTAGE', archivista: 'Archivista', lector: 'Lector de cartas', guardian: 'Guardián', tesoreria: 'Tesorería'};
-export const AGENT_MODEL = {director: 'Ch01_nonPBR', asistente: 'Ch07_nonPBR', creativo: 'Remy', contenido: 'Ch22_nonPBR', planb: 'Ch42_nonPBR', tiktok: 'Ch21_nonPBR',
+export const AGENT_MODEL = {nexus: 'Ch06_nonPBR', director: 'Ch01_nonPBR', asistente: 'Ch07_nonPBR', creativo: 'Remy', contenido: 'Ch22_nonPBR', planb: 'Ch42_nonPBR', tiktok: 'Ch21_nonPBR',
   analista: 'Ch42_nonPBR', ventas: 'Ch07_nonPBR', correos: 'Ch01_nonPBR', prospecta: 'Ch21_nonPBR', comunidad: 'Ch22_nonPBR', mensajero: 'Ch06_nonPBR',
   archivista: 'Ch01_nonPBR', lector: 'Ch07_nonPBR', guardian: 'Ch06_nonPBR', tesoreria: 'Ch21_nonPBR'};
 export function agentModel(id) { return AGENT_MODEL[id] || [...MEN, ...WOMEN].filter(m => m !== 'Ch17_nonPBR')[hashOf(id) % 7]; }
@@ -156,7 +159,7 @@ export function agentCfg(id, saved = {}) {
   const def = agentModel(id); const gender = saved.genero || genderOf(def); const pool = gender === 'mujer' ? WOMEN : MEN;
   const model = saved.personaje && pool.includes(saved.personaje) ? saved.personaje : (pool.includes(def) ? def : pool[hashOf(id) % pool.length]);
   const ceo = id === 'director';
-  return {model, gender, tunic: saved.tunica ? saved.tunica === 'si' : true, lines: ceo ? 0xa855f7 : null, beard: gender === 'hombre' && (saved.barba ? saved.barba === 'si' : ceo),
+  return {model, gender, tunic: saved.tunica ? saved.tunica === 'si' : true, lines: ceo ? 0xa855f7 : id === 'nexus' ? 0x22d3ee : null, beard: gender === 'hombre' && (saved.barba ? saved.barba === 'si' : ceo),
     longHair: ceo, beardColor: saved.color_barba || saved.color_pelo || null, hair: saved.color_pelo || null, tall: ceo, name: saved.nombre || AGENT_NAME[id] || id};
 }
 // Tesorería: una persona en su escritorio que lee la Facturación (no es un flujo de n8n).
@@ -216,6 +219,20 @@ export function presenterTag(snap) {
   const n = ((snap && snap.companies) || []).length;
   return n ? `Presentando ${n} ${n === 1 ? 'empresa' : 'empresas'} · hoy` : 'Sin empresas registradas';
 }
+// NEXUS · Radar (datos REALES de /clonexa/vivo -> radar): Typing investigando, Sitting esperando, rojo si fallo.
+export const RADAR_LEVEL_COLOR = {alto: '#22c55e', medio: '#f59e0b', bajo: '#a855f7'};
+export const RADAR_COUNTS = [['nueva', 'Nuevas', '#22d3ee'], ['me_interesa', 'Me interesa', '#22c55e'], ['backlog', 'En backlog', '#a855f7'],
+  ['en_curso', 'En curso', '#f59e0b'], ['hecha', 'Hechas', '#94a3b8']];
+export function nexusState(radar) {
+  const st = radar && radar.state;
+  if (st === 'work') return {clip: 'Typing', ring: null, cls: 'work', text: 'Investigando…'};
+  if (st === 'err') return {clip: 'Sitting', ring: 'red', cls: 'err', text: '⚠ El último informe falló'};
+  const n = (radar && radar.nuevas) || 0;
+  return {clip: 'Sitting', ring: null, cls: radar ? 'wait' : 'nodata', text: radar ? (n ? `${n} ${n === 1 ? 'idea nueva' : 'ideas nuevas'}` : 'Sin ideas aún') : 'Sin datos'};
+}
+export function radarTag(radar) { return radar && radar.next_label ? `próximo informe: ${radar.next_label}` : 'próximo informe: —'; }
+export const RADAR_LINK = '/admin-v2plus#radar';
+
 export const TREASURY_COLOR = {al_dia: '#22c55e', vence: '#f59e0b', vencido: '#ef4444', sin_contrato: '#9ca3af'};
 export const HEALTH_COLOR = {ok: '#22c55e', warn: '#f59e0b', bad: '#ef4444', nodata: '#6b7280'};
 export function treasuryTag(snap) {
