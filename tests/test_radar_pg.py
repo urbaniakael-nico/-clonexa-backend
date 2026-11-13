@@ -337,3 +337,12 @@ def test_piso_clonexa_trae_el_radar_real(client, pg_url):
     _with_db(pg_url, lambda db: rd.save_report(db, inf, [IDEA("Pagos con QR Bre-B en Colombia")], discarded=0, usage={}))
     snap = _with_db(pg_url, lambda db: opi.radar_live(od.Reader(db), datetime.now(timezone.utc)))
     assert snap["state"] == "wait" and snap["top"][0]["titulo"] == "Pagos con QR Bre-B en Colombia" and snap["nuevas"] == 1
+
+
+def test_resumen_del_ultimo_informe_para_operacion(client, pg_url):
+    assert client.get(f"{URL}/n8n/informes/ultimo").status_code == 401
+    assert client.get(f"{URL}/n8n/informes/ultimo", headers=H).json() == {"informe": None, "ideas": []}
+    inf = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "semanal"}).json()["informe_id"]
+    _with_db(pg_url, lambda db: rd.save_report(db, inf, [IDEA("Bre-B pagos inmediatos para restaurantes")], discarded=2, usage={"costo_usd": 0.31}))
+    r = client.get(f"{URL}/n8n/informes/ultimo", headers=H).json()
+    assert r["informe"]["costo_usd"] == 0.31 and r["informe"]["descartadas"] == 2 and r["ideas"][0]["titulo"].startswith("Bre-B")

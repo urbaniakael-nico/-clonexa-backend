@@ -246,3 +246,14 @@ async def admin_generate(body: GenerateIn, db: AsyncSession = Depends(get_db)) -
     if not await _hook("nexus-radar", {"tema": body.tema, "origen": "consola"}):
         raise HTTPException(status_code=502, detail="n8n_no_disponible")
     return {"ok": True, "usados": used + 1, "tope": rd.DAILY_ON_DEMAND}
+
+
+@router.get("/n8n/informes/ultimo", dependencies=n8n)
+async def n8n_last_report(db: AsyncSession = Depends(get_db)) -> dict:
+    """Resumen del ultimo informe (operacion y verificacion): estado, costo, conteos y titulos de sus ideas."""
+    inf = (await rd.informes(db, limit=1) or [None])[0]
+    if not inf:
+        return {"informe": None, "ideas": []}
+    rows = await rd._rows(db, "SELECT id, titulo, puntaje, estado, fuentes FROM radar_ideas WHERE informe_id = :i ORDER BY puntaje DESC", {"i": inf["id"]})
+    return {"informe": inf, "ideas": [{"id": r["id"], "titulo": r["titulo"], "puntaje": r["puntaje"], "estado": r["estado"],
+                                        "fuente": ((r["fuentes"] or [{}])[0] or {}).get("url", "")} for r in rows]}
