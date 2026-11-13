@@ -147,8 +147,9 @@ async def _expire_stale(db: AsyncSession) -> None:
 
 
 async def on_demand_today(db: AsyncSession, at: Optional[datetime] = None) -> int:
-    row = await _one(db, "SELECT COUNT(*)::int AS n FROM radar_informes WHERE tipo = 'a_pedido' AND fecha = :d AND estado <> 'rechazado'",
-                     {"d": today(at)})
+    # cuenta lo que gasto o puede gastar: corriendo, listo o fallido con costo (uno que fallo antes de llamar a Claude no cuenta)
+    row = await _one(db, """SELECT COUNT(*)::int AS n FROM radar_informes WHERE tipo = 'a_pedido' AND fecha = :d
+                            AND (estado IN ('corriendo', 'listo') OR (estado = 'fallido' AND costo_usd > 0))""", {"d": today(at)})
     return row["n"] if row else 0
 
 
@@ -172,9 +173,14 @@ async def start_report(db: AsyncSession, *, tipo: str, tema: str = "", origen: s
     return {"ok": True, "informe_id": row["id"], "tipo": tipo, "n": IDEAS_WEEKLY if tipo == "semanal" else IDEAS_ON_DEMAND}
 
 
-async def fail_report(db: AsyncSession, informe_id: int, error: str) -> dict:
-    await db.execute(text("""UPDATE radar_informes SET estado = 'fallido', error = :e, terminado_at = now()
-                             WHERE id = :i AND estado = 'corriendo'"""), {"i": informe_id, "e": (error or "error")[:300]})
+async def fail_report(db: AsyncSession, informe_id: int, error: str, usage: Optional[dict] = None) -> dict:
+    u = usage or {}
+    await db.execute(text("""UPDATE radar_informes SET estado = 'fallido', error = :e, terminado_at = now(),
+                             tokens_in = GREATEST(tokens_in, :ti), tokens_out = GREATEST(tokens_out, :to), busquedas = GREATEST(busquedas, :b),
+                             costo_usd = GREATEST(costo_usd, :c)
+                             WHERE id = :i AND estado = 'corriendo'"""),
+                     {"i": informe_id, "e": (error or "error")[:300], "ti": int(u.get("input_tokens", 0)), "to": int(u.get("output_tokens", 0)),
+                      "b": int(u.get("busquedas", 0)), "c": float(u.get("costo_usd", 0))})
     await db.commit()
     return {"ok": True}
 

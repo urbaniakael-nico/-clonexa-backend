@@ -1,7 +1,7 @@
 """NEXUS · Radar: peticion a Claude (con busqueda web) y validacion estricta de lo que responde.
 
 - Modelo: Claude Sonnet 5.5 (bueno para investigar, sin exceso de tokens), effort medium, busqueda web
-  web_search_20260209 con maximo 8 busquedas por informe, ubicacion aproximada Bogota.
+  web_search_20260209 con maximo 8 busquedas por informe (Colombia/Bogota va en el prompt: la API no acepta el pais CO).
 - La salida estructurada de la API no se combina con las citas de la busqueda web, asi que la respuesta es
   un JSON en texto y AQUI se valida: cada idea debe traer al menos una fuente con URL y fecha, y esa URL
   debe ser una de las que la busqueda web devolvio en ESTE informe (nada inventado). La que no, se descarta.
@@ -59,9 +59,8 @@ def build_request(*, tipo: str, tema: str, temas: list[dict], excluded: list[str
             "system": [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
             "output_config": {"effort": "medium"},
             "fallbacks": "default",
-            "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": MAX_SEARCHES,
-                       "user_location": {"type": "approximate", "country": "CO", "city": "Bogotá", "region": "Bogotá D.C.",
-                                         "timezone": "America/Bogota"}}],
+            # sin user_location: la API no acepta el pais CO ("Country code CO is not supported"); Bogota va en el prompt
+            "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": MAX_SEARCHES}],
             "messages": [{"role": "user", "content": user}]}
 
 

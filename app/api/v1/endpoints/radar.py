@@ -67,11 +67,11 @@ async def n8n_finish(body: FinishIn, db: AsyncSession = Depends(get_db)) -> dict
     err = ai.api_error(body.responses)
     usage = ai.usage_of(body.responses)
     if err:
-        await rd.fail_report(db, body.informe_id, err)
+        await rd.fail_report(db, body.informe_id, err, usage)   # si Claude alcanzo a gastar, el costo queda y cuenta en el tope
         return {"ok": False, "mensaje": f"⚠️ NEXUS: el informe #{body.informe_id} falló: {rd.esc(err)}."}
     data = ai.parse_json(ai.final_text(body.responses))
     if data is None:
-        await rd.fail_report(db, body.informe_id, "respuesta sin JSON")
+        await rd.fail_report(db, body.informe_id, "respuesta sin JSON", usage)
         return {"ok": False, "mensaje": f"⚠️ NEXUS: el informe #{body.informe_id} falló: Claude no devolvió el JSON."}
     valid, discarded = ai.validate(data, ai.search_urls(body.responses))
     saved = await rd.save_report(db, body.informe_id, valid, discarded=discarded, usage=usage)

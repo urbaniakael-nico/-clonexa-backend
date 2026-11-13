@@ -147,6 +147,11 @@ def test_tope_diario_un_informe_a_la_vez_y_corriendo_viejo(client, pg_url):
         if i == 0:
             busy = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "semanal"}).json()
             assert busy["ok"] is False and busy["motivo"] == "ya_corriendo"
+            client.post(f"{URL}/n8n/fail", headers=H, json={"informe_id": r["informe_id"], "error": "antes de Claude"})
+            again = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": "t0"}).json()
+            assert again["ok"], "uno que fallo sin gastar no cuenta en el tope"
+            r = again
+        _run(pg_url, "UPDATE radar_informes SET costo_usd = 0.05 WHERE id = :i", {"i": r["informe_id"]}, fetch=False)
         client.post(f"{URL}/n8n/fail", headers=H, json={"informe_id": r["informe_id"], "error": "prueba"})
     four = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": "x"}).json()
     assert four["ok"] is False and four["motivo"] == "tope_diario" and "máximo 3" in four["mensaje"]
@@ -249,7 +254,7 @@ def test_peticion_a_claude_con_busqueda_web_y_tope(client, monkeypatch):
     req = r["request"]
     assert req["model"] == "claude-sonnet-5-5" and req["output_config"] == {"effort": "medium"}
     tool = req["tools"][0]
-    assert tool["type"] == "web_search_20260209" and tool["max_uses"] == 8 and tool["user_location"]["country"] == "CO"
+    assert tool == {"type": "web_search_20260209", "name": "web_search", "max_uses": 8}, "sin user_location: la API no acepta CO"
     assert "fondos para startups de software en Colombia" in req["messages"][0]["content"] and "Trae 3 ideas" in req["messages"][0]["content"]
     assert "Herramientas y APIs que nos sirvan" in req["messages"][0]["content"], "temas activos de la tabla"
 
@@ -297,7 +302,7 @@ def test_pause_turn_continua_con_lo_hecho(client):
     assert r["request"]["messages"][-1] == {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
 
 
-def test_generar_desde_la_consola_respeta_el_tope(client, monkeypatch):
+def test_generar_desde_la_consola_respeta_el_tope(client, pg_url, monkeypatch):
     from app.api.v1.endpoints import radar as ep
     _admin(monkeypatch)
     calls = []
@@ -311,7 +316,7 @@ def test_generar_desde_la_consola_respeta_el_tope(client, monkeypatch):
     assert calls == [("nexus-radar", {"tema": "pagos", "origen": "consola"})]
     for i in range(3):
         r = client.post(f"{URL}/n8n/start", headers=H, json={"tipo": "a_pedido", "tema": f"t{i}"}).json()
-        client.post(f"{URL}/n8n/fail", headers=H, json={"informe_id": r["informe_id"]})
+        _with_db(pg_url, lambda db, iid=r["informe_id"]: rd.save_report(db, iid, [], discarded=0, usage={"costo_usd": 0.2}))
     assert client.post(f"{URL}/admin/generar", json={}).status_code == 429
     _admin(monkeypatch, ok=False)
     assert client.post(f"{URL}/admin/generar", json={}).status_code == 401
