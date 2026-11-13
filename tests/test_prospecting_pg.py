@@ -591,7 +591,9 @@ def test_plan_por_nicho_respeta_limites_diarios_y_prioridad(client, pg_url):
 
 
 def _taller(i, name, **kw):
-    p = _place(100 + i, name, lat=4.6150, lng=-74.1100, primary="clothing_store", **kw)
+    kw.setdefault("lat", 4.6150)
+    kw.setdefault("lng", -74.1100)
+    p = _place(100 + i, name, primary="clothing_store", **kw)
     p["addressComponents"] = [{"types": ["neighborhood"], "longText": "Puente Aranda"}]
     return p
 
@@ -677,3 +679,211 @@ def test_canales_publicos_con_su_fuente_e_indicadores(client, pg_url, monkeypatc
     assert set(pin["canales"]) >= {"instagram", "whatsapp", "email"}
     d = client.get(f"{URL}/admin/prospects/{pin['id']}").json()["prospect"]
     assert d["channels"]["whatsapp"]["url"] == "https://wa.me/573001112233" and d["channels"]["instagram"]["source"] == "https://tallermarta.co/"
+
+
+# ------------------------------------------------------------------ 025p: cola asistida, ruta de visitas y volante
+import json as _json  # noqa: E402
+import re as _re  # noqa: E402
+from urllib.parse import parse_qs, urlparse  # noqa: E402
+
+from app.services import prospecting_contact as pc  # noqa: E402
+
+
+def IG(h):
+    return {"instagram": {"value": "@" + h, "url": f"https://www.instagram.com/{h}/", "source": "https://x.co/"}}
+
+
+def _seed_social(pg_url, n=18):
+    """n talleres con Instagram y sin correo en Puente Aranda; uno por verificar y uno con correo."""
+    z = _bog(pg_url)
+    places = [_taller(200 + i, f"Confecciones Social {i:02d}") for i in range(n)]
+    _with_db(pg_url, lambda db: ps.ingest_places(db, zone_id=z["id"], business_type="taller", places=places, scan_web=False))
+    rows = _run(pg_url, "SELECT id::text AS id, name FROM prospects ORDER BY name")
+    for i, r in enumerate(rows):
+        _run(pg_url, "UPDATE prospects SET channels = CAST(:c AS jsonb) WHERE id = CAST(:i AS uuid)",
+             {"c": _json.dumps(IG(f"social{i}")), "i": r["id"]}, fetch=False)
+    _run(pg_url, "UPDATE prospects SET vigencia = 'por_verificar' WHERE name = 'Confecciones Social 00'", fetch=False)
+    _run(pg_url, "UPDATE prospects SET email = 'info@social1.co' WHERE name = 'Confecciones Social 01'", fetch=False)
+    return {r["name"]: r["id"] for r in rows}
+
+
+def _queue(pg_url, at):
+    return _with_db(pg_url, lambda db: pc.build_assisted_queue(db, at))
+
+
+def _act(pg_url, cid, accion, at):
+    return _with_db(pg_url, lambda db: pc.assisted_action(db, cid, accion, at))
+
+
+def test_cola_asistida_15_sin_correo_sin_por_verificar_y_5_botones(client, pg_url):
+    _seed_social(pg_url)
+    mon = _at(2026, 11, 17, 8, 30)   # martes (el lunes 16 es festivo)
+    q = _queue(pg_url, mon)
+    names = [i["name"] for i in q["items"]]
+    assert len(names) == 15, "maximo 15 (configurable)"
+    assert "Confecciones Social 00" not in names and "Confecciones Social 01" not in names, "por verificar y con correo no entran"
+    assert _queue(pg_url, mon)["items"] == q["items"], "idempotente por dia"
+    it = q["items"][0]
+    assert it["network"] == "instagram" and it["profile_url"].startswith("https://www.instagram.com/")
+    assert it["name"] in it["text"] and "Negocio en vivo 3D" in it["text"] and "respondan NO" in it["text"]
+    assert "utm_source=instagram" in it["text"] and "/talleres-y-fabricas" in it["text"]
+    assert not _re.search(r"\$\s?\d|precio|COP", it["text"], _re.I)
+    tg = pc.telegram_item(it)
+    assert set(tg["botones"]) == {"copiar", "enviado", "saltar", "bloquear"} and tg["perfil"] == it["profile_url"]
+    assert all(len(v.encode()) <= 64 for v in tg["botones"].values()), "callback_data de Telegram: maximo 64 bytes"
+    assert _act(pg_url, it["contact_id"], "copiar", mon)["texto"] == it["text"]
+    assert _queue(pg_url, _at(2026, 11, 15, 9))["items"] == [], "domingo no hay cola"
+    assert _queue(pg_url, _at(2026, 11, 18, 18))["motivo"] == "fuera_de_horario"
+
+
+def test_enviado_saltar_y_no_contactar_registran_bien(client, pg_url):
+    ids = _seed_social(pg_url)
+    mon = _at(2026, 11, 17, 8, 30)
+    items = _queue(pg_url, mon)["items"]
+    a, b, c = items[0], items[1], items[2]
+    late = _act(pg_url, a["contact_id"], "enviado", _at(2026, 11, 17, 17, 30))
+    assert late["ok"] is False and "horario legal" in late["mensaje"], "fuera de horario no se registra"
+    r = _act(pg_url, a["contact_id"], "enviado", _at(2026, 11, 17, 9))
+    assert r["ok"] and r["editar"]
+    p = _run(pg_url, "SELECT assisted_count, last_contacted_at, status, contact_count FROM prospects WHERE id = CAST(:i AS uuid)",
+             {"i": a["prospect_id"]})[0]
+    assert p["assisted_count"] == 1 and p["last_contacted_at"] and p["status"] == "contactado" and p["contact_count"] == 0
+    assert _act(pg_url, a["contact_id"], "enviado", _at(2026, 11, 17, 9, 5))["ok"] is False, "no se registra dos veces"
+    # 1 contacto por semana en TODOS los canales: con correo publicado igual no entra al lote esta semana
+    _run(pg_url, "UPDATE prospects SET email = 'hola@enviado.co' WHERE id = CAST(:i AS uuid)", {"i": a["prospect_id"]}, fetch=False)
+    view = _with_db(pg_url, lambda db: ps.build_batch(db, _at(2026, 11, 19, 7, 30)))
+    assert a["prospect_id"] not in [i["prospect_id"] for i in view["items"]]
+    assert _act(pg_url, b["contact_id"], "saltar", _at(2026, 11, 17, 9))["ok"]
+    assert _run(pg_url, "SELECT status FROM prospect_contacts WHERE id = :i", {"i": b["contact_id"]})[0]["status"] == "saltado"
+    assert _run(pg_url, "SELECT assisted_count FROM prospects WHERE id = CAST(:i AS uuid)", {"i": b["prospect_id"]})[0]["assisted_count"] == 0
+    # no contactar: baja en un canal bloquea los demas (correo, otras sedes con el mismo Instagram, visitas)
+    handle = _run(pg_url, "SELECT channels FROM prospects WHERE id = CAST(:i AS uuid)", {"i": c["prospect_id"]})[0]["channels"]["instagram"]["value"]
+    other = ids["Confecciones Social 01"]
+    _run(pg_url, "UPDATE prospects SET channels = CAST(:c AS jsonb) WHERE id = CAST(:i AS uuid)",
+         {"c": _json.dumps(IG(handle[1:])), "i": other}, fetch=False)
+    assert _act(pg_url, c["contact_id"], "bloquear", _at(2026, 11, 17, 9))["ok"]
+    assert _run(pg_url, "SELECT status FROM prospects WHERE id = CAST(:i AS uuid)", {"i": c["prospect_id"]})[0]["status"] == "baja"
+    assert _run(pg_url, "SELECT 1 AS x FROM prospect_exclusions WHERE kind = 'social' AND value = :v", {"v": "instagram:" + handle})
+    view = _with_db(pg_url, lambda db: ps.build_batch(db, _at(2026, 11, 20, 7, 30)))
+    assert other not in [i["prospect_id"] for i in view["items"]], "otra sede con el mismo Instagram tampoco recibe correo"
+    q2 = _queue(pg_url, _at(2026, 11, 18, 8, 30))
+    assert c["prospect_id"] not in [i["prospect_id"] for i in q2["items"]] and other not in [i["prospect_id"] for i in q2["items"]]
+    zid = _bog(pg_url)["id"]
+    route = _with_db(pg_url, lambda db: pc.route_of_day(db, zid, at=_at(2026, 11, 18, 9)))
+    assert c["prospect_id"] not in [s["id"] for s in route["stops"]], "de baja tampoco se visita"
+
+
+def test_seguimiento_asistido_unico_a_los_7_dias(client, pg_url):
+    _seed_social(pg_url, n=5)
+    _run(pg_url, "UPDATE prospect_settings SET config = '{\"assisted_daily_limit\": 1}'::jsonb", fetch=False)
+    it = _queue(pg_url, _at(2026, 11, 17, 8, 30))["items"][0]
+    assert _act(pg_url, it["contact_id"], "enviado", _at(2026, 11, 17, 9))["ok"]
+    nxt = _queue(pg_url, _at(2026, 11, 20, 8, 30))["items"]
+    assert nxt and nxt[0]["kind"] == "inicial" and nxt[0]["prospect_id"] != it["prospect_id"], "antes de 7 dias no hay seguimiento"
+    fu = _queue(pg_url, _at(2026, 11, 25, 8, 30))["items"][0]
+    assert fu["kind"] == "seguimiento" and fu["prospect_id"] == it["prospect_id"] and "hace una semana" in fu["text"]
+    assert _act(pg_url, fu["contact_id"], "enviado", _at(2026, 11, 25, 10))["ok"]
+    later = [i for i in _queue(pg_url, _at(2026, 12, 9, 8, 30))["items"] if i["prospect_id"] == it["prospect_id"]]
+    assert later == [], "nada despues del seguimiento"
+    old = _run(pg_url, "SELECT status FROM prospect_contacts WHERE local_date = '2026-11-20'")
+    assert old and all(o["status"] in ("vencido", "enviado") for o in old), "lo que no se marco vence"
+
+
+def test_endpoints_de_la_cola_para_n8n(client, pg_url):
+    _run(pg_url, "UPDATE prospect_settings SET config = '{\"test_recipient\": \"equipo@clonexa.test\"}'::jsonb", fetch=False)
+    r = client.post(f"{URL}/n8n/assisted/test", headers=H).json()
+    assert r["enviar"] and len(r["items"]) == 6 and r["cabecera"].startswith("🧪")
+    one = r["items"][0]
+    assert one["botones"]["enviado"] == f"pa:enviado:{one['id']}" and one["perfil"] == "https://www.instagram.com/clonexaapp/"
+    out = client.post(f"{URL}/n8n/assisted/action", headers=H, json={"accion": "saltar", "id": one["id"]}).json()
+    assert out["ok"] and "Saltado" in out["mensaje"]
+    assert client.post(f"{URL}/n8n/assisted/action", headers=H, json={"accion": "borrar", "id": 1}).status_code == 422
+    assert client.post(f"{URL}/n8n/assisted/action", headers=H, json={"accion": "enviado", "id": 999999}).json()["ok"] is False
+    assert _run(pg_url, "SELECT COUNT(*)::int AS n FROM prospects WHERE NOT is_test")[0]["n"] == 0, "solo negocios de prueba"
+
+
+def test_ruta_del_dia_ordenada_con_google_maps_y_visitado(client, pg_url, monkeypatch):
+    _admin(monkeypatch)
+    z = _bog(pg_url)
+    pts = [(4.6150, -74.1100), (4.6300, -74.1100), (4.6160, -74.1105), (4.6200, -74.1100)]
+    places = [_taller(400 + i, f"Ruta {i}", lat=lat, lng=lng) for i, (lat, lng) in enumerate(pts)]
+    places[3] = _taller(403, "Ruta 3", lat=4.62, lng=-74.11, hours=False, reviews=0)   # por verificar: si entra a la ruta
+    _ingest_in(client, z, "taller", places)
+    r = client.get(f"{URL}/admin/route?zone_id={z['id']}").json()
+    assert [s["name"] for s in r["stops"]] == ["Ruta 0", "Ruta 2", "Ruta 3", "Ruta 1"], "vecino mas cercano desde el centro"
+    assert any(s["vigencia"] == "por_verificar" for s in r["stops"])
+    assert all(s["maps_url"].startswith("https://www.google.com/maps/search/?api=1&query=") and "query_place_id=place-" in s["maps_url"]
+               for s in r["stops"])
+    assert r["route_url"].startswith("https://www.google.com/maps/dir/?api=1&origin=") and "waypoints=" in r["route_url"]
+    assert [s["orden"] for s in r["stops"]] == [1, 2, 3, 4] and r["total_m"] > 0
+    sent = {}
+
+    async def fake_post(payload):
+        sent.update(payload)
+        return True
+
+    monkeypatch.setattr(ep, "_post_route", fake_post)
+    assert client.post(f"{URL}/admin/route/send", json={"zone_id": z["id"]}).json() == {"ok": True, "paradas": 4}
+    assert sent["cabecera"].startswith("🗺️") and len(sent["paradas"]) == 4 and sent["paradas"][0]["callback"].startswith("pv:visitado:")
+    assert all(len(p["callback"].encode()) <= 64 for p in sent["paradas"])
+    first = r["stops"][0]
+    monkeypatch.setattr(pc.ps, "now", lambda: _at(2026, 11, 17, 10))
+    v = client.post(f"{URL}/admin/prospects/{first['id']}/visited").json()
+    assert v["ok"] and "Visitado" in v["mensaje"]
+    row = _run(pg_url, "SELECT visit_count, last_contacted_at FROM prospects WHERE id = CAST(:i AS uuid)", {"i": first["id"]})[0]
+    assert row["visit_count"] == 1 and row["last_contacted_at"]
+    assert _run(pg_url, "SELECT channel, kind FROM prospect_contacts WHERE prospect_id = CAST(:i AS uuid)",
+                {"i": first["id"]}) == [{"channel": "visita", "kind": "visita"}]
+    code = _run(pg_url, "SELECT code FROM prospects WHERE name = 'Ruta 1'")[0]["code"]
+    assert client.post(f"{URL}/n8n/visited", headers=H, json={"codigo": code}).json()["ok"]
+    monkeypatch.setattr(pc.ps, "now", lambda: _at(2026, 11, 17, 18))
+    code2 = _run(pg_url, "SELECT code FROM prospects WHERE name = 'Ruta 2'")[0]["code"]
+    assert client.post(f"{URL}/n8n/visited", headers=H, json={"codigo": code2}).json()["ok"] is False, "fuera de horario no"
+    monkeypatch.setattr(pc.ps, "now", lambda: _at(2026, 11, 18, 10))
+    again = client.get(f"{URL}/admin/route?zone_id={z['id']}").json()
+    assert first["id"] not in [s["id"] for s in again["stops"]], "visitado no vuelve a la ruta"
+
+
+def test_volante_pdf_por_zona_y_nicho_con_qr_y_calor(client, pg_url, monkeypatch, geo):
+    import cv2
+    import numpy as np
+
+    from app.services import prospecting_flyer as pf
+    _admin(monkeypatch)
+    z = _bog(pg_url)
+    r = client.get(f"{URL}/admin/flyer?zone_id={z['id']}&nicho=campo")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+    assert "volante-bogota-puente-aranda-campo.pdf" in r.headers["content-disposition"] and len(r.content) < 1_500_000
+    assert client.get(f"{URL}/admin/flyer?zone_id={z['id']}&nicho=nada").status_code == 422
+    for niche, page in (("taller", "/talleres-y-fabricas"), ("restaurante", "/restaurantes"), ("tienda", "/")):
+        _, lay = pf.render_pdf(z["slug"], z["name"], niche, "https://www.clonexa.com.co/")
+        val, _, _ = cv2.QRCodeDetector().detectAndDecode(np.array(lay["png"])[:, :, ::-1])
+        u = urlparse(val)
+        assert u.path == page and parse_qs(u.query) == {"utm_source": ["volante"], "utm_medium": ["volante"],
+                                                        "utm_campaign": [f"bogota-puente-aranda-{niche}"]}, val
+        assert lay["bottom_of_content"] < lay["qr_top"], "nada pisa el QR"
+        assert lay["live_line"] == "Tu negocio, en vivo"
+    _visit(client, "190.24.10.10", utm_source="volante", utm_medium="volante", utm_campaign="bogota-puente-aranda-taller")
+    _visit(client, "190.24.10.11", utm_source="volante", utm_medium="volante", utm_campaign="bogota-puente-aranda-taller")
+    m = client.get(f"{URL}/admin/map").json()
+    hf = m["heat_flyers"]
+    assert hf and hf[0]["slug"] == "bogota-puente-aranda" and hf[0]["niche"] == "taller" and hf[0]["total"] == 2
+    assert client.get(f"{URL}/admin/map?nicho=campo").json()["heat_flyers"] == []
+
+
+NEW_ADMIN = [("get", "/admin/route?zone_id=1"), ("post", "/admin/route/send"),
+             ("post", "/admin/prospects/00000000-0000-0000-0000-000000000000/visited"), ("get", "/admin/flyer?zone_id=1&nicho=bar")]
+NEW_N8N = [("post", "/n8n/assisted/today"), ("post", "/n8n/assisted/test"), ("post", "/n8n/assisted/action"), ("post", "/n8n/visited")]
+
+
+@pytest.mark.parametrize("method,path", NEW_ADMIN)
+def test_025p_consola_sin_sesion_401(client, monkeypatch, method, path):
+    _admin(monkeypatch, ok=False)
+    assert client.request(method.upper(), URL + path, json={}, headers=H).status_code == 401
+
+
+@pytest.mark.parametrize("method,path", NEW_N8N)
+def test_025p_n8n_sin_token_401(client, monkeypatch, method, path):
+    assert client.request(method.upper(), URL + path, json={}).status_code == 401
+    monkeypatch.delenv(ep.TOKEN_ENV)
+    assert client.request(method.upper(), URL + path, json={}, headers=H).status_code == 503

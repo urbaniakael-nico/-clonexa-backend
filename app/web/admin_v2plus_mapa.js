@@ -35,7 +35,9 @@
   const VIGENCIA = { activo: "Activo", por_verificar: "Por verificar", sin_dato: "Sin dato aún" };
   const KINDS = { inicial: "Correo inicial", seguimiento: "Seguimiento", respuesta: "Respondió", baja: "Baja", apertura: "Abrió la landing",
     whatsapp_entrada: "Escribió por WhatsApp", demo: "Demo", cliente: "Cliente", prueba: "Prueba" };
-  const LAYERS = [["prospectos", "Prospectos"], ["visitas", "Calor: visitas a la landing"], ["leads", "Calor: respuestas y leads"], ["zonas", "Zonas de prospección"]];
+  const LAYERS = [["prospectos", "Prospectos"], ["visitas", "Calor: visitas a la landing"], ["leads", "Calor: respuestas y leads"],
+    ["volantes", "Calor: visitas por volante"], ["zonas", "Zonas de prospección"]];
+  const FLYER_NICHES = ["restaurante", "bar", "taller", "campo", "tienda", "transporte"];
 
   async function request(url, options = {}) {
     const response = await fetch(url, { credentials: "same-origin", ...options,
@@ -63,12 +65,16 @@
     detail: (id) => request(`${API}/prospects/${enc(id)}`),
     status: (id, estado) => request(`${API}/prospects/${enc(id)}/status`, { method: "POST", body: JSON.stringify({ estado }) }),
     createZone: (z) => request(`${API}/zones`, { method: "POST", body: JSON.stringify(z) }),
+    route: (zoneId, nicho) => request(`${API}/route?zone_id=${enc(zoneId)}${nicho ? `&nicho=${enc(nicho)}` : ""}`),
+    routeSend: (zoneId, nicho) => request(`${API}/route/send`, { method: "POST", body: JSON.stringify({ zone_id: Number(zoneId), nicho: nicho || "" }) }),
+    visited: (id) => request(`${API}/prospects/${enc(id)}/visited`, { method: "POST", body: "{}" }),
   };
+  const flyerUrl = (zoneId, nicho) => `${API}/flyer?zone_id=${enc(zoneId)}&nicho=${enc(nicho)}`;
 
   // ------------------------------------------------------------ estado
   const model = {
     filters: EMPTY_FILTERS(), colorBy: "estado",
-    layers: { prospectos: true, visitas: true, leads: true, zonas: true },
+    layers: { prospectos: true, visitas: true, leads: true, volantes: true, zonas: true }, route: null,
     data: null, error: "", loading: false, detail: null, detailError: "", confirm: "", newZone: null, notice: "",
   };
   let host = null;
@@ -119,7 +125,10 @@
     if (!zs.length) return "";
     return `<section class="vp-panel vp-section"><h2>% por zona</h2><div class="vpm-table-wrap"><table class="vpm-table">
       <thead><tr><th>Zona</th><th>Prospectos</th><th>% correo</th><th>% IG/FB</th><th>% WhatsApp publicado</th><th>Enviados</th><th>% abrió</th><th>% respondió</th><th>Demos</th><th>Clientes</th><th>Puntaje</th></tr></thead>
-      <tbody>${zs.map((z) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-zone="${h(z.id)}">${h(z.name)}</button><small>${h(z.group_name || "")}</small></td>
+      <tbody>${zs.map((z) => `<tr><td><button class="vp-btn vp-btn-sm vp-btn-link" type="button" data-vpm-zone="${h(z.id)}">${h(z.name)}</button><small>${h(z.group_name || "")}</small>
+        <span class="vpm-zone-tools"><button class="vp-btn vp-btn-sm" type="button" data-vpm-route="${h(z.id)}">🗺️ Ruta del día</button>
+        <select data-vpm-flyer-niche="${h(z.id)}" aria-label="Nicho del volante">${FLYER_NICHES.map((k) => `<option value="${h(k)}">${h((NICHES[k] || [k])[0])}</option>`).join("")}</select>
+        <button class="vp-btn vp-btn-sm" type="button" data-vpm-flyer="${h(z.id)}">🖨️ Volante PDF</button></span></td>
         <td>${h(num(z.prospectos))}</td>${chanCells(z)}<td>${h(num(z.enviados))}</td><td>${h(pct(z.abrieron, z.enviados))}</td><td>${h(pct(z.respondieron, z.enviados))}</td>
         <td>${h(num(z.demos))}</td><td>${h(num(z.clientes))}</td><td class="vp-mono">${h(num(z.puntaje))}</td></tr>`).join("")}</tbody></table></div>
       <p class="vp-login-hint">Puntaje = prospectos ×1 + correos ×2 + aperturas ×5 + respuestas ×10 + demos ×20 + clientes ×40.</p></section>`;
@@ -218,6 +227,27 @@
     </aside>`;
   }
 
+  function routePanel() {
+    const r = model.route;
+    if (!r) return "";
+    const d = r.data;
+    const zone = d ? d.zone.name : "";
+    const stops = arr(d && d.stops);
+    return `<section class="vp-panel vp-section vpm-route" data-vpm-route-panel>
+      <div class="vp-row-between"><h2>🗺️ Ruta del día${zone ? ` · ${h(zone)}` : ""}</h2><button class="vp-btn vp-btn-sm" type="button" data-vpm-route-close aria-label="Cerrar ruta">✕</button></div>
+      ${r.error ? `<div class="vp-alert" role="alert"><span>${h(r.error)}</span></div>` : ""}
+      ${r.notice ? `<div class="vp-alert is-ok" role="status"><span>${h(r.notice)}</span></div>` : ""}
+      ${!d ? `<p class="vp-loading">Armando la ruta…</p>` : !stops.length ? `<p class="vp-empty">No hay negocios para visitar en esta zona (sin baja, sin contacto esta semana y sin visita en 30 días).</p>` : `
+      <p class="vp-login-hint">${h(stops.length)} negocios ordenados por cercanía desde el centro de la zona, ~${h(Math.round(Number(d.total_m || 0) / 100) / 10)} km a pie. Incluye los "por verificar". Visitas de lunes a viernes, 8:00 a 17:00.</p>
+      <div class="vp-actions">${safeUrl(d.route_url) ? `<a class="vp-btn vp-btn-primary" href="${h(d.route_url)}" target="_blank" rel="noopener noreferrer">Abrir la ruta en Google Maps</a>` : ""}
+        <button class="vp-btn" type="button" data-vpm-route-send>📨 Enviar a Telegram</button></div>
+      <ol class="vpm-stops">${stops.map((x) => `<li><b>${h(x.name)}</b>${x.vigencia === "por_verificar" ? ` <small class="vpm-tag">por verificar</small>` : ""}
+        <small>${h(x.nicho || "")} · ${h(x.tipo || "")} · ${h(x.address || "")} · ${h(x.desde_anterior_m)} m</small>
+        <span class="vp-actions">${safeUrl(x.maps_url) ? `<a class="vp-btn vp-btn-sm" href="${h(x.maps_url)}" target="_blank" rel="noopener noreferrer">Abrir en Google Maps</a>` : ""}
+        ${x.visitado ? `<span class="vpm-tag is-ok">✅ Visitado</span>` : `<button class="vp-btn vp-btn-sm" type="button" data-vpm-visited="${h(x.id)}">✅ Visitado</button>`}</span></li>`).join("")}</ol>`}
+    </section>`;
+  }
+
   function pane() {
     const d = model.data;
     return `<div class="vpm" data-vpm-root>
@@ -226,6 +256,7 @@
       <div data-vpm-cards>${d ? cards(d) : `<p class="vp-loading">Cargando el mapa comercial…</p>`}</div>
       <div data-vpm-filters-host>${filtersForm(d)}</div>
       <div data-vpm-newzone-host>${newZoneForm()}</div>
+      <div data-vpm-route-host>${routePanel()}</div>
       <section class="vp-panel vp-section vpm-mapbox">${layerToggles()}
         <div class="vpm-grid"><div class="vpm-map" data-vpm-canvas role="region" aria-label="Mapa comercial de Colombia"></div><div data-vpm-detail-host>${detailPanel()}</div></div>
         <p class="vpm-attrib">Mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> ·
@@ -273,7 +304,7 @@
   function drawLayers(L) {
     if (!map || !L) return;
     if (groups) Object.values(groups).forEach((g) => g.remove());
-    groups = { zonas: L.layerGroup(), visitas: L.layerGroup(), leads: L.layerGroup(), prospectos: L.layerGroup() };
+    groups = { zonas: L.layerGroup(), visitas: L.layerGroup(), leads: L.layerGroup(), volantes: L.layerGroup(), prospectos: L.layerGroup() };
     const d = model.data || {};
     const zs = arr(d.zones).filter((z) => z.active !== false);
     const maxScore = Math.max(0, ...zs.map((z) => Number(z.puntaje || 0)));
@@ -295,6 +326,12 @@
     hl.forEach((v) => {
       groups.leads.addLayer(L.circle([v.lat, v.lng], heatStyle(Number(v.total || 0), maxL, 180, 420, "#22c55e"))
         .bindTooltip(`${h(num(v.total))} respuesta(s) o lead(s)`, { sticky: true }));
+    });
+    const hf = arr(d.heat_flyers).filter((v) => v.lat != null && v.lng != null);
+    const maxF = Math.max(0, ...hf.map((v) => Number(v.total || 0)));
+    hf.forEach((v) => {
+      groups.volantes.addLayer(L.circle([v.lat, v.lng], heatStyle(Number(v.total || 0), maxF, Math.max(200, Number(v.radius_m || 600) * 0.5), Number(v.radius_m || 600), "#38bdf8"))
+        .bindTooltip(`🖨️ ${h(v.zone)} · ${h(v.nicho || v.niche || "")}: ${h(num(v.total))} visitas por el QR del volante (${h(num(v.visitantes))} personas)`, { sticky: true }));
     });
     arr(d.pins).forEach((p) => {
       const [label] = STATUS[p.status] || [p.status];
@@ -332,6 +369,7 @@
     }
     if (!part || part === "detail" || part === "data") set("[data-vpm-detail-host]", detailPanel());
     if (!part || part === "newzone") set("[data-vpm-newzone-host]", newZoneForm());
+    if (!part || part === "route") set("[data-vpm-route-host]", routePanel());
   }
 
   async function load() {
@@ -340,6 +378,13 @@
     model.loading = false;
     paint("data");
     if (window.L && map) drawLayers(window.L);
+  }
+
+  async function openRoute(zoneId) {
+    model.route = { zone_id: zoneId, nicho: model.filters.nicho || "", data: null, error: "", notice: "" };
+    paint("route");
+    try { model.route.data = await api.route(zoneId, model.route.nicho); } catch (error) { model.route.error = error.message; }
+    paint("route");
   }
 
   async function openDetail(id) {
@@ -359,6 +404,30 @@
     if (t.closest("[data-vpm-close]")) { model.detail = null; model.detailError = ""; paint("detail"); return; }
     if (t.closest("[data-vpm-new-zone]")) { model.newZone = model.newZone ? null : { radius_m: 700, city: "Bogotá" }; paint("newzone"); return; }
     if (t.closest("[data-vpm-zone-cancel]")) { model.newZone = null; paint("newzone"); return; }
+    const rb = t.closest("[data-vpm-route]");
+    if (rb) { openRoute(rb.getAttribute("data-vpm-route")); return; }
+    if (t.closest("[data-vpm-route-close]")) { model.route = null; paint("route"); return; }
+    if (t.closest("[data-vpm-route-send]") && model.route) {
+      try { const r = await api.routeSend(model.route.zone_id, model.route.nicho); model.route.notice = r.ok ? `Ruta enviada a Telegram (${r.paradas} negocios).` : "No hay negocios para enviar."; model.route.error = ""; }
+      catch (error) { model.route.error = error.message === "telegram_no_disponible" ? "Telegram no respondió: intenta de nuevo." : error.message; }
+      paint("route"); return;
+    }
+    const vb = t.closest("[data-vpm-visited]");
+    if (vb && model.route && model.route.data) {
+      const id = vb.getAttribute("data-vpm-visited");
+      try { const r = await api.visited(id); model.route.notice = r.mensaje || ""; model.route.error = r.ok ? "" : (r.mensaje || "");
+        if (r.ok) arr(model.route.data.stops).forEach((x) => { if (x.id === id) x.visitado = true; }); }
+      catch (error) { model.route.error = error.message; }
+      paint("route"); return;
+    }
+    const fb = t.closest("[data-vpm-flyer]");
+    if (fb) {
+      const zid = fb.getAttribute("data-vpm-flyer");
+      const sel = host.querySelector && host.querySelector(`[data-vpm-flyer-niche="${zid}"]`);
+      const nicho = (sel && sel.value) || "restaurante";
+      if (window.open) window.open(flyerUrl(zid, nicho), "_blank", "noopener");
+      return;
+    }
     const nb = t.closest("[data-vpm-niche]");
     if (nb) { model.filters = { ...model.filters, nicho: nb.getAttribute("data-vpm-niche") || "" }; load(); return; }
     const zb = t.closest("[data-vpm-zone]");
@@ -434,6 +503,6 @@
     if (model.openId) { const id = model.openId; model.openId = ""; openDetail(id); }   // #mapa/{prospecto}
   }
 
-  window.CxConsoleMapa = { CHANNELS, channelsList, VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
+  window.CxConsoleMapa = { routePanel, openRoute, flyerUrl, CHANNELS, channelsList, VIGENCIA, model, api, mapUrl, pane, cards, zonesTable, nichesTable, filtersForm, detailPanel, mount, drawLayers, heatStyle, zoneColor, pinColor, STATUS, TYPES, NICHES,
     _setMap: (m) => { map = m; } };
 })();

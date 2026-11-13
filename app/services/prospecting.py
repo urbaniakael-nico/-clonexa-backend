@@ -869,7 +869,10 @@ async def unsubscribe(db: AsyncSession, prospect: dict, *, reason: str, channel:
     already = prospect.get("status") == "baja"
     await db.execute(text("""UPDATE prospects SET status = 'baja', unsubscribed_at = COALESCE(unsubscribed_at, now()), updated_at = now()
                              WHERE id = CAST(:i AS uuid)"""), {"i": prospect["id"]})
-    for kind, value in (("email", (prospect.get("email") or "").lower()), ("place", prospect.get("place_id") or "")):
+    # la baja vale para TODOS los canales: correo, lugar de Google y sus redes (Instagram, Facebook, TikTok, WhatsApp)
+    keys = [("email", (prospect.get("email") or "").lower()), ("place", prospect.get("place_id") or "")]
+    keys += [("social", k.lower()) for k in pn.social_keys(prospect.get("channels") or {})]
+    for kind, value in keys:
         if value:
             await db.execute(text("INSERT INTO prospect_exclusions (kind, value, reason) VALUES (:k, :v, :r) ON CONFLICT DO NOTHING"),
                              {"k": kind, "v": value[:300], "r": reason[:40]})
@@ -988,6 +991,11 @@ async def set_status(db: AsyncSession, prospect_id: str, status: str) -> dict:
 
 
 # ---------------------------------------------------------------- lote diario y envio
+# una red de este negocio (o de otra sede con la misma cuenta) esta en la lista de exclusion
+SOCIAL_EXCLUDED_SQL = """EXISTS (SELECT 1 FROM prospect_exclusions xs WHERE xs.kind = 'social'
+                  AND lower(p.channels -> split_part(xs.value, ':', 1) ->> 'value') = substr(xs.value, strpos(xs.value, ':') + 1))"""
+
+
 def _eligible_sql() -> str:
     return """NOT p.is_test AND p.email <> '' AND p.status NOT IN ('baja', 'respondio', 'demo', 'cliente')
               AND p.business_status IN ('', 'OPERATIONAL') AND p.replied_at IS NULL AND p.unsubscribed_at IS NULL
@@ -995,6 +1003,7 @@ def _eligible_sql() -> str:
               AND NOT EXISTS (SELECT 1 FROM prospect_exclusions x WHERE (x.kind = 'email' AND x.value = lower(p.email))
                               OR (x.kind = 'domain' AND x.value = split_part(lower(p.email), '@', 2))
                               OR (x.kind = 'place' AND x.value = p.place_id))
+              AND NOT """ + SOCIAL_EXCLUDED_SQL + """
               AND (p.last_contacted_at IS NULL OR p.last_contacted_at < :week_ago)"""
 
 
@@ -1313,7 +1322,22 @@ async def map_data(db: AsyncSession, f: dict) -> dict:
         SELECT ROUND(p.lat::numeric, 3)::float AS lat, ROUND(p.lng::numeric, 3)::float AS lng, COUNT(*)::int AS total
         FROM prospects p WHERE {where} AND p.lat IS NOT NULL AND (p.replied_at IS NOT NULL OR p.demo_at IS NOT NULL OR p.client_at IS NOT NULL)
         GROUP BY 1, 2 ORDER BY total DESC LIMIT 500""", params)
+    # visitas que llegaron por el QR del volante (utm_source=volante, campana <zona>-<nicho>) en el centro de su zona
+    fwhere = [w for w in visit_where if not w.startswith("lat ")] + ["lower(source) = 'volante'"]
+    flyer_rows = await _rows(db, f"""SELECT lower(campaign) AS campaign, COUNT(DISTINCT NULLIF(visitor_id, ''))::int AS visitantes,
+                                     COUNT(*)::int AS total FROM landing_visit_events WHERE {' AND '.join(fwhere)}
+                                     GROUP BY 1 ORDER BY total DESC LIMIT 300""", vparams)
+    zone_by_slug = {z["slug"]: z for z in zone_list}
+    heat_flyers = []
+    for r in flyer_rows:
+        slug, niche = pn.parse_flyer_campaign(r["campaign"])
+        z = zone_by_slug.get(slug)
+        if z and (not f.get("niche") or f["niche"] == niche):
+            heat_flyers.append({"zone": z["name"], "slug": slug, "niche": niche, "nicho": pn.NICHES.get(niche, {}).get("label", ""),
+                                "lat": z["center_lat"], "lng": z["center_lng"], "radius_m": z["radius_m"], "total": r["total"],
+                                "visitantes": r["visitantes"]})
     return {"pins": pins, "zones": zone_list, "niches": niche_list, "heat_visits": heat_visits, "heat_leads": heat_leads, "cards": totals,
+            "heat_flyers": heat_flyers,
             "types": [{"key": k, "label": v, "niche": pn.niche_of(k)} for k, v in TYPE_LABEL.items()],
             "statuses": [{"key": k, "label": v} for k, v in STATUS_LABEL.items()]}
 

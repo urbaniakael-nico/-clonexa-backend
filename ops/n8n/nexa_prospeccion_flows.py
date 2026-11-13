@@ -12,7 +12,12 @@ Crea o actualiza:
                                  Webhook de prueba GET nexa-prospeccion-pruebas?k=..: los 3 correos de ejemplo SOLO
                                  al correo de Clonexa.
 Y cambia (antes guarda su JSON en respaldos-clonexa\\n8n\\<fecha>\\):
-- "Nexa - Bot de comandos": callback "px:enviar|saltar:<lote>" -> sub-flujo del lote.
+- "Nexa - Bot de comandos": callback "px:enviar|saltar:<lote>" -> sub-flujo del lote; "pa:<accion>:<id>" y
+                     "pv:visitado:<codigo>" -> sub-flujo de "Nexa - Cola asistida".
+- "Nexa - Cola asistida" (025p, nuevo): L-V 8:30 hasta 15 negocios para Instagram/Facebook que el dueno envia A
+                     MANO ([📋 Copiar texto] [📲 Abrir perfil] [✅ Enviado] [⏭ Saltar] [🚫 No contactar]); webhook de
+                     prueba GET nexa-cola-asistida-prueba?k=.. (negocios de prueba); webhook POST nexa-ruta (X-Nexa-Token)
+                     con la Ruta del dia de la consola y [✅ Visitado] por parada.
 - "Nexa - Correos": cada correo nuevo pasa primero por el backend (/inbound-email): si es un prospecto lo
                      marca "respondio" (o baja si dice NO) y avisa a Telegram; si es baja no se redacta respuesta.
 - "Nexa - WhatsApp ventas": si el backend manda "prospecto" (el negocio escribio con su codigo), Claude
@@ -43,6 +48,7 @@ F_MAIL = "Nexa - Correos prospección"
 F_BOT = "Nexa - Bot de comandos"
 F_CORREOS = "Nexa - Correos"
 F_WA = "Nexa - WhatsApp ventas"
+F_COLA = "Nexa - Cola asistida"
 SECRET_FILE = v2.REFS / "nexa-prospeccion-webhook-secret.txt"
 MARK = "/* prospeccion-025i */"
 
@@ -213,6 +219,85 @@ return [{ json: { enviados: all.filter(i => !i.bloqueado).map(i => ({ para: i.to
     return f
 
 
+# ------------------------------------------------------------------ Nexa - Cola asistida (025p)
+def tg_buttons(f: v2.Flow, name: str, text: str, rows: list, chat: str = v2.CHAT, **extra) -> str:
+    """Telegram con botones mixtos: ("texto", "cb", valor) o ("texto", "url", valor)."""
+    def btn(t, kind, val):
+        return {"text": t, "additionalFields": {"callback_data" if kind == "cb" else "url": val}}
+    return f.add(name, "n8n-nodes-base.telegram", {
+        "chatId": chat, "text": text, "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {"rows": [{"row": {"buttons": [btn(*b) for b in row]}} for row in rows]},
+        "additionalFields": {"appendAttribution": False, "disable_web_page_preview": True, "parse_mode": "HTML"}}, 1.2, v2.C_TG, **extra)
+
+
+def flow_cola(cred: dict, secret: str) -> v2.Flow:
+    """Cola ASISTIDA de Instagram/Facebook: Nexa prepara el texto, el dueno lo envia a mano. Nunca se envia nada
+    automatico a Instagram ni a Facebook (la API no lo permite y Meta bloquea bots)."""
+    f = v2.Flow()
+    # 1) cola del dia (L-V 8:30) o simulada (webhook de prueba con los negocios de prueba)
+    f.cron("L-V 8:30", "30 8 * * 1-5")
+    be(f, "Cola de hoy", "POST", "/n8n/assisted/today", cred, body="{}")
+    f.webhook("Prueba (webhook)", "nexa-cola-asistida-prueba")
+    f.code("¿Autorizado?", "if ((($json.query || {}).k) !== '__SECRET__') throw new Error('Acceso no autorizado'); return [{ json: {} }];"
+           .replace("__SECRET__", secret))
+    be(f, "Cola simulada", "POST", "/n8n/assisted/test", cred, body="{}")
+    f.iff("¿Hay cola?", "$json.enviar === true")
+    f.tg("Telegram: cabecera", "={{ $json.cabecera }}")
+    f.code("Uno por negocio", "return ($('¿Hay cola?').first().json.items || []).map(i => ({ json: i }));")
+    tg_buttons(f, "Telegram: negocio", "={{ $json.mensaje }}", [
+        [("📋 Copiar texto", "cb", "={{ $json.botones.copiar }}"), ("📲 Abrir perfil", "url", "={{ $json.perfil }}")],
+        [("✅ Enviado", "cb", "={{ $json.botones.enviado }}"), ("⏭ Saltar", "cb", "={{ $json.botones.saltar }}")],
+        [("🚫 No contactar", "cb", "={{ $json.botones.bloquear }}")]])
+    f.chain("L-V 8:30", "Cola de hoy", "¿Hay cola?", "Telegram: cabecera", "Uno por negocio", "Telegram: negocio")
+    f.chain("Prueba (webhook)", "¿Autorizado?", "Cola simulada", "¿Hay cola?")
+    # 2) botones (los llama el Bot de comandos): pa:copiar|enviado|saltar|bloquear:<id> y pv:visitado:<codigo>
+    f.sub_trigger("Botón de la cola")
+    f.iff("¿Visita?", "$json.ns === 'pv'")
+    be(f, "Registrar visita", "POST", "/n8n/visited", cred, body="={{ JSON.stringify({ codigo: $json.param }) }}")
+    be(f, "Acción de la cola", "POST", "/n8n/assisted/action", cred,
+       body="={{ JSON.stringify({ accion: $json.accion, id: Number($json.param) || 0 }) }}")
+    f.code("Resultado", """
+const b = $('Botón de la cola').first().json;
+const r = $json || {};
+const visita = b.ns === 'pv';
+return [{ json: { texto: r.texto || '', editar: visita ? !!r.ok : !!r.editar, mensaje: r.mensaje || ('No pude registrar: ' + JSON.stringify(r).slice(0, 150)),
+  msg_id: b.msg_id, msg_text: b.msg_text || '' } }];
+""")
+    f.iff("¿Copiar?", "!!$json.texto")
+    f.tg("Telegram: texto para copiar", "={{ $json.texto }}", html=False)
+    f.iff("¿Editar?", "$json.editar === true")
+    f.add("Editar mensaje", "n8n-nodes-base.telegram", {
+        "operation": "editMessageText", "messageType": "message", "chatId": v2.CHAT, "messageId": "={{ $json.msg_id }}",
+        "text": "={{ $json.msg_text + '\\n\\n' + $json.mensaje }}", "additionalFields": {"disable_web_page_preview": True}}, 1.2, v2.C_TG)
+    f.tg("Telegram: aviso", "={{ $json.mensaje }}", html=False)
+    f.link("Botón de la cola", "¿Visita?")
+    f.link("¿Visita?", "Registrar visita", 0)
+    f.link("¿Visita?", "Acción de la cola", 1)
+    f.link("Registrar visita", "Resultado")
+    f.link("Acción de la cola", "Resultado")
+    f.chain("Resultado", "¿Copiar?", "Telegram: texto para copiar")
+    f.link("¿Copiar?", "¿Editar?", 1)
+    f.link("¿Editar?", "Editar mensaje", 0)
+    f.link("¿Editar?", "Telegram: aviso", 1)
+    # 3) ruta del dia desde la consola (el backend llama con X-Nexa-Token)
+    f.add("Ruta (backend)", "n8n-nodes-base.webhook", {"httpMethod": "POST", "path": "nexa-ruta", "responseMode": "onReceived",
+                                                       "authentication": "headerAuth", "options": {}}, 2, cred,
+          webhookId=str(uuid.uuid5(uuid.NAMESPACE_URL, "hook/nexa-ruta")))
+    tg_buttons(f, "Telegram: ruta", "={{ $json.body.cabecera }}", [[("🗺️ Abrir la ruta en Google Maps", "url", "={{ $json.body.ruta_url }}")]])
+    f.code("Una por parada", "return (($('Ruta (backend)').first().json.body || {}).paradas || []).map(p => ({ json: p }));")
+    tg_buttons(f, "Telegram: parada", "={{ $json.mensaje }}", [[("📍 Google Maps", "url", "={{ $json.maps_url }}"), ("✅ Visitado", "cb", "={{ $json.callback }}")]])
+    f.chain("Ruta (backend)", "Telegram: ruta", "Una por parada", "Telegram: parada")
+    _layout(f, {
+        "L-V 8:30": (0, 0), "Cola de hoy": (240, 0), "Prueba (webhook)": (0, 200), "¿Autorizado?": (240, 200), "Cola simulada": (480, 200),
+        "¿Hay cola?": (720, 80), "Telegram: cabecera": (960, 80), "Uno por negocio": (1200, 80), "Telegram: negocio": (1440, 80),
+        "Botón de la cola": (0, 480), "¿Visita?": (240, 480), "Registrar visita": (480, 400), "Acción de la cola": (480, 560),
+        "Resultado": (720, 480), "¿Copiar?": (960, 480), "Telegram: texto para copiar": (1200, 400), "¿Editar?": (1200, 580),
+        "Editar mensaje": (1440, 520), "Telegram: aviso": (1440, 660),
+        "Ruta (backend)": (0, 860), "Telegram: ruta": (240, 860), "Una por parada": (480, 860), "Telegram: parada": (720, 860)})
+    fix_ids(f, F_COLA)
+    return f
+
+
 def _layout(f: v2.Flow, pos: dict) -> None:
     for n in f.nodes:
         if n["name"] in pos:
@@ -234,16 +319,23 @@ def _drop(flow: dict, names: set) -> None:
             outs[:] = [c for c in outs if c["node"] not in names]
 
 
-def patch_bot(bot: dict, sub_id: str) -> dict:
+def patch_bot(bot: dict, sub_id: str, cola_id: str) -> dict:
     bot = copy.deepcopy(bot)
-    added = {"¿Lote de prospección?", "Responder botón (lote)", "Datos del lote", "Lote de prospección"}
+    added = {"¿Lote de prospección?", "Responder botón (lote)", "Datos del lote", "Lote de prospección",
+             "¿Cola asistida?", "Responder botón (cola)", "Datos de la cola", "Cola asistida"}
     _drop(bot, added)
     leer = _node(bot, "Leer mensaje")
     js = leer["parameters"]["jsCode"]
     old = "tipo: ns === 'nx' ? 'boton' : 'otro'"
     if old in js:
         js = js.replace(old, "tipo: ns === 'nx' ? 'boton' : ns === 'px' ? 'prospeccion' : 'otro'")
-    assert "ns === 'px'" in js, "Leer mensaje cambio: revisar el parche de prospeccion"
+    old2 = "ns === 'px' ? 'prospeccion' : 'otro'"
+    if old2 in js:
+        js = js.replace(old2, "ns === 'px' ? 'prospeccion' : (ns === 'pa' || ns === 'pv') ? 'asistida' : 'otro'")
+    assert "ns === 'px'" in js and "'asistida'" in js, "Leer mensaje cambio: revisar el parche de prospeccion"
+    if "ns: ns," not in js:
+        js = js.replace("accion: accion || '', param: arg || '',", "ns: ns, accion: accion || '', param: arg || '',", 1)
+    assert "ns: ns," in js, "Leer mensaje cambio: no encontre accion/param"
     leer["parameters"]["jsCode"] = js
     f = v2.Flow()
     f.iff("¿Lote de prospección?", "$('Leer mensaje').first().json.tipo === 'prospeccion'")
@@ -254,12 +346,27 @@ const j = $('Leer mensaje').first().json;
 return [{ json: { accion: j.accion === 'enviar' ? 'enviar' : 'saltar', batch_id: Number(j.param) || 0, msg_id: j.msg_id, msg_text: j.msg_text } }];
 """)
     f.run("Lote de prospección", sub_id, wait=False)
-    _layout(f, {"¿Lote de prospección?": (560, 120), "Responder botón (lote)": (800, 40), "Datos del lote": (1040, 40), "Lote de prospección": (1280, 40)})
+    # cola asistida y ruta de visitas (025p)
+    f.iff("¿Cola asistida?", "$('Leer mensaje').first().json.tipo === 'asistida'")
+    f.add("Responder botón (cola)", "n8n-nodes-base.telegram", {"resource": "callback", "operation": "answerQuery",
+          "queryId": "={{ $('Leer mensaje').first().json.cb_id }}",
+          "additionalFields": {"text": "={{ $('Leer mensaje').first().json.accion === 'copiar' ? 'Te mando el texto abajo' : 'Listo' }}"}}, 1.2, v2.C_TG)
+    f.code("Datos de la cola", """
+const j = $('Leer mensaje').first().json;
+return [{ json: { ns: j.ns === 'pv' ? 'pv' : 'pa', accion: String(j.accion || ''), param: String(j.param || ''), msg_id: j.msg_id, msg_text: j.msg_text } }];
+""")
+    f.run("Cola asistida", cola_id, wait=False)
+    _layout(f, {"¿Cola asistida?": (560, -80), "Responder botón (cola)": (800, -160), "Datos de la cola": (1040, -160), "Cola asistida": (1280, -160),
+                "¿Lote de prospección?": (560, 120), "Responder botón (lote)": (800, 40), "Datos del lote": (1040, 40), "Lote de prospección": (1280, 40)})
     fix_ids(f, F_BOT)
     bot["nodes"] += f.nodes
     eres = bot["connections"]["¿Eres tú?"]["main"]
-    eres[0] = [{"node": "¿Lote de prospección?", "type": "main", "index": 0}]
+    eres[0] = [{"node": "¿Cola asistida?", "type": "main", "index": 0}]
     bot["connections"].update(f.conns)
+    bot["connections"]["¿Cola asistida?"] = {"main": [[{"node": "Responder botón (cola)", "type": "main", "index": 0}],
+                                                      [{"node": "¿Lote de prospección?", "type": "main", "index": 0}]]}
+    bot["connections"]["Responder botón (cola)"] = {"main": [[{"node": "Datos de la cola", "type": "main", "index": 0}]]}
+    bot["connections"]["Datos de la cola"] = {"main": [[{"node": "Cola asistida", "type": "main", "index": 0}]]}
     bot["connections"]["¿Lote de prospección?"] = {"main": [[{"node": "Responder botón (lote)", "type": "main", "index": 0}],
                                                            [{"node": "¿Botón?", "type": "main", "index": 0}]]}
     bot["connections"]["Responder botón (lote)"] = {"main": [[{"node": "Datos del lote", "type": "main", "index": 0}]]}
@@ -350,13 +457,15 @@ def main() -> None:
     pid = v2.upsert(F_PROSP, pf.nodes, pf.conns, settings, True, existing)
     mf = flow_correos(cred, secret)
     mid = v2.upsert(F_MAIL, mf.nodes, mf.conns, settings, True, existing)
+    cf = flow_cola(cred, secret)
+    cid = v2.upsert(F_COLA, cf.nodes, cf.conns, settings, True, existing)
     bot = v2.call("GET", f"/workflows/{existing[F_BOT]['id']}")
-    put_existing(bot, patch_bot(bot, mid))
+    put_existing(bot, patch_bot(bot, mid, cid))
     cor = v2.call("GET", f"/workflows/{existing[F_CORREOS]['id']}")
     put_existing(cor, patch_correos(cor, cred))
     wa = v2.call("GET", f"/workflows/{existing[F_WA]['id']}")
     put_existing(wa, patch_wa(wa))
-    for wid in (pid, mid, existing[F_BOT]["id"], existing[F_CORREOS]["id"], existing[F_WA]["id"]):
+    for wid in (pid, mid, cid, existing[F_BOT]["id"], existing[F_CORREOS]["id"], existing[F_WA]["id"]):
         print("exportado", save_export(v2.call("GET", f"/workflows/{wid}"), "despues").name)
 
 

@@ -403,3 +403,140 @@ async def admin_settings(db: AsyncSession = Depends(get_db)) -> dict:
 @router.put("/admin/settings", dependencies=admin)
 async def admin_settings_save(body: SettingsIn, db: AsyncSession = Depends(get_db)) -> dict:
     return {"settings": await ps.save_settings(db, body.model_dump(exclude_none=True))}
+
+
+# ---------------------------------------------------------------- 025p: cola asistida (Instagram / Facebook, a mano)
+from fastapi.responses import Response  # noqa: E402
+
+from app.services import prospecting_contact as pc  # noqa: E402
+from app.services import prospecting_flyer as pf  # noqa: E402
+
+RUTA_WEBHOOK_ENV = "NEXA_RUTA_WEBHOOK_URL"
+RUTA_WEBHOOK_DEFAULT = "https://main-production-54df.up.railway.app/webhook/nexa-ruta"
+
+
+def _queue_out(q: dict) -> dict:
+    items = [pc.telegram_item(i) for i in q["items"] if i["status"] == "pendiente"]
+    head = (f"📲 <b>Cola asistida de hoy</b>: {len(items)} negocios para escribir A MANO por Instagram o Facebook.\n"
+            "Nexa no envía nada: copias el texto, abres el perfil, lo envías tú y tocas ✅ Enviado. "
+            "Solo de lunes a viernes, 8:00 a 17:00.") if items else ""
+    return {"ok": True, "items": items, "cabecera": head, "motivo": q.get("motivo", ""), "enviar": bool(items) and q.get("nuevos", 0) > 0}
+
+
+@router.post("/n8n/assisted/today", dependencies=n8n)
+async def assisted_today(db: AsyncSession = Depends(get_db)) -> dict:
+    return _queue_out(await pc.build_assisted_queue(db))
+
+
+@router.post("/n8n/assisted/test", dependencies=n8n)
+async def assisted_test(db: AsyncSession = Depends(get_db)) -> dict:
+    """Cola SIMULADA con los negocios de prueba (Instagram de Clonexa): para probar los 5 botones sin tocar negocios reales."""
+    from app.web.admin_v2_routes import ADMIN_V2_EMAIL
+
+    cfg = await ps.get_settings(db)
+    recipient = (cfg.get("test_recipient") or ADMIN_V2_EMAIL or "").strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", recipient):
+        raise HTTPException(status_code=409, detail="sin_correo_de_prueba")
+    await ps.ensure_test_prospects(db, recipient)
+    out = _queue_out(await pc.build_assisted_queue(db, test_only=True))
+    out["cabecera"] = "🧪 <b>PRUEBA</b> · " + (out["cabecera"] or "sin negocios de prueba disponibles")
+    out["enviar"] = bool(out["items"])
+    return out
+
+
+class AssistedIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    accion: Literal["copiar", "enviado", "saltar", "bloquear"]
+    id: int = Field(ge=1)
+
+
+@router.post("/n8n/assisted/action", dependencies=n8n)
+async def assisted_action(body: AssistedIn, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        return await pc.assisted_action(db, body.id, body.accion)
+    except LookupError:
+        return {"ok": False, "editar": False, "mensaje": "No encontré ese mensaje de la cola."}
+
+
+class VisitedIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    codigo: str = Field(pattern=r"^[A-Za-z0-9]{6}$")
+
+
+@router.post("/n8n/visited", dependencies=n8n)
+async def n8n_visited(body: VisitedIn, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        return await pc.mark_visited(db, code=body.codigo, by="telegram")
+    except LookupError:
+        return {"ok": False, "mensaje": "No encontré ese negocio."}
+
+
+# ---------------------------------------------------------------- 025p: ruta de visitas y volante (consola)
+@router.get("/admin/route", dependencies=admin)
+async def admin_route(zone_id: int, nicho: str = Query(default="", max_length=20), limite: int = Query(default=20, ge=1, le=20),
+                      db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        return await pc.route_of_day(db, zone_id, niche=nicho, limit=limite)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="zona_no_existe") from None
+
+
+class RouteSendIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    zone_id: int
+    nicho: str = Field(default="", max_length=20)
+
+
+async def _post_route(payload: dict) -> bool:
+    import httpx
+
+    token = os.getenv(TOKEN_ENV, "").strip()
+    url = os.getenv(RUTA_WEBHOOK_ENV, "").strip() or RUTA_WEBHOOK_DEFAULT
+    if not token:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(url, json=payload, headers={"X-Nexa-Token": token})
+        return r.status_code < 300
+    except httpx.HTTPError:
+        return False
+
+
+@router.post("/admin/route/send", dependencies=admin)
+async def admin_route_send(body: RouteSendIn, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        route = await pc.route_of_day(db, body.zone_id, niche=body.nicho)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="zona_no_existe") from None
+    if not route["stops"]:
+        return {"ok": False, "motivo": "sin_negocios"}
+    sent = await _post_route(pc.route_telegram(route))
+    if not sent:
+        raise HTTPException(status_code=502, detail="telegram_no_disponible")
+    return {"ok": True, "paradas": len(route["stops"])}
+
+
+@router.post("/admin/prospects/{prospect_id}/visited", dependencies=admin)
+async def admin_visited(prospect_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    if not re.fullmatch(r"[0-9a-f-]{36}", prospect_id):
+        raise HTTPException(status_code=404, detail="no_existe")
+    try:
+        return await pc.mark_visited(db, prospect_id=prospect_id, by="consola")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="no_existe") from None
+
+
+@router.get("/admin/flyer", dependencies=admin)
+async def admin_flyer(zone_id: int, nicho: str = Query(max_length=20), db: AsyncSession = Depends(get_db)):
+    """Volante general (media carta, PDF) de una zona y un nicho, con su QR por zona y nicho. No se guarda."""
+    if nicho not in ps.NICHES:
+        raise HTTPException(status_code=422, detail="nicho_invalido")
+    z = await ps._one(db, f"SELECT {ps.ZONE_COLS} FROM prospect_zones WHERE id = :i", {"i": zone_id})
+    if not z:
+        raise HTTPException(status_code=404, detail="zona_no_existe")
+    cfg = await ps.get_settings(db)
+    import asyncio
+
+    pdf, _ = await asyncio.to_thread(pf.render_pdf, z["slug"], z["name"], nicho, cfg.get("landing_url") or pe.DEFAULT_LANDING)
+    name = f"volante-{z['slug']}-{nicho}.pdf"
+    return Response(pdf, media_type="application/pdf", headers={**NO_STORE, "Content-Disposition": f'inline; filename="{name}"'})

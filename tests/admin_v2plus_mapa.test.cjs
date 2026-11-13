@@ -136,7 +136,7 @@ test('capas: un pin por prospecto con color de su estado; calor de visitas por c
   assert.match(heat[0].tooltip, /Bogotá, Bogota D\.C\.: 20 visitas/);
   assert.equal(made.polygons.length, 1);
   assert.match(made.circles.find((c) => c.args.o.dashArray).tooltip, /puntaje 99/);
-  assert.equal(map.layers.size, 4, 'las 4 capas prendidas');
+  assert.equal(map.layers.size, 5, 'las 5 capas prendidas (con la de volantes)');
 });
 
 test('montar: abre en Bogotá, límites de Colombia y carga el mapa del servidor', async () => {
@@ -248,4 +248,37 @@ test('025p canales: ficha con íconos, enlaces seguros y fuente; % por zona', ()
   assert.match(zt, /% IG\/FB/);
   assert.match(zt, /75%/);
   assert.match(zt, /25%/);
+});
+
+test('025p ruta del día, volante PDF y calor por volante', async () => {
+  const ROUTE = { zone: { id: 7, slug: 'bogota-puente-aranda', name: 'Puente Aranda', center_lat: 4.615, center_lng: -74.11 }, total_m: 2300,
+    route_url: 'https://www.google.com/maps/dir/?api=1&origin=4.6,-74.1', fecha: '2026-11-12',
+    stops: [{ id: 's1', name: 'Taller <1>', address: 'Cl 1', nicho: 'Talleres y fábricas', tipo: 'Taller', vigencia: 'por_verificar', desde_anterior_m: 120, maps_url: 'https://www.google.com/maps/search/?api=1&query=x' },
+      { id: 's2', name: 'Taller 2', address: 'Cl 2', maps_url: 'javascript:alert(1)', desde_anterior_m: 300 }] };
+  const { M, calls, made, window } = load({ responder: (url) => {
+    if (url.includes('/route/send')) return { status: 200, body: { ok: true, paradas: 2 } };
+    if (url.includes('/route?')) return { status: 200, body: ROUTE };
+    if (url.includes('/visited')) return { status: 200, body: { ok: true, mensaje: '✅ Visitado: Taller 2' } };
+    return { status: 200, body: SAMPLE };
+  } });
+  await M.openRoute(7);
+  assert.ok(calls.some((c) => c === 'GET /api/v1/prospecting/admin/route?zone_id=7'));
+  const html = M.routePanel();
+  assert.match(html, /Ruta del día · Puente Aranda/);
+  assert.match(html, /Taller &lt;1&gt;/);
+  assert.match(html, /por verificar/);
+  assert.match(html, /Abrir la ruta en Google Maps/);
+  assert.match(html, /data-vpm-route-send/);
+  assert.match(html, /data-vpm-visited="s2"/);
+  assert.doesNotMatch(html, /javascript:/);
+  assert.doesNotMatch(html, /\sstyle=/);
+  assert.equal(M.flyerUrl(7, 'taller'), '/api/v1/prospecting/admin/flyer?zone_id=7&nicho=taller');
+  const zt = M.zonesTable(SAMPLE);
+  assert.match(zt, /data-vpm-route="1"/);
+  assert.match(zt, /data-vpm-flyer="1"/);
+  M.model.data = { ...SAMPLE, heat_flyers: [{ zone: 'Puente Aranda', nicho: 'Talleres', lat: 4.6, lng: -74.1, radius_m: 2500, total: 9, visitantes: 4 }] };
+  M._setMap(window.L.map({}, {}));
+  M.drawLayers(window.L);
+  const fl = made.circles.find((c) => c.args.o.fillColor === '#38bdf8');
+  assert.ok(fl && /9 visitas por el QR del volante/.test(fl.tooltip));
 });
