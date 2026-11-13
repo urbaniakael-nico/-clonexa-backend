@@ -21,7 +21,7 @@
   // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
-    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing", nexa: "Conversaciones Nexa", radar: "Radar · Innovación",
+    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing", nexa: "Conversaciones Nexa", cola: "Cola de hoy", radar: "Radar · Innovación",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
@@ -380,6 +380,7 @@
 
   function onHash() {
     if (String(window.location.hash || "") === "#radar") { setView("radar"); return; }   // la oficina 3D abre el Radar
+    if (String(window.location.hash || "") === "#cola") { setView("cola"); return; }     // "Abrir la cola" de Telegram
     const contact = nexaFromHash(window.location.hash);
     if (contact) { setView("nexa", { contact }); return; }
     const prospect = prospectFromHash(window.location.hash);
@@ -498,7 +499,7 @@
     // La Ficha vive en otro archivo que carga después de este: la ruta inicial
     // (/admin-v2plus#empresa/{id} al recargar o desde un link) se resuelve
     // cuando ya cargaron todos los scripts de la página.
-    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash) || prospectFromHash(hash) || hash === "#radar") onHash(); };
+    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash) || prospectFromHash(hash) || hash === "#radar" || hash === "#cola") onHash(); };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);

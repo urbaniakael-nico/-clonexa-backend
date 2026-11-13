@@ -156,6 +156,13 @@ async def admin_v2plus_radar_js(request: Request, db: AsyncSession = Depends(get
     return _file("admin_v2plus_radar.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-cola.js", include_in_schema=False)
+async def admin_v2plus_cola_js(request: Request, db: AsyncSession = Depends(get_db)):
+    """Cola de hoy (Nexa): el recurso tambien exige sesion de Admin V2 (401 sin ella)."""
+    await _require_session_json(request, db)
+    return _file("admin_v2plus_cola.js", "application/javascript")
+
+
 @router.get("/admin-v2plus-mapa.js", include_in_schema=False)
 async def admin_v2plus_mapa_js():
     return _file("admin_v2plus_mapa.js", "application/javascript")

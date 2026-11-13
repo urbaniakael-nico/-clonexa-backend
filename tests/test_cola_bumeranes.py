@@ -41,3 +41,11 @@ def test_tienda_y_transporte_sin_bumeran_y_nada_publico(monkeypatch):
         assert client.get(path).status_code == 404, path
     files = sorted(p.name for p in (ROOT / "app" / "web" / "bumeranes").iterdir())
     assert files == [f"bumeran-{n}.{e}" for n in ("bar", "campo", "restaurante", "taller") for e in ("gif", "mp4")]
+
+
+def test_script_de_la_cola_exige_sesion(monkeypatch):
+    monkeypatch.setattr(routes, "_active_session", AsyncMock(return_value=False))
+    assert client.get("/admin-v2plus-cola.js").status_code == 401
+    monkeypatch.setattr(routes, "_active_session", AsyncMock(return_value=True))
+    r = client.get("/admin-v2plus-cola.js")
+    assert r.status_code == 200 and "CxConsoleCola" in r.text

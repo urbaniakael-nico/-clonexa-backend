@@ -205,6 +205,100 @@ async def assisted_action(db: AsyncSession, contact_id: int, action: str, at: Op
     return {"ok": True, "editar": True, "mensaje": ACTION_TEXT["enviado"]}
 
 
+# ---------------------------------------------------------------- Cola de hoy (consola v2+, 2026-11-13)
+# La misma cola del dia (prospect_contacts con local_date), vista desde el celular: Pendientes (primer mensaje),
+# Seguimientos y Archivados. Enviado / Saltar / No contactar son las MISMAS reglas que los botones de Telegram
+# (assisted_action); aqui se suman "Seguir y dar like" (paso opcional) y "Respondio" (lo marca el dueno en
+# Archivados, porque Instagram/Facebook no avisan). Nada se envia automatico.
+import re as _re  # noqa: E402
+from urllib.parse import quote as _quote  # noqa: E402
+
+DAYS_ES = ("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
+MONTHS_ES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+_IG_USER = _re.compile(r"instagram\.com/([A-Za-z0-9_.]{1,30})/?", _re.I)
+
+
+def deep_link(network: str, profile_url: str) -> str:
+    """Abre directo la app (Instagram o Facebook) en ese negocio; la tarjeta deja la URL web de respaldo."""
+    if network == "instagram":
+        m = _IG_USER.search(profile_url or "")
+        return f"instagram://user?username={m.group(1)}" if m else ""
+    if network == "facebook" and profile_url:
+        return "fb://facewebmodal/f?href=" + _quote(profile_url, safe="")
+    return ""
+
+
+def day_label(day) -> str:
+    return f"{DAYS_ES[day.weekday()]} {day.day} {MONTHS_ES[day.month - 1]}"
+
+
+async def cola_view(db: AsyncSession, at: Optional[datetime] = None) -> dict:
+    """Arma la cola si hace falta (idempotente por dia; fuera de horario solo lee) y la devuelve por pestanas."""
+    t = at or ps.now()
+    day = ps.bogota(t).date()
+    built = await build_assisted_queue(db, at=t)
+    cfg = await ps.get_settings(db)
+    rows = await ps._rows(db, """
+        SELECT c.id AS contact_id, c.kind, c.status, c.channel AS network, c.detail, c.sent_at, c.liked_at,
+               p.id::text AS prospect_id, p.name, p.business_type, p.niche, p.status AS prospect_status, p.replied_at,
+               z.name AS zona
+        FROM prospect_contacts c JOIN prospects p ON p.id = c.prospect_id LEFT JOIN prospect_zones z ON z.id = p.zone_id
+        WHERE c.local_date = :d AND c.channel IN ('instagram', 'facebook') AND c.kind IN ('inicial', 'seguimiento')
+          AND NOT COALESCE((c.detail ->> 'prueba')::boolean, false)
+        ORDER BY c.id""", {"d": day})
+    tabs: dict[str, list] = {"pendientes": [], "seguimientos": [], "archivados": []}
+    for r in rows:
+        d = r.pop("detail") or {}
+        niche = r["niche"] or pn.niche_of(r["business_type"] or "")
+        profile = d.get("perfil", "")
+        item = {"id": r["contact_id"], "kind": r["kind"], "status": r["status"], "network": r["network"], "name": r["name"],
+                "nicho": pn.NICHES.get(niche, {}).get("label", ""), "niche": niche, "zona": r["zona"] or "", "text": d.get("texto", ""),
+                "profile_url": profile, "app_url": deep_link(r["network"], profile), "liked": bool(r["liked_at"]),
+                "video": f"/admin-v2plus/bumeranes/{niche}.mp4" if pm.has_boomerang(niche) else "",
+                "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
+                "replied": bool(r["replied_at"]), "no_contactar": r["prospect_status"] == "baja"}
+        if r["status"] == "pendiente":
+            tabs["seguimientos" if r["kind"] == "seguimiento" else "pendientes"].append(item)
+        else:
+            tabs["archivados"].append(item)
+    sent = sum(1 for i in tabs["archivados"] if i["status"] == "enviado")
+    total = len(rows)
+    return {"ok": True, "fecha": day.isoformat(), "fecha_label": day_label(day), "limite": int(cfg["assisted_daily_limit"]),
+            "total": total, "enviados": sent, "por_enviar": len(tabs["pendientes"]) + len(tabs["seguimientos"]),
+            "motivo": built.get("motivo", ""), "horario": ps.in_legal_window(t, int(cfg["window_start"]), int(cfg["window_end"])), **tabs}
+
+
+async def cola_pending_count(db: AsyncSession, at: Optional[datetime] = None) -> int:
+    day = ps.bogota(at or ps.now()).date()
+    row = await ps._one(db, """SELECT count(*)::int AS n FROM prospect_contacts WHERE local_date = :d AND status = 'pendiente'
+                               AND channel IN ('instagram', 'facebook') AND kind IN ('inicial', 'seguimiento')
+                               AND NOT COALESCE((detail ->> 'prueba')::boolean, false)""", {"d": day})
+    return int((row or {}).get("n") or 0)
+
+
+async def cola_action(db: AsyncSession, contact_id: int, action: str, at: Optional[datetime] = None) -> dict:
+    """enviado | saltar | bloquear (mismas reglas que Telegram) | like (paso opcional) | respondio (en Archivados)."""
+    c = await ps._one(db, """SELECT id, prospect_id::text AS pid, status FROM prospect_contacts
+                            WHERE id = :i AND channel IN ('instagram', 'facebook')""", {"i": contact_id})
+    if not c:
+        raise LookupError("no_existe")
+    if action == "like":
+        await db.execute(text("UPDATE prospect_contacts SET liked_at = COALESCE(liked_at, :t) WHERE id = :i"), {"i": contact_id, "t": at or ps.now()})
+        await db.commit()
+        return {"ok": True, "mensaje": "👍 Paso guardado: lo seguiste y le diste like."}
+    if action == "respondio":
+        if c["status"] != "enviado":
+            return {"ok": False, "mensaje": "Solo se marca en un mensaje ya enviado."}
+        await ps._promote(db, c["pid"], "respondio", "replied_at")
+        await ps.log_contact(db, c["pid"], "instagram", "respuesta", detail={"origen": "cola_de_hoy", "contacto": contact_id})
+        await db.commit()
+        return {"ok": True, "mensaje": "💬 Marcado como respondió: ya no recibe seguimiento."}
+    if action not in ("enviado", "saltar", "bloquear"):
+        raise ValueError("accion_invalida")
+    r = await assisted_action(db, contact_id, action, at=at)
+    return {"ok": bool(r.get("ok")), "mensaje": r.get("mensaje", "")}
+
+
 # ---------------------------------------------------------------- ruta de visitas
 async def route_of_day(db: AsyncSession, zone_id: int, *, niche: str = "", limit: int = ROUTE_LIMIT,
                        start: Optional[tuple[float, float]] = None, at: Optional[datetime] = None) -> dict:

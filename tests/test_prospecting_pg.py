@@ -79,6 +79,9 @@ def pg_url():
             for _ in range(2):  # idempotente
                 for stmt in _statements("025s_prospect_demand"):
                     await conn.execute(text(stmt))
+            for _ in range(2):  # idempotente
+                for stmt in _statements("025t_cola_de_hoy"):
+                    await conn.execute(text(stmt))
         await engine.dispose()
 
     asyncio.run(setup())
@@ -1106,3 +1109,106 @@ def test_enlace_corto_destino_con_utm_y_token(client, pg_url, monkeypatch):
     assert client.get(f"{URL}/link/b/NOEXISTE", headers=hl).status_code == 404
     assert client.get(f"{URL}/link/x/{code}", headers=hl).status_code == 404
     assert client.get(f"{URL}/link/b/a.b", headers=hl).status_code == 404
+
+
+# ------------------------------------------------------------------ Cola de hoy (consola v2+)
+def _cola(pg_url, at):
+    return _with_db(pg_url, lambda db: pc.cola_view(db, at))
+
+
+def _cact(pg_url, cid, accion, at):
+    return _with_db(pg_url, lambda db: pc.cola_action(db, cid, accion, at))
+
+
+def test_cola_de_hoy_enviado_archiva_y_registra_saltar_vuelve_manana_y_contador(client, pg_url):
+    _seed_social(pg_url)
+    tue = _at(2026, 11, 17, 8, 30)
+    v = _cola(pg_url, tue)
+    assert v["fecha_label"] == "Martes 17 nov" and v["limite"] == 15 and v["enviados"] == 0
+    assert len(v["pendientes"]) == 15 and v["seguimientos"] == [] and v["archivados"] == [] and v["por_enviar"] == 15
+    assert v["pendientes"] and v["horario"] is True
+    it = v["pendientes"][0]
+    assert it["text"].startswith("¡Hola, ") and "Somos CLONEXA" in it["text"] and it["text"].endswith("respondan NO.")
+    assert it["app_url"].startswith("instagram://user?username=") and it["profile_url"].startswith("https://www.instagram.com/")
+    assert it["video"] == "/admin-v2plus/bumeranes/taller.mp4" and it["nicho"] == "Talleres y fábricas"
+    assert _with_db(pg_url, lambda db: pc.cola_pending_count(db, tue)) == 15
+    # like (opcional) se guarda; Enviado registra el contacto y la tarjeta pasa a Archivados
+    assert _cact(pg_url, it["id"], "like", tue)["ok"]
+    sent_at = _at(2026, 11, 17, 9, 12)
+    assert _cact(pg_url, it["id"], "enviado", sent_at)["ok"]
+    v = _cola(pg_url, sent_at)
+    assert v["enviados"] == 1 and len(v["pendientes"]) == 14 and v["archivados"][0]["id"] == it["id"]
+    assert v["archivados"][0]["status"] == "enviado" and v["archivados"][0]["sent_at"]
+    row = _run(pg_url, "SELECT assisted_count, last_contacted_at, status FROM prospects WHERE id = CAST(:i AS uuid)", {"i": it["prospect_id"] if "prospect_id" in it else _pid(pg_url, it["id"])})[0]
+    assert row["assisted_count"] == 1 and row["last_contacted_at"] is not None and row["status"] == "contactado"
+    assert _run(pg_url, "SELECT liked_at FROM prospect_contacts WHERE id = :i", {"i": it["id"]})[0]["liked_at"] is not None
+    assert _with_db(pg_url, lambda db: pc.cola_pending_count(db, sent_at)) == 14, "contador del menú"
+    # Saltar: no registra contacto y vuelve otro día
+    skip = v["pendientes"][0]
+    assert _cact(pg_url, skip["id"], "saltar", sent_at)["ok"]
+    assert _run(pg_url, "SELECT assisted_count FROM prospects WHERE id = CAST(:i AS uuid)", {"i": _pid(pg_url, skip["id"])})[0]["assisted_count"] == 0
+    wed = _at(2026, 11, 18, 8, 30)
+    names_wed = [i["name"] for i in _cola(pg_url, wed)["pendientes"]]
+    assert skip["name"] in names_wed, "el saltado vuelve mañana"
+    assert it["name"] not in names_wed, "1 contacto por semana"
+
+
+def _pid(pg_url, contact_id):
+    return _run(pg_url, "SELECT prospect_id::text AS p FROM prospect_contacts WHERE id = :i", {"i": contact_id})[0]["p"]
+
+
+def test_cola_de_hoy_no_contactar_horario_legal_respondio_y_seguimiento_unico(client, pg_url):
+    _seed_social(pg_url)
+    tue = _at(2026, 11, 17, 8, 30)
+    v = _cola(pg_url, tue)
+    a, b, c = v["pendientes"][:3]
+    # fuera del horario legal no se registra
+    late = _at(2026, 11, 17, 17, 5)
+    assert _cact(pg_url, a["id"], "enviado", late)["ok"] is False
+    assert _run(pg_url, "SELECT status FROM prospect_contacts WHERE id = :i", {"i": a["id"]})[0]["status"] == "pendiente"
+    # No contactar: exclusion en todos los canales y nunca vuelve
+    assert _cact(pg_url, b["id"], "bloquear", tue)["ok"]
+    pb = _pid(pg_url, b["id"])
+    assert _run(pg_url, "SELECT status FROM prospects WHERE id = CAST(:i AS uuid)", {"i": pb})[0]["status"] == "baja"
+    kinds = {r["kind"] for r in _run(pg_url, "SELECT kind FROM prospect_exclusions WHERE reason = 'no_contactar'")}
+    assert {"place", "social"} <= kinds
+    arch = {i["id"]: i for i in _cola(pg_url, tue)["archivados"]}
+    assert arch[b["id"]]["no_contactar"] is True
+    # Respondió (lo marca el dueño en Archivados): solo en un enviado
+    assert _cact(pg_url, c["id"], "respondio", tue)["ok"] is False
+    assert _cact(pg_url, c["id"], "enviado", _at(2026, 11, 17, 10, 0))["ok"]
+    assert _cact(pg_url, c["id"], "respondio", _at(2026, 11, 17, 11, 0))["ok"]
+    assert _run(pg_url, "SELECT status, replied_at FROM prospects WHERE id = CAST(:i AS uuid)", {"i": _pid(pg_url, c["id"])})[0]["status"] == "respondio"
+    # seguimiento a los 7 días y solo una vez (para a: enviado el martes)
+    assert _cact(pg_url, a["id"], "enviado", _at(2026, 11, 17, 9, 0))["ok"]
+    assert _cola(pg_url, _at(2026, 11, 24, 8, 30))["seguimientos"] == [], "a las 8:30 del día 7 aún no se cumplen 7 días (se envió a las 9:00)"
+    nxt = _at(2026, 11, 25, 8, 30)
+    fu = [i for i in _cola(pg_url, nxt)["seguimientos"]]
+    assert [i["name"] for i in fu] == [a["name"]], "solo el que no respondió y fue enviado hace 7 días"
+    assert fu[0]["text"].startswith("¡Hola de nuevo, ") and fu[0]["kind"] == "seguimiento"
+    assert _cact(pg_url, fu[0]["id"], "enviado", _at(2026, 11, 25, 9, 0))["ok"]
+    later = _cola(pg_url, _at(2026, 12, 2, 8, 30))
+    assert a["name"] not in [i["name"] for i in later["seguimientos"] + later["pendientes"]], "nada más después del seguimiento"
+
+
+COLA_ADMIN = [("get", "/admin/cola"), ("get", "/admin/cola/pendientes"), ("post", "/admin/cola/1/accion")]
+
+
+@pytest.mark.parametrize("method,path", COLA_ADMIN)
+def test_cola_de_hoy_sin_sesion_401(client, monkeypatch, method, path):
+    _admin(monkeypatch, ok=False)
+    assert client.request(method.upper(), URL + path, json={"accion": "enviado"}, headers=H).status_code == 401
+
+
+def test_cola_de_hoy_api_con_sesion(client, pg_url, monkeypatch):
+    _seed_social(pg_url)
+    _admin(monkeypatch)
+    monkeypatch.setattr(ps, "now", lambda: _at(2026, 11, 17, 8, 30))
+    v = client.get(f"{URL}/admin/cola").json()
+    assert v["ok"] and len(v["pendientes"]) == 15
+    assert client.get(f"{URL}/admin/cola/pendientes").json() == {"ok": True, "pendientes": 15}
+    r = client.post(f"{URL}/admin/cola/{v['pendientes'][0]['id']}/accion", json={"accion": "enviado"}).json()
+    assert r["ok"] is True
+    assert client.get(f"{URL}/admin/cola/pendientes").json()["pendientes"] == 14
+    assert client.post(f"{URL}/admin/cola/999999/accion", json={"accion": "enviado"}).status_code == 404
+    assert client.post(f"{URL}/admin/cola/1/accion", json={"accion": "borrar"}).status_code == 422

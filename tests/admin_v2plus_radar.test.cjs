@@ -59,7 +59,7 @@ test('informes con costo y temas editables', () => {
 });
 
 test('la consola tiene Radar · Innovación debajo de Conversaciones Nexa y #radar abre la vista', () => {
-  assert.match(HTML, /data-vp-view="nexa">Conversaciones Nexa<\/button>\r?\n\s*<button class="vp-nav-item" type="button" data-vp-view="radar">Radar · Innovación<\/button>/);
+  assert.match(HTML, /data-vp-view="nexa">Conversaciones Nexa<\/button>\r?\n\s*<button class="vp-nav-item vp-nav-cola" type="button" data-vp-view="cola">📋 Cola de hoy <span class="vp-nav-badge" data-cola-badge hidden><\/span><\/button>\r?\n\s*<button class="vp-nav-item" type="button" data-vp-view="radar">Radar · Innovación<\/button>/);
   assert.match(HTML, /<script src="\/admin-v2plus-radar\.js"><\/script>/);
   assert.match(SHELL, /radar: "Radar · Innovación"/);
   assert.match(SHELL, /"#radar"\) \{ setView\("radar"\)/);

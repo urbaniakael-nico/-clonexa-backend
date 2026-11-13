@@ -625,3 +625,27 @@ async def short_link_target(letter: str, code: str, db: AsyncSession = Depends(g
     q = {"utm_source": p["channel"] or "email", "utm_medium": "prospeccion", "utm_campaign": pe.campaign(p["zone_slug"], p["business_type"]),
          "utm_content": p["code"]}
     return {"ok": True, "nicho": niche, "destino": ps.pn.landing_url(cfg.get("landing_url") or pe.DEFAULT_LANDING, niche, q)}
+
+
+# ---------------------------------------------------------------- 2026-11-13: Cola de hoy (consola v2+, solo Admin V2)
+class ColaActionIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    accion: Literal["enviado", "saltar", "bloquear", "like", "respondio"]
+
+
+@router.get("/admin/cola", dependencies=admin)
+async def admin_cola(db: AsyncSession = Depends(get_db)) -> dict:
+    return await pc.cola_view(db)
+
+
+@router.get("/admin/cola/pendientes", dependencies=admin)
+async def admin_cola_pendientes(db: AsyncSession = Depends(get_db)) -> dict:
+    return {"ok": True, "pendientes": await pc.cola_pending_count(db)}
+
+
+@router.post("/admin/cola/{contact_id}/accion", dependencies=admin)
+async def admin_cola_accion(contact_id: int, body: ColaActionIn, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        return await pc.cola_action(db, contact_id, body.accion)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="no_existe") from None

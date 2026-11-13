@@ -1138,3 +1138,49 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .vp-rx-st.is-corriendo { color: #22d3ee; }
 @media (max-width: 1200px) { .vp-rx-board { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); } }
 @media (max-width: 760px) { .vp-rx-tema { grid-template-columns: minmax(0, 1fr); } }
+
+/* ------------------------------------------------ Ventas · Nexa → Cola de hoy (celular primero; 2 columnas en PC) */
+.vp-nav-cola { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vp-nav-badge { min-width: 24px; padding: 2px 8px; border-radius: 999px; background: #E11D48; color: #fff; font-size: 13px; font-weight: 700; text-align: center; }
+.vp-nav-badge[hidden] { display: none; }
+.vp-cola { display: grid; gap: 12px; min-width: 0; }
+.vp-cola-progress { display: grid; gap: 10px; }
+.vp-cola-progress .vp-row-between { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 16px; }
+.vp-cola-bar { width: 100%; height: 10px; border: 0; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, .1); appearance: none; -webkit-appearance: none; }
+.vp-cola-bar::-webkit-progress-bar { background: rgba(255, 255, 255, .1); border-radius: 999px; }
+.vp-cola-bar::-webkit-progress-value { background: linear-gradient(90deg, #E11D48, #9D17FF); border-radius: 999px; }
+.vp-cola-bar::-moz-progress-bar { background: linear-gradient(90deg, #E11D48, #9D17FF); border-radius: 999px; }
+.vp-cola-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vp-cola-tab { min-height: 48px; min-width: 0; padding: 4px 6px; justify-content: center; flex-wrap: wrap; gap: 4px; font-size: 14px; line-height: 1.2; white-space: normal; text-align: center; overflow-wrap: anywhere; }
+@media (min-width: 480px) { .vp-cola-tab { padding: 0 12px; font-size: 15px; } }
+.vp-cola-tab span { font-variant-numeric: tabular-nums; }
+.vp-cola-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 1024px) { .vp-cola-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.vp-cola-card { display: grid; gap: 12px; padding: 14px; min-width: 0; transition: opacity .3s ease, transform .3s ease; }
+.vp-cola-card.is-leaving { opacity: 0; transform: translateX(40px) scale(.97); }
+@media (prefers-reduced-motion: reduce) { .vp-cola-card { transition: none; } }
+.vp-cola-card-head { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.vp-cola-card-head > div { min-width: 0; }
+.vp-cola-card-head h2 { margin: 0; font-size: 19px; overflow-wrap: anywhere; }
+.vp-cola-card-head p { margin: 2px 0 0; color: var(--vp-muted); font-size: 14px; }
+.vp-cola-follow { color: #FBBF24; }
+.vp-cola-net { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 17px; color: #fff; }
+.vp-cola-net.is-instagram { background: linear-gradient(135deg, #7C3AED, #BE185D 60%, #C2410C); }
+.vp-cola-net.is-facebook { background: #0B57C4; }
+.vp-cola-text { margin: 0; padding: 12px 14px; border-left: 3px solid var(--vp-purple); border-radius: 12px; background: rgba(0, 0, 0, .35); color: var(--vp-text);
+  font: 15px/1.5 var(--vp-ui); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.vp-cola-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vp-cola-btn { min-height: 52px; justify-content: center; font-size: 15px; text-align: center; }
+.vp-cola-btn.is-done { border-color: var(--vp-ok); color: var(--vp-ok); }
+.vp-cola-sent { background: #166534; border-color: #22C55E; color: #fff; }
+.vp-cola-more { font-size: 22px; }
+.vp-cola-menu { display: grid; gap: 8px; }
+.vp-cola-menu .vp-btn { min-height: 48px; justify-content: center; }
+.vp-cola-list { display: grid; gap: 8px; }
+.vp-cola-archived { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, .18); color: var(--vp-text); min-width: 0; }
+.vp-cola-archived > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.vp-cola-archived.is-sent { border-color: rgba(74, 222, 154, .55); background: rgba(22, 101, 52, .18); color: #BBF7D0; }
+.vp-cola-replied { color: var(--vp-ok); font-weight: 700; }
+.vp-cola-copybuf { position: fixed; top: -1000px; left: -1000px; opacity: 0; }
+@media (min-width: 1024px) { .vp-cola-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
