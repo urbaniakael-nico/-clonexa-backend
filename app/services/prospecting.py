@@ -90,6 +90,10 @@ DEFAULT_SETTINGS = {
     "vigencia_reviews": True,
     # consola: "Ruta del día" y "Volante PDF" en el Mapa comercial. Apagado por defecto; se prende en Interruptores.
     "prospeccion_visitas": False,
+    # prospeccion por demanda (025s): solo se busca en Google si hay MENOS de ready_target prospectos "listos";
+    # se piden las busquedas justas para volver al umbral (ready_per_search = listos que deja una busqueda, en promedio)
+    "ready_target": 100,
+    "ready_per_search": 5,
 }
 
 
@@ -452,6 +456,8 @@ async def save_settings(db: AsyncSession, changes: dict) -> dict:
     cfg["vigencia_min_reviews"] = max(0, min(50, int(cfg["vigencia_min_reviews"])))
     cfg["vigencia_reviews"] = bool(cfg["vigencia_reviews"])
     cfg["prospeccion_visitas"] = cfg.get("prospeccion_visitas") is True
+    cfg["ready_target"] = max(0, min(2000, int(cfg["ready_target"])))
+    cfg["ready_per_search"] = max(1, min(20, int(cfg["ready_per_search"])))
     await db.execute(text("""INSERT INTO prospect_settings (id, config, updated_at) VALUES (1, CAST(:c AS jsonb), now())
                              ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()"""),
                      {"c": json.dumps(cfg)})
@@ -643,6 +649,51 @@ async def scan_plan(db: AsyncSession, *, max_searches: int = 12, zone_slug: str 
         if len(plan) >= max(1, min(40, max_searches)):
             break
     return plan
+
+
+# ---------------------------------------------------------------- prospeccion por demanda (025s)
+# "Listos": se pueden contactar hoy mismo. Vigencia activa, con un canal (correo publicado, Instagram o Facebook),
+# sin ningun contacto previo (correo, mensaje asistido ni visita) y sin baja ni exclusion en ningun canal.
+def ready_sql() -> str:
+    return f"""NOT p.is_test AND p.status NOT IN ('baja', 'respondio', 'demo', 'cliente')
+               AND p.business_status IN ('', 'OPERATIONAL') AND p.replied_at IS NULL AND p.unsubscribed_at IS NULL
+               AND p.vigencia = 'activo'
+               AND (p.email <> '' OR p.channels ? 'instagram' OR p.channels ? 'facebook')
+               AND p.contact_count = 0 AND p.assisted_count = 0 AND p.visit_count = 0 AND p.last_contacted_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM prospect_exclusions x WHERE (x.kind = 'place' AND x.value = p.place_id)
+                               OR (x.kind = 'email' AND p.email <> '' AND x.value = lower(p.email))
+                               OR (x.kind = 'domain' AND p.email <> '' AND x.value = split_part(lower(p.email), '@', 2)))
+               AND NOT {SOCIAL_EXCLUDED_SQL}"""
+
+
+async def ready_count(db: AsyncSession) -> int:
+    row = await _one(db, f"SELECT count(*)::int AS n FROM prospects p WHERE {ready_sql()}")
+    return int((row or {}).get("n") or 0)
+
+
+async def demand_plan(db: AsyncSession, *, max_searches: int = 34, at: Optional[datetime] = None) -> dict:
+    """Corrida diaria: con ready_target listos o mas NO se busca (y se registra "hay N listos, no se busco");
+    con menos, se piden las busquedas justas (faltan / ready_per_search, hacia arriba) sin pasar el tope diario."""
+    cfg = await get_settings(db)
+    target, per = int(cfg["ready_target"]), int(cfg["ready_per_search"])
+    listos = await ready_count(db)
+    if listos >= target:
+        plan: list[dict] = []
+        motivo = f"hay {listos} listos, no se buscó"
+    else:
+        need = -(-(target - listos) // per)
+        plan = await scan_plan(db, max_searches=min(max_searches, need), at=at)
+        motivo = f"hay {listos} listos (umbral {target}): se piden {len(plan)} búsquedas" + ("" if len(plan) >= need else f" (faltaban {need}: tope diario)")
+    await db.execute(text("""INSERT INTO prospect_demand_log (local_date, listos, umbral, busquedas, motivo)
+                             VALUES (:d, :l, :u, :b, :m)"""),
+                     {"d": bogota(at).date(), "l": listos, "u": target, "b": len(plan), "m": motivo[:200]})
+    await db.commit()
+    return {"plan": plan, "listos": listos, "umbral": target, "busco": bool(plan), "motivo": motivo}
+
+
+async def demand_today(db: AsyncSession, at: Optional[datetime] = None) -> Optional[dict]:
+    return await _one(db, """SELECT listos, umbral, busquedas, motivo FROM prospect_demand_log
+                             WHERE local_date = :d ORDER BY id DESC LIMIT 1""", {"d": bogota(at).date()})
 
 
 def google_channels(place: dict) -> dict:

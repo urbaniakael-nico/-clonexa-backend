@@ -56,6 +56,9 @@ async def scan_plan(max: int = Query(default=12, ge=1, le=40), zona: str = Query
                     tipos: str = Query(default="", max_length=200), nicho: str = Query(default="", max_length=20),
                     forzar: bool = False, db: AsyncSession = Depends(get_db)) -> dict:
     types = [t for t in tipos.split(",") if t] or None
+    if not (zona or types or nicho or forzar):
+        # 025s: corrida diaria por demanda (solo si faltan prospectos "listos" para el umbral)
+        return await ps.demand_plan(db, max_searches=max)
     return {"plan": await ps.scan_plan(db, max_searches=max, zone_slug=zona, types=types, force=forzar,
                                        niche=nicho if nicho in ps.NICHES else "")}
 
@@ -99,7 +102,12 @@ async def scan_report(desde: str = Query(default="", max_length=40), db: AsyncSe
         lines += [f"• {_esc(n['label'])}: {n['nuevos']} · correo {n['con_correo']} · IG/FB {n['con_redes']} · WhatsApp publicado "
                   f"{n['con_whatsapp']} · por verificar {n['por_verificar']}" for n in rep["nichos"]]
     lines.append(f"\nEn la lista: {rep['total']} prospectos, {rep['total_con_correo']} con correo.")
-    return {**rep, "mensaje": "\n".join(lines)}
+    demand = await ps.demand_today(db)
+    if demand:
+        lines.append(f"Listos para contactar: {demand['listos']} (umbral {demand['umbral']}) · {_esc(demand['motivo'])}.")
+    # 025s: si hoy no se busco, no hace falta avisar por Telegram (queda registrado en prospect_demand_log)
+    no_search = bool(demand) and int(demand["busquedas"]) == 0 and rep["nuevos"] == 0
+    return {**rep, "mensaje": "\n".join(lines), "demanda": demand, "sin_busqueda": no_search}
 
 
 @router.get("/n8n/refresh-due", dependencies=n8n)
@@ -398,6 +406,8 @@ class SettingsIn(BaseModel):
     vigencia_min_reviews: Optional[int] = Field(default=None, ge=0, le=50)
     vigencia_reviews: Optional[bool] = None
     prospeccion_visitas: Optional[bool] = None
+    ready_target: Optional[int] = Field(default=None, ge=0, le=2000)
+    ready_per_search: Optional[int] = Field(default=None, ge=1, le=20)
 
 
 @router.get("/admin/settings", dependencies=admin)

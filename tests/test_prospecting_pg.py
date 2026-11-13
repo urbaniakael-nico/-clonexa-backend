@@ -76,6 +76,9 @@ def pg_url():
             for _ in range(2):  # idempotente
                 for stmt in _statements("025p_prospect_multicanal"):
                     await conn.execute(text(stmt))
+            for _ in range(2):  # idempotente
+                for stmt in _statements("025s_prospect_demand"):
+                    await conn.execute(text(stmt))
         await engine.dispose()
 
     asyncio.run(setup())
@@ -564,6 +567,8 @@ def _ingest_in(c, zone, btype, places, **kw):
 
 
 def test_plan_por_nicho_respeta_limites_diarios_y_prioridad(client, pg_url):
+    # 025s: la corrida diaria pasa por la demanda; con 0 listos y 1 listo por busqueda pide todo lo que permite el tope
+    _run(pg_url, "UPDATE prospect_settings SET config = '{\"ready_per_search\": 1}'::jsonb", fetch=False)
     plan = client.get(f"{URL}/n8n/scan-plan?max=40", headers=H).json()["plan"]
     by = {}
     for p in plan:
@@ -1025,3 +1030,50 @@ def test_prospeccion_visitas_apagado_por_defecto_y_se_prende_en_ajustes(client, 
     assert client.get(f"{URL}/admin/map").json()["ajustes"] == {"prospeccion_visitas": False}
     assert client.get(f"{URL}/admin/route?zone_id={z['id']}").status_code == 200
     assert client.put(f"{URL}/admin/settings", json={"prospeccion_visitas": "si"}).status_code == 422
+
+
+# ------------------------------------------------------------------ 025s: prospeccion por demanda
+def _ready(pg_url, n, start=0, **over):
+    cols = {"vigencia": "activo", "email": "", "channels": '{"instagram": {"value": "@x", "url": "https://instagram.com/x"}}', **over}
+    _run(pg_url, f"""INSERT INTO prospects (place_id, code, unsub_token, name, business_type, niche, vigencia, email, channels)
+        SELECT 'demanda-' || g, 'D' || lpad(g::text, 5, '0'), 'tok-demanda-' || g, 'Negocio ' || g, 'bar', 'bar', :v, :e, CAST(:c AS jsonb)
+        FROM generate_series(CAST(:a AS int), CAST(:b AS int)) g""", {"a": start, "b": start + n - 1, "v": cols["vigencia"], "e": cols["email"], "c": cols["channels"]}, fetch=False)
+
+
+def test_025s_con_100_listos_no_busca_y_lo_registra(client, pg_url):
+    _ready(pg_url, 100)
+    r = client.get(f"{URL}/n8n/scan-plan?max=34", headers=H).json()
+    assert r["plan"] == [] and r["listos"] == 100 and r["umbral"] == 100 and r["busco"] is False
+    assert r["motivo"] == "hay 100 listos, no se buscó"
+    log = _run(pg_url, "SELECT listos, umbral, busquedas, motivo FROM prospect_demand_log ORDER BY id DESC LIMIT 1")[0]
+    assert log == {"listos": 100, "umbral": 100, "busquedas": 0, "motivo": "hay 100 listos, no se buscó"}
+    rep = client.get(f"{URL}/n8n/scan-report", headers=H).json()
+    assert rep["sin_busqueda"] is True and "hay 100 listos, no se buscó" in rep["mensaje"]
+    assert _run(pg_url, "SELECT count(*)::int AS n FROM prospect_api_usage")[0]["n"] == 0, "sin gasto en Google"
+
+
+def test_025s_con_menos_busca_lo_justo_y_respeta_el_tope(client, pg_url):
+    _ready(pg_url, 92)
+    # no cuentan: ya contactados, por verificar, sin canal ni correo, excluidos
+    _ready(pg_url, 5, 500)
+    _run(pg_url, "UPDATE prospects SET contact_count = 1, last_contacted_at = now() WHERE place_id LIKE 'demanda-50_'", fetch=False)
+    _ready(pg_url, 3, 600, vigencia="por_verificar")
+    _ready(pg_url, 3, 700, channels="{}")
+    _ready(pg_url, 2, 800)
+    _run(pg_url, "INSERT INTO prospect_exclusions (kind, value, reason) SELECT 'place', place_id, 'prueba' FROM prospects WHERE place_id LIKE 'demanda-80_'", fetch=False)
+    assert asyncio.run(_count_ready(pg_url)) == 92
+    r = client.get(f"{URL}/n8n/scan-plan?max=34", headers=H).json()
+    assert r["listos"] == 92 and len(r["plan"]) == 2, "faltan 8 y cada búsqueda deja ~5 listos: 2 búsquedas"
+    _run(pg_url, "UPDATE prospect_settings SET config = '{\"ready_target\": 400, \"ready_per_search\": 1}'::jsonb", fetch=False)
+    r = client.get(f"{URL}/n8n/scan-plan?max=34", headers=H).json()
+    assert 0 < len(r["plan"]) <= ps.pn.DAILY_MAX_SEARCHES and "tope diario" in r["motivo"]
+    # la prueba manual (webhook con zona/nicho) no pasa por la demanda
+    assert client.get(f"{URL}/n8n/scan-plan?max=3&nicho=campo", headers=H).json().get("listos") is None
+
+
+async def _count_ready(pg_url):
+    engine = create_async_engine(pg_url, poolclass=NullPool)
+    async with async_sessionmaker(engine, class_=AsyncSession)() as db:
+        n = await ps.ready_count(db)
+    await engine.dispose()
+    return n
