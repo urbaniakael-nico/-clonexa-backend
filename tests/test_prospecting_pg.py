@@ -1077,3 +1077,32 @@ async def _count_ready(pg_url):
         n = await ps.ready_count(db)
     await engine.dispose()
     return n
+
+
+# ------------------------------------------------------------------ enlace corto de la landing (/r /b /t /c /s /l)
+LT = "landing-" + "l" * 40
+
+
+def test_enlace_corto_destino_con_utm_y_token(client, pg_url, monkeypatch):
+    _ready(pg_url, 1, 900)
+    code = _run(pg_url, "SELECT code FROM prospects WHERE place_id = 'demanda-900'")[0]["code"]
+    zone = _run(pg_url, "SELECT id, slug FROM prospect_zones ORDER BY id LIMIT 1")[0]
+    _run(pg_url, "UPDATE prospects SET zone_id = :z WHERE code = :c", {"z": zone["id"], "c": code}, fetch=False)
+    monkeypatch.delenv(ep.LINK_TOKEN_ENV, raising=False)
+    assert client.get(f"{URL}/link/b/{code}", headers={"X-Landing-Token": LT}).status_code == 503
+    monkeypatch.setenv(ep.LINK_TOKEN_ENV, LT)
+    assert client.get(f"{URL}/link/b/{code}").status_code == 401
+    assert client.get(f"{URL}/link/b/{code}", headers={"X-Landing-Token": "otro"}).status_code == 401
+    assert client.get(f"{URL}/link/b/{code}", headers=H).status_code == 401, "el token de n8n no sirve aqui"
+    hl = {"X-Landing-Token": LT}
+    pid = _run(pg_url, "SELECT id::text AS id FROM prospects WHERE code = :c", {"c": code})[0]["id"]
+    _run(pg_url, "INSERT INTO prospect_contacts (prospect_id, channel, kind, status) VALUES (CAST(:p AS uuid), 'instagram', 'inicial', 'enviado')",
+         {"p": pid}, fetch=False)
+    r = client.get(f"{URL}/link/b/{code}", headers=hl).json()
+    u = urlparse(r["destino"])
+    assert r["nicho"] == "bar" and u.netloc == "www.clonexa.com.co" and u.path == "/bares"
+    assert parse_qs(u.query) == {"utm_source": ["instagram"], "utm_medium": ["prospeccion"], "utm_campaign": [f"{zone['slug']}-bar"], "utm_content": [code]}
+    assert urlparse(client.get(f"{URL}/link/s/{code}", headers=hl).json()["destino"]).fragment == "soluciones", "nicho sin página: principal #soluciones"
+    assert client.get(f"{URL}/link/b/NOEXISTE", headers=hl).status_code == 404
+    assert client.get(f"{URL}/link/x/{code}", headers=hl).status_code == 404
+    assert client.get(f"{URL}/link/b/a.b", headers=hl).status_code == 404

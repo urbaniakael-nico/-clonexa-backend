@@ -586,3 +586,42 @@ async def n8n_cost_report(dias: int = Query(default=7, ge=1, le=31), db: AsyncSe
 @router.get("/admin/cost-report", dependencies=admin)
 async def admin_cost_report(dias: int = Query(default=7, ge=1, le=31), db: AsyncSession = Depends(get_db)) -> dict:
     return await ps.cost_report(db, dias)
+
+
+# ---------------------------------------------------------------- 2026-11-13: enlace corto de la landing
+# clonexa.com.co/<r|b|t|c|s|l>/<codigo>: el servidor de la landing pregunta aqui (servidor a servidor, con su
+# propio token LANDING_LINK_TOKEN) a donde redirigir: la pagina del nicho con los utm de siempre
+# (utm_source = canal del ultimo contacto: instagram, facebook o email). La apertura se cuenta como hoy: la
+# visita llega a la landing con utm_medium=prospeccion y utm_content=<codigo>. Codigo inexistente: 404.
+LINK_TOKEN_ENV = "LANDING_LINK_TOKEN"
+LINK_PER_IP = _RateLimit(300, 60.0)
+
+
+def require_landing(request: Request) -> None:
+    if not LINK_PER_IP.allow(_ip(request)):
+        raise HTTPException(status_code=429, detail="too_many_requests")
+    expected = os.getenv(LINK_TOKEN_ENV, "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="not_configured")
+    given = (request.headers.get("x-landing-token") or "").strip()
+    if not given or not hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="invalid_token")
+
+
+@router.get("/link/{letter}/{code}", dependencies=[Depends(require_landing)], include_in_schema=False)
+async def short_link_target(letter: str, code: str, db: AsyncSession = Depends(get_db)) -> dict:
+    from app.services import prospecting_messages as pm
+
+    niche = pm.NICHE_OF_LETTER.get(letter)
+    if not niche or not re.fullmatch(r"[A-Za-z0-9]{4,12}", code):
+        raise HTTPException(status_code=404, detail="no_existe")
+    p = await ps._one(db, """SELECT p.code, p.business_type, COALESCE(z.slug, '') AS zone_slug,
+                                    (SELECT c.channel FROM prospect_contacts c WHERE c.prospect_id = p.id AND c.channel IN ('instagram', 'facebook', 'email')
+                                       AND c.status NOT IN ('vencido', 'saltado', 'cancelado', 'fallido') ORDER BY c.id DESC LIMIT 1) AS channel
+                             FROM prospects p LEFT JOIN prospect_zones z ON z.id = p.zone_id WHERE p.code = :c""", {"c": code.upper()})
+    if not p:
+        raise HTTPException(status_code=404, detail="no_existe")
+    cfg = await ps.get_settings(db)
+    q = {"utm_source": p["channel"] or "email", "utm_medium": "prospeccion", "utm_campaign": pe.campaign(p["zone_slug"], p["business_type"]),
+         "utm_content": p["code"]}
+    return {"ok": True, "nicho": niche, "destino": ps.pn.landing_url(cfg.get("landing_url") or pe.DEFAULT_LANDING, niche, q)}
