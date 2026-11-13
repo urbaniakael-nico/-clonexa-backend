@@ -1254,3 +1254,17 @@ def test_telegram_resumen_17_y_seguidores(client, pg_url):
 def test_telegram_endpoints_n8n_401(client, monkeypatch, method, path):
     assert client.request(method.upper(), URL + path, json={}).status_code == 401
     assert client.request(method.upper(), URL + path, json={}, headers=H).status_code == 200
+
+
+def test_cola_armada_con_textos_viejos_se_actualiza_al_abrir(client, pg_url):
+    _seed_social(pg_url)
+    tue = _at(2026, 11, 17, 8, 30)
+    v = _cola(pg_url, tue)
+    cid = v["pendientes"][0]["id"]
+    _run(pg_url, "UPDATE prospect_contacts SET detail = jsonb_set(detail, '{texto}', to_jsonb('Hola, soy Nicolás de Clonexa'::text)) WHERE id = :i", {"i": cid}, fetch=False)
+    v = _cola(pg_url, tue)
+    it = next(i for i in v["pendientes"] if i["id"] == cid)
+    assert "Nicol" not in it["text"] and "Somos CLONEXA" in it["text"]
+    stored = _run(pg_url, "SELECT detail ->> 'texto' AS t FROM prospect_contacts WHERE id = :i", {"i": cid})[0]["t"]
+    assert stored == it["text"], "Telegram (Copiar) y el historial usan el mismo texto"
+    assert _with_db(pg_url, lambda db: pc.assisted_action(db, cid, "copiar", tue))["texto"] == it["text"]

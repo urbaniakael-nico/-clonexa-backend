@@ -241,16 +241,26 @@ async def cola_view(db: AsyncSession, at: Optional[datetime] = None) -> dict:
     rows = await ps._rows(db, """
         SELECT c.id AS contact_id, c.kind, c.status, c.channel AS network, c.detail, c.sent_at, c.liked_at,
                p.id::text AS prospect_id, p.name, p.business_type, p.niche, p.status AS prospect_status, p.replied_at,
-               z.name AS zona
+               p.code, p.channels, z.name AS zona
         FROM prospect_contacts c JOIN prospects p ON p.id = c.prospect_id LEFT JOIN prospect_zones z ON z.id = p.zone_id
         WHERE c.local_date = :d AND c.channel IN ('instagram', 'facebook') AND c.kind IN ('inicial', 'seguimiento')
           AND NOT COALESCE((c.detail ->> 'prueba')::boolean, false)
         ORDER BY c.id""", {"d": day})
     tabs: dict[str, list] = {"pendientes": [], "seguimientos": [], "archivados": []}
+    touched = False
     for r in rows:
         d = r.pop("detail") or {}
         niche = r["niche"] or pn.niche_of(r["business_type"] or "")
         profile = d.get("perfil", "")
+        if r["status"] == "pendiente":
+            # lo pendiente siempre sale con la plantilla vigente (una cola armada antes de un cambio de textos se actualiza sola)
+            fresh = render_assisted({"name": r["name"], "business_type": r["business_type"], "niche": r["niche"], "code": r["code"],
+                                     "channels": r["channels"] or {}}, followup=r["kind"] == "seguimiento", settings=cfg)["text"]
+            if fresh != d.get("texto"):
+                d["texto"] = fresh
+                await db.execute(text("UPDATE prospect_contacts SET detail = jsonb_set(detail, '{texto}', to_jsonb(CAST(:t AS text))) WHERE id = :i"),
+                                 {"t": fresh, "i": r["contact_id"]})
+                touched = True
         item = {"id": r["contact_id"], "kind": r["kind"], "status": r["status"], "network": r["network"], "name": r["name"],
                 "nicho": pn.NICHES.get(niche, {}).get("label", ""), "niche": niche, "zona": r["zona"] or "", "text": d.get("texto", ""),
                 "profile_url": profile, "app_url": deep_link(r["network"], profile), "liked": bool(r["liked_at"]),
@@ -261,6 +271,8 @@ async def cola_view(db: AsyncSession, at: Optional[datetime] = None) -> dict:
             tabs["seguimientos" if r["kind"] == "seguimiento" else "pendientes"].append(item)
         else:
             tabs["archivados"].append(item)
+    if touched:
+        await db.commit()
     sent = sum(1 for i in tabs["archivados"] if i["status"] == "enviado")
     total = len(rows)
     return {"ok": True, "fecha": day.isoformat(), "fecha_label": day_label(day), "limite": int(cfg["assisted_daily_limit"]),
