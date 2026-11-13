@@ -264,3 +264,22 @@ def test_empresa_a_nunca_toca_ni_ve_los_iconos_de_b(client, pg_url, monkeypatch)
     # la otra empresa (interruptor apagado): nada que ver ni guardar
     assert client.get(f"/api/v1/hospitality/companies/{OTRA}/carta-iconos").json() == {"ok": True, "on": False}
     assert client.put(f"/api/v1/hospitality/companies/{OTRA}/carta-iconos/items/{other[0]}", json={"icono_key": "ron"}).status_code == 403
+
+
+# ------------------------------------------------------------------ 3) Palabras sin ícono (consola v2+, Catálogo)
+def test_palabras_sin_icono_solo_admin_v2_por_empresa_y_sin_datos_personales(client, pg_url, monkeypatch):
+    from app.web import admin_v2_routes
+    _items(pg_url, TTM, ["Hookah menta", "Hookah sandía", "Hookah uva", "Michelada", "Cover"])
+    _lite(client, TTM)
+    _run(pg_url, "INSERT INTO carta_icon_misses (company_id, word, items) VALUES (:c, 'cachimba', 1)", {"c": OTRA}, fetch=False)
+    url = "/api/v1/hospitality/admin/carta-iconos/palabras"
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=False))
+    assert client.get(url).status_code == 401
+    monkeypatch.setattr(admin_v2_routes, "_active_session", AsyncMock(return_value=True))
+    data = client.get(url).json()
+    by = {c["company_name"]: c["words"] for c in data["companies"]}
+    assert [(w["word"], w["items"]) for w in by["THE TIME MACHINE"]] == [("hookah", 3)], "michelada y cover ya tienen ícono"
+    assert [w["word"] for w in by["Otra Empresa"]] == ["cachimba"]
+    assert set(by["THE TIME MACHINE"][0]) == {"word", "items", "last_seen"}, "solo palabra, número y fecha"
+    only = client.get(f"{url}?company_id={TTM}").json()["companies"]
+    assert [c["company_id"] for c in only] == [TTM], "filtrado por empresa: nunca las palabras de otra"

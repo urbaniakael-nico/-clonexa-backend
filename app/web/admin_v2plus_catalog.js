@@ -256,9 +256,31 @@
     return `<div class="vp-modal" data-vpk-modal><div class="vp-panel vp-modal-card" role="dialog" aria-modal="true"><div class="vp-modal-head"><h2>${h(md.title)}</h2><button class="vp-btn vp-btn-sm" type="button" data-vpk-modal-close aria-label="Cerrar">✕</button></div>${body}</div></div>`;
   }
 
+  // ------------------------------------------------ 079A: palabras sin ícono (galería de íconos de carta)
+  // Lo que cae en el ícono genérico en las empresas con iconos_carta_clonexa, para
+  // decidir qué ícono agregar a la tabla (app/services/carta_icons.py). Solo palabras.
+  const misses079A = { loaded: false, data: null, error: "" };
+  async function loadMisses079A() {
+    try { misses079A.data = await apiGet(`${API}/hospitality/admin/carta-iconos/palabras`); misses079A.error = ""; }
+    catch (error) { misses079A.error = error.message; }
+    misses079A.loaded = true;
+    draw();
+  }
+  function missesTab079A() {
+    if (misses079A.error) return `<div class="vp-alert" role="alert"><span>${h(misses079A.error)}</span></div>`;
+    if (!misses079A.loaded) return `<p class="vp-loading">Cargando palabras sin ícono…</p>`;
+    const companies = arr(misses079A.data && misses079A.data.companies);
+    const intro = `<p class="vp-login-hint">Palabras con las que empieza un artículo y que hoy salen con el ícono genérico de bebida. Agrega la palabra a una fila de la tabla o pide un ícono nuevo.</p>`;
+    if (!companies.length) return `<section class="vp-panel vp-section"><h2>Palabras sin ícono</h2>${intro}<div class="vp-empty">Ninguna: todos los artículos tienen su ícono.</div></section>`;
+    return `<section class="vp-panel vp-section"><h2>Palabras sin ícono</h2>${intro}${companies.map((c) => `
+      <h3>${h(c.company_name || c.company_id)}</h3>
+      <table class="vp-table vp-table-compact"><thead><tr><th scope="col">Palabra</th><th scope="col">Artículos</th><th scope="col">Última vez</th></tr></thead>
+      <tbody>${arr(c.words).map((w) => `<tr><td><b>${h(w.word)}</b></td><td>${h(w.items)} ${Number(w.items) === 1 ? "artículo" : "artículos"}</td><td>${h(String(w.last_seen || "").slice(0, 10))}</td></tr>`).join("")}</tbody></table>`).join("")}</section>`;
+  }
+
   function view() {
-    const tabs = [["paquetes", "Paquetes"], ["modulos", "Módulos"], ["nomina", "Parámetros de nómina"]];
-    const pane = model.builder ? builderView() : model.tab === "modulos" ? modulesTab() : model.tab === "nomina" ? paycoTab() : packagesTab();
+    const tabs = [["paquetes", "Paquetes"], ["modulos", "Módulos"], ["nomina", "Parámetros de nómina"], ["iconos", "Palabras sin ícono"]];
+    const pane = model.builder ? builderView() : model.tab === "modulos" ? modulesTab() : model.tab === "nomina" ? paycoTab() : model.tab === "iconos" ? missesTab079A() : packagesTab();
     return `<header class="vp-head"><div><p class="vp-eyebrow">NÚCLEO CLONEXA · CATÁLOGO</p><h1 class="vp-title">Catálogo</h1></div></header>
       ${model.notice ? `<p class="vp-ok-text" role="status">${h(model.notice)}</p>` : ""}${!model.builder && model.error ? `<div class="vp-alert" role="alert"><span>${h(model.error)}</span></div>` : ""}
       <nav class="vp-chips" role="tablist">${tabs.map(([k, l]) => `<button class="vp-chip ${model.tab === k ? "is-active" : ""}" type="button" role="tab" aria-selected="${model.tab === k}" data-vpk-tab="${k}">${l}</button>`).join("")}</nav>
@@ -324,7 +346,7 @@
     const t = event.target;
     if (!t || !t.closest || !ctx || !ctx.active()) return;
     const tab = t.closest("[data-vpk-tab]");
-    if (tab) { model.tab = tab.getAttribute("data-vpk-tab"); model.builder = null; model.notice = ""; draw(); if (model.tab === "nomina" && !model.payco.loaded) loadPayco(); return; }
+    if (tab) { model.tab = tab.getAttribute("data-vpk-tab"); model.builder = null; model.notice = ""; draw(); if (model.tab === "nomina" && !model.payco.loaded) loadPayco(); if (model.tab === "iconos") loadMisses079A(); return; }
     if (t.closest("[data-vpk-modal-close]")) { model.modal = null; draw(); return; }
     if (t.closest("[data-vpk-confirm-go]")) {
       const md = model.modal;
@@ -435,10 +457,11 @@
     if (context.params && context.params.editPackage) openBuilder(context.params.editPackage);
     if (!model.packages) reload();
     if (model.tab === "nomina" && !model.payco.loaded) loadPayco();
+    if (model.tab === "iconos") loadMisses079A();
   }
 
   window.CxConsoleSections = window.CxConsoleSections || {};
   window.CxConsoleSections.catalog = { mount };
   window.CxConsoleCatalog = { model, view, miniDefaults, miniFromBuilder, packagePayload, savePackage, isMiniPanelModule, packageModuleCodes,
-    modulePayload, createModule, deleteModule, payco, paycoBody, paycoValue, MINI_TYPES };
+    modulePayload, createModule, deleteModule, payco, paycoBody, paycoValue, MINI_TYPES, misses079A, missesTab079A, loadMisses079A };
 })();

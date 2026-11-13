@@ -6735,3 +6735,26 @@ async def carta_icons_choose_079a(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="articulo_no_existe")
     await db.commit()
     return {"ok": True, "id": row["id"], "icono_key": key, "icon": carta_icons.resolve(row["name"], icono_key=key)}
+
+
+async def _require_admin_v2_079a(request: Request, db: AsyncSession = Depends(get_db)) -> None:
+    from app.web import admin_v2_routes
+
+    if not await admin_v2_routes._active_session(request, db):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin_v2_session_required")
+
+
+@router.get("/admin/carta-iconos/palabras")
+async def carta_icons_misses_079a(
+    company_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(_require_admin_v2_079a),
+) -> dict[str, Any]:
+    """Consola v2+ (Catálogo): palabras que hoy caen en el ícono genérico, por empresa
+    (empresa + palabra + número de artículos). Solo Admin V2; ningún dato personal."""
+    rows = await carta_icons.list_misses(db, str(company_id) if company_id else None)
+    companies: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        c = companies.setdefault(r["company_id"], {"company_id": r["company_id"], "company_name": r["company_name"], "words": []})
+        c["words"].append({"word": r["word"], "items": r["items"], "last_seen": r["last_seen"]})
+    return {"ok": True, "companies": list(companies.values()), "gallery": [g["key"] for g in carta_icons.gallery()]}
