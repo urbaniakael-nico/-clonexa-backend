@@ -57,15 +57,15 @@ def pdf_icon() -> Path:
 
 
 class CachedAssets(SafeStaticFiles):
-    """El /assets de siempre; solo brand/ sale con cache larga (URL versionada).
-    Solo imagenes de la raiz y de brand/ (lista blanca de safe_static)."""
+    """El /assets de siempre; brand/ e iconos-carta/ salen con cache larga (URL versionada).
+    Solo imagenes de la raiz, brand/ e iconos-carta/ (lista blanca de safe_static)."""
 
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault("allowed_dirs", frozenset({"brand"}))
+        kwargs.setdefault("allowed_dirs", frozenset({"brand", "iconos-carta"}))
         super().__init__(*args, **kwargs)
 
     async def get_response(self, path_: str, scope):  # type: ignore[override]
         response = await super().get_response(path_, scope)
-        if path_.replace("\\", "/").startswith("brand/") and response.status_code == 200:
+        if path_.replace("\\", "/").startswith(("brand/", "iconos-carta/")) and response.status_code == 200:
             response.headers["Cache-Control"] = CACHE_LONG
         return response

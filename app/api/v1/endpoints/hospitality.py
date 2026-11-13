@@ -25,6 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_company_user_for_tenant
+from app.services import carta_icons
 from app.api.v1.endpoints.companies import require_admin_v2_or_tenant_company_user
 
 router = APIRouter()
@@ -5432,6 +5433,7 @@ async def hospitality_inventory_lite(
         ),
         {"company_id": str(company_id), "limit": limit},
     )
+    rows = result.mappings().all()
     inventory = [
         {
             "id": str(row["id"]),
@@ -5443,10 +5445,39 @@ async def hospitality_inventory_lite(
             "active": (row["status"] or "active") == "active",
             "allows_portions": bool(row["allows_portions"]),
         }
-        for row in result.mappings().all()
+        for row in rows
     ]
-    return {"ok": True, "company_id": str(company_id), "inventory": inventory,
-            "quantity_picker": await _quantity_picker_049w(db, company_id)}
+    out = {"ok": True, "company_id": str(company_id), "inventory": inventory,
+           "quantity_picker": await _quantity_picker_049w(db, company_id)}
+    # Galería de íconos de Clonexa (interruptor iconos_carta_clonexa, apagado por defecto):
+    # con el interruptor apagado la respuesta queda exactamente igual que antes.
+    if await carta_icons.is_on(db, company_id):
+        await _carta_icons_apply(db, company_id, inventory, "icono_key" in columns)
+        out["iconos_carta"] = True
+    return out
+
+
+async def _carta_icons_apply(db: AsyncSession, company_id: uuid.UUID, inventory: list[dict[str, Any]], has_icon_column: bool) -> None:
+    """Pone a cada artículo su ícono (foto > elegido > reconocido > genérico) y
+    registra las palabras que caen en el genérico. Solo filas de ESTA empresa."""
+    chosen: dict[str, str] = {}
+    if has_icon_column and inventory:
+        found = await db.execute(text("""
+            SELECT id::text AS id, icono_key FROM inventory_items
+            WHERE company_id = :company_id AND icono_key IS NOT NULL AND icono_key <> ''"""), {"company_id": str(company_id)})
+        chosen = {r["id"]: r["icono_key"] for r in found.mappings().all()}
+    photos: set[str] = set()
+    if (await db.execute(text("SELECT to_regclass('public.hospitality_product_images')"))).scalar():
+        found = await db.execute(text("""
+            SELECT inventory_item_id::text AS id FROM hospitality_product_images
+            WHERE company_id = :company_id AND image_bytes IS NOT NULL"""), {"company_id": str(company_id)})
+        photos = {r["id"] for r in found.mappings().all()}
+    base = f"/api/v1/companies/{company_id}/waiter-ordering/products"
+    for item in inventory:
+        photo = f"{base}/{item['id']}/image" if item["id"] in photos else ""
+        item["icon"] = carta_icons.resolve(item["name"], icono_key=chosen.get(item["id"]), photo_url=photo)
+    await carta_icons.record_misses(db, company_id, [item["icon"] for item in inventory])
+    await db.commit()
 
 
 async def _quantity_picker_049w(db: AsyncSession, company_id: uuid.UUID) -> bool:

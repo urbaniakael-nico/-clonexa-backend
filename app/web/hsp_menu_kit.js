@@ -109,6 +109,20 @@
     return DEFAULT_MENU_EMOJI;
   }
 
+  // 079A: galería de íconos de Clonexa (interruptor iconos_carta_clonexa). El
+  // servidor manda item.icon SOLO con el interruptor encendido (foto > elegido >
+  // reconocido > genérico); sin icon, todo queda como antes. Va en la misma
+  // ranura del emoji, del mismo tamaño (1.15em del tamaño del emoji).
+  function cartaIconUrl079A(icon) {
+    const url = String((icon && icon.url) || "");
+    return /^\/assets\/iconos-carta\/[a-z0-9-]+\.svg(\?v=[a-z0-9]+)?$/.test(url) || /^\/api\/v1\/companies\/[0-9a-f-]+\/waiter-ordering\/products\/[0-9a-f-]+\/image$/.test(url) ? url : "";
+  }
+  function cartaIconHtml079A(icon, name) {
+    const url = cartaIconUrl079A(icon);
+    if (!url) return "";
+    return `<img class="cx-carta-icon${icon.source === "photo" ? " is-photo" : ""}" src="${h(url)}" alt="${h(name)}" width="64" height="64" loading="lazy" decoding="async">`;
+  }
+
   // Photo (Admin V2) > emoji (switch on) > nothing, like before the switch.
   function tileArt(kind, item, opts = {}) {
     const companyId = opts.companyId || "";
@@ -123,6 +137,7 @@
         : `products/${encodeURIComponent(item.image_item_id || item.id)}/image`;
       return { type: "image", url: `/api/v1/companies/${encodeURIComponent(companyId)}/waiter-ordering/${path}` };
     }
+    if (item.icon && cartaIconUrl079A(item.icon)) return { type: "emoji", emoji: cartaIconHtml079A(item.icon, kind === "category" ? item.label || item.key : item.name) };
     if (opts.emojis) return { type: "emoji", emoji: menuEmoji(kind === "category" ? item.label || item.key : item.name, opts) };
     return kind === "category" ? { type: "emoji", emoji: DEFAULT_MENU_EMOJI } : { type: "none" };
   }
@@ -508,6 +523,8 @@
     .wtr-prod-tile{min-height:76px;display:grid;gap:6px;align-content:center;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#fff;padding:12px;text-align:left;overflow:hidden;cursor:pointer}
     .wtr-prod-img{height:70px;margin:-12px -12px 4px;background-size:cover;background-position:center}
     .wtr-cat-img.wtr-emoji{font-size:56px;line-height:1}
+    .cx-carta-icon{width:1.15em;height:1.15em;object-fit:contain;display:inline-block;vertical-align:middle}
+    .cx-carta-icon.is-photo{object-fit:cover;border-radius:.18em}
     .wtr-cat-fit{height:auto;aspect-ratio:4/3;position:relative;overflow:hidden;background-color:#15131f}
     .wtr-cat-fit::before{content:"";position:absolute;inset:-16px;background:var(--wtr-img) center/cover no-repeat;filter:blur(16px) brightness(.55)}
     .wtr-cat-fit img{position:relative;display:block;width:100%;height:100%;object-fit:contain}
@@ -607,6 +624,7 @@
     money,
     menuEmoji,
     tileArt,
+    cartaIconHtml079A,
     tableTitle,
     portionFraction,
     quantityChoices,

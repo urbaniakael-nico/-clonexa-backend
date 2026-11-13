@@ -125,6 +125,8 @@
     const basePath = `/hospitality/companies/${encodeURIComponent(state.companyId)}/inventory-lite?limit=300`;
     const first = await api(`${basePath}&fresh=${Date.now()}`, { cache: "no-store" });
     state.quantityPicker = first.quantity_picker === true && !!window.CxQtyPicker;
+    // 079A: galería de íconos de Clonexa (interruptor iconos_carta_clonexa, apagado por defecto).
+    state.iconosCarta079A = first.iconos_carta === true;
     // 057B: carta en video (interruptor carta_video de la empresa, apagado por defecto).
     state.cartaVideo057B = first.carta_video === true && !!window.CxMenuVideoFeed;
     // 057C: empresa con Carta: la mesa abre la carta nueva (pedida con la clave de la mesa).
@@ -1816,6 +1818,21 @@
       .map((item) => ({ key: item.name, label: item.name, count: item.count, has_image: false }));
   }
 
+  // 079A: ícono de la galería de Clonexa (solo con iconos_carta_clonexa). Producto:
+  // el que manda el servidor (foto > elegido > reconocido > genérico). Categoría:
+  // el elegido a mano que más se repite entre sus productos, o el reconocido.
+  function barIconOn079A() {
+    return state.iconosCarta079A === true && !!(window.CxMenuKit && window.CxMenuKit.cartaIconHtml079A);
+  }
+  function barCategoryIcon079A(cat) {
+    const items = state.inventory.filter((item) => productCategory(item) === cat.key && item.icon);
+    const manual = new Map();
+    items.forEach((item) => { if (item.icon.source === "manual") manual.set(item.icon.key, (manual.get(item.icon.key) || 0) + 1); });
+    const best = [...manual.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    const pick = best ? items.find((item) => item.icon.source === "manual" && item.icon.key === best[0]).icon : (items[0] && items[0].icon.auto);
+    return window.CxMenuKit.cartaIconHtml079A(pick ? { ...pick, source: best ? "manual" : "auto" } : null, cat.label);
+  }
+
   function barCategoryGridHtml() {
     const kit = window.CxMenuKit;
     const categories = barCategoryList();
@@ -1826,7 +1843,7 @@
       <div class="qrb-cats">
         ${categories.map((cat) => `
           <button class="qrb-cat" type="button" data-bar-cat="${h(cat.key)}">
-            <span class="qrb-cat-icon" aria-hidden="true">${kit.menuEmoji(cat.label, { bar: true })}</span>
+            <span class="qrb-cat-icon" aria-hidden="true">${(barIconOn079A() && barCategoryIcon079A(cat)) || kit.menuEmoji(cat.label, { bar: true })}</span>
             <strong>${h(cat.label)}</strong>
             <small>${h(cat.count)} ${cat.count === 1 ? "producto" : "productos"}</small>
           </button>`).join("")}
@@ -1842,7 +1859,7 @@
           const quantity = Number(state.cart.get(String(item.id))?.quantity || 0);
           return `
             <article class="qrb-product ${quantity > 0 ? "is-selected" : ""}">
-              <span class="qrb-product-icon" aria-hidden="true">${kit.menuEmoji(item.name, { bar: true })}</span>
+              <span class="qrb-product-icon" aria-hidden="true">${(barIconOn079A() && kit.cartaIconHtml079A(item.icon, item.name)) || kit.menuEmoji(item.name, { bar: true })}</span>
               <div class="qrb-product-copy">
                 <strong>${h(item.name)}</strong>
                 <span>${Number(item.price || 0) > 0 ? h(money(item.price)) : "Por confirmar"}</span>
@@ -2064,6 +2081,8 @@
       .qrb-product{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;border:1px solid var(--qr-line);background:rgba(15,23,42,.72)}
       .qrb-product.is-selected{border-color:#22c55e;box-shadow:0 0 0 1px #22c55e inset}
       .qrb-product-icon{font-size:34px}
+      .qrb-cat-icon .cx-carta-icon,.qrb-product-icon .cx-carta-icon{width:1.15em;height:1.15em;object-fit:contain;display:block;margin:0 auto}
+      .qrb-product-icon .cx-carta-icon.is-photo{object-fit:cover;border-radius:8px}
       .qrb-product-copy{display:grid;gap:2px;min-width:0}
       .qrb-product-copy strong{font-size:16px;overflow-wrap:anywhere}
       .qrb-product-copy span{color:var(--qr-secondary);font-weight:900}

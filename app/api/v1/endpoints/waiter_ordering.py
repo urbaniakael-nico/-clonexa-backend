@@ -839,7 +839,7 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
         )
         bucket["products"].append(product)
 
-    return {
+    out = {
         "ok": True,
         "company_id": str(company_id),
         "categories": list(grouped.values()),
@@ -848,6 +848,16 @@ async def build_waiter_menu(db: AsyncSession, company_id: uuid.UUID) -> dict[str
         "menu_emojis": module_settings.get("menu_emojis") is True,
         "quantity_picker": module_settings.get(QUANTITY_PICKER_FLAG) is True,
     }
+    # Galería de íconos de Clonexa (iconos_carta_clonexa): cada producto ya trae su
+    # ícono desde inventory-lite; la categoría toma el elegido a mano de sus productos
+    # o el reconocido por su nombre. Apagado: la respuesta no cambia.
+    if inventory.get("iconos_carta") is True:
+        from app.services import carta_icons
+
+        for bucket in out["categories"]:
+            bucket["icon"] = carta_icons.category_icon(bucket["products"], bucket.get("label"))
+        out["iconos_carta"] = True
+    return out
 
 
 # ---------------------------------------------------------------------------
