@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Biblioteca 3D · Consola v2+</title>
+<link rel="icon" href="/assets/brand/favicon.ico?v=cx26a" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap">
+<link rel="stylesheet" href="/admin-v2plus/oficina/constructor.css">
+<script type="importmap">{"imports":{"three":"/admin-v2plus/oficina/vendor/three/build/three.module.js","three/addons/":"/admin-v2plus/oficina/vendor/three/examples/jsm/"}}</script>
+</head>
+<body class="cx-lib">
+<header class="cx-top"><div class="cx-brand"><img src="/admin-v2plus/oficina/logo-nombre.png" alt="Clonexa"><div><b>Biblioteca 3D</b><span>Catálogo del Modo constructor · solo consola v2+</span></div></div>
+  <nav class="cx-right"><a class="cx-btn" href="/admin-v2plus">← Consola</a><a class="cx-btn" href="#subir">Subir</a><a class="cx-btn" href="#polyhaven">Poly Haven</a><a class="cx-btn" href="#revision">En revisión</a><a class="cx-btn" href="#catalogo">Catálogo</a><a class="cx-btn" href="#creditos">Créditos 3D</a></nav></header>
+<main class="lib">
+  <section class="cx-card"><h4>FUENTES RECOMENDADAS</h4><h2>Solo modelos de uso comercial libre</h2><div class="lib-src" id="libSrc"></div>
+    <p class="cx-note">Nada de Los Sims, contenido de EA ni modelos con licencia dudosa. Mixamo solo en el bucket privado (nunca en el repositorio).</p></section>
+  <section class="cx-card" id="subir"><h4>SUBIR ARCHIVO</h4><h2>GLB, GLTF, FBX, OBJ o ZIP · máximo 50 MB</h2>
+    <form id="libForm" class="lib-form">
+      <label class="full">Archivo<input type="file" name="archivo" required accept=".glb,.gltf,.fbx,.obj,.zip"></label>
+      <label>Nombre<input name="nombre" required minlength="2" maxlength="60"></label>
+      <label>Categoría<select name="categoria" required id="libCat"></select></label>
+      <fieldset class="full"><legend>Zonas sugeridas</legend><div id="libZones" class="lib-zones"></div></fieldset>
+      <label>Tipo conectable<select name="conectable"><option value="ninguno">Ninguno</option><option value="mesa">Mesa</option><option value="puesto">Puesto</option><option value="escritorio">Escritorio</option><option value="caja">Caja</option><option value="pantalla">Pantalla</option></select></label>
+      <label>Licencia<select name="licencia" required><option value="">— Elige —</option><option value="cc0">CC0</option><option value="ccby">CC-BY + atribución</option><option value="mixamo">Mixamo</option><option value="propia">Propia</option></select></label>
+      <label class="full">URL de la fuente<input name="fuente" type="url" placeholder="https://…"></label>
+      <label>Autor<input name="autor" maxlength="120"></label>
+      <label>Atribución (CC-BY)<input name="atribucion" maxlength="300" placeholder="“Obra” por Autor, CC-BY 4.0"></label>
+      <label>Alto real (m)<input name="alto" type="number" step="0.01" min="0.02" max="15"></label>
+      <label>o ancho real (m)<input name="ancho" type="number" step="0.01" min="0.02" max="15"></label>
+      <div class="full row"><button class="pri" type="submit">Subir y convertir</button><span id="libMsg" role="status"></span></div>
+    </form></section>
+  <section class="cx-card" id="polyhaven"><h4>BUSCAR EN POLY HAVEN</h4><h2>Modelos CC0 de Poly Haven (API pública)</h2>
+    <div class="row"><input id="phQ" type="search" placeholder="chair, table, plant, lamp…" aria-label="Buscar en Poly Haven"><button id="phGo" type="button">Buscar</button></div>
+    <div id="phList" class="lib-grid"></div><p class="cx-note">Recursos de Poly Haven (polyhaven.com), CC0. Se importan al mismo flujo (conversión, escala real, miniatura) y quedan en revisión.</p></section>
+  <section class="cx-card" id="revision"><h4>EN REVISIÓN</h4><h2>Aprueba para que aparezca en el catálogo de todas las empresas</h2><div id="revList" class="lib-list"></div></section>
+  <section class="cx-card" id="catalogo"><h4>CATÁLOGO</h4><h2 id="catTitle">—</h2><div id="catStats" class="lib-stats"></div></section>
+  <section class="cx-card" id="creditos"><h4>CRÉDITOS 3D</h4><h2>Licencias y atribuciones</h2><div id="credits"></div></section>
+</main>
+<dialog id="libDlg"><div class="lib-prev"><canvas id="libCanvas" width="640" height="420"></canvas></div><p id="libInfo"></p><form method="dialog" class="row"><button>Cerrar</button></form></dialog>
+<script type="module" src="/admin-v2plus/oficina/biblioteca.js"></script>
+</body>
+</html>
