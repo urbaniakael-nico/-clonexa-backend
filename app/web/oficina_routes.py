@@ -72,6 +72,14 @@ ASSETS = {
     "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),
     "arquitecto.js": ("oficina/oficina_arquitecto.js", "application/javascript"),   # modo arquitecto de los pisos aprobados (live3d)
     "recepcion.js": ("oficina/oficina_recepcion.js", "application/javascript"),   # Recepcion con Nexa (025n)   # gestos de la camara (tactil, pellizco, sin "atras")
+    # Modo constructor (fase 1): motor del plano (mismo motor comun), objetos del catalogo por codigo, reglas puras
+    "plano.js": ("oficina/oficina_plano.js", "application/javascript"),
+    "plano_objetos.js": ("oficina/plano_objetos.js", "application/javascript"),
+    "constructor.js": ("oficina/constructor.js", "application/javascript"),
+    "constructor_reglas.js": ("oficina/constructor_reglas.js", "application/javascript"),
+    "constructor.css": ("oficina/constructor.css", "text/css"),
+    "constructor_vista.js": ("oficina/constructor_vista.js", "application/javascript"),
+    "biblioteca.js": ("oficina/biblioteca.js", "application/javascript"),
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -444,6 +452,12 @@ async def _live_company(db: AsyncSession, company_id: str) -> tuple[dict, dict]:
     c = await _company(db, company_id)
     row = await od.floor_row(db, c["id"])
     template = _template(c, row)
+    if row.get("usa_plano") is True:
+        from app.services import constructor_plano as cp
+
+        live = await cp.live_plan(db, c["id"])
+        if live:
+            return c, {**row, "_plano": live["version"]}
     if template not in ov.REAL_TEMPLATES and od.floor_style(row, template) != "aprobado":
         raise HTTPException(status_code=409, detail="Este piso aún no tiene copia viva.")
     return c, row
@@ -506,7 +520,9 @@ async def company_snapshot(db: AsyncSession, c: dict, row: dict) -> dict:
     async def build() -> dict:
         privacy = row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre"
         template = _template(c, row)
-        live = APPROVED_LIVE.get(template) if od.floor_style(row, template) == "aprobado" else None
+        plano = row.get("_plano")
+        # piso dibujado por el plano del constructor: los datos reales de su plantilla (mesas, personal, produccion...)
+        live = APPROVED_LIVE.get(template) if (plano or od.floor_style(row, template) == "aprobado") else None
         if live:
             snap = await live(od.Reader(db), c, _now(), privacy)
             snap["style"] = "aprobado"
@@ -516,8 +532,12 @@ async def company_snapshot(db: AsyncSession, c: dict, row: dict) -> dict:
         snap["floor_mb"] = round(floor_bytes("bar") / 1024 / 1024, 2)
         # modo arquitecto de los pisos aprobados (posiciones guardadas de mesas, maquinas, cabina, pista...)
         snap["arch"] = arch_items(row, template)
+        if plano:
+            snap["plano"] = plano
+            snap["estilo_escena"] = row.get("estilo_escena") if row.get("estilo_escena") in ("humano", "caricatura") else "humano"
+            snap["rev"] = f"{snap.get('rev', '')}-p{plano}-{snap['estilo_escena']}"
         return snap
-    return await l3.shared_live(c["id"], build)
+    return await l3.shared_live(c["id"] + (":borrador" if row.get("_plano") == "borrador" else ""), build)
 
 
 def arch_items(row: dict, template: str) -> dict:
@@ -528,8 +548,13 @@ def arch_items(row: dict, template: str) -> dict:
 
 
 @router.get(API + "/pisos/{company_id}/vivo", include_in_schema=False, dependencies=GUARD)
-async def vivo(company_id: str, rev: str = Query(""), db: AsyncSession = Depends(get_db)):
-    c, row = await _live_company(db, company_id)
+async def vivo(company_id: str, rev: str = Query(""), plano: int = Query(0), db: AsyncSession = Depends(get_db)):
+    if plano:
+        # vista 3D del constructor ("Así se verá en vivo"): los datos reales aunque el plano aún no esté publicado
+        c = await _company(db, company_id)
+        row = {**(await od.floor_row(db, c["id"])), "_plano": "borrador"}
+    else:
+        c, row = await _live_company(db, company_id)
     snap = await company_snapshot(db, c, row)
     if rev and rev == snap["rev"]:
         return _json({"ok": True, "same": True, "rev": snap["rev"]})

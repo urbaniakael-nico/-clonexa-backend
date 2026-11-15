@@ -112,7 +112,7 @@ function agentVisualState(state) {
 // Un piso abre el motor realista solo si su empresa tiene el interruptor encendido (estilo "realista" o "bar":
 // el bar aprobado de The Time Machine, oficina_bar.js).
 function isRealFloor(f) {
-  return !!(f && (f.style === 'realista' || f.style === 'bar' || (f.style === 'aprobado' && APPROVED_MODULE[f.template])));
+  return !!(f && (f.plano || f.style === 'realista' || f.style === 'bar' || (f.style === 'aprobado' && APPROVED_MODULE[f.template])));
 }
 // Con un piso abierto, el clic y el arrastre son del piso: nunca cambian de piso ni mueven el edificio.
 function buildingInputAllowed(realOpen) {
@@ -593,14 +593,15 @@ function main(DATA, SAVED_IN) {
     leaveReal(); realBusy = true; realFor = p; hideInfo();
     document.body.classList.add('real-on');
     try {
-      const isLobby = p === lobby, isCx = p === cx || isLobby, isBar = !isCx && p.data && p.data.style === 'bar', approved = !isCx && p.data && p.data.style === 'aprobado' && APPROVED_MODULE[p.data.template];
+      const isLobby = p === lobby, isCx = p === cx || isLobby, planFloor = !isCx && p.data && p.data.plano, isBar = !planFloor && !isCx && p.data && p.data.style === 'bar', approved = !planFloor && !isCx && p.data && p.data.style === 'aprobado' && APPROVED_MODULE[p.data.template];
+      // Modo constructor: el plano publicado (interruptor oficina_pisos.usa_plano) dibuja el piso de la empresa
       // planta baja: Recepción con Nexa (interruptor oficina_ajustes.piso_recepcion, 025n)
-      const mod = isLobby ? await import('/admin-v2plus/oficina/recepcion.js') : isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
+      const mod = planFloor ? await import('/admin-v2plus/oficina/plano.js') : isLobby ? await import('/admin-v2plus/oficina/recepcion.js') : isCx ? await import('/admin-v2plus/oficina/clonexa.js') : approved ? await import(approved) : isBar ? await import('/admin-v2plus/oficina/bar.js') : await import('/admin-v2plus/oficina/real.js');
       if (realFor !== p) return;
       if (archOpenFor === p.cid) setTimeout(() => { archOpenFor = null; }, 0);
       const layers = (kind, k, uniform) => kind === 'rep' ? [SAVED.get(savedKey(p.cid, 'rep'))] : kind === 'agent' ? [SAVED.get(savedKey(null, 'agente:' + k))]
         : [SAVED.get(savedKey(null, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'plantilla:' + uniform)), SAVED.get(savedKey(p.cid, 'persona:' + k))];
-      const openFn = isCx || approved ? mod.open : isBar ? mod.openBar : mod.openReal;
+      const openFn = isCx || approved || planFloor ? mod.open : isBar ? mod.openBar : mod.openReal;
       REAL = await openFn({R, floor: isLobby ? {company_id: null, name: 'Recepción', template: 'recepcion'} : isCx ? {company_id: null, name: 'CLONEXA', template: 'clonexa'} : p.data, getJson, log, lite, liteChosen: () => localStorage.getItem('cxOfiLite'),
         repName: p.rep && p.rep.def.name,
         charCfg: (kind, k, uniform) => fromServerCfg(layers(kind, k, uniform)),

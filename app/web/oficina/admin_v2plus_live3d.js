@@ -32,7 +32,7 @@
     const on = !!d.enabled;
     const preview = ui.preview
       ? `<img src="${h(ui.preview)}" alt="Vista previa del piso de ${h(d.name)}">`
-      : `<div class="cx3d-noprev"><b>${d.has_engine ? "🏢" : "🧱"}</b><span>${d.has_engine ? "La vista previa se toma sola la primera vez que se abre el piso." : "Esta plantilla aún no tiene piso 3D."}</span></div>`;
+      : `<div class="cx3d-noprev"><b>${d.has_engine ? "🏢" : "🧱"}</b><span>${d.has_engine ? "La vista previa se toma sola la primera vez que se abre el piso." : "Esta plantilla aún no tiene piso 3D: ármalo en el Modo constructor."}</span></div>`;
     const roles = d.audience === "roles"
       ? `<input class="vp-search vp-input-sm" data-cx3d-field="roles" value="${h((d.roles || []).join(", "))}" placeholder="mesero, cajero, barman" aria-label="Roles que lo ven">` : "";
     return `<header class="cx3d-head"><h2>NEGOCIO EN VIVO 3D</h2><span class="cx3d-pill ${on ? "is-on" : ""}">${on ? "Encendido" : "Apagado"}</span>
@@ -48,12 +48,13 @@
             <button class="vp-switch-btn ${d.tv ? "is-on" : ""}" type="button" role="switch" aria-checked="${!!d.tv}" aria-label="Modo TV" data-cx3d-tv><span></span></button></div></div>
           <label class="cx3d-f"><span>Modo liviano en celulares</span>${select("lite", d.options.lite, d.lite)}</label>
           <div class="cx3d-f"><span>Consumo</span><b data-cx3d-usage>${h(usageText(d.usage))}</b></div>
+          <div class="cx3d-f"><span>Plano del constructor</span><b>${d.plano ? `Versión ${h(d.plano)} en vivo` : "Sin plano en vivo (piso de siempre)"}</b></div>
         </div>
       </div>
       ${ui.msg ? `<p class="cx3d-msg" role="status">${h(ui.msg)}</p>` : ""}
       <div class="vp-actions cx3d-actions">
         <button class="vp-btn vp-btn-primary" type="button" data-cx3d-open ${d.has_engine ? "" : "disabled"}>Abrir como el cliente</button>
-        <a class="vp-btn" href="/admin-v2plus/oficina?piso=${encodeURIComponent(d.company_id)}&arquitecto=1" target="_blank" rel="noopener" data-cx3d-arch>Editar distribución (arquitecto)</a>
+        <a class="vp-btn" href="/admin-v2plus/constructor?empresa=${encodeURIComponent(d.company_id)}" target="_blank" rel="noopener" data-cx3d-arch>Editar distribución (Modo constructor)</a>
         <a class="vp-btn" href="/admin-v2plus/oficina?piso=${encodeURIComponent(d.company_id)}&personajes=1" target="_blank" rel="noopener" data-cx3d-chars>Personajes del negocio</a>
         <button class="vp-btn" type="button" data-cx3d-toggle>${on ? "Apagar" : "Encender"}</button>
       </div>`;

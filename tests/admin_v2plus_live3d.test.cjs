@@ -29,10 +29,10 @@ test('consumo medido: pantallas abiertas y GB/MB del mes', () => {
 test('tarjeta como la imagen aprobada: estado, campos, consumo y los cuatro botones', () => {
   const html = load()._pure.cardHtml(DATA, {});
   for (const t of ['NEGOCIO EN VIVO 3D', 'Encendido', 'Plantilla', 'Privacidad del personal', 'Quién lo ve', 'Modo TV / pantalla completa', 'Permitido',
-    'Modo liviano en celulares', 'Consumo', '2 pantallas abiertas · 0,3 GB este mes', 'Abrir como el cliente', 'Editar distribución (arquitecto)', 'Personajes del negocio', 'Apagar']) {
+    'Modo liviano en celulares', 'Consumo', '2 pantallas abiertas · 0,3 GB este mes', 'Abrir como el cliente', 'Editar distribución (Modo constructor)', 'Personajes del negocio', 'Apagar']) {
     assert.ok(html.includes(t), t);
   }
-  assert.ok(html.includes(`/admin-v2plus/oficina?piso=${DATA.company_id}&amp;arquitecto=1`) || html.includes(`/admin-v2plus/oficina?piso=${DATA.company_id}&arquitecto=1`));
+  assert.ok(html.includes(`/admin-v2plus/constructor?empresa=${DATA.company_id}`), 'Editar distribución abre el Modo constructor (reemplaza al modo arquitecto)');
   assert.ok(html.includes('&personajes=1') || html.includes('&amp;personajes=1'));
   assert.ok(!/\son[a-z]+=/i.test(html) && !html.includes(' style="'), 'sin código ni estilos en línea (CSP de la consola)');
   const off = load()._pure.cardHtml({ ...DATA, enabled: false, has_engine: false, audience: 'roles', roles: ['mesero'] }, {});

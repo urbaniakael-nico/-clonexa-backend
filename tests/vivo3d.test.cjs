@@ -79,7 +79,7 @@ test('modo arquitecto: límites del salón, giro de 90°, cuerpo que guarda y pu
   assert.equal(off.on, false, 'sin permiso de arquitecto (cliente): no hace nada');
 });
 
-test('motores: posiciones guardadas y modo arquitecto en bar, taller y restaurante; nunca en el visor', () => {
+test('motores: posiciones guardadas y botón del Modo constructor en bar, taller y restaurante; nunca en el visor', () => {
   const bar = read('app/web/oficina/oficina_bar.js');
   for (const k of ["'mesa:' + label", "'dj'", "'pista'", "'planta:' + i"]) assert.ok(bar.includes(`savedPos(ARCH, ${k}`), k);
   assert.ok(bar.includes('attachArchitect(o,'), 'bar');
@@ -87,7 +87,8 @@ test('motores: posiciones guardadas y modo arquitecto en bar, taller y restauran
   assert.ok(read('app/web/oficina/oficina_restaurante.js').includes("A.archPos('mesa:' + label"), 'mesas del restaurante');
   assert.ok(read('app/web/oficina/oficina_mixamo.js').includes('attachArchitect(o,'), 'motor común');
   const a = read('app/web/oficina/oficina_arquitecto.js');
-  assert.ok(a.includes('if (!o.architect || !items.length)'), 'solo con o.architect (consola)');
+  assert.ok(a.includes('if (!o.architect || !cid || !ui)'), 'solo con o.architect (consola)');
+  assert.ok(a.includes("'/admin-v2plus/constructor?empresa=' + encodeURIComponent(cid)"), 'el botón del piso abre el Modo constructor (reemplaza al arrastre)');
 });
 
 test('consola -> oficina: ?piso=&arquitecto=1 abre su piso; ?personajes=1 filtra el editor a esa empresa', () => {

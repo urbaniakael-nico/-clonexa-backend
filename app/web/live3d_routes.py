@@ -16,7 +16,8 @@ Visor (todo con la cookie HttpOnly firmada de ESA empresa + el enlace firmado de
 - GET /panel/negocio-en-vivo/v/{ticket}        cambia el ticket por la cookie y lleva al visor.
 - GET /panel/negocio-en-vivo/r/{id}/{firma}/   el visor (solo su piso, solo lectura, modo TV).
 - .../r/{id}/{firma}/{archivo.js|vendor/three/...|recursos/...|bar/...}   motor, three, CC0 y Mixamo (bucket privado).
-- .../r/{id}/{firma}/api/{piso|personajes|pisos/{id}/vivo|marca/{id}/logo|vista}
+- .../r/{id}/{firma}/api/{piso|personajes|pisos/{id}/vivo|pisos/{id}/plano|catalogo/{obj}.glb|marca/{id}/logo|vista}
+  (plano: SOLO la version publicada en vivo de SU empresa; catalogo: solo los objetos que usa ese plano)
 """
 from __future__ import annotations
 
@@ -47,7 +48,8 @@ PAGE = ofr.WEB / "oficina" / "vivo3d.html"
 ACTOR = "admin_v2"
 # Archivos del motor que el visor del cliente puede pedir (nada del edificio, del piso de Clonexa ni de la recepcion).
 VIEWER_ASSETS = {k: v for k, v in ofr.ASSETS.items() if k in ("app.css", "bar.js", "bar_reglas.js", "mixamo.js", "pisos_reglas.js", "gestos.js",
-                                                             "taller.js", "restaurante.js", "campo.js", "arquitecto.js")}
+                                                             "taller.js", "restaurante.js", "campo.js", "arquitecto.js",
+                                                             "plano.js", "plano_objetos.js")}
 VIEWER_ASSETS["vivo3d.js"] = ("oficina/vivo3d.js", "application/javascript")
 VIEWER_ASSETS["vivo3d.css"] = ("oficina/vivo3d.css", "text/css")
 
@@ -84,10 +86,14 @@ async def card(db: AsyncSession, c: dict) -> dict:
     template = ofr._template(c, row)
     st = l3.settings_of(row)
     style = od.floor_style(row, template)
+    from app.services import constructor_plano as cp
+
+    plan = await cp.live_plan(db, c["id"])
     return {
         "company_id": c["id"], "name": c["name"], "enabled": await l3.module_enabled(db, c["id"]),
         "template": template, "template_label": of.TEMPLATE_LABEL[template], "noun": l3.NOUN.get(template, "negocio"),
-        "has_engine": template in l3.WITH_ENGINE and style in ("bar", "aprobado"), "style": style,
+        "has_engine": bool(plan) or (template in l3.WITH_ENGINE and style in ("bar", "aprobado")), "style": style,
+        "plano": plan["version"] if plan else None,
         "privacy": row.get("privacidad") if row.get("privacidad") in of.PRIVACY else "nombre",
         "audience": st["audience"], "roles": st["roles"], "tv": st["tv"], "lite": st["lite"],
         "usage": await l3.usage(db, c["id"]),
@@ -255,7 +261,9 @@ async def panel(company_id: str, request: Request, authorization: Optional[str] 
         if c:
             row = await od.floor_row(db, cid)
             template = ofr._template(c, row)
-            if template in l3.WITH_ENGINE and od.floor_style(row, template) in ("bar", "aprobado"):
+            from app.services import constructor_plano as cp
+
+            if (row.get("usa_plano") is True and await cp.live_plan(db, cid)) or (template in l3.WITH_ENGINE and od.floor_style(row, template) in ("bar", "aprobado")):
                 live = {"noun": l3.NOUN.get(template, "negocio"), "template": template, "has_preview": bool(await _preview_bytes(cid))}
     return _json({"ok": True, "classic": classic, "live3d": live})
 
@@ -419,7 +427,7 @@ async def visor_piso(company_id: str, sig: str, request: Request, db: AsyncSessi
     if not floor:
         raise HTTPException(status_code=404, detail="Empresa no encontrada.")
     st = l3.settings_of(await od.floor_row(db, cid))
-    keep = ("company_id", "name", "template", "template_label", "privacy", "style", "brand", "staff")
+    keep = ("company_id", "name", "template", "template_label", "privacy", "style", "brand", "staff", "plano", "estilo_escena")
     out = {k: floor.get(k) for k in keep}
     return _sized({"ok": True, "floor": _for_client(out, cid), "tv": st["tv"], "lite": l3.lite_for(st["lite"]), "noun": l3.NOUN.get(floor["template"], "negocio"),
                    "admin": data["k"] == "a", "back": f"/client?company_id={cid}"}, cid)
@@ -448,6 +456,39 @@ async def visor_vivo(company_id: str, sig: str, floor_id: str, request: Request,
     if rev and rev == snap["rev"]:
         return _sized({"ok": True, "same": True, "rev": snap["rev"]}, cid)
     return _sized(_for_client(snap, cid), cid)
+
+
+@router.get(BASE + "/r/{company_id}/{sig}/api/pisos/{floor_id}/plano", include_in_schema=False)
+async def visor_plano(company_id: str, sig: str, floor_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """El plano PUBLICADO en vivo de SU empresa (nunca el borrador, nunca el de otra empresa)."""
+    from app.services import constructor_plano as cp
+    from app.web import constructor_routes as cr
+
+    data = await viewer_session(request, db, company_id, sig)
+    cid = data["c"]
+    if _cid(floor_id) != cid:
+        raise _deny(403, "tenant_not_allowed")
+    live = await cp.live_plan(db, cid)
+    if not live:
+        raise HTTPException(status_code=404, detail="Tu negocio aún no tiene plano publicado.")
+    row = await od.floor_row(db, cid)
+    st = {"estilo_escena": row.get("estilo_escena") if row.get("estilo_escena") in cp.SCENE_STYLES else "humano"}
+    return _sized(await cr.engine_payload(db, cid, live["plano"], live["version"], root_of(cid), st), cid)
+
+
+@router.get(BASE + "/r/{company_id}/{sig}/api/catalogo/{name}", include_in_schema=False)
+async def visor_catalogo(company_id: str, sig: str, name: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Modelos importados (bucket privado): solo los publicados que usa el plano en vivo de SU empresa."""
+    from app.services import constructor_plano as cp
+    from app.web import constructor_routes as cr
+
+    data = await viewer_session(request, db, company_id, sig)
+    live = await cp.live_plan(db, data["c"])
+    allowed = {o["asset"] for o in (live or {}).get("plano", {}).get("objetos", [])}
+    item_id, _, ext = name.rpartition(".")
+    resp = await cr.serve_item_file(db, item_id, ext, allowed)
+    l3.count_bytes(data["c"], len(resp.body))
+    return resp
 
 
 @router.get(BASE + "/r/{company_id}/{sig}/api/marca/{floor_id}/logo", include_in_schema=False)

@@ -8,6 +8,7 @@ const ENGINE = {taller: 'taller.js', restaurante: 'restaurante.js', campo: 'camp
 // Qué motor abre el piso (el mismo que en la Oficina 3D de la consola) o null si aún no tiene piso 3D.
 function engineFor(floor) {
   if (!floor) return null;
+  if (floor.plano) return {file: 'plano.js', fn: 'open'};   // Modo constructor: la versión publicada del plano
   if (floor.style === 'bar' && floor.template === 'bar') return {file: 'bar.js', fn: 'openBar'};
   if (floor.style === 'aprobado' && ENGINE[floor.template]) return {file: ENGINE[floor.template], fn: 'open'};
   return null;
