@@ -772,6 +772,13 @@ except Exception as exc:
     import logging
     logging.getLogger("clonexa.admin_v2plus").warning("Oficina no pudo registrarse: %s", exc)
 try:
+    # Modo constructor (fase 1) y Biblioteca 3D: solo consola v2+ (Admin V2).
+    from app.web.constructor_routes import router as constructor_router
+    app.include_router(constructor_router)
+except Exception as exc:
+    import logging
+    logging.getLogger("clonexa.admin_v2plus").warning("Modo constructor no pudo registrarse: %s", exc)
+try:
     # Negocio en vivo 3D (modulo live3d): tarjeta de la consola, acceso del cliente y visor de SU piso.
     from app.web.live3d_routes import router as live3d_router
     app.include_router(live3d_router)

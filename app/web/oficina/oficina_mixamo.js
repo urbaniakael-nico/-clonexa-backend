@@ -271,7 +271,7 @@ export async function openFloor(o, spec) {
   // paredes del piso (y lo pegado a ellas: logos, pantallas, ventanas): se ocultan si quedan entre la cámara y el centro
   const WALLS = {back: [], front: [], left: [], right: []}; const wb = new THREE.Box3();
   S.updateMatrixWorld(true);
-  S.traverse(x => { if (!x.isMesh || x.isSkinnedMesh || x.userData.person || x.userData.personShadow) return; wb.setFromObject(x); if (wb.isEmpty()) return;
+  S.traverse(x => { if (!x.isMesh || x.isSkinnedMesh || x.userData.person || x.userData.personShadow || x.userData.ownCut) return; wb.setFromObject(x); if (wb.isEmpty()) return;
     const side = P.wallSide({min: wb.min.toArray(), max: wb.max.toArray()}, spec.room); if (side) WALLS[side].push(x); });
   let hidden = '';
   function cutaway() { const h = P.wallsToHide(C.position.toArray(), spec.room); const k = Object.keys(h).filter(s => h[s]).join(',');
@@ -345,6 +345,7 @@ export async function openFloor(o, spec) {
     get weight() { return weight(); }, get camera() { return C; }, apply: n => apply(n, !snap),
     rebuild() { people.slice().forEach(dropPerson); if (scene.reset) scene.reset(); if (snap) apply(snap, true); },   // el editor cambió un personaje
     view(pos, look) { const t = new THREE.Vector3(...look), d = new THREE.Vector3(...pos).sub(t); Object.assign(goal, {dist: d.length(), pol: Math.acos(d.y / d.length()), az: Math.atan2(d.x, d.z), tx: t.x, tz: t.z}); Object.assign(cam, goal); T0.y = t.y; },
+    get floorScene() { return scene; },   // piso del Modo constructor: setPlan() para la vista 3D en vivo del borrador
     get cameraState() { return Object.assign({}, cam); }, get limits() { return LIM; }, get hiddenWalls() { return hidden; }, get dragging() { return gestures.dragging; }};
 }
 
