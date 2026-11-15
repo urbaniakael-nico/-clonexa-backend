@@ -63,3 +63,17 @@ Reglas:
 
 Los cuerpos base de Quaternius (CC0) se retiraron del repositorio el 2026-11-11: se veían sin ropa. Ningún piso los usa;
 el piso "realista" vuelve a sus personas hechas en código si se enciende para otra empresa.
+
+## Modo constructor (fase 1)
+
+- **Objetos Clonexa** (114 del catálogo inicial, `app/web/oficina/plano_objetos.js`): geometría generada por código en
+  el navegador (cajas, cilindros, esferas), 0 bytes descargados. Propios de Clonexa.
+- **Modelos Poly Haven** (9 del catálogo inicial): los mismos GLB CC0 de la tabla de arriba (`modelos/*.glb`).
+- **Texturas de paredes y pisos**: las de Poly Haven de la tabla de arriba (ladrillo, concreto, madera, parquet) y
+  patrones dibujados por código en el navegador (ladrillo blanco, listones, azulejo, ajedrez, baldosa, papel tapiz,
+  piedra, deck, césped, alfombra): sin licencia de terceros.
+- **Modelos subidos a la Biblioteca 3D**: bucket privado (`constructor/catalogo/`), nunca en el repositorio. Cada uno
+  guarda licencia, fuente, autor y atribución en `constructor_catalogo`; la página interna "Créditos 3D"
+  (`/admin-v2plus/creditos-3d`) los lista. Sin licencia no se publica.
+- **Poly Haven API**: uso con User-Agent propio (`Clonexa-Constructor/1.0`) y la sección se llama "Buscar en Poly
+  Haven" (crédito pedido por sus condiciones de la API: https://github.com/Poly-Haven/Public-API/blob/master/ToS.md).
