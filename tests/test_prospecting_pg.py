@@ -797,7 +797,9 @@ def test_seguimiento_asistido_unico_a_los_7_dias(client, pg_url):
     assert old and all(o["status"] in ("vencido", "enviado") for o in old), "lo que no se marco vence"
 
 
-def test_endpoints_de_la_cola_para_n8n(client, pg_url):
+def test_endpoints_de_la_cola_para_n8n(client, pg_url, monkeypatch):
+    # dia habil fijo: el fin de semana la cola no arma tarjetas (la prueba fallaba los sabados y domingos)
+    monkeypatch.setattr(ps, "now", lambda: _at(2026, 11, 17, 8, 30).astimezone(timezone.utc))
     _run(pg_url, "UPDATE prospect_settings SET config = '{\"test_recipient\": \"equipo@clonexa.test\"}'::jsonb", fetch=False)
     r = client.post(f"{URL}/n8n/assisted/test", headers=H).json()
     assert r["enviar"] and len(r["items"]) == 6 and r["cabecera"].startswith("🧪")
