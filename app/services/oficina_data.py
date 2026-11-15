@@ -136,8 +136,11 @@ def overnight(cfg: Optional[dict]) -> bool:
 
 
 async def floor_rows(r: Reader) -> dict[str, dict]:
-    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion, quien_ve, roles_ve, modo_tv, liviano FROM oficina_pisos",
-                        tables=("oficina_pisos",))
+    rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion, quien_ve, roles_ve, modo_tv, liviano, "
+                        "usa_plano, estilo_escena FROM oficina_pisos", tables=("oficina_pisos",))
+    if rows is None:  # base sin la migracion 025u (Modo constructor)
+        rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion, quien_ve, roles_ve, modo_tv, liviano FROM oficina_pisos",
+                            tables=("oficina_pisos",))
     if rows is None:  # base sin la migracion 025o (Negocio en vivo 3D)
         rows = await r.rows("SELECT company_id::text AS company_id, orden, plantilla, privacidad, estilo, distribucion FROM oficina_pisos",
                             tables=("oficina_pisos",))
@@ -387,7 +390,17 @@ KPI = {"taller": taller_kpis, "restaurante": restaurante_kpis, "bar": bar_kpis, 
 async def floors(r: Reader, now: datetime) -> list[dict]:
     companies = await registered_companies(r)
     saved = await floor_rows(r)
-    return [await floor_out(r, c, saved.get(c["id"]) or {}, index, now) for index, c in enumerate(order_floors(companies, saved))]
+    plans = await _plans(r, [c["id"] for c in companies])
+    return [await floor_out(r, c, {**(saved.get(c["id"]) or {}), "_plano": plans.get(c["id"])}, index, now) for index, c in enumerate(order_floors(companies, saved))]
+
+
+async def _plans(r: Reader, ids: list[str]) -> dict[str, int]:
+    """Version del plano del constructor en vivo por empresa (solo con oficina_pisos.usa_plano encendido)."""
+    from app.services import constructor_plano as cp
+
+    if not await r.has("constructor_planos"):
+        return {}
+    return await cp.live_versions(r.db, ids)
 
 
 async def floor_for(r: Reader, company_id: str, now: datetime) -> Optional[dict]:
@@ -395,7 +408,8 @@ async def floor_for(r: Reader, company_id: str, now: datetime) -> Optional[dict]
     c = next((x for x in await registered_companies(r) if x["id"] == str(company_id)), None)
     if not c:
         return None
-    return await floor_out(r, c, (await floor_rows(r)).get(c["id"]) or {}, 0, now)
+    plans = await _plans(r, [c["id"]])
+    return await floor_out(r, c, {**((await floor_rows(r)).get(c["id"]) or {}), "_plano": plans.get(c["id"])}, 0, now)
 
 
 async def floor_out(r: Reader, c: dict, row: dict, index: int, now: datetime) -> dict:
@@ -413,7 +427,9 @@ async def floor_out(r: Reader, c: dict, row: dict, index: int, now: datetime) ->
         "template_source": "manual" if row.get("plantilla") else ("auto" if deduced else "sin_deducir"),
         "needs_template": not row.get("plantilla") and not deduced, "privacy": privacy, "order": index,
         "style": style, "style_wanted": row.get("estilo") or "clasico",
-        "brand": await _brand(r, c) if style in ("realista", "bar", "aprobado") else None,
+        # Modo constructor: version del plano publicado que dibuja este piso (None = el piso de siempre)
+        "plano": row.get("_plano"), "estilo_escena": row.get("estilo_escena") if row.get("estilo_escena") in ("humano", "caricatura") else "humano",
+        "brand": await _brand(r, c) if style in ("realista", "bar", "aprobado") or row.get("_plano") else None,
         "kpis": kpis, "lines": lines, "last_activity_at": of.iso(last), "last_activity": of.ago_label(last, now),
         "staff": of.staff_out(shifts or [], template, privacy) if shifts is not None else {"total": None, "visible": [], "extra": 0, "ops": []},
     }
