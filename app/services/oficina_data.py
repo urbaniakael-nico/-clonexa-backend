@@ -396,7 +396,7 @@ async def floors(r: Reader, now: datetime) -> list[dict]:
 
 async def _plans(r: Reader, ids: list[str]) -> dict[str, int]:
     """Version del plano del constructor en vivo por empresa (solo con oficina_pisos.usa_plano encendido)."""
-    from app.services import constructor_plano as cp
+    from app.services import constructor_v2 as cp
 
     if not await r.has("constructor_planos"):
         return {}

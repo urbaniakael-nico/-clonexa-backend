@@ -87,6 +87,7 @@ async function start() {
     return;
   }
   if (load) load.remove();
+  window.__cxVivo = {floor: REAL, R};   // medición (pruebas y FPS con gl.finish)
   paintLite();
   if (boot.lite != null) liteBtn.remove(); else liteBtn.onclick = () => { lite = !lite; REAL.setLite(lite); paintLite(); };
   // modo TV: pantalla completa y sin controles (las etiquetas con los datos siguen); salir con Esc o doble toque

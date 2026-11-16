@@ -72,14 +72,8 @@ ASSETS = {
     "gestos.js": ("oficina/oficina_gestos.js", "application/javascript"),
     "arquitecto.js": ("oficina/oficina_arquitecto.js", "application/javascript"),   # modo arquitecto de los pisos aprobados (live3d)
     "recepcion.js": ("oficina/oficina_recepcion.js", "application/javascript"),   # Recepcion con Nexa (025n)   # gestos de la camara (tactil, pellizco, sin "atras")
-    # Modo constructor (fase 1): motor del plano (mismo motor comun), objetos del catalogo por codigo, reglas puras
+    # Biblioteca 3D: motor del plano publicado (b3d/room.js + b3d/char.js sobre el motor comun)
     "plano.js": ("oficina/oficina_plano.js", "application/javascript"),
-    "plano_objetos.js": ("oficina/plano_objetos.js", "application/javascript"),
-    "constructor.js": ("oficina/constructor.js", "application/javascript"),
-    "constructor_reglas.js": ("oficina/constructor_reglas.js", "application/javascript"),
-    "constructor.css": ("oficina/constructor.css", "text/css"),
-    "constructor_vista.js": ("oficina/constructor_vista.js", "application/javascript"),
-    "biblioteca.js": ("oficina/biblioteca.js", "application/javascript"),
     "logo-simbolo.png": ("oficina/logo-simbolo.png", "image/png"),
     "logo-nombre.png": ("oficina/logo-nombre.png", "image/png"),
 }
@@ -107,6 +101,7 @@ THREE = {
     "examples/jsm/shaders/OutputShader.js",
     "examples/jsm/shaders/PoissonDenoiseShader.js",
     "examples/jsm/utils/SkeletonUtils.js",
+    "examples/jsm/controls/OrbitControls.js",
 }
 RES_DIR = WEB / "oficina" / "recursos"
 RES_TYPES = {"glb": "model/gltf-binary", "webp": "image/webp", "hdr": "application/octet-stream"}
@@ -453,9 +448,9 @@ async def _live_company(db: AsyncSession, company_id: str) -> tuple[dict, dict]:
     row = await od.floor_row(db, c["id"])
     template = _template(c, row)
     if row.get("usa_plano") is True:
-        from app.services import constructor_plano as cp
+        from app.services import constructor_v2 as c2
 
-        live = await cp.live_plan(db, c["id"])
+        live = await c2.live_plan(db, c["id"])
         if live:
             return c, {**row, "_plano": live["version"]}
     if template not in ov.REAL_TEMPLATES and od.floor_style(row, template) != "aprobado":
@@ -533,8 +528,11 @@ async def company_snapshot(db: AsyncSession, c: dict, row: dict) -> dict:
         # modo arquitecto de los pisos aprobados (posiciones guardadas de mesas, maquinas, cabina, pista...)
         snap["arch"] = arch_items(row, template)
         if plano:
+            from app.services import constructor_v2 as c2
+
             snap["plano"] = plano
             snap["estilo_escena"] = row.get("estilo_escena") if row.get("estilo_escena") in ("humano", "caricatura") else "humano"
+            snap["inventory"] = await c2.inventory_live(db, c["id"])   # nevera conectada al inventario real
             snap["rev"] = f"{snap.get('rev', '')}-p{plano}-{snap['estilo_escena']}"
         return snap
     return await l3.shared_live(c["id"] + (":borrador" if row.get("_plano") == "borrador" else ""), build)

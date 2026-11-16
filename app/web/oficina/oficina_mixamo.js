@@ -281,7 +281,7 @@ export async function openFloor(o, spec) {
   ARCH = (snap && snap.arch) || {};
   try { await Promise.race([document.fonts.load('800 46px Inter'), new Promise(r => setTimeout(r, 1500))]); } catch (e) { /* fuente del sistema */ }
   $('[data-load]').textContent = 'Cargando las personas…';
-  try { await loadPeople(); } catch (e) { warn('Personajes no disponibles: el piso se ve sin personas'); }
+  try { if (!spec.ownPeople) await loadPeople(); } catch (e) { warn('Personajes no disponibles: el piso se ve sin personas'); }
   const weight = () => { const st = [...used].reduce((a, f) => a + ((man.files[f] || {}).bytes || 0), 0);
     const mx = peopleOk ? Object.entries((mixMan && mixMan.files) || {}).filter(([f]) => Object.keys(CH).some(n => f === `personajes/${n}.glb`) || [...avail].some(n => f === `animaciones/${n}.glb`)).reduce((a, [, m]) => a + m.bytes, 0) : 0;
     return {static: st, mixamo: mx, total: st + mx}; };

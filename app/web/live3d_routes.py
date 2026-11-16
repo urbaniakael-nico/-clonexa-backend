@@ -49,7 +49,7 @@ ACTOR = "admin_v2"
 # Archivos del motor que el visor del cliente puede pedir (nada del edificio, del piso de Clonexa ni de la recepcion).
 VIEWER_ASSETS = {k: v for k, v in ofr.ASSETS.items() if k in ("app.css", "bar.js", "bar_reglas.js", "mixamo.js", "pisos_reglas.js", "gestos.js",
                                                              "taller.js", "restaurante.js", "campo.js", "arquitecto.js",
-                                                             "plano.js", "plano_objetos.js")}
+                                                             "plano.js")}
 VIEWER_ASSETS["vivo3d.js"] = ("oficina/vivo3d.js", "application/javascript")
 VIEWER_ASSETS["vivo3d.css"] = ("oficina/vivo3d.css", "text/css")
 
@@ -86,9 +86,9 @@ async def card(db: AsyncSession, c: dict) -> dict:
     template = ofr._template(c, row)
     st = l3.settings_of(row)
     style = od.floor_style(row, template)
-    from app.services import constructor_plano as cp
+    from app.services import constructor_v2 as c2
 
-    plan = await cp.live_plan(db, c["id"])
+    plan = await c2.live_plan(db, c["id"])
     return {
         "company_id": c["id"], "name": c["name"], "enabled": await l3.module_enabled(db, c["id"]),
         "template": template, "template_label": of.TEMPLATE_LABEL[template], "noun": l3.NOUN.get(template, "negocio"),
@@ -261,9 +261,9 @@ async def panel(company_id: str, request: Request, authorization: Optional[str] 
         if c:
             row = await od.floor_row(db, cid)
             template = ofr._template(c, row)
-            from app.services import constructor_plano as cp
+            from app.services import constructor_v2 as c2
 
-            if (row.get("usa_plano") is True and await cp.live_plan(db, cid)) or (template in l3.WITH_ENGINE and od.floor_style(row, template) in ("bar", "aprobado")):
+            if (row.get("usa_plano") is True and await c2.live_plan(db, cid)) or (template in l3.WITH_ENGINE and od.floor_style(row, template) in ("bar", "aprobado")):
                 live = {"noun": l3.NOUN.get(template, "negocio"), "template": template, "has_preview": bool(await _preview_bytes(cid))}
     return _json({"ok": True, "classic": classic, "live3d": live})
 
@@ -461,30 +461,29 @@ async def visor_vivo(company_id: str, sig: str, floor_id: str, request: Request,
 @router.get(BASE + "/r/{company_id}/{sig}/api/pisos/{floor_id}/plano", include_in_schema=False)
 async def visor_plano(company_id: str, sig: str, floor_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """El plano PUBLICADO en vivo de SU empresa (nunca el borrador, nunca el de otra empresa)."""
-    from app.services import constructor_plano as cp
+    from app.services import constructor_v2 as c2
     from app.web import constructor_routes as cr
 
     data = await viewer_session(request, db, company_id, sig)
     cid = data["c"]
     if _cid(floor_id) != cid:
         raise _deny(403, "tenant_not_allowed")
-    live = await cp.live_plan(db, cid)
+    live = await c2.live_plan(db, cid, set(await cr._glb(db)))
     if not live:
         raise HTTPException(status_code=404, detail="Tu negocio aún no tiene plano publicado.")
-    row = await od.floor_row(db, cid)
-    st = {"estilo_escena": row.get("estilo_escena") if row.get("estilo_escena") in cp.SCENE_STYLES else "humano"}
+    st = {"estilo_escena": "caricatura" if await c2.style(db, cid) == "toon" else "humano"}
     return _sized(await cr.engine_payload(db, cid, live["plano"], live["version"], root_of(cid), st), cid)
 
 
 @router.get(BASE + "/r/{company_id}/{sig}/api/catalogo/{name}", include_in_schema=False)
 async def visor_catalogo(company_id: str, sig: str, name: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Modelos importados (bucket privado): solo los publicados que usa el plano en vivo de SU empresa."""
-    from app.services import constructor_plano as cp
+    from app.services import constructor_v2 as c2
     from app.web import constructor_routes as cr
 
     data = await viewer_session(request, db, company_id, sig)
-    live = await cp.live_plan(db, data["c"])
-    allowed = {o["asset"] for o in (live or {}).get("plano", {}).get("objetos", [])}
+    live = await c2.live_plan(db, data["c"])
+    allowed = {o["item"] for o in (live or {}).get("plano", {}).get("objects", [])}
     item_id, _, ext = name.rpartition(".")
     resp = await cr.serve_item_file(db, item_id, ext, allowed)
     l3.count_bytes(data["c"], len(resp.body))
@@ -528,6 +527,19 @@ async def visor_guardar_vista(company_id: str, sig: str, request: Request, db: A
         return _json({"ok": False, "skipped": True})
     l3.preview_saved(cid)
     return _json({"ok": True})
+
+
+@router.get(BASE + "/r/{company_id}/{sig}/b3d/{name}", include_in_schema=False)
+async def visor_b3d(company_id: str, sig: str, name: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Módulos del prototipo que dibujan el plano (room.js, char.js, catalog.js, core.js): nunca el guardado de la consola."""
+    from app.web import constructor_routes as cr
+
+    data = await viewer_session(request, db, company_id, sig)
+    if name not in cr.ENGINE_FILES:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    f = ofr.WEB / "oficina" / "b3d" / name
+    l3.count_bytes(data["c"], f.stat().st_size)
+    return v2._no_store(FileResponse(f, media_type="application/javascript"))
 
 
 @router.get(BASE + "/r/{company_id}/{sig}/{name}", include_in_schema=False)
