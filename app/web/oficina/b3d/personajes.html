@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Personajes · Clonexa</title><link rel="stylesheet" href="/admin-v2plus/oficina/b3d/app.css">
+<script type="importmap">{"imports":{"three":"/admin-v2plus/oficina/vendor/three/build/three.module.js","three/addons/":"/admin-v2plus/oficina/vendor/three/examples/jsm/"}}</script>
+<style>
+#team .wrap{padding:24px 34px;max-width:1500px;margin:0 auto}#team h1{font-size:36px;margin:6px 0 4px}.sub{color:#b9b1c7;margin:0 0 18px}
+.flt{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.sc{background:linear-gradient(180deg,#1b1328,#110d18);border:1px solid #2a2238;border-radius:20px;padding:12px;text-align:center;cursor:pointer;transition:.15s}.sc:hover{border-color:#f20b6d;transform:translateY(-2px)}
+.av{height:220px;border-radius:14px;overflow:hidden;background:radial-gradient(circle at 50% 35%,#3a1f4f,#120d1a);display:flex;justify-content:center;align-items:center}.av img{height:100%}
+.sc b{display:block;font-size:17px;margin-top:10px}.sc small{color:#a39cb0;display:block;margin:2px 0 8px}
+.new{border:2px dashed #3b2d55;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cbc5d6;font-weight:800;font-size:16px;gap:6px;background:#0e0b15;min-height:300px;cursor:pointer}.new .p{font-size:46px}
+.uni{margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.uc{background:#120f1a;border:1px solid #2a2238;border-radius:16px;padding:12px;display:flex;gap:10px;align-items:center}.uc .dots{display:flex;gap:4px}.uc i{width:18px;height:18px;border-radius:6px;display:inline-block;border:1px solid #fff3}.uc b{display:block}.uc small{color:#a39cb0;font-size:12px}.uc .acts{margin-left:auto;display:flex;gap:4px}.uc .acts button{background:#1b1626;border:1px solid #2a2238;border-radius:8px;padding:5px 8px;font-size:12px;font-weight:800}
+/* editor */
+#edit{position:fixed;inset:0;display:flex;flex-direction:column}#edit .top{flex:none}
+.st{position:relative;flex:1;min-height:0}#cv{position:absolute;left:0;top:0;width:calc(100% - 600px);height:100%;touch-action:none}
+.ic{position:absolute;left:16px;top:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;overflow:auto}.ic button{width:76px;min-height:68px;border-radius:18px;background:rgba(20,15,30,.88);border:1.5px solid #3a2d50;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:24px;flex:none}.ic small{font-size:10.5px;font-weight:800;color:#cbc5d6;margin-top:2px}.ic .sel{background:#f20b6d;border-color:#f20b6d}.ic .sel small{color:#fff}
+.nm{position:absolute;left:110px;top:16px;padding:8px 12px;display:flex;gap:10px;align-items:center}.nm input{background:transparent;border:0;font-size:18px;font-weight:800;width:200px;padding:0}.nm select{padding:4px 8px}
+.act{position:absolute;left:110px;right:620px;bottom:18px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}.act button{padding:10px 14px;border-radius:12px;background:rgba(20,15,30,.9);border:1px solid #3a2d50;font-weight:800;font-size:13.5px}.act .sel{border-color:#22c55e;color:#bbf7d0}
+.rotb{position:absolute;top:50%;font-size:30px;background:rgba(20,15,30,.7);border:1px solid #3a2d50;border-radius:50%;width:52px;height:52px}
+.pan{position:absolute;right:16px;top:16px;bottom:16px;width:570px;padding:16px;overflow:auto}
+.pan h2{margin:4px 0 10px;font-size:22px}.og{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.o{background:#16121f;border:1.5px solid #2a2238;border-radius:16px;overflow:hidden;text-align:center;font-size:12.5px;font-weight:800;padding:0}.o img{width:100%;height:120px;object-fit:cover;display:block;background:#1a1424}.o span{display:block;padding:6px}.o.sel{border-color:#22c55e;box-shadow:0 0 0 2px #22c55e66}
+.cw{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}.cw button{width:34px;height:34px;border-radius:50%;border:3px solid transparent;padding:0}.cw button.s{border-color:#fff;box-shadow:0 0 0 2px #22c55e}.cw input[type=color]{width:38px;height:34px;padding:0;border-radius:10px}
+.sl{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;color:#cbc5d6}.sl input{flex:1;accent-color:#f20b6d}
+.sec{margin-top:14px}.tg{display:flex;gap:8px;flex-wrap:wrap}.tg button{padding:8px 12px;border-radius:11px;background:#16121f;border:1px solid #2a2238;font-weight:800;font-size:13px}.tg .sel{background:#2e1a3f;border-color:#a855f7}
+.note{font-size:12.5px;color:#a39cb0;margin-top:10px;line-height:1.45}
+@media (max-width:1100px){#cv{width:100%;height:55%}.pan{top:auto;height:44%;left:16px;width:auto}.act{right:16px;bottom:46%}}
+</style></head><body>
+<section id="team"><div class="top"><img src="/admin-v2plus/oficina/logo-nombre.png"><div><div class="t">Personajes del negocio</div><small><span class="cxEmp"></span> · solo consola v2+</small></div>
+<div style="margin-left:auto;display:flex;gap:8px;align-items:center"><a class="pill" href="./">← Biblioteca 3D</a><a class="pill" href="constructor">🏗 Constructor</a><span style="color:#a39cb0;font-size:13px">Estilo:</span><select id="stySel"><option value="human">Humano</option><option value="toon">Caricatura</option></select><button class="pill" id="rndAll">🎲 Crear al azar</button><button class="pill pk" id="newBtn">＋ Nuevo personaje</button></div></div>
+<div class="wrap"><div class="ey">Tu equipo</div><h1>¿A quién vamos a vestir hoy?</h1><p class="sub">Cada persona real del equipo tiene su personaje. Toca una tarjeta para editarla.</p>
+<div class="flt" id="flt"></div><div class="grid" id="grid"></div>
+<div class="ey" style="margin-top:26px">Uniformes por rol · se aplican a todos los del rol (cada uno conserva su pelo y su cara)</div><div class="uni" id="uni"></div></div></section>
+<section id="edit" class="hide"><div class="top"><img src="/admin-v2plus/oficina/logo-nombre.png"><div><div class="t">Editar personaje</div><small id="esub"></small></div><div style="margin-left:auto;display:flex;gap:8px"><button class="pill" id="back">← Equipo</button><button class="pill" id="rnd">🎲 Al azar</button><button class="pill" id="copy">⧉ Copiar a otro</button><button class="pill" id="saveU" title="Guardar la ropa como uniforme">🏷 Guardar como uniforme</button><button class="pill pk" id="save">💾 Guardar</button></div></div>
+<div class="st"><canvas id="cv"></canvas><div class="ic" id="ic"></div>
+<div class="glass nm"><input id="nmIn"><select id="roleIn"></select></div>
+<button class="rotb" id="rl" style="left:110px">⟲</button><button class="rotb" id="rr" style="right:620px">⟳</button>
+<div class="act" id="act"></div><div class="glass pan" id="pan"></div></div></section>
+<div class="modal" id="copyM"><div class="box" style="width:440px"><h3 style="margin-top:0">Copiar este look a…</h3><div id="copyL" style="display:grid;gap:8px"></div><label style="display:flex;gap:8px;margin-top:10px;font-size:13px"><input type="checkbox" id="copyKeep" checked> Conservar su pelo y su cara</label><button class="pill" style="margin-top:12px" data-close>Cerrar</button></div></div>
+<script type="module" src="/admin-v2plus/oficina/b3d/people.js"></script></body></html>

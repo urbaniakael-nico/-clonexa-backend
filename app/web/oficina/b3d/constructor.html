@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modo constructor · Clonexa</title><link rel="stylesheet" href="/admin-v2plus/oficina/b3d/app.css">
+<script type="importmap">{"imports":{"three":"/admin-v2plus/oficina/vendor/three/build/three.module.js","three/addons/":"/admin-v2plus/oficina/vendor/three/examples/jsm/"}}</script>
+<style>
+/* ---------- inicio */
+#start .wrap{padding:26px 34px;max-width:1500px;margin:0 auto}#start h1{font-size:40px;margin:6px 0 4px}.sub{color:#b9b1c7;font-size:16px;margin:0 0 20px}
+.strow{display:flex;gap:16px;align-items:center;margin-bottom:22px;flex-wrap:wrap}.sty{display:flex;gap:8px}.sty button{display:flex;align-items:center;gap:10px;padding:8px 14px 8px 8px;border-radius:14px;border:1.5px solid #2a2238;background:#120f1a;font-weight:800}.sty canvas,.sty img{width:64px;height:40px;object-fit:cover;border-radius:8px;background:#222}.sty .sel{border-color:#f20b6d;background:#2a0f20}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}.tc{background:#120f1a;border:1px solid #2a2238;border-radius:20px;overflow:hidden;padding-bottom:12px;cursor:pointer;transition:.15s}.tc:hover{border-color:#f20b6d;transform:translateY(-2px)}
+.tc .im{position:relative;height:180px;background:#1a1424}.tc img{width:100%;height:100%;object-fit:cover}.tc b{display:block;font-size:18px;margin:12px 14px 2px}.tc small{color:#a39cb0;margin:0 14px;font-size:13px}.use{position:absolute;right:10px;bottom:10px;background:#f20b6d;padding:7px 11px;border-radius:10px;font-size:12px;font-weight:800}
+.blank{display:flex;flex-direction:column;justify-content:center;align-items:center;border:2px dashed #3b2d55;background:#0e0b15;border-radius:20px;padding:18px;text-align:center;gap:6px}.blank .big{font-size:44px}.blank input{width:84px}
+.dc{display:flex;gap:12px;background:#120f1a;border:1px solid #2a2238;border-radius:16px;padding:10px;cursor:pointer;align-items:center}.dc:hover{border-color:#a855f7}.dc img{width:130px;height:76px;object-fit:cover;border-radius:10px;background:#1a1424}.dc b{display:block}.dc small{color:#a39cb0;font-size:12px;display:block}
+.dc .x{margin-left:auto;background:none;border:0;color:#a39cb0;font-size:18px}
+/* ---------- editor */
+#editor{position:fixed;inset:0}#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;outline:none}
+.tb{position:absolute;top:12px;left:12px;right:12px;display:flex;gap:10px;align-items:center;pointer-events:none}.tb>*{pointer-events:auto}
+.g1{display:flex;align-items:center;gap:10px;padding:7px 12px}.g1 img{height:18px}.g1 input{background:transparent;border:0;font-weight:800;width:170px;padding:2px}.g1 .st{color:#86efac;font-size:12px;white-space:nowrap}
+.modes{display:flex;gap:4px;padding:5px;margin:0 auto}.modes button{padding:9px 14px;border-radius:11px;font-weight:800;font-size:14px;color:#cbc5d6;background:none;border:0}.modes .sel{background:#f20b6d;color:#fff}
+.tools{display:flex;gap:4px;padding:5px}.tools button{width:38px;height:38px;border-radius:10px;font-size:17px;background:#1b1626;border:0;color:#fff}.tools button:hover{background:#2e1a3f}.tools button:disabled{opacity:.35}
+.hint{position:absolute;left:12px;top:74px;padding:8px 12px;font-size:12.5px;color:#cbc5d6;max-width:520px}
+.mini{position:absolute;top:74px;right:12px;width:230px;padding:10px}.mini canvas{width:100%;display:block;border-radius:8px;cursor:pointer}
+.prop{position:absolute;right:12px;top:260px;width:290px;padding:14px;max-height:calc(100vh - 470px);overflow:auto;z-index:2}.prop h3{margin:2px 0 8px;font-size:17px}.prop .lbl{font-size:12px;color:#a39cb0;margin:10px 0 5px}
+.btns{display:flex;gap:6px}.btns button{flex:1;text-align:center;padding:9px 4px;border-radius:10px;background:#1b1626;border:1px solid #2a2238;font-size:12.5px;font-weight:800}
+.link{margin-top:10px;background:#052e1a;border:1px solid #166534;border-radius:12px;padding:9px 10px;font-size:12.5px;color:#bbf7d0}.link select{width:100%;margin-top:6px}.warn{background:#3b0a0a;border:1px solid #ef4444;color:#fecaca;border-radius:12px;padding:8px 10px;font-size:12.5px;margin-top:10px}
+.dock{position:absolute;left:12px;right:12px;bottom:12px;padding:12px 14px}.cats{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px}.cats button{padding:8px 12px;border-radius:11px;background:#1b1626;border:1px solid #2a2238;font-size:13px;font-weight:800;white-space:nowrap}.cats .sel{background:#f20b6d;border-color:#f20b6d}
+.strip{display:flex;gap:9px;overflow-x:auto;padding-bottom:4px}.it{width:118px;flex:none;background:#14101c;border:1.5px solid #2a2238;border-radius:14px;overflow:hidden;text-align:center;font-size:12px;font-weight:700;color:#e9e3f3;cursor:grab;user-select:none;padding:0}.it:hover{border-color:#a855f7}.it img{width:100%;height:92px;object-fit:cover;display:block;background:#1a1424;pointer-events:none}.it span{display:block;padding:6px 4px}.it.sel{border-color:#22c55e;box-shadow:0 0 0 2px #22c55e66}
+.mats{display:flex;gap:9px;overflow-x:auto}.mt{width:104px;flex:none;border-radius:12px;border:2px solid #2a2238;overflow:hidden;text-align:center;font-size:11.5px;font-weight:700;background:#14101c;padding:0}.mt canvas{width:100%;height:62px;display:block}.mt span{display:block;padding:5px 3px}.mt.sel{border-color:#22c55e}
+.row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.row label{font-size:13px;color:#cbc5d6;display:flex;gap:8px;align-items:center}
+.handles{position:absolute;display:flex;gap:6px;transform:translate(-50%,-100%);pointer-events:auto}.handles button{width:34px;height:34px;border-radius:50%;background:#38bdf8;border:0;color:#0b0911;font-weight:900;font-size:15px;box-shadow:0 4px 12px #0008}
+.badge{position:absolute;transform:translate(-50%,-100%);padding:4px 8px;border-radius:8px;font-size:11.5px;font-weight:800;white-space:nowrap;pointer-events:none}.badge.ok{background:#052e1aee;border:1px solid #22c55e;color:#bbf7d0}.badge.no{background:#3a2a05ee;border:1px solid #f59e0b;color:#fde68a}
+.team{display:flex;gap:9px;overflow-x:auto}.tm{width:120px;flex:none;background:#14101c;border:1.5px solid #2a2238;border-radius:14px;overflow:hidden;text-align:center;font-size:12px;font-weight:700;padding:0}.tm img{width:100%;height:100px;object-fit:cover;background:#1a1424;display:block}.tm span{display:block;padding:5px 3px}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lib .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.lib .fd{background:#16121f;border:1.5px solid #2a2238;border-radius:16px;padding:14px;text-align:left;font-weight:800}.lib .fd small{display:block;color:#a39cb0;font-weight:600;margin-top:4px}.lib .fd.sel{border-color:#f20b6d}
+.lib .items{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:14px}
+.steps{display:flex;gap:8px;margin:10px 0}.steps span{flex:1;padding:8px;border-radius:10px;background:#16121f;border:1px solid #2a2238;font-size:12.5px;font-weight:800;text-align:center}.steps .sel{border-color:#f20b6d;background:#2a0f20}
+@media (max-width:900px){.modes button{padding:8px 8px;font-size:12px}.prop{top:auto;bottom:200px;max-height:40vh}.mini{display:none}.hint{display:none}}
+</style></head><body>
+<!-- ================= INICIO ================= -->
+<section id="start"><div class="top"><img src="/admin-v2plus/oficina/logo-nombre.png"><div><div class="t">Diseña tu negocio</div><small><span class="cxEmp"></span> · solo consola v2+</small></div>
+<div style="margin-left:auto;display:flex;gap:8px"><a class="pill" href="./">← Biblioteca 3D</a><label class="pill">⬆ Importar plano<input id="impFile" type="file" accept=".json" hidden></label><button class="pill" id="libBtn">📚 Biblioteca</button></div></div>
+<div class="wrap"><div class="ey">Paso 1 · ¿Cómo empezamos?</div><h1>Elige una plantilla y hazla tuya</h1><p class="sub">Todo se puede mover, pintar y cambiar después. Arranca rápido con un local ya armado o desde cero.</p>
+<div class="strow"><b style="color:#b9b1c7">Estilo de la empresa:</b><div class="sty" id="styPick"></div></div>
+<div class="grid" id="tpls"></div>
+<div style="margin-top:26px" id="mineWrap"><div class="ey">Tus diseños</div><div class="grid" id="mine" style="margin-top:10px"></div></div></div></section>
+<!-- ================= EDITOR ================= -->
+<section id="editor" class="hide"><canvas id="cv" tabindex="0"></canvas><div id="labels"></div>
+<div class="tb"><div class="glass g1"><img src="/admin-v2plus/oficina/logo-nombre.png"><input id="nameIn"><span class="st" id="saveSt">● guardado</span></div>
+<div class="glass modes" id="modes"><button data-m="construir">🧱 Construir</button><button data-m="amueblar">🛋️ Amueblar</button><button data-m="pintar">🎨 Pintar</button><button data-m="personajes">🧍 Personajes</button><button data-m="conectar">🔗 Conectar</button></div>
+<div class="glass tools"><button id="tRot" title="Girar 45° (R)">⟲</button><button id="tDup" title="Duplicar (Ctrl+D)">⧉</button><button id="tDel" title="Borrar (Supr)">🗑</button><button id="tUndo" title="Deshacer (Ctrl+Z)">↶</button><button id="tRedo" title="Rehacer (Ctrl+Y)">↷</button><button id="tView" title="Centrar vista">🎯</button><button id="tWalls" title="Ver / ocultar paredes del frente">🧱</button></div>
+<select id="styleSel" class="glass" title="Estilo de la empresa"><option value="human">Humano</option><option value="toon">Caricatura</option></select>
+<button class="pill" id="menuBtn">☰</button><button class="pill pk" id="pubBtn">🚀 Publicar en vivo</button></div>
+<div class="glass hint" id="hint"></div>
+<div class="glass mini"><div class="ey" style="margin-bottom:6px">Mapa · toca para mover la vista</div><canvas id="map" width="460" height="320"></canvas></div>
+<div class="glass prop hide" id="prop"></div>
+<div class="glass dock" id="dock"></div>
+<div id="handles" class="handles hide"><button id="hRot">⟲</button><button id="hDup">⧉</button><button id="hDel">🗑</button></div></section>
+<!-- menú -->
+<div class="modal" id="menu"><div class="box" style="width:420px"><h2 style="margin-top:0">Diseño</h2><div style="display:grid;gap:8px">
+<button class="pill" id="mVersions">🕘 Versiones</button><button class="pill" id="mExport">⬇ Exportar plano (.json)</button><label class="pill">⬆ Importar plano<input id="impFile2" type="file" accept=".json" hidden></label><button class="pill" id="mHome">🏠 Volver a plantillas</button><button class="pill" id="mPeople">🧍 Editor de personajes</button><button class="pill" id="mClose">Cerrar</button></div></div></div>
+<div class="modal" id="versions"><div class="box" style="width:560px"><h2 style="margin-top:0">Versiones</h2><div id="verList" style="display:grid;gap:8px"></div><button class="pill" style="margin-top:12px" data-close>Cerrar</button></div></div>
+<!-- biblioteca -->
+<div class="modal lib" id="lib"><div class="box"><div style="display:flex;align-items:center;gap:10px"><h2 style="margin:0">📚 Biblioteca 3D</h2><input id="libQ" type="text" placeholder="Buscar: nevera, mesa, neón…" style="margin-left:auto;width:260px"><button class="pill pk" id="upBtn">＋ Subir modelo</button><button class="pill" data-close>Cerrar</button></div>
+<p style="color:#a39cb0;margin:8px 0 14px">Todo lo que aparece en el catálogo del constructor, ordenado en carpetas. <a href="#" id="credLink" style="color:#a78bfa">Créditos y licencias</a></p>
+<div class="folders" id="folders"></div><div class="items" id="libItems"></div>
+<div id="upWiz" class="hide" style="margin-top:16px;border-top:1px solid #2a2238;padding-top:14px"><div class="steps"><span id="st1" class="sel">1 · Archivo</span><span id="st2">2 · Carpeta y medida</span><span id="st3">3 · Licencia</span></div>
+<div id="w1"><p>Sube un modelo <b>.glb</b> (en Clonexa también FBX, OBJ y ZIP: se convierten solos).</p><input type="file" id="glbIn" accept=".glb"><div id="w1prev" style="margin-top:10px"></div></div>
+<div id="w2" class="hide"><div class="row"><label>Nombre <input type="text" id="wName"></label><label>Carpeta <select id="wCat"></select></label><label>Alto real (m) <input type="number" id="wH" value="1" step=".1" min=".1" style="width:80px"></label></div></div>
+<div id="w3" class="hide"><div class="row"><label>Licencia <select id="wLic"><option value="">— Elige —</option><option>CC0</option><option>CC-BY (con atribución)</option><option>Propia</option></select></label><label>Fuente <input type="text" id="wSrc" placeholder="https://…" style="width:280px"></label></div></div>
+<div style="margin-top:12px;display:flex;gap:8px"><button class="pill" id="wBack">← Atrás</button><button class="pill pk" id="wNext">Siguiente →</button></div></div>
+<div id="creds" class="hide" style="margin-top:14px;font-size:13px;color:#cbc5d6"></div></div></div>
+<script type="module" src="/admin-v2plus/oficina/b3d/editor.js"></script></body></html>
