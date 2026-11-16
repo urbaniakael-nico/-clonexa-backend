@@ -348,6 +348,7 @@ def test_three_es_la_copia_fija_0_160_0():
         "examples/jsm/shaders/PoissonDenoiseShader.js": "3dab419b23529f8fd59e2713458502f9f51d2dd3af3e1285dc671fcc451d49fb",
         "examples/jsm/utils/BufferGeometryUtils.js": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb",
         "examples/jsm/utils/SkeletonUtils.js": "83748c5072a5ce96e9d68d8efda908a1f1a06c0b5fd2618edc3e54a361a8fd5b",
+        "examples/jsm/controls/OrbitControls.js": "5a44a9e86a2a0fb11933eed69bc2cd33c76a496854c1aed6ed776efa87d7b064",   # Biblioteca 3D (editor y personajes)
     }
     from app.web import oficina_routes as routes
 

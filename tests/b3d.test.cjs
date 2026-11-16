@@ -13,6 +13,8 @@ const OF = path.join(ROOT, 'app', 'web', 'oficina');
 const B3D = path.join(OF, 'b3d');
 const read = (f) => fs.readFileSync(f, 'utf8');
 const plain = (x) => JSON.parse(JSON.stringify(x));
+// espera a que el servidor simulado reciba lo esperado (Linux sin GPU es más lento: nada de esperas fijas)
+async function until(fn, secs = 30) { for (let i = 0; i < secs * 5; i++) { if (fn()) return true; await H.sleep(200); } return false; }
 
 test('el catálogo del servidor (constructor_v2.ITEMS) y el del navegador (catalog.js) dicen lo mismo', () => {
   const js = read(path.join(B3D, 'catalog.js'));
@@ -114,13 +116,11 @@ test('Chrome: constructor guarda por empresa, conecta con datos reales y publica
       assert.ok(JSON.parse(conns).includes('mesa:Mesa 1') && JSON.parse(conns).includes('caja:caja-1'), 'la plantilla queda conectada a las entidades reales: ' + conns);
       const n = await b.evaluate("(() => { __cx.placeItem('sofa', 0, 0, 0); return __cx.plan.objects.length; })()");
       await b.waitFor(`(${JSON.stringify(srv.log.length)} >= 0) && true`);
-      await H.sleep(1500);
-      const put = srv.log.filter((l) => l.method === 'PUT' && /\/disenos\//.test(l.path)).pop();
-      assert.ok(put && put.json.plan.objects.length === n, 'autoguardado con el plano del prototipo');
-      await b.evaluate("document.querySelector('#pubBtn').click(); true"); await H.sleep(1200);
-      assert.ok(srv.log.some((l) => l.method === 'POST' && /\/publicar$/.test(l.path)), 'Publicar en vivo');
-      await b.evaluate("document.querySelector('#menuBtn').click(); document.querySelector('#mVersions').click(); true"); await H.sleep(800);
-      assert.ok((await b.evaluate("document.querySelector('#verList').textContent")).includes('Versión 1'));
+      assert.ok(await until(() => srv.log.some((l) => l.method === 'PUT' && /\/disenos\//.test(l.path) && l.json.plan.objects.length === n)), 'autoguardado con el plano del prototipo');
+      await b.evaluate("document.querySelector('#pubBtn').click(); true"); 
+      assert.ok(await until(() => srv.log.some((l) => l.method === 'POST' && /\/publicar$/.test(l.path))), 'Publicar en vivo');
+      await b.evaluate("document.querySelector('#menuBtn').click(); document.querySelector('#mVersions').click(); true");
+      await b.waitFor("document.querySelector('#verList').textContent.includes('Versión 1')", 30);
       assert.deepEqual(b.errors, [], style + ' sin errores');
       assert.ok((await b.evaluate('JSON.stringify(__cx.bench(5))')).includes('"objects"'));
     } finally { b.close(); srv.server.close(); }
@@ -137,23 +137,23 @@ test('Chrome: personajes (equipo real, editor, guardar y uniforme) e inicio (emp
     await b.waitFor("!document.querySelector('#edit').classList.contains('hide')");
     assert.deepEqual(JSON.parse(await b.evaluate("JSON.stringify([...document.querySelectorAll('#ic small')].map(x => x.textContent))")), ['Persona', 'Piel', 'Pelo', 'Barba', 'Arriba', 'Abajo', 'Zapatos', 'Uniforme'], 'Humano: sin Accesorios');
     await b.evaluate("document.querySelector('#ic [data-t=arriba]').click(); document.querySelector('#pan .cw button').click(); document.querySelector('#save').click(); true");
-    await H.sleep(1200);
-    assert.ok(srv.log.some((l) => l.method === 'PUT' && /\/equipo\/[0-9a-f]{12}$/.test(l.path) && l.json.custom === true), 'guardar el personaje');
+    
+    assert.ok(await until(() => srv.log.some((l) => l.method === 'PUT' && /\/equipo\/[0-9a-f]{12}$/.test(l.path) && l.json.custom === true)), 'guardar el personaje');
     await b.evaluate("document.querySelector('#back').click(); true"); await H.sleep(500);
-    await b.evaluate("document.querySelector('[data-ap]').click(); true"); await H.sleep(1200);
-    assert.ok(srv.log.some((l) => l.method === 'PUT' && /\/equipo\//.test(l.path) && l.json.uniform === 'u-barra'), 'Aplicar uniforme a su área');
-    await b.evaluate("document.querySelector('#stySel').value = 'toon'; document.querySelector('#stySel').dispatchEvent(new Event('change')); true"); await H.sleep(600);
-    assert.ok(srv.log.some((l) => l.path.endsWith('/estilo') && l.json.style === 'toon'));
-    await b.evaluate("document.querySelector('#grid .sc').click(); true"); await H.sleep(800);
-    assert.ok((await b.evaluate("[...document.querySelectorAll('#ic small')].map(x => x.textContent).join()")).includes('Accesorios'), 'Caricatura: con Accesorios');
+    await b.evaluate("document.querySelector('[data-ap]').click(); true"); 
+    assert.ok(await until(() => srv.log.some((l) => l.method === 'PUT' && /\/equipo\//.test(l.path) && l.json.uniform === 'u-barra')), 'Aplicar uniforme a su área');
+    await b.evaluate("document.querySelector('#stySel').value = 'toon'; document.querySelector('#stySel').dispatchEvent(new Event('change')); true"); 
+    assert.ok(await until(() => srv.log.some((l) => l.path.endsWith('/estilo') && l.json.style === 'toon')));
+    await b.evaluate("document.querySelector('#grid .sc').click(); true");
+    assert.ok(await b.waitFor("[...document.querySelectorAll('#ic small')].map(x => x.textContent).join().includes('Accesorios')", 30), 'Caricatura: con Accesorios');
     await b.go(`${srv.url}/admin-v2plus/biblioteca3d/?empresa=${cid}`);
     await b.waitFor("document.querySelectorAll('.ec button').length === 2", 60);
     assert.equal(await b.evaluate("document.querySelectorAll('#br input[disabled]').length"), 4, 'Estudio de marca de solo lectura');
     assert.ok((await b.evaluate("document.querySelector('a[data-to=personajes]').getAttribute('href')")).includes('empresa=' + cid), 'la empresa viaja');
-    await b.evaluate("document.querySelector('#apply').click(); true"); await H.sleep(1200);
-    assert.ok(srv.log.some((l) => l.method === 'POST' && l.path.endsWith('/aplicar-marca')));
-    await b.evaluate("document.querySelectorAll('.ec button')[1].click(); true"); await H.sleep(1200);
-    assert.ok((await b.evaluate('location.search')).includes(H.COMPANIES[1].id));
+    await b.evaluate("document.querySelector('#apply').click(); true"); 
+    assert.ok(await until(() => srv.log.some((l) => l.method === 'POST' && l.path.endsWith('/aplicar-marca'))));
+    await b.evaluate("document.querySelectorAll('.ec button')[1].click(); true");
+    await b.waitFor(`location.search.includes('${H.COMPANIES[1].id}')`, 30);
     assert.deepEqual(b.errors, []);
   } finally { b.close(); srv.server.close(); }
 });
@@ -163,7 +163,8 @@ test('Chrome: visor del cliente dibuja el plano publicado de 150 objetos con roo
   for (const style of ['humano', 'caricatura']) {
     const v = await H.serveViewer({ style }); const b = await H.launch({ width: 1280, height: 720 });
     try {
-      await b.go(v.url); await b.waitFor('!!(window.__cxVivo && window.__cxVivo.floor)', 120); await H.sleep(6000);
+      await b.go(v.url); await b.waitFor('!!(window.__cxVivo && window.__cxVivo.floor)', 120);
+      await b.waitFor("document.querySelector('#barTags').textContent.includes('Andrés P.') && document.querySelectorAll('#barTags .tg').length >= 3", 90); await H.sleep(1500);
       out[style] = JSON.parse(await b.evaluate(`(() => { const {floor, R} = window.__cxVivo; const gl = R.getContext(); const t0 = performance.now(); for (let i = 0; i < 5; i++) floor.tick(); gl.finish();
         let objs = 0, people = 0; floor.scene.traverse(x => { if (x.isGroup && x.userData.objId) objs++; }); floor.scene.children.forEach(g => { let p = false; g.traverse(x => { if (x.userData.person) p = true; }); if (p) people++; });
         return JSON.stringify({ms: (performance.now() - t0) / 5, objs, people, chip: document.querySelector('[data-biz]').textContent, tags: [...document.querySelectorAll('#barTags .tg')].map(t => t.textContent).join('|')}); })()`));
