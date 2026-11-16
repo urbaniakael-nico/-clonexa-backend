@@ -26,6 +26,8 @@ export function buildRoom(plan, opts = {}) {
   }
   // aberturas
   (plan.openings || []).forEach(o => G.add(buildOpening(plan, o)));
+  // muros interiores (divisiones)
+  (plan.inner || []).forEach(iw => G.add(buildInner(iw, h)));
   // objetos
   const objs = new THREE.Group(); G.add(objs);
   let lights = 0;
@@ -76,3 +78,26 @@ export function collisions(plan) {
   for (let i = 0; i < fs.length; i++) for (let j = i + 1; j < fs.length; j++) { const a = fs[i][1], b = fs[j][1]; if (a.x0 < b.x1 - .05 && a.x1 > b.x0 + .05 && a.z0 < b.z1 - .05 && a.z1 > b.z0 + .05) { out.add(fs[i][0].id); out.add(fs[j][0].id); } }
   return out;
 }
+
+// ---------- MUROS INTERIORES: {id,x1,z1,x2,z2,kind:'alto'|'media'|'vidrio', h, t, mat, color, door:{pos,width,type:'hueco'|'puerta'|'vidrio'}}
+export const INNER_KINDS = { alto: { name: 'Muro completo', h: null }, media: { name: 'Media pared', h: 1.1 }, vidrio: { name: 'Muro de vidrio', h: null } };
+export function innerLen(iw) { return Math.hypot(iw.x2 - iw.x1, iw.z2 - iw.z1); }
+export function buildInner(iw, roomH = 3.4) {
+  const g = new THREE.Group(); g.userData.innerId = iw.id;
+  const L = innerLen(iw); if (L < .05) return g;
+  const H = iw.kind === 'media' ? (iw.h || 1.1) : (iw.h || roomH), T = iw.t || .12;
+  g.position.set((iw.x1 + iw.x2) / 2, 0, (iw.z1 + iw.z2) / 2); g.rotation.y = -Math.atan2(iw.z2 - iw.z1, iw.x2 - iw.x1);
+  const glass = iw.kind === 'vidrio';
+  const M = glass ? (Style.toon() ? new THREE.MeshToonMaterial({ color: iw.color || '#9bd8ff', transparent: true, opacity: .35 }) : new THREE.MeshPhysicalMaterial({ color: iw.color || '#bfe6ff', transparent: true, opacity: .3, roughness: .05 })) : wallMaterial(iw.mat || 'pintura', iw.color, L, H);
+  const seg = (a, b, y0, y1) => { if (b - a < .02 || y1 - y0 < .02) return; const m = new THREE.Mesh(new THREE.BoxGeometry(b - a, y1 - y0, T), M); m.position.set((a + b) / 2 - L / 2, (y0 + y1) / 2, 0); m.castShadow = !glass; m.receiveShadow = true; m.userData.surface = { type: 'inner', id: iw.id }; m.userData.innerId = iw.id; g.add(m); if (Style.toon() && !glass) { const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0x140c1f })); m.add(e); } };
+  if (glass) { const fr = mat('#1b1622', { roughness: .4 }); [[0, H - .03], [0, .03]].forEach(([_, y]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(L, .06, T + .02), fr); b.position.set(0, y, 0); b.userData.innerId = iw.id; b.userData.surface = { type: 'inner', id: iw.id }; g.add(b); }); }
+  const d = iw.door;
+  if (d && L > (d.width || .9) + .2) {
+    const dw = d.width || .9, c = clamp01(d.pos ?? .5) * (L - dw) + dw / 2, dh = Math.min(2.1, H);
+    seg(0, c - dw / 2, 0, H); seg(c + dw / 2, L, 0, H); if (H > dh + .05) seg(c - dw / 2, c + dw / 2, dh, H);
+    if (d.type !== 'hueco') { const pm = d.type === 'vidrio' ? new THREE.MeshStandardMaterial({ color: 0xbfe6ff, transparent: true, opacity: .5 }) : mat(d.color || '#5b3a26'); const p = new THREE.Mesh(new THREE.BoxGeometry(dw - .04, dh - .02, .04), pm); p.position.set(c - L / 2, dh / 2, 0); p.userData.innerId = iw.id; g.add(p); }
+    const fr = mat('#1b1622'); [[c - dw / 2, 0], [c + dw / 2, 0]].forEach(([x]) => { const f = new THREE.Mesh(new THREE.BoxGeometry(.05, dh, T + .02), fr); f.position.set(x - L / 2, dh / 2, 0); f.userData.innerId = iw.id; g.add(f); });
+  } else seg(0, L, 0, H);
+  return g;
+}
+const clamp01 = v => Math.max(0, Math.min(1, v));

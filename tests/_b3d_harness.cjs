@@ -123,8 +123,10 @@ function bigPlan(n = 150) {
   }
   objects.push({ id: 'desk', item: 'escritorio', x: 13, z: 9, rot: 0, conn: 'emp:' + hex(0xa1) });
   const people = [{ id: 'p1', pid: hex(0xa2), x: 0, z: 9, rot: 180, clip: 'work' }];
+  const inner = [{ id: 'm1', x1: -15, z1: 5, x2: -5, z2: 5, kind: 'alto', mat: 'azulejo', color: '#ffffff', door: { pos: .5, width: .9, type: 'puerta' } },
+    { id: 'm2', x1: 5, z1: -10, x2: 5, z2: -4, kind: 'vidrio', color: '#bfe6ff', door: null }, { id: 'm3', x1: 8, z1: 6, x2: 12, z2: 6, kind: 'media', h: 1.1, door: { pos: .2, width: 1, type: 'hueco' } }];
   return { name: 'Prueba', room: { w: W, d: D, h: 3.4 }, floor: { mat: 'madera_oscura', color: '#5b3a26' }, walls: { n: { mat: 'ladrillo', color: '#8a4130' }, s: { mat: 'ladrillo', color: '#8a4130' }, e: { mat: 'pintura', color: '#e7e2f0' }, w: { mat: 'ladrillo', color: '#8a4130' } },
-    openings: [{ id: 'a1', wall: 's', pos: .5, type: 'puerta_doble' }, { id: 'a2', wall: 'n', pos: .3, type: 'ventanal' }], objects, people };
+    openings: [{ id: 'a1', wall: 's', pos: .5, type: 'puerta_doble' }, { id: 'a2', wall: 'n', pos: .3, type: 'ventanal' }], inner, objects, people };
 }
 function serveViewer(opts = {}) {
   const style = opts.style || 'humano'; const plan = opts.plan || bigPlan(opts.n || 150);

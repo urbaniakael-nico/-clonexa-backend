@@ -157,13 +157,19 @@ def test_autoguardado_validacion_publicar_versiones_y_borrar(client, cdb):
            _plan(objects=[{"id": "x", "item": "sofa", "x": 0, "z": 0, "rot": 0, "conn": "mesa:Mesa 1"}]),
            _plan(objects=[{"id": "x", "item": "mesa_2", "x": 0, "z": 0, "rot": 0, "conn": "mesa:Mesa 1"}, {"id": "y", "item": "mesa_alta", "x": 2, "z": 0, "rot": 0, "conn": "mesa:Mesa 1"}]),
            _plan(objects=[{"id": "x", "item": "mesa_2", "x": 0, "z": 0, "rot": 0, "conn": "caja:caja-1"}]),
-           _plan(room={"w": 400, "d": 10, "h": 3}), _plan(floor={"mat": "oro", "color": "#ffffff"}), _plan(people=[{"id": "p", "pid": "Laura", "x": 0, "z": 0, "rot": 0, "clip": "idle"}])]
+           _plan(room={"w": 400, "d": 10, "h": 3}), _plan(inner=[{"id": "m", "x1": 0, "z1": 0, "x2": 3, "z2": 0, "kind": "torre"}]),
+           _plan(inner=[{"id": "m", "x1": 0, "z1": 0, "x2": 3, "z2": 0, "kind": "alto", "door": {"pos": .5, "width": .9, "type": "portal"}}]), _plan(floor={"mat": "oro", "color": "#ffffff"}), _plan(people=[{"id": "p", "pid": "Laura", "x": 0, "z": 0, "rot": 0, "clip": "idle"}])]
     for b in bad:
         assert _save(client, TTM, "d1", b).status_code == 422, b["objects"][:1]
     assert client.put(f"{B}/empresas/{TTM}/disenos/d1", json={"plan": _plan(), "thumb": "data:image/jpeg;base64,PGh0bWw+"}).status_code == 422
     st = _state(client, TTM)
     assert [d["id"] for d in st["designs"]] == ["d1"] and st["designs"][0]["version"] == 0 and not st["designs"][0]["live"]
     assert st["designs"][0]["plan"]["objects"][0]["conn"] == "mesa:Mesa 1"
+    muros = [{"id": "m1", "x1": -3, "z1": 0, "x2": 2, "z2": 0, "kind": "alto", "mat": "ladrillo", "color": "#8a4130", "door": {"pos": .3, "width": .9, "type": "puerta"}},
+             {"id": "m2", "x1": 4, "z1": -4, "x2": 4, "z2": 0, "kind": "vidrio", "color": "#bfe6ff", "door": None},
+             {"id": "m3", "x1": 0, "z1": 3, "x2": 3, "z2": 3, "kind": "media", "h": 1.1, "door": None}]
+    assert _save(client, TTM, "d1", _plan(inner=muros)).status_code == 200
+    assert [w["kind"] for w in _state(client, TTM)["designs"][0]["plan"]["inner"]] == ["alto", "vidrio", "media"], "campo inner guardado"
     # publicar en vivo: versión 1, interruptor de ESA empresa
     assert client.post(f"{B}/empresas/{TTM}/disenos/d1/publicar").json()["version"] == 1
     p2 = _plan(name="Mi bar 2")
@@ -317,10 +323,27 @@ def test_migracion_convierte_planos_de_la_fase_1(client, cdb):
     assert objs["o1"]["conn"] == "mesa:Mesa 2" and objs["o2"]["conn"] == "emp:" + c2.person_key("emp-1")
     assert objs["o3"]["text"] == "Night Bar" and objs["o4"]["item"] == "barril", "Poly Haven conserva su id"
     assert "o5" not in objs, "lo que no existe en el catálogo nuevo se deja fuera"
+    assert p["inner"] == [{"id": "w5", "x1": -5.0, "z1": -5.0, "x2": -5.0, "z2": -1.0, "kind": "vidrio", "door": None, "t": 0.1, "color": "#ffffff"}], "las paredes interiores no se pierden"
     assert objs["o6"]["conn"] == "pantalla:comandas" and objs["o6"]["screen"] == "Comandas en cocina"
     st = _state(client, ASADERO)
     assert st["designs"][0]["id"] == "principal" and st["designs"][0]["live"] and st["designs"][0]["version"] == 1
     assert client.get(f"{API}/pisos/{ASADERO}/plano").json()["version"] == 1
+
+
+def test_025w_recupera_los_muros_interiores_de_los_2_borradores(client, cdb):
+    import uuid as _u
+    _migrate(cdb, "025w_b3d_muros")   # sin borradores: no hace nada
+    base = {"name": "Mi local", "floor": {"mat": "baldosa", "color": "#eeeeee"}, "walls": {k: {"mat": "pintura", "color": "#e7e2f0"} for k in "nsew"},
+            "openings": [{"id": "a2", "wall": "s", "pos": .35, "type": "puerta_vidrio"}], "objects": [], "people": []}
+    for cid, room in ((ASADERO, {"w": 20, "d": 15, "h": 3.2}), (VELVET, {"w": 30, "d": 14, "h": 3.8})):
+        _run(cdb, "INSERT INTO constructor_planos (id, company_id, diseno_id, version, estado, plano) VALUES (CAST(:i AS uuid), CAST(:c AS uuid), 'principal', 1, 'borrador', CAST(:p AS jsonb))",
+             {"i": str(_u.uuid4()), "c": cid, "p": json.dumps({**base, "room": room})})
+    for _ in range(2):
+        _migrate(cdb, "025w_b3d_muros")
+    a = _state(client, ASADERO)["designs"][0]["plan"]
+    assert [(w["kind"], (w["door"] or {}).get("type")) for w in a["inner"]] == [("alto", "puerta"), ("vidrio", None)], "cocina con vaivén y vidrio de la terraza"
+    assert c2.clean_plan(a) == a
+    assert _state(client, VELVET)["designs"][0]["plan"]["inner"] == [], "si el local cambió de medida, no se toca"
 
 
 # ------------------------------------------------------------------ importar

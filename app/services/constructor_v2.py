@@ -37,6 +37,9 @@ DESIGNS_MAX = 30
 MAX_OBJECTS = 400
 MAX_PEOPLE = 200
 MAX_OPENINGS = 60
+MAX_INNER = 120
+INNER_KINDS = ("alto", "media", "vidrio")       # Muro completo, Media pared, Muro de vidrio
+INNER_DOORS = ("hueco", "puerta", "vidrio")
 MAX_BYTES = 400_000
 THUMB_MAX = 160_000
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
@@ -183,7 +186,7 @@ def clean_plan(raw: Any, glb: Optional[dict] = None) -> dict:
         raise Rejected("El plano debe ser un objeto JSON.")
     if len(json.dumps(raw, default=str)) > MAX_BYTES:
         raise Rejected("El plano es demasiado grande.")
-    _only(raw, {"name", "room", "floor", "walls", "openings", "objects", "people", "formato", "version_esquema"}, "Plano")
+    _only(raw, {"name", "room", "floor", "walls", "openings", "inner", "objects", "people", "formato", "version_esquema"}, "Plano")
     room = _only(raw.get("room"), {"w", "d", "h"}, "Local")
     W, D = _num(room.get("w"), 4, 40, "Ancho del local"), _num(room.get("d"), 4, 40, "Fondo del local")
     H = _num(room.get("h", 3.4), 2.4, 6.5, "Alto del local")
@@ -192,7 +195,7 @@ def clean_plan(raw: Any, glb: Optional[dict] = None) -> dict:
         raise Rejected("Material de piso no válido.")
     walls = _only(raw.get("walls"), {"n", "s", "e", "w"}, "Paredes")
     out: dict = {"name": _text(raw.get("name"), 60, "Nombre") or "Mi local", "room": {"w": W, "d": D, "h": H},
-                 "floor": {"mat": fl["mat"], "color": _color(fl.get("color"), "Piso") or "#c8a27a"}, "walls": {}, "openings": [], "objects": [], "people": []}
+                 "floor": {"mat": fl["mat"], "color": _color(fl.get("color"), "Piso") or "#c8a27a"}, "walls": {}, "openings": [], "inner": [], "objects": [], "people": []}
     for k in ("n", "s", "e", "w"):
         wc = _only(walls.get(k) or walls.get("n"), {"mat", "color"}, "Pared")
         if wc.get("mat") not in WALLS:
@@ -209,6 +212,36 @@ def clean_plan(raw: Any, glb: Optional[dict] = None) -> dict:
         if _color(o.get("color"), "Color de la puerta"):
             item["color"] = o["color"].lower()
         out["openings"].append(item)
+    for iw in _list(raw.get("inner"), MAX_INNER, "Muros interiores"):
+        _only(iw, {"id", "x1", "z1", "x2", "z2", "kind", "h", "t", "mat", "color", "door"}, "Muro interior")
+        if iw.get("kind") not in INNER_KINDS:
+            raise Rejected("Tipo de muro no válido.")
+        w = {"id": _id(iw.get("id"), "Muro interior", seen), "kind": iw["kind"]}
+        for k, lim in (("x1", W), ("x2", W), ("z1", D), ("z2", D)):
+            w[k] = _num(iw.get(k), -lim / 2 - .5, lim / 2 + .5, "Posición del muro")
+        if math.hypot(w["x2"] - w["x1"], w["z2"] - w["z1"]) < .05:
+            raise Rejected("Muro demasiado corto.")
+        if iw.get("h") is not None:
+            w["h"] = _num(iw["h"], .3, 6.5, "Alto del muro")
+        if iw.get("t") is not None:
+            w["t"] = _num(iw["t"], .03, .6, "Grosor del muro")
+        if iw.get("mat") not in (None, ""):
+            if iw["mat"] not in WALLS:
+                raise Rejected("Material del muro no válido.")
+            w["mat"] = iw["mat"]
+        if _color(iw.get("color"), "Color del muro"):
+            w["color"] = iw["color"].lower()
+        d = iw.get("door")
+        if d is not None:
+            _only(d, {"pos", "width", "type", "color"}, "Puerta del muro")
+            if d.get("type") not in INNER_DOORS:
+                raise Rejected("Puerta del muro no válida.")
+            w["door"] = {"pos": _num(d.get("pos", .5), 0, 1, "Posición de la puerta"), "width": _num(d.get("width", .9), .4, 4, "Ancho de la puerta"), "type": d["type"]}
+            if _color(d.get("color"), "Color de la puerta"):
+                w["door"]["color"] = d["color"].lower()
+        else:
+            w["door"] = None
+        out["inner"].append(w)
     used: dict = {}
     for o in _list(raw.get("objects"), MAX_OBJECTS, "Objetos"):
         _only(o, {"id", "item", "x", "z", "rot", "color", "color2", "color3", "text", "screen", "products", "conn"}, "Objeto")
@@ -335,7 +368,7 @@ def from_v1(v1: dict, glb_ids: Optional[set] = None) -> dict:
     D = min(40.0, max(4.0, float(sala.get("fondo") or 10)))
     H = min(6.5, max(2.4, float(sala.get("alto") or 3.4)))
     out: dict = {"name": "Mi local", "room": {"w": W, "d": D, "h": H}, "floor": {"mat": "madera_clara", "color": "#c8a27a"},
-                 "walls": {}, "openings": [], "objects": [], "people": []}
+                 "walls": {}, "openings": [], "inner": [], "objects": [], "people": []}
     pisos = sorted(v1.get("pisos") or [], key=lambda f: -_area(f.get("puntos") or []))
     if pisos:
         mat = FLOOR_FROM_V1.get(pisos[0].get("material"), pisos[0].get("material"))
@@ -353,6 +386,11 @@ def from_v1(v1: dict, glb_ids: Optional[set] = None) -> dict:
         sides[w.get("id")] = (side[0], side[1], math.hypot(w["x2"] - w["x1"], w["z2"] - w["z1"]) or 1)
     for k in ("n", "s", "e", "w"):
         out["walls"].setdefault(k, {"mat": "pintura", "color": "#e7e2f0"})
+    interior = {w.get("id"): w for w in v1.get("paredes") or [] if w.get("id") not in sides}
+    for wid, w in interior.items():
+        iw = _inner_from_v1(w, [a for a in v1.get("aberturas") or [] if a.get("pared") == wid], W, D, H)
+        if iw:
+            out["inner"].append(iw)
     for i, a in enumerate(v1.get("aberturas") or []):
         sd = sides.get(a.get("pared"))
         kind = OPENING_FROM_V1.get(a.get("tipo"), a.get("tipo"))
@@ -392,6 +430,40 @@ def from_v1(v1: dict, glb_ids: Optional[set] = None) -> dict:
     return out
 
 
+INNER_DOOR_FROM_V1 = {"puerta": "puerta", "vaiven": "puerta", "puerta_doble": "puerta", "puerta_vidrio": "vidrio", "corrediza": "vidrio"}
+
+
+def _inner_from_v1(w: dict, openings: list, W: float, D: float, H: float) -> Optional[dict]:
+    """Pared interior de la fase 1 -> muro interior del prototipo (Muro completo, Media pared o Muro de vidrio) con su
+    puerta (la primera abertura de esa pared: puerta, vaivén -> puerta; vidrio/corrediza -> puerta de vidrio; otra -> hueco)."""
+    try:
+        x1, z1, x2, z2 = (float(w[k]) for k in ("x1", "z1", "x2", "z2"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    L = math.hypot(x2 - x1, z2 - z1)
+    if L < .05:
+        return None
+    mat = WALL_FROM_V1.get(w.get("material"), w.get("material"))
+    alto = float(w.get("alto") or H)
+    kind = "vidrio" if mat == "vidrio" else ("media" if alto < H - .3 else "alto")
+    iw: dict = {"id": str(w.get("id") or "iw")[:40], "x1": round(x1 - W / 2, 3), "z1": round(z1 - D / 2, 3), "x2": round(x2 - W / 2, 3),
+                "z2": round(z2 - D / 2, 3), "kind": kind, "door": None}
+    if kind == "media":
+        iw["h"] = round(min(6.5, max(.3, alto)), 2)
+    if w.get("grosor"):
+        iw["t"] = round(min(.6, max(.03, float(w["grosor"]))), 3)
+    if kind != "vidrio":
+        iw["mat"] = mat if mat in WALLS and mat != "vidrio" else "pintura"
+    if COLOR_RE.match(str(w.get("color") or "")):
+        iw["color"] = w["color"].lower()
+    if openings:
+        a = openings[0]
+        dw = round(min(4.0, max(.4, float(a.get("ancho") or .9))), 2)
+        pos = (float(a.get("pos") or L / 2) - dw / 2) / (L - dw) if L > dw else .5
+        iw["door"] = {"pos": round(min(1, max(0, pos)), 3), "width": dw, "type": INNER_DOOR_FROM_V1.get(a.get("tipo"), "hueco")}
+    return iw
+
+
 def _conn_from_v1(con: dict, item: str) -> Optional[str]:
     t, cid = con.get("tipo"), str(con.get("id") or "")
     kind = conn_kind(item)
@@ -423,7 +495,10 @@ def ensure_v2(plan: Any, glb_ids: Optional[set] = None) -> dict:
         plan = json.loads(plan)
     if isinstance(plan, dict) and "sala" in plan:
         return from_v1(plan, glb_ids)
-    return plan if isinstance(plan, dict) else {}
+    if isinstance(plan, dict):
+        plan.setdefault("inner", [])   # planos guardados antes de los muros interiores
+        return plan
+    return {}
 
 
 # ------------------------------------------------------------------ "Aplicar Estudio de marca a todo" (mismas reglas del prototipo)

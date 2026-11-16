@@ -90,6 +90,15 @@ test('el motor en vivo no carga el guardado de la consola y Mixamo sale del buck
   assert.deepEqual(mixamo, [], 'Mixamo no se redistribuye');
 });
 
+test('muros interiores del prototipo: buildInner/INNER_KINDS en room.js y "Muros y divisiones" en Construir', () => {
+  const room = read(path.join(B3D, 'room.js')), ed = read(path.join(B3D, 'editor.js'));
+  assert.ok(room.includes('export function buildInner(') && room.includes("export const INNER_KINDS = { alto: { name: 'Muro completo'") && room.includes("media: { name: 'Media pared'") && room.includes("vidrio: { name: 'Muro de vidrio'"));
+  assert.ok(room.includes('(plan.inner || []).forEach(iw => G.add(buildInner(iw, h)));'), 'la misma función los dibuja en el editor y en vivo');
+  for (const t of ['Muros y divisiones', 'function wallSnap', "if (s.type === 'inner')", '(plan.inner || []).forEach(iw => { mx', 'Puerta en este muro', '⟲ Girar 90°']) assert.ok(ed.includes(t), t);
+  const py = read(path.join(ROOT, 'app', 'services', 'constructor_v2.py'));
+  assert.ok(py.includes('INNER_KINDS = ("alto", "media", "vidrio")') && py.includes('INNER_DOORS = ("hueco", "puerta", "vidrio")'), 'el servidor valida lo mismo');
+});
+
 test('Humano sin accesorios sueltos (decisión del dueño); Caricatura con sus 9 accesorios', () => {
   const ch = read(path.join(B3D, 'char.js')), pe = read(path.join(B3D, 'people.js'));
   assert.ok(ch.includes('export const HUMAN_ACC = [];'));
@@ -117,6 +126,19 @@ test('Chrome: constructor guarda por empresa, conecta con datos reales y publica
       const n = await b.evaluate("(() => { __cx.placeItem('sofa', 0, 0, 0); return __cx.plan.objects.length; })()");
       await b.waitFor(`(${JSON.stringify(srv.log.length)} >= 0) && true`);
       assert.ok(await until(() => srv.log.some((l) => l.method === 'PUT' && /\/disenos\//.test(l.path) && l.json.plan.objects.length === n)), 'autoguardado con el plano del prototipo');
+      // muros interiores: Construir -> Muro completo -> dos toques (y encadenar) -> Esc
+      await b.evaluate("document.querySelector('[data-m=construir]').click(); document.querySelectorAll('#inw .it')[0].click(); true");
+      const tap = async (x, y) => { await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }); await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }); };
+      await tap(560, 360); await tap(860, 360); await tap(860, 470);   // arriba del panel de Construir
+      await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      const inner = JSON.parse(await b.evaluate('JSON.stringify(__cx.plan.inner)'));
+      assert.equal(inner.length, 2, 'dos toques = un muro y encadenar = el segundo');
+      assert.ok(inner.every((w) => w.kind === 'alto') && (inner[0].z1 === inner[0].z2 || inner[0].x1 === inner[0].x2), 'recto salvo Alt');
+      assert.ok(inner.every((w) => [w.x1, w.z1, w.x2, w.z2].every((v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-6)), 'cuadrícula de 10 cm');
+      await b.evaluate(`__cx.select({kind: 'inner', id: '${inner[0].id}'}); true`);
+      await b.evaluate("document.querySelector('#prop [data-door=puerta]').click(); true");
+      assert.equal(await b.evaluate(`__cx.plan.inner.find(w => w.id === '${inner[0].id}').door.type`), 'puerta', 'panel del muro: puerta');
+      assert.ok(await until(() => srv.log.some((l) => l.method === 'PUT' && (l.json.plan.inner || []).length === 2)), 'se guarda en el campo inner');
       await b.evaluate("document.querySelector('#pubBtn').click(); true"); 
       assert.ok(await until(() => srv.log.some((l) => l.method === 'POST' && /\/publicar$/.test(l.path))), 'Publicar en vivo');
       await b.evaluate("document.querySelector('#menuBtn').click(); document.querySelector('#mVersions').click(); true");
@@ -166,13 +188,14 @@ test('Chrome: visor del cliente dibuja el plano publicado de 150 objetos con roo
       await b.go(v.url); await b.waitFor('!!(window.__cxVivo && window.__cxVivo.floor)', 120);
       await b.waitFor("document.querySelector('#barTags').textContent.includes('Andrés P.') && document.querySelectorAll('#barTags .tg').length >= 3", 90); await H.sleep(1500);
       out[style] = JSON.parse(await b.evaluate(`(() => { const {floor, R} = window.__cxVivo; const gl = R.getContext(); const t0 = performance.now(); for (let i = 0; i < 5; i++) floor.tick(); gl.finish();
-        let objs = 0, people = 0; floor.scene.traverse(x => { if (x.isGroup && x.userData.objId) objs++; }); floor.scene.children.forEach(g => { let p = false; g.traverse(x => { if (x.userData.person) p = true; }); if (p) people++; });
-        return JSON.stringify({ms: (performance.now() - t0) / 5, objs, people, chip: document.querySelector('[data-biz]').textContent, tags: [...document.querySelectorAll('#barTags .tg')].map(t => t.textContent).join('|')}); })()`));
+        let objs = 0, people = 0, inner = new Set(); floor.scene.traverse(x => { if (x.isGroup && x.userData.objId) objs++; if (x.userData.innerId) inner.add(x.userData.innerId); }); floor.scene.children.forEach(g => { let p = false; g.traverse(x => { if (x.userData.person) p = true; }); if (p) people++; });
+        return JSON.stringify({ms: (performance.now() - t0) / 5, objs, people, inner: inner.size, chip: document.querySelector('[data-biz]').textContent, tags: [...document.querySelectorAll('#barTags .tg')].map(t => t.textContent).join('|')}); })()`));
       assert.deepEqual(b.errors, [], style + ' sin errores');
     } finally { b.close(); v.server.close(); }
   }
   for (const s of ['humano', 'caricatura']) {
     assert.equal(out[s].objs, 151, s + ': todos los objetos del plano');
+    assert.equal(out[s].inner, 3, s + ': los 3 muros interiores (completo con puerta, vidrio y media pared con hueco)');
     assert.ok(out[s].people >= 5, s + ': 2 personas en turno + clientes en la mesa con QR activo');
     assert.equal(out[s].chip, '1 mesas con QR activo');
     assert.ok(out[s].tags.includes('Laura M. · Cajera') && out[s].tags.includes('Andrés P. · Barman'), 'las personas aparecen cuando abren turno');

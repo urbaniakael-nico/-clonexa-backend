@@ -5,7 +5,7 @@ import { Store, toast, uid, company, loadBrand, link, api, companyPath, flush, e
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CATS, ITEMS, byId, buildItem, CONN, SCREENS, registerModels } from './catalog.js';
-import { buildRoom, OPENINGS, collisions, footprint } from './room.js';
+import { buildRoom, OPENINGS, collisions, footprint, INNER_KINDS, innerLen } from './room.js';
 import { TEMPLATES, blankPlan } from './templates.js';
 import { buildCharacter, tickCharacter, setClip, CLIPS } from './char.js';
 import { loadTeam } from './team.js';
@@ -17,6 +17,7 @@ let designs = Store.get('designs', []);
 let D = null;               // diseño abierto
 let plan = null;            // plano en edición
 let mode = 'amueblar', cat = 'barra', sel = null; // sel: {kind:'obj'|'person'|'open', id}
+let drawWall = null, wallStart = null, wallPrev = null; // muros interiores
 let paintTab = 'paredes', paintMat = { wall: 'ladrillo', floor: 'madera_oscura' }, paintColor = null, pendingOpening = null, allWalls = false;
 const team = loadTeam();
 
@@ -96,7 +97,7 @@ $('#impFile2').onchange = e => { $('#menu').classList.remove('show'); e.target.f
 // ================= abrir diseño
 const hist = { u: [], r: [] };
 function openDesign(id) {
-  D = designs.find(d => d.id === id); plan = JSON.parse(JSON.stringify(D.plan)); plan.people = plan.people || [];
+  D = designs.find(d => d.id === id); plan = JSON.parse(JSON.stringify(D.plan)); plan.people = plan.people || []; plan.inner = plan.inner || [];
   hist.u = [JSON.stringify(plan)]; hist.r = []; sel = null;
   $('#start').classList.add('hide'); $('#editor').classList.remove('hide'); $('#nameIn').value = D.name; $('#styleSel').value = Style.mode;
   resize(); rebuildAll(); fitView(); setMode('amueblar'); cv.focus();
@@ -127,13 +128,13 @@ $('#nameIn').oninput = () => { clearTimeout(saveT); saveT = setTimeout(save, 500
 
 // ================= modos y dock
 const HINT = {
-  construir: 'Cambia medidas del local · elige una puerta o ventana y toca una pared para ponerla · toca una puerta para moverla o borrarla',
+  construir: 'Muros: elige el tipo y toca dos puntos del piso (inicio y fin) · Alt = ángulo libre · Esc cancela · toca un muro para cambiarlo, ponerle puerta o borrarlo · puertas/ventanas: elige una y toca una pared del borde',
   amueblar: 'Arrastra del catálogo al local (o tócalo y aparece en el centro) · arrastra para mover · <b>R</b> girar · <b>Supr</b> borrar · Alt = sin cuadrícula',
   pintar: 'Elige material y color, y toca una pared o el piso para pintarlo',
   personajes: 'Pon a tu equipo en el local y elige qué está haciendo · el aspecto se cambia en el Editor de personajes',
   conectar: 'Toca una mesa, puesto, caja o pantalla y elige con qué dato real se conecta',
 };
-function setMode(m) { mode = m; pendingOpening = null; if (m === 'pintar' || (m === 'construir' && sel?.kind !== 'open') || (m === 'personajes' && sel?.kind === 'obj')) { sel = null; renderProp(); } $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.m === m)); $('#hint').innerHTML = HINT[m]; renderDock(); updateSel(); }
+function setMode(m) { mode = m; pendingOpening = null; drawWall = null; wallStart = null; clearWallPrev(); if (m === 'pintar' || (m === 'construir' && sel?.kind !== 'open' && sel?.kind !== 'inner') || (m !== 'construir' && (sel?.kind === 'inner' || sel?.kind === 'open')) || (m === 'personajes' && sel?.kind === 'obj')) { sel = null; renderProp(); } $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.m === m)); $('#hint').innerHTML = HINT[m]; renderDock(); updateSel(); }
 $$('#modes button').forEach(b => b.onclick = () => setMode(b.dataset.m));
 function renderDock() {
   const dk = $('#dock');
@@ -155,11 +156,13 @@ function renderDock() {
   }
   if (mode === 'construir') {
     dk.innerHTML = `<div class="row" style="margin-bottom:10px"><b>Local:</b><label>Ancho <input type="range" id="rw" min="6" max="30" step=".5" value="${plan.room.w}"> <span id="rwv">${plan.room.w} m</span></label><label>Fondo <input type="range" id="rd" min="5" max="24" step=".5" value="${plan.room.d}"> <span id="rdv">${plan.room.d} m</span></label><label>Alto <input type="range" id="rh" min="2.6" max="6" step=".1" value="${plan.room.h}"> <span id="rhv">${plan.room.h} m</span></label><label><input type="checkbox" id="aw" ${allWalls ? 'checked' : ''}> Ver paredes del frente</label></div>
-      <div class="ey" style="margin-bottom:6px">Puertas y ventanas · elige una y toca la pared</div><div class="strip" id="opn"></div>`;
+      <div class="ey" style="margin-bottom:6px">Muros y divisiones · elige y toca dos puntos del piso</div><div class="strip" id="inw" style="margin-bottom:10px"></div>
+      <div class="ey" style="margin-bottom:6px">Puertas y ventanas (paredes del borde) · elige una y toca la pared</div><div class="strip" id="opn"></div>`;
     const upd = () => { plan.room.w = +$('#rw').value; plan.room.d = +$('#rd').value; plan.room.h = +$('#rh').value; $('#rwv').textContent = plan.room.w + ' m'; $('#rdv').textContent = plan.room.d + ' m'; $('#rhv').textContent = plan.room.h + ' m'; clampAll(); rebuildShell(); plan.objects.forEach(o => { const g = objMap.get(o.id); if (g) g.position.set(o.x, 0, o.z); }); drawMap(); };
     ['#rw', '#rd', '#rh'].forEach(s => { $(s).oninput = upd; $(s).onchange = () => afterChange(); });
     $('#aw').onchange = e => { allWalls = e.target.checked; rebuildShell(); };
-    const op = $('#opn'); Object.entries(OPENINGS).forEach(([k, v]) => { const b = document.createElement('button'); b.className = 'it' + (pendingOpening === k ? ' sel' : ''); b.style.cursor = 'pointer'; b.innerHTML = `<div style="height:70px;display:flex;align-items:center;justify-content:center;font-size:36px">${k.startsWith('ventan') || k === 'vitrina' ? '🪟' : k === 'cortina' ? '🏪' : '🚪'}</div><span>${v.name}</span>`; b.onclick = () => { pendingOpening = pendingOpening === k ? null : k; renderDock(); $('#hint').innerHTML = pendingOpening ? `Ahora toca una pared para poner: <b>${v.name}</b>` : HINT.construir; }; op.appendChild(b); });
+    const iwc = $('#inw'); Object.entries(INNER_KINDS).forEach(([k, v]) => { const b = document.createElement('button'); b.className = 'it' + (drawWall === k ? ' sel' : ''); b.style.cursor = 'pointer'; b.innerHTML = `<div style="height:70px;display:flex;align-items:center;justify-content:center"><svg width="70" height="54" viewBox="0 0 70 54"><rect x="6" y="${k === 'media' ? 26 : 6}" width="58" height="${k === 'media' ? 24 : 44}" rx="3" fill="${k === 'vidrio' ? '#9bd8ff88' : '#e7e2f0'}" stroke="${k === 'vidrio' ? '#38bdf8' : '#8a4130'}" stroke-width="3"/>${k === 'alto' ? '<path d="M6 20H64M6 35H64M25 6V20M45 20V35M25 35V50" stroke="#8a4130" stroke-width="2"/>' : ''}</svg></div><span>${v.name}</span>`; b.onclick = () => { drawWall = drawWall === k ? null : k; pendingOpening = null; wallStart = null; clearWallPrev(); renderDock(); $('#hint').innerHTML = drawWall ? `Toca el <b>inicio</b> del ${v.name.toLowerCase()} en el piso` : HINT.construir; }; iwc.appendChild(b); });
+    const op = $('#opn'); Object.entries(OPENINGS).forEach(([k, v]) => { const b = document.createElement('button'); b.className = 'it' + (pendingOpening === k ? ' sel' : ''); b.style.cursor = 'pointer'; b.innerHTML = `<div style="height:70px;display:flex;align-items:center;justify-content:center;font-size:36px">${k.startsWith('ventan') || k === 'vitrina' ? '🪟' : k === 'cortina' ? '🏪' : '🚪'}</div><span>${v.name}</span>`; b.onclick = () => { pendingOpening = pendingOpening === k ? null : k; drawWall = null; wallStart = null; clearWallPrev(); renderDock(); $('#hint').innerHTML = pendingOpening ? `Ahora toca una pared para poner: <b>${v.name}</b>` : HINT.construir; }; op.appendChild(b); });
   }
   if (mode === 'personajes') {
     dk.innerHTML = `<div class="row" style="margin-bottom:8px"><div class="ey">Tu equipo · toca para ponerlo en el local</div><a class="pill" href="${link('personajes')}" style="margin-left:auto">✏️ Editor de personajes</a></div><div class="team" id="teamS"></div>`;
@@ -209,20 +212,23 @@ function clampAll() { plan.objects.forEach(o => { const s = snapPos(o.item, o.x,
 let drag = null;
 cv.addEventListener('pointerdown', e => {
   if (e.button !== 0) return; setMouse(e.clientX, e.clientY);
+  if (mode === 'construir' && drawWall) { const p = floorPoint(e.clientX, e.clientY); if (!p) return; const q = wallSnap(p, e.altKey); if (!wallStart) { wallStart = q; $('#hint').innerHTML = 'Ahora toca el <b>final</b> del muro (Esc cancela)'; } else { if (Math.hypot(q.x - wallStart.x, q.z - wallStart.z) > .3) { const iw = { id: uid(), x1: wallStart.x, z1: wallStart.z, x2: q.x, z2: q.z, kind: drawWall, mat: drawWall === 'vidrio' ? 'vidrio' : 'pintura', color: drawWall === 'vidrio' ? '#bfe6ff' : '#e7e2f0' }; plan.inner.push(iw); rebuildShell(); afterChange(); toast(INNER_KINDS[drawWall].name + ' de ' + innerLen(iw).toFixed(1) + ' m'); wallStart = q; $('#hint').innerHTML = 'Sigue tocando para encadenar muros · <b>Esc</b> o el botón del muro para terminar'; } } return; }
   const targets = (mode === 'pintar' || (mode === 'construir' && pendingOpening)) ? [shell] : [objG, peopleG, shell];
   const hits = ray.intersectObjects(targets, true).filter(h => h.object.visible && !h.object.userData.outline);
   const h = hits[0]; if (!h) { select(null); return; }
   const ud = h.object.userData;
   if (mode === 'pintar') { const surf = findSurface(h.object); if (surf) { paintSurface(surf); e.preventDefault(); } return; }
-  if (mode === 'construir') { if (pendingOpening) { const surf = findSurface(h.object); if (surf?.type === 'wall') { addOpening(surf.key, h.point); } return; } const oid = findUp(h.object, 'openId'); if (oid) { select({ kind: 'open', id: oid }); return; } }
+  if (mode === 'construir') { if (pendingOpening) { const surf = findSurface(h.object); if (surf?.type === 'wall') { addOpening(surf.key, h.point); } return; } const oid = findUp(h.object, 'openId'); if (oid) { select({ kind: 'open', id: oid }); return; } const iid = findUp(h.object, 'innerId'); if (iid) { select({ kind: 'inner', id: iid }); beginDrag(e, 'inner', iid); return; } }
   if (ud.objId && mode !== 'personajes') { select({ kind: 'obj', id: ud.objId }); if (mode === 'amueblar' || mode === 'conectar') beginDrag(e, 'obj', ud.objId); return; }
   if (ud.personId) { select({ kind: 'person', id: ud.personId }); beginDrag(e, 'person', ud.personId); return; }
   select(null);
 });
 function findUp(o, key) { while (o) { if (o.userData[key]) return o.userData[key]; o = o.parent; } return null; }
 function findSurface(o) { while (o) { if (o.userData.surface) return o.userData.surface; o = o.parent; } return null; }
-function beginDrag(e, kind, id) { const p = floorPoint(e.clientX, e.clientY); const rec = kind === 'obj' ? plan.objects.find(o => o.id === id) : plan.people.find(o => o.id === id); if (!p || !rec) return; drag = { kind, id, dx: rec.x - p.x, dz: rec.z - p.z, moved: false }; ctr.enabled = false; cv.setPointerCapture(e.pointerId); }
+function beginDrag(e, kind, id) { const p = floorPoint(e.clientX, e.clientY); if (kind === 'inner') { const w = plan.inner.find(o => o.id === id); if (!p || !w) return; drag = { kind, id, p0: p.clone(), w0: { ...w }, moved: false }; ctr.enabled = false; cv.setPointerCapture(e.pointerId); return; } const rec = kind === 'obj' ? plan.objects.find(o => o.id === id) : plan.people.find(o => o.id === id); if (!p || !rec) return; drag = { kind, id, dx: rec.x - p.x, dz: rec.z - p.z, moved: false }; ctr.enabled = false; cv.setPointerCapture(e.pointerId); }
 cv.addEventListener('pointermove', e => {
+  if (mode === 'construir' && drawWall && wallStart) { const p = floorPoint(e.clientX, e.clientY); if (p) showWallPrev(wallStart, wallSnap(p, e.altKey)); }
+  if (drag?.kind === 'inner') { const p = floorPoint(e.clientX, e.clientY); if (!p) return; const dx = Math.round((p.x - drag.p0.x) * 10) / 10, dz = Math.round((p.z - drag.p0.z) * 10) / 10; const w = plan.inner.find(o => o.id === drag.id); Object.assign(w, { x1: drag.w0.x1 + dx, x2: drag.w0.x2 + dx, z1: drag.w0.z1 + dz, z2: drag.w0.z2 + dz }); drag.moved = true; rebuildShell(); updateSel(); drawMap(); return; }
   if (!drag) return; const p = floorPoint(e.clientX, e.clientY); if (!p) return; drag.moved = true;
   if (drag.kind === 'obj') { const o = plan.objects.find(x => x.id === drag.id); const s = snapPos(o.item, p.x + drag.dx, p.z + drag.dz, e.altKey); o.x = s.x; o.z = s.z; if (s.rot != null) o.rot = s.rot; const g = objMap.get(o.id); g.position.set(o.x, 0, o.z); g.rotation.y = o.rot * Math.PI / 180; }
   else { const o = plan.people.find(x => x.id === drag.id); o.x = clamp(p.x + drag.dx, -plan.room.w / 2 + .3, plan.room.w / 2 - .3); o.z = clamp(p.z + drag.dz, -plan.room.d / 2 + .3, plan.room.d / 2 - .3); peopleMap.get(o.id)?.position.set(o.x, 0, o.z); }
@@ -230,8 +236,15 @@ cv.addEventListener('pointermove', e => {
 });
 cv.addEventListener('pointerup', e => { if (drag) { const m = drag.moved; drag = null; ctr.enabled = true; if (m) afterChange(); } });
 
+// ================= muros interiores
+function wallSnap(p, free) { const { w, d } = plan.room; let x = Math.max(-w / 2, Math.min(w / 2, p.x)), z = Math.max(-d / 2, Math.min(d / 2, p.z)); if (!free) { x = Math.round(x * 10) / 10; z = Math.round(z * 10) / 10; if (wallStart) { const dx = Math.abs(x - wallStart.x), dz = Math.abs(z - wallStart.z); if (dx > dz * 2.4) z = wallStart.z; else if (dz > dx * 2.4) x = wallStart.x; } } return { x, z }; }
+function clearWallPrev() { if (wallPrev) { scene.remove(wallPrev); wallPrev = null; } }
+function showWallPrev(a, b) { clearWallPrev(); const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < .05) return; const H = drawWall === 'media' ? 1.1 : plan.room.h; wallPrev = new THREE.Mesh(new THREE.BoxGeometry(L, H, .12), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: .45 })); wallPrev.position.set((a.x + b.x) / 2, H / 2, (a.z + b.z) / 2); wallPrev.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x); scene.add(wallPrev); $('#hint').innerHTML = `Largo: <b>${L.toFixed(1)} m</b> · toca para terminar este muro · Alt = ángulo libre · Esc cancela`; }
+addEventListener('keydown', e => { if (e.key === 'Escape' && drawWall) { drawWall = null; wallStart = null; clearWallPrev(); renderDock(); $('#hint').innerHTML = HINT.construir; } });
+
 // ================= pintar / aberturas
 function paintSurface(s) {
+  if (s.type === 'inner') { if (paintTab !== 'paredes') { paintTab = 'paredes'; renderDock(); toast('Cambié a Paredes: elige el material y vuelve a tocar el muro'); return; } const iw = plan.inner.find(x => x.id === s.id); if (iw) { if (iw.kind === 'vidrio') { iw.color = paintColor || '#bfe6ff'; } else { iw.mat = paintMat.wall === 'vidrio' ? 'pintura' : paintMat.wall; iw.color = paintColor || WALLS[iw.mat].def; } rebuildShell(); afterChange(); toast('Muro pintado'); } return; }
   if (s.type === 'wall' && paintTab !== 'paredes') { paintTab = 'paredes'; renderDock(); toast('Cambié a Paredes: elige el material y vuelve a tocar la pared'); return; }
   if (s.type === 'floor' && paintTab !== 'piso') { paintTab = 'piso'; renderDock(); toast('Cambié a Piso: elige el material y vuelve a tocar el piso'); return; }
   if (s.type === 'wall') { plan.walls[s.key] = { mat: paintMat.wall, color: paintColor || WALLS[paintMat.wall].def }; toast('Pared pintada: ' + WALLS[paintMat.wall].name); }
@@ -245,8 +258,8 @@ function select(s, focus) {
   sel = s; if (s?.kind === 'obj' && focus) { const o = plan.objects.find(x => x.id === s.id); if (o) { ctr.target.set(o.x, 0, o.z); ctr.update(); } }
   updateSel(); renderProp();
 }
-function selObject() { if (!sel) return null; if (sel.kind === 'obj') return objMap.get(sel.id); if (sel.kind === 'person') return peopleMap.get(sel.id); if (sel.kind === 'open') return shell?.children.find(c => c.userData.openId === sel.id); return null; }
-function updateSel() { const g = selObject(); if (!g) { selBox.visible = false; $('#handles').classList.add('hide'); return; } selBox.box.setFromObject(g); selBox.visible = true; $('#handles').classList.toggle('hide', sel.kind === 'open'); }
+function selObject() { if (!sel) return null; if (sel.kind === 'obj') return objMap.get(sel.id); if (sel.kind === 'person') return peopleMap.get(sel.id); if (sel.kind === 'open') return shell?.children.find(c => c.userData.openId === sel.id); if (sel.kind === 'inner') return shell?.children.find(c => c.userData.innerId === sel.id); return null; }
+function updateSel() { const g = selObject(); if (!g) { selBox.visible = false; $('#handles').classList.add('hide'); return; } selBox.box.setFromObject(g); selBox.visible = true; $('#handles').classList.toggle('hide', sel.kind === 'open' || sel.kind === 'inner'); }
 function renderProp() {
   const P = $('#prop'); if (!sel) { P.classList.add('hide'); return; } P.classList.remove('hide');
   if (sel.kind === 'obj') {
@@ -280,6 +293,31 @@ function renderProp() {
     P.querySelectorAll('[data-r]').forEach(b => b.onclick = () => rotateSel(+b.dataset.r));
     $('#pEdit').onclick = () => location.href = link('personajes?id=' + p.id); $('#pDel').onclick = delSel;
   }
+  if (sel.kind === 'inner') {
+    const iw = plan.inner.find(x => x.id === sel.id); if (!iw) { P.classList.add('hide'); return; } const L = innerLen(iw);
+    P.innerHTML = `<div class="ey">Muro interior</div><h3>${INNER_KINDS[iw.kind].name}</h3><div style="font-size:12px;color:#a39cb0">Largo ${L.toFixed(1)} m · arrastra para moverlo</div>
+      <div class="lbl">Tipo</div><div style="display:flex;gap:6px;flex-wrap:wrap">${Object.entries(INNER_KINDS).map(([k, v]) => `<button class="pill ${iw.kind === k ? 'on' : ''}" data-kind="${k}" style="padding:6px 9px;font-size:12px">${v.name}</button>`).join('')}</div>
+      <div class="lbl">Largo (m)</div><input type="range" id="iL" min=".5" max="${Math.max(plan.room.w, plan.room.d)}" step=".1" value="${L.toFixed(1)}" style="width:100%">
+      ${iw.kind === 'media' ? `<div class="lbl">Alto (m)</div><input type="range" id="iH" min=".6" max="1.8" step=".05" value="${iw.h || 1.1}" style="width:100%">` : ''}
+      ${iw.kind !== 'vidrio' ? `<div class="lbl">Material</div><select id="iM" style="width:100%">${Object.entries(WALLS).filter(([k]) => k !== 'vidrio').map(([k, v]) => `<option value="${k}" ${k === (iw.mat || 'pintura') ? 'selected' : ''}>${v.name}</option>`).join('')}</select>` : ''}
+      <div class="lbl">Color</div><div class="sw">${[...BRAND, ...PALETTE.slice(0, 12)].map(c => `<button data-c="${c}" style="background:${c}" class="${(iw.color || '') === c ? 's' : ''}"></button>`).join('')}<input type="color" id="iC" value="${iw.color || '#e7e2f0'}" style="width:28px;height:28px;padding:0;border-radius:8px"></div>
+      <div class="lbl">Puerta en este muro</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[['', 'Sin puerta'], ['hueco', 'Hueco'], ['puerta', 'Puerta'], ['vidrio', 'Puerta de vidrio']].map(([k, n]) => `<button class="pill ${(iw.door?.type || '') === k ? 'on' : ''}" data-door="${k}" style="padding:6px 9px;font-size:12px">${n}</button>`).join('')}</div>
+      ${iw.door ? `<div class="lbl">Posición de la puerta</div><input type="range" id="iDP" min="0" max="1" step=".02" value="${iw.door.pos ?? .5}" style="width:100%"><div class="lbl">Ancho de la puerta (m)</div><input type="range" id="iDW" min=".7" max="${Math.max(.8, Math.min(3, L - .2)).toFixed(1)}" step=".1" value="${iw.door.width || .9}" style="width:100%">` : ''}
+      <div class="btns" style="margin-top:10px"><button id="iRot">⟲ Girar 90°</button><button id="iDup">⧉ Duplicar</button><button id="pDel">🗑 Borrar</button></div>`;
+    const re = () => { rebuildShell(); updateSel(); drawMap(); };
+    P.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { iw.kind = b.dataset.kind; if (iw.kind === 'vidrio') iw.color = '#bfe6ff'; else if (iw.mat === 'vidrio' || !iw.mat) iw.mat = 'pintura'; re(); afterChange(); renderProp(); });
+    $('#iL').oninput = e => { const nl = +e.target.value, a = Math.atan2(iw.z2 - iw.z1, iw.x2 - iw.x1); const cx = (iw.x1 + iw.x2) / 2, cz = (iw.z1 + iw.z2) / 2; iw.x1 = cx - Math.cos(a) * nl / 2; iw.x2 = cx + Math.cos(a) * nl / 2; iw.z1 = cz - Math.sin(a) * nl / 2; iw.z2 = cz + Math.sin(a) * nl / 2; re(); }; $('#iL').onchange = () => { afterChange(); renderProp(); };
+    const ih = $('#iH'); if (ih) { ih.oninput = e => { iw.h = +e.target.value; re(); }; ih.onchange = () => afterChange(); }
+    const im = $('#iM'); if (im) im.onchange = e => { iw.mat = e.target.value; iw.color = WALLS[iw.mat].def; re(); afterChange(); renderProp(); };
+    P.querySelectorAll('.sw button').forEach(b => b.onclick = () => { iw.color = b.dataset.c; re(); afterChange(); renderProp(); });
+    $('#iC').onchange = e => { iw.color = e.target.value; re(); afterChange(); renderProp(); };
+    P.querySelectorAll('[data-door]').forEach(b => b.onclick = () => { iw.door = b.dataset.door ? { pos: iw.door?.pos ?? .5, width: iw.door?.width || .9, type: b.dataset.door } : null; re(); afterChange(); renderProp(); });
+    const dp = $('#iDP'); if (dp) { dp.oninput = e => { iw.door.pos = +e.target.value; re(); }; dp.onchange = () => afterChange(); }
+    const dw = $('#iDW'); if (dw) { dw.oninput = e => { iw.door.width = +e.target.value; re(); }; dw.onchange = () => afterChange(); }
+    $('#iRot').onclick = () => { const cx = (iw.x1 + iw.x2) / 2, cz = (iw.z1 + iw.z2) / 2; const r = (x, z) => ({ x: cx - (z - cz), z: cz + (x - cx) }); const a = r(iw.x1, iw.z1), b = r(iw.x2, iw.z2); Object.assign(iw, { x1: a.x, z1: a.z, x2: b.x, z2: b.z }); re(); afterChange(); renderProp(); };
+    $('#iDup').onclick = () => { const n = { ...iw, id: uid(), x1: iw.x1 + .6, x2: iw.x2 + .6, z1: iw.z1 + .6, z2: iw.z2 + .6, door: iw.door ? { ...iw.door } : null }; plan.inner.push(n); re(); select({ kind: 'inner', id: n.id }); afterChange(); toast('Muro duplicado'); };
+    $('#pDel').onclick = delSel;
+  }
   if (sel.kind === 'open') {
     const o = plan.openings.find(x => x.id === sel.id); if (!o) { P.classList.add('hide'); return; }
     P.innerHTML = `<div class="ey">Puerta / ventana</div><h3>${OPENINGS[o.type].name}</h3><div class="lbl">Tipo</div><select id="oType" style="width:100%">${Object.entries(OPENINGS).map(([k, v]) => `<option value="${k}" ${k === o.type ? 'selected' : ''}>${v.name}</option>`).join('')}</select>
@@ -293,7 +331,7 @@ function renderProp() {
   }
 }
 function rotateSel(deg) {
-  if (!sel) return; if (sel.kind === 'obj') { const o = plan.objects.find(x => x.id === sel.id); o.rot = ((o.rot || 0) + deg + 360) % 360; objMap.get(o.id).rotation.y = o.rot * Math.PI / 180; }
+  if (!sel) return; if (sel.kind === 'inner') { $('#iRot')?.click(); return; } if (sel.kind === 'obj') { const o = plan.objects.find(x => x.id === sel.id); o.rot = ((o.rot || 0) + deg + 360) % 360; objMap.get(o.id).rotation.y = o.rot * Math.PI / 180; }
   if (sel.kind === 'person') { const o = plan.people.find(x => x.id === sel.id); o.rot = ((o.rot || 0) + deg + 360) % 360; peopleMap.get(o.id).rotation.y = o.rot * Math.PI / 180; }
   afterChange(); renderProp();
 }
@@ -303,6 +341,7 @@ function delSel() {
   if (sel.kind === 'obj') { plan.objects = plan.objects.filter(x => x.id !== sel.id); objG.remove(objMap.get(sel.id)); objMap.delete(sel.id); }
   if (sel.kind === 'person') { plan.people = plan.people.filter(x => x.id !== sel.id); peopleG.remove(peopleMap.get(sel.id)); peopleMap.delete(sel.id); }
   if (sel.kind === 'open') { plan.openings = plan.openings.filter(x => x.id !== sel.id); rebuildShell(); }
+  if (sel.kind === 'inner') { plan.inner = plan.inner.filter(x => x.id !== sel.id); rebuildShell(); }
   sel = null; renderProp(); afterChange(); toast('Borrado');
 }
 $('#tRot').onclick = () => rotateSel(45); $('#tDup').onclick = dupSel; $('#tDel').onclick = delSel; $('#tUndo').onclick = undo; $('#tRedo').onclick = redo; $('#tView').onclick = fitView;
@@ -334,6 +373,7 @@ function drawMap() {
   mx.fillStyle = '#0b0911'; mx.fillRect(0, 0, W, H); mx.fillStyle = plan.floor.color || '#555'; mx.fillRect(ox - w / 2 * s, oz - d / 2 * s, w * s, d * s); mx.strokeStyle = '#e7e2f0'; mx.lineWidth = 3; mx.strokeRect(ox - w / 2 * s, oz - d / 2 * s, w * s, d * s);
   const col = collisions(plan);
   plan.objects.forEach(o => { const f = footprint(o); if (!f) return; mx.fillStyle = sel?.id === o.id ? '#38bdf8' : col.has(o.id) ? '#ef4444' : f.flat ? 'rgba(242,11,109,.35)' : (o.color || byId[o.item].colors[0]); mx.globalAlpha = .9; mx.fillRect(ox + f.x0 * s, oz + f.z0 * s, (f.x1 - f.x0) * s, (f.z1 - f.z0) * s); mx.globalAlpha = 1; mx.strokeStyle = '#000a'; mx.lineWidth = 1; mx.strokeRect(ox + f.x0 * s, oz + f.z0 * s, (f.x1 - f.x0) * s, (f.z1 - f.z0) * s); });
+  (plan.inner || []).forEach(iw => { mx.strokeStyle = sel?.id === iw.id ? '#38bdf8' : iw.kind === 'vidrio' ? '#7dd3fc' : '#e7e2f0'; mx.lineWidth = iw.kind === 'media' ? 2 : 4; mx.beginPath(); mx.moveTo(ox + iw.x1 * s, oz + iw.z1 * s); mx.lineTo(ox + iw.x2 * s, oz + iw.z2 * s); mx.stroke(); });
   plan.people.forEach(p => { mx.fillStyle = '#facc15'; mx.beginPath(); mx.arc(ox + p.x * s, oz + p.z * s, 4, 0, 7); mx.fill(); });
   mx.strokeStyle = '#38bdf8'; mx.setLineDash([4, 3]); mx.beginPath(); mx.arc(ox + ctr.target.x * s, oz + ctr.target.z * s, 10, 0, 7); mx.stroke(); mx.setLineDash([]);
   mapC._s = { s, ox, oz };
@@ -383,7 +423,7 @@ function loop() {
   const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime; ctr.update();
   peopleG.children.forEach(g => tickCharacter(g, dt, t));
   // manijas y etiquetas
-  const g = selObject(); if (g && sel.kind !== 'open') { const b = new THREE.Box3().setFromObject(g); const p = new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y + .15, (b.min.z + b.max.z) / 2).project(cam); const H = $('#handles'); H.style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; H.style.top = ((1 - p.y) / 2 * innerHeight - 6) + 'px'; selBox.box.copy(b); }
+  const g = selObject(); if (g && sel.kind !== 'open' && sel.kind !== 'inner') { const b = new THREE.Box3().setFromObject(g); const p = new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y + .15, (b.min.z + b.max.z) / 2).project(cam); const H = $('#handles'); H.style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; H.style.top = ((1 - p.y) / 2 * innerHeight - 6) + 'px'; selBox.box.copy(b); }
   const L = $('#labels'); if (mode === 'conectar') { const items = plan.objects.filter(o => byId[o.item]?.conn); if (L.children.length !== items.length) { L.innerHTML = items.map(() => '<div class="badge"></div>').join(''); } items.forEach((o, i) => { const gg = objMap.get(o.id); if (!gg) return; const b = new THREE.Box3().setFromObject(gg); const p = new THREE.Vector3(o.x, b.max.y + .2, o.z).project(cam); const el = L.children[i]; el.className = 'badge ' + (o.conn ? 'ok' : 'no'); el.textContent = o.conn ? '🔗 ' + connLabel(o.conn) : '⚠ sin conectar'; el.style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - p.y) / 2 * innerHeight) + 'px'; el.style.display = p.z < 1 ? '' : 'none'; }); } else if (L.children.length) L.innerHTML = '';
   if (t - mapT > .25) { mapT = t; drawMap(); }
   R.render(scene, cam);
