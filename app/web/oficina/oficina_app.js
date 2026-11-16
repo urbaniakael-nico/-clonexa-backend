@@ -141,6 +141,11 @@ const LOOK_FIELDS = ['genero', 'personaje', 'tunica', 'barba', 'color_barba', 'c
 function changesLook(body) { return LOOK_FIELDS.some(k => k in (body || {})); }
 // Negocio en vivo 3D (consola -> tarjeta de la empresa): ?piso=<empresa>&arquitecto=1 abre ese piso en modo arquitecto;
 // ?piso=<empresa>&personajes=1 abre el editor filtrado a esa empresa (su representante, sus plantillas y su personal).
+// Biblioteca 3D (Diseño del local y Personajes) de una empresa: la empresa viaja en el enlace.
+function b3dUrl(page, cid, person) {
+  const q = new URLSearchParams({empresa: cid}); if (person) q.set('id', person);
+  return `/admin-v2plus/biblioteca3d/${page || ''}?${q.toString()}`;
+}
 function scopeFromQuery(search) {
   const q = new URLSearchParams(search || '');
   const piso = String(q.get('piso') || '').toLowerCase();
@@ -162,6 +167,8 @@ function scopedEntries(groups, cid, companyName) {
 if (typeof window !== 'undefined' && !window.__CX_OFICINA_TEST__) start();
 
 async function start() {
+  // "Personajes del negocio" de una empresa: ahora es la pantalla Personajes de la Biblioteca 3D
+  const sc = scopeFromQuery(location.search); if (sc.cid && sc.chars) { location.replace(b3dUrl('personajes', sc.cid)); return; }
   const loadEl = document.getElementById('load');
   let first;
   try {
@@ -696,7 +703,8 @@ function main(DATA, SAVED_IN) {
     const d = ch.def;
     if (ch.kind === 'staff') {
       openInfo(`<h2>${esc(d.name)}</h2><div class="role">${esc(d.role)} · ${esc(ch.floor.name)}</div>${stHtml(ch.paused ? 'wait' : 'work', ch.paused ? 'En pausa ⏸' : 'En turno')}<ul><li>Uniforme: ${esc(of_uniform(d.uniform))}</li></ul><div class="src">Fuente real: turno abierto en Clonexa. Sale de la oficina cuando cierra su turno.</div><div class="row"><button type="button" data-edit>✏️ Editar este personaje</button></div>`);
-      info.querySelector('[data-edit]').onclick = () => openEd(ch); return;
+      // el personaje de una persona del personal se edita en la Biblioteca 3D (editor nuevo, por empresa)
+      info.querySelector('[data-edit]').onclick = () => window.open(b3dUrl('personajes', ch.floor.company_id, d.key), '_blank', 'noopener'); return;
     }
     const a = agentData(ch.id);
     const last = a.last_run && a.last_run.at ? `<div class="src">Última ejecución: ${esc(new Date(a.last_run.at).toLocaleString('es-CO'))} · ${a.last_run.status === 'success' ? 'bien' : esc(a.last_run.status)}</div>` : '';
@@ -715,7 +723,8 @@ function main(DATA, SAVED_IN) {
       ${f.template === 'bar' ? `<div class="row">Estilo del piso <select data-style><option value="clasico" ${!isRealFloor(f) ? 'selected' : ''}>Clásico</option><option value="realista" ${f.style === 'realista' ? 'selected' : ''}>Realista (copia viva)</option><option value="bar" ${f.style === 'bar' ? 'selected' : ''}>Bar aprobado (copia viva)</option></select></div>` : ''}
       ${f.brand && f.brand.warning ? `<div class="alert">${esc(f.brand.warning)}</div>` : ''}
       <div class="row">Personal <select data-priv><option value="nombre" ${f.privacy !== 'cargo' ? 'selected' : ''}>Nombre + inicial y cargo</option><option value="cargo" ${f.privacy === 'cargo' ? 'selected' : ''}>Solo el cargo</option></select></div>
-      <div class="src">Solo actividad (sin dinero). Fuente: turnos, pedidos y registros de ${esc(f.name)} en Clonexa.</div><div class="row"><button type="button" data-edit>✏️ Editar representante</button></div>`, 'rep:' + f.company_id);
+      <div class="src">Solo actividad (sin dinero). Fuente: turnos, pedidos y registros de ${esc(f.name)} en Clonexa.</div><div class="row"><button type="button" data-edit>✏️ Editar representante</button></div>
+      <div class="row"><a class="btn" href="${esc(b3dUrl('', f.company_id))}" target="_blank" rel="noopener">🧱 Diseñar en Biblioteca 3D</a><a class="btn" href="${esc(b3dUrl('personajes', f.company_id))}" target="_blank" rel="noopener">🧍 Personajes del negocio</a></div>`, 'rep:' + f.company_id);
     info.querySelector('[data-edit]').onclick = () => openEd(p.rep);
     info.querySelector('[data-tpl]').onchange = e => saveFloor(f.company_id, {plantilla: e.target.value});
     info.querySelector('[data-priv]').onchange = e => saveFloor(f.company_id, {privacidad: e.target.value});
@@ -922,7 +931,6 @@ function main(DATA, SAVED_IN) {
   goal.tgt.copy(home.tgt); goal.dist = home.dist; cam.tgt.copy(home.tgt); cam.dist = home.dist;
   setFocus(null); tick(); schedule(); document.getElementById('load').remove();
   const scoped = SCOPE.cid && BY_CID.get(SCOPE.cid);
-  if (scoped && SCOPE.chars) { const h2 = document.querySelector('#ed .edhead h2'); if (h2) h2.textContent = 'Personajes · ' + scoped.name; openEd(); }
-  else if (scoped) setFocus(scoped);
+  if (scoped) setFocus(scoped);
   else if (location.hash !== '#edificio') setTimeout(() => { if (!focus) setFocus(cx); }, 3500);
 }

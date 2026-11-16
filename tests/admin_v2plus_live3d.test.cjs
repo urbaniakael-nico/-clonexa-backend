@@ -26,17 +26,18 @@ test('consumo medido: pantallas abiertas y GB/MB del mes', () => {
   assert.equal(usageText(null), '—');
 });
 
-test('tarjeta como la imagen aprobada: estado, campos, consumo y los cuatro botones', () => {
-  const html = load()._pure.cardHtml(DATA, {});
-  for (const t of ['NEGOCIO EN VIVO 3D', 'Encendido', 'Plantilla', 'Privacidad del personal', 'Quién lo ve', 'Modo TV / pantalla completa', 'Permitido',
-    'Modo liviano en celulares', 'Consumo', '2 pantallas abiertas · 0,3 GB este mes', 'Abrir como el cliente', 'Editar distribución (Modo constructor)', 'Personajes del negocio', 'Apagar']) {
+test('tarjeta SIMPLIFICADA (Biblioteca 3D): encendido, quién lo ve, privacidad, TV, liviano, consumo, plano y UN botón', () => {
+  const html = load()._pure.cardHtml({ ...DATA, plano: 3 }, {});
+  for (const t of ['NEGOCIO EN VIVO 3D', 'Encendido', 'Privacidad del personal', 'Quién lo ve', 'Modo TV / pantalla completa', 'Permitido',
+    'Modo liviano en celulares', 'Consumo', '2 pantallas abiertas · 0,3 GB este mes', 'Versión 3 en vivo', '🧱 Diseñar en Biblioteca 3D']) {
     assert.ok(html.includes(t), t);
   }
-  assert.ok(html.includes(`/admin-v2plus/constructor?empresa=${DATA.company_id}`), 'Editar distribución abre el Modo constructor (reemplaza al modo arquitecto)');
-  assert.ok(html.includes('&personajes=1') || html.includes('&amp;personajes=1'));
+  for (const t of ['Plantilla', 'Editar distribución', 'Personajes del negocio', 'Abrir como el cliente', 'cx3d-prev']) assert.ok(!html.includes(t), 'se quitó: ' + t);
+  assert.ok(html.includes(`href="/admin-v2plus/biblioteca3d/?empresa=${DATA.company_id}"`), 'abre la Biblioteca 3D con esa empresa ya elegida');
+  assert.equal((html.match(/class="vp-btn/g) || []).length, 1, 'un solo botón');
   assert.ok(!/\son[a-z]+=/i.test(html) && !html.includes(' style="'), 'sin código ni estilos en línea (CSP de la consola)');
-  const off = load()._pure.cardHtml({ ...DATA, enabled: false, has_engine: false, audience: 'roles', roles: ['mesero'] }, {});
-  assert.ok(off.includes('Apagado') && off.includes('Encender') && off.includes('data-cx3d-open disabled') && off.includes('value="mesero"'));
+  const off = load()._pure.cardHtml({ ...DATA, enabled: false, audience: 'roles', roles: ['mesero'] }, {});
+  assert.ok(off.includes('Apagado') && off.includes('Sin plano en vivo') && off.includes('value="mesero"'));
 });
 
 test('lo que se guarda al cambiar cada control', () => {

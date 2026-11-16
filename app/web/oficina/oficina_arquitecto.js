@@ -15,7 +15,7 @@ export function attachArchitect(o, ctx) {
   if (o.architectOpen) { try { window.open(a.href, '_blank', 'noopener'); } catch (e) { /* bloqueado: queda el botón */ } }
   return {tick() {}, get on() { return false; }, detach() { a.remove(); }};
 }
-export function constructorUrl(cid) { return '/admin-v2plus/constructor?empresa=' + encodeURIComponent(cid); }
+export function constructorUrl(cid) { return '/admin-v2plus/biblioteca3d/constructor?empresa=' + encodeURIComponent(cid); }
 
 // ------------------------------------------------------------------ reglas puras
 export function limits(room) { return {x: room.W / 2 - 0.6, z: room.D / 2 - 0.6}; }

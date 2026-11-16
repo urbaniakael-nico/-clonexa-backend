@@ -1091,6 +1091,7 @@ a.vp-nav-link { display: flex; align-items: center; text-decoration: none; }
 .cx3d-pill.is-on { background: #e11d48; color: #fff; }
 .cx3d-sub { margin: 6px 0 14px; color: var(--vp-muted); }
 .cx3d-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); gap: 16px; align-items: start; }
+.cx3d-body.cx3d-body-solo { grid-template-columns: minmax(0, 1fr); }
 .cx3d-prev { border-radius: 12px; overflow: hidden; border: 1px solid var(--vp-line); background: #0b0710; aspect-ratio: 16 / 9; }
 .cx3d-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cx3d-noprev { height: 100%; display: grid; place-items: center; align-content: center; gap: 8px; padding: 14px; text-align: center; color: var(--vp-muted); }

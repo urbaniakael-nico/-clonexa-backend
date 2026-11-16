@@ -27,6 +27,7 @@ select option:disabled{color:#a798ad}
 button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:8px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:600;font-size:13px}
 button:hover{background:rgba(255,255,255,.14)}button.pri{background:linear-gradient(135deg,#ff3b4e,#f20b6d)}
 button:disabled{opacity:.5;cursor:default}
+#info a.btn{display:inline-block;text-decoration:none;border-radius:10px;padding:8px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:600;font-size:13px}#info a.btn:hover{background:rgba(255,255,255,.14)}
 #elev{position:fixed;left:12px;top:84px;width:224px;padding:12px;max-height:calc(100% - 160px);overflow:auto}
 #elev h3,#feed h3{font-size:11px;letter-spacing:2px;color:#a798ad;margin:0 0 8px 4px}
 #elev button{display:flex;width:100%;align-items:center;gap:10px;margin:4px 0;text-align:left;padding:9px 10px;background:rgba(255,255,255,.04)}
