@@ -104,3 +104,15 @@ def test_sin_filas_en_la_franja_no_avisa_nada_que_publicar():
     # hay fila PM manana pero no AM: la franja AM calla; la PM si avisaria si no estuviera aprobada
     assert elegir("2026-11-18", "am")["silencio"] is True
     assert "!$json.silencio" in NODES["¿Primera vuelta?"]["parameters"]["conditions"]["conditions"][0]["leftValue"]
+
+
+def test_si_falta_el_archivo_de_la_fila_no_toma_el_de_otra_fila_del_mismo_dia():
+    # La fila AM nombra un archivo que no esta en Drive; el reel de la PM del mismo dia si esta.
+    executed = {"Entrada": [{"fecha": "2026-11-17", "simular": False, "todas": False, "franja": "am"}],
+                "Leer calendario": [{"values": CAL}],
+                "Archivos en Drive": [{"files": [{"id": "x", "name": "2026-11-17 pm-hoy.mp4", "mimeType": "video/mp4"}]}]}
+    am = run_js(NODES["Elegir pieza"]["parameters"]["jsCode"], executed)
+    assert am["tema"] == "am-hoy" and am["kind"] == "nada" and am["file_id"] == ""
+    executed["Entrada"] = [{"fecha": "2026-11-17", "simular": False, "todas": False, "franja": "pm"}]
+    pm = run_js(NODES["Elegir pieza"]["parameters"]["jsCode"], executed)
+    assert pm["file_name"] == "2026-11-17 pm-hoy.mp4"
