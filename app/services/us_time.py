@@ -56,7 +56,62 @@ def rules_of(raw: Any) -> dict:
             out["overtime_factor"] = factor
     except (TypeError, ValueError):
         pass
+    period = pay_period_of(raw.get("pay_period"))
+    if period:
+        out["pay_period"] = {"type": period["type"], "anchor": period["anchor"].isoformat()}
     return out
+
+
+# ------------------------------------------------------------------ cortes de pago (080A)
+# Ajuste por empresa dentro de us_payroll_rules: {"pay_period": {"type": "biweekly",
+# "anchor": "2026-11-02"}}. Sin el ajuste, nada cambia (Quincena = 2 semanas laborales).
+# Corte cada 14 dias (o 7) contados desde la fecha ancla, en fechas LOCALES del lugar:
+# ancla 02/11/2026 -> 02-15 nov, 16-29 nov, 30 nov-13 dic... El overtime sigue siendo por
+# semana laboral: el corte solo dice desde donde y hasta donde se suma.
+PAY_PERIOD_DAYS = {"biweekly": 14, "weekly": 7}
+
+
+def pay_period_of(raw: Any) -> Optional[dict]:
+    """{"type", "days", "anchor": date} validado, o None (la empresa no usa cortes)."""
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("type") or "").strip().lower()
+    if kind not in PAY_PERIOD_DAYS:
+        return None
+    try:
+        anchor = date.fromisoformat(str(raw.get("anchor") or "")[:10])
+    except ValueError:
+        return None
+    return {"type": kind, "days": PAY_PERIOD_DAYS[kind], "anchor": anchor}
+
+
+def cut_for(day: date, rules: Optional[dict]) -> Optional[tuple[date, date]]:
+    """(inicio, fin) del corte que contiene `day` (fechas locales), o None sin cortes."""
+    period = pay_period_of((rules or {}).get("pay_period"))
+    if not period:
+        return None
+    n = period["days"]
+    start = period["anchor"] + timedelta(days=((day - period["anchor"]).days // n) * n)
+    return start, start + timedelta(days=n - 1)
+
+
+CUT_WORD = {"es": "Corte", "en": "Pay period", "fr": "Période"}
+
+
+def cut_label(start: date, end: date, lang: str = "es") -> str:
+    """"Corte 16/11 - 29/11" (con el año si el corte cruza de año)."""
+    word = CUT_WORD.get(lang, CUT_WORD["es"])
+    if start.year != end.year:
+        return f"{word} {start:%d/%m/%Y} - {end:%d/%m/%Y}"
+    return f"{word} {start:%d/%m} - {end:%d/%m}"
+
+
+def cut_info(start: date, end: date, rules: Optional[dict]) -> Optional[dict]:
+    """El corte, si [start, end] es exactamente un corte de la empresa; si no, None."""
+    cut = cut_for(start, rules)
+    if not cut or cut != (start, end):
+        return None
+    return {"start": start.isoformat(), "end": end.isoformat(), "label": cut_label(start, end)}
 
 
 def zone(name: Any, fallback: str = "America/Chicago") -> ZoneInfo:

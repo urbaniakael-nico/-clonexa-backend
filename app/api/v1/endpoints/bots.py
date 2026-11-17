@@ -574,6 +574,24 @@ def _format_payroll_summary(company: Company, snapshot: dict[str, Any], text_val
     return "\n".join(lines)
 
 
+async def _cx_pay_cut_period_080a(db: AsyncSession, company_id: UUID, text_value: str, start: date, end: date, label: str) -> tuple[date, date, str]:
+    """080A: con cortes de pago (us_payroll_rules.pay_period, hoy solo VOLTAGE), "quincena" o
+    "corte" (y la consulta sin periodo) es el corte actual: desde su primer dia hasta hoy."""
+    if label not in ("quincena actual", "primera quincena", "segunda quincena") and "corte" not in _text_norm(text_value):
+        return start, end, label
+    from app.services import us_payroll as cx_us_payroll_080a, us_time as cx_us_time_080a
+
+    try:
+        if not await cx_us_payroll_080a.is_on(db, company_id):
+            return start, end, label
+        cut = cx_us_time_080a.cut_for(_today_business(), await cx_us_payroll_080a.rules(db, company_id))
+    except Exception:
+        return start, end, label
+    if not cut:
+        return start, end, label
+    return cut[0], min(cut[1], _today_business()), cx_us_time_080a.cut_label(*cut)
+
+
 async def _whatsapp_payroll_reply(
     *,
     company_id: UUID,
@@ -582,6 +600,7 @@ async def _whatsapp_payroll_reply(
     text_value: str,
 ) -> str:
     period_start, period_end, period_label = _payroll_period_from_text(text_value)
+    period_start, period_end, period_label = await _cx_pay_cut_period_080a(db, company_id, text_value, period_start, period_end, period_label)
     await ensure_payroll_storage(db)
     snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
     return _format_payroll_summary(company, snapshot, text_value, period_label)

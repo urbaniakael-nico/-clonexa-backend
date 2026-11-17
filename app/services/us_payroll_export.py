@@ -213,6 +213,22 @@ def _day_money(row: dict, regular: int, overtime: int) -> Optional[float]:
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def cut_of(snapshot: dict) -> Optional[dict]:
+    """080A: el corte de pago del periodo (solo empresas con cortes y periodo = un corte)."""
+    cut = (snapshot.get("us_payroll") or {}).get("cut")
+    return cut if isinstance(cut, dict) and cut.get("start") else None
+
+
+def week_rows(row: dict) -> list[dict]:
+    """080A: Semana 1, Semana 2... del periodo de una persona (overtime por semana)."""
+    out = []
+    for i, w in enumerate((row.get("us") or {}).get("weeks") or [], 1):
+        a, b = date.fromisoformat(w["week_start"]), date.fromisoformat(w["week_end"])
+        out.append({"label": f"Semana {i} ({a:%d/%m}-{b:%d/%m})", "payable": int(w.get("payable") or 0), "pause": int(w.get("pause") or 0),
+                    "regular": int(w.get("regular") or 0), "overtime": int(w.get("overtime") or 0)})
+    return out
+
+
 # ------------------------------------------------------------------ CSV
 CSV_HEAD = ["operacion", "empleado", "documento", "fecha", "entrada", "salida", "en_turno", "pausas", "pagables", "regulares", "overtime",
             "tarifa", "bruto", "neto", "estado"]
@@ -243,6 +259,10 @@ def build_csv(snapshot: dict, documents: Optional[dict] = None) -> str:
                 state = _status(held_days.get(x["date"], 0))
                 w.writerow([label, r.get("employee_name"), doc, x["date"], x["in_text"], x["out_text"], hm(x["connected"]), hm(x["pause"]),
                             hm(x["payable"]), hm(x["regular"]), hm(x["overtime"]), rate, money(value, value is None), money(value, value is None), state])
+            if cut_of(snapshot):  # 080A: subtotal de cada semana del corte
+                for wk in week_rows(r):
+                    w.writerow([label, r.get("employee_name"), doc, wk["label"], "", "", hm(wk["payable"] + wk["pause"]), hm(wk["pause"]),
+                                hm(wk["payable"]), hm(wk["regular"]), hm(wk["overtime"]), rate, "", "", ""])
             w.writerow([label, r.get("employee_name"), doc, "Total", "", "", hm(u.get("connected_minutes")), hm(u.get("pause_minutes")),
                         hm(u.get("payable_minutes")), hm(u.get("regular_minutes")), hm(u.get("overtime_minutes")), rate,
                         money(u.get("gross"), pend), money(u.get("net"), pend), _status(len(held))])
@@ -374,11 +394,13 @@ def build_pdf(snapshot: dict, company_name: str) -> bytes:
     per = snapshot.get("period") or {}
     c.setFont("Helvetica-Bold", 15)
     c.setFillColorRGB(*ink)
-    c.drawString(margin, y - 12, fit(f"{company_name} · Nómina semanal" if company_name else "Nómina semanal", 15, width / 2, "Helvetica-Bold"))
+    cut = cut_of(snapshot)
+    title = f"Nómina · {cut['label']}" if cut else "Nómina semanal"
+    c.drawString(margin, y - 12, fit(f"{company_name} · {title}" if company_name else title, 15, width / 2, "Helvetica-Bold"))
     c.setFont("Helvetica", 9)
     c.setFillColorRGB(*soft)
     c.drawString(margin, y - 26, "Overtime por encima de 40 h · Pausas sin pago · Hora local de cada operación")
-    c.drawRightString(width - margin, y - 12, f"Periodo: {per.get('period_start')} a {per.get('period_end')}")
+    c.drawRightString(width - margin, y - 12, f"{'Corte' if cut else 'Periodo'}: {per.get('period_start')} a {per.get('period_end')}")
     c.drawRightString(width - margin, y - 26, f"Generado: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     y -= 44
     text_line(rules_line(snapshot), 8, color=soft)
@@ -422,6 +444,17 @@ def build_pdf(snapshot: dict, company_name: str) -> bytes:
               total_row=[f"Total {o['name']}", "", "", hm(t["connected"]), hm(t["pause"]), hm(t["payable"]), hm(t["regular"]), hm(t["overtime"]), "",
                          PENDING if allp else money(t["gross"], False), PENDING if allp else money(t["net"], False),
                          _status(t["pending_count"])])
+        if cut:  # 080A: horas de cada semana del corte (el overtime se cuenta por semana)
+            wrows = []
+            for r in o["people"]:
+                wk = week_rows(r)
+                wrows.append([r.get("employee_name")] + [x for i in range(2) for x in ((hm(wk[i]["payable"]), hm(wk[i]["regular"]), hm(wk[i]["overtime"])) if i < len(wk) else ("0:00", "0:00", "0:00"))]
+                             + [hm((r.get("us") or {}).get("payable_minutes")), hm((r.get("us") or {}).get("overtime_minutes"))])
+            if wrows:
+                ensure(40)
+                text_line(f"{o['name']} · horas por semana del corte", 9, bold=True, color=accent)
+                table(["Empleado", "Sem. 1 pagables", "Sem. 1 regulares", "Sem. 1 overtime", "Sem. 2 pagables", "Sem. 2 regulares", "Sem. 2 overtime", "Total", "Overtime total"],
+                      wrows, [0.24, 0.095, 0.095, 0.095, 0.095, 0.095, 0.095, 0.095, 0.095], ["l", "r", "r", "r", "r", "r", "r", "r", "r"], accent)
     tt = snapshot.get("totals") or {}
     text_line(f"Total {company_name or 'empresa'}: pagables {hm(tt.get('payable_minutes'))} · overtime {hm(tt.get('extra_minutes'))} · "
               f"por confirmar {len(pending)}", 9.5, bold=True)

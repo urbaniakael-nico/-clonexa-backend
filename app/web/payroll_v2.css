@@ -299,6 +299,10 @@
 .pvu-detail-row > td { padding: 10px 12px 14px !important; }
 .pvu-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .pvu-days-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.pvu-wbox { min-width: 0; }
+.pvu-wsum { margin: 0 0 6px; font-size: 13px; }
+.pvu-adj { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid currentColor; }
+.pvu-cut select { max-width: 100%; }
 .pvu-days { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pvu-days caption { text-align: left; font-weight: 700; padding: 0 0 6px; }
 .pvu-days th, .pvu-days td { padding: 5px 6px; border-top: 1px solid var(--pv-line); text-align: left; white-space: nowrap; font-weight: 400; }

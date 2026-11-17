@@ -494,6 +494,10 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         "us_payroll": {"rules": rule, "missing_rate": missing_rate, "missing_place": missing_place, "company_tz": data["company_tz"],
                        "company_abbr": us_time.abbr(data["company_tz"]), "operations": operations(data["people"])},
     }
+    # 080A: cortes de pago de la empresa (ajuste pay_period); solo si el periodo es un corte exacto.
+    cut = us_time.cut_info(period_start, period_end, rule)
+    if cut:
+        out["us_payroll"]["cut"] = cut
     if board:
         out["us_payroll"]["week_totals"] = week_totals(good)
     if unverified:
@@ -512,6 +516,7 @@ BOT_TEXTS = {
         "today": "✅ Tiempo pagable de hoy: {payable}",
         "week": "📅 Semana: {week} de {limit}",
         "overtime": "⏱ Overtime de la semana: {ot}",
+        "cut": "🗓 {label}: {payable}",
         "pay": "💵 Proyección de la semana: {amount}",
         "pending": "💵 Pago: según tarifa (pendiente)",
         "no_place": "📍 Sin lugar asignado (hora de la empresa)",
@@ -523,6 +528,7 @@ BOT_TEXTS = {
         "today": "✅ Payable time today: {payable}",
         "week": "📅 Week: {week} of {limit}",
         "overtime": "⏱ Overtime this week: {ot}",
+        "cut": "🗓 {label}: {payable}",
         "pay": "💵 Projected pay this week: {amount}",
         "pending": "💵 Pay: per hourly rate (pending)",
         "no_place": "📍 No work location (company time)",
@@ -534,6 +540,7 @@ BOT_TEXTS = {
         "today": "✅ Temps payable aujourd'hui : {payable}",
         "week": "📅 Semaine : {week} sur {limit}",
         "overtime": "⏱ Heures supplémentaires de la semaine : {ot}",
+        "cut": "🗓 {label} : {payable}",
         "pay": "💵 Projection de la semaine : {amount}",
         "pending": "💵 Paiement : selon le tarif (en attente)",
         "no_place": "📍 Sans lieu de travail (heure de l'entreprise)",
@@ -552,7 +559,8 @@ async def bot_summary(db: AsyncSession, company_id: Any, employee_id: Any, ended
     lang = language if language in BOT_TEXTS else "es"
     t = BOT_TEXTS[lang]
     rule = await rules(db, company_id)
-    lo, hi = ended_at - timedelta(days=8), ended_at + timedelta(minutes=1)
+    # 15 dias: la semana laboral completa y, con cortes de pago (080A), el corte de 2 semanas.
+    lo, hi = ended_at - timedelta(days=15), ended_at + timedelta(minutes=1)
     data = await load(db, company_id, lo, hi, employee_id)
     if not data["shifts"]:
         return None
@@ -574,6 +582,11 @@ async def bot_summary(db: AsyncSession, company_id: Any, employee_id: Any, ended
              t["week"].format(week=bot_hm(week_payable, lang), limit=bot_hm(rule["overtime_after_minutes"], lang).replace(" 00 min", ""))]
     if week_ot > 0:
         lines.append(t["overtime"].format(ot=bot_hm(week_ot, lang)))
+    # 080A: contador del corte de pago; arranca en cero el primer dia del corte (00:00 del lugar).
+    cut = us_time.cut_for(end_l.date(), rule)
+    if cut:
+        cut_payable = sum(p["payable"] for s in computed for p in s["split"]["pieces"] if cut[0] <= p["date"] <= cut[1])
+        lines.append(t["cut"].format(label=us_time.cut_label(*cut, lang), payable=bot_hm(cut_payable, lang)))
     person = data["people"].get(str(employee_id)) or {}
     money = pay(week_regular, week_ot, _money(person.get("hourly_rate_regular")), rule["overtime_factor"], Decimal("0"))
     lines.append(t["pending"] if money["rate_pending"] else t["pay"].format(amount=money_label(Decimal(str(money["gross"])))))

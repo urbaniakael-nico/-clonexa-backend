@@ -535,7 +535,25 @@
     return addDays(iso, -((weekdayOf(iso) - want + 7) % 7));
   }
   // Semana = la semana laboral (dom-sáb); quincena = esa semana y la anterior.
-  function usPeriodFor(mode, refIso, startDay) {
+  // 080A: con cortes de pago (us_payroll_rules.pay_period, hoy solo VOLTAGE) "fortnight" es
+  // el corte de 2 semanas contado desde la fecha ancla (02/11/2026 -> 02-15 nov, 16-29 nov...).
+  function payPeriodOf(rules) {
+    const pp = rules && rules.pay_period;
+    if (!pp || !/^\d{4}-\d{2}-\d{2}$/.test(String(pp.anchor || ""))) return null;
+    const days = pp.type === "biweekly" ? 14 : pp.type === "weekly" ? 7 : 0;
+    return days ? { type: pp.type, days, anchor: String(pp.anchor) } : null;
+  }
+  function daysBetween(a, b) {
+    const t = (iso) => { const [y, m, d] = String(iso).split("-").map(Number); return Date.UTC(y, m - 1, d); };
+    return Math.round((t(b) - t(a)) / 86400000);
+  }
+  function cutFor(refIso, pp) {
+    const n = Math.floor(daysBetween(pp.anchor, refIso) / pp.days);
+    const from = addDays(pp.anchor, n * pp.days);
+    return { from, to: addDays(from, pp.days - 1) };
+  }
+  function usPeriodFor(mode, refIso, startDay, payPeriod) {
+    if (mode === "fortnight" && payPeriod) return cutFor(refIso, payPeriod);
     const ws = weekStartOf(refIso, startDay);
     if (mode === "fortnight") return { from: addDays(ws, -7), to: addDays(ws, 6) };
     return { from: ws, to: addDays(ws, 6) };
@@ -553,6 +571,23 @@
   }
 
   const usRules = () => ((model.snapshot && model.snapshot.us_payroll && model.snapshot.us_payroll.rules) || (ctx && ctx.usRules) || {});
+  const usCuts = () => payPeriodOf(usRules());
+  const usPeriod = (mode, refIso) => usPeriodFor(mode, refIso, usRules().week_start_day, usCuts());
+  const modeLabel = (k, l) => (k === "fortnight" && usCuts() ? "Corte (2 semanas)" : l);
+  const cutText = (p) => `Corte ${dm(p.from)} – ${dm(p.to)}`;
+  // Selector de cortes: desde el primero (ancla) hasta 2 después del actual.
+  function cutOptions(p) {
+    const pp = usCuts();
+    if (!pp) return [];
+    const now = cutFor(todayIn(tzOf()), pp);
+    const out = [];
+    for (let from = pp.anchor; from <= addDays(now.from, pp.days * 2); from = addDays(from, pp.days)) {
+      const c = { from, to: addDays(from, pp.days - 1) };
+      out.push({ ...c, label: `${cutText(c)}${c.from === now.from ? " (actual)" : ""}`, selected: c.from === p.from });
+    }
+    if (p.from && !out.some((o) => o.selected) && daysBetween(pp.anchor, p.from) % pp.days === 0) out.unshift({ from: p.from, to: p.to, label: cutText(p), selected: true });
+    return out;
+  }
 
   // Personas agrupadas por operación; los totales son de TODA la operación (la búsqueda no los cambia).
   function usOperations(snapshot, cards) {
@@ -611,19 +646,22 @@
   function usHeader() {
     const p = model.period || {};
     const custom = model.usMode === "custom";
-    const title = model.usMode === "fortnight" ? "Nómina quincenal" : custom ? "Nómina" : "Nómina semanal";
+    const cut = model.usMode === "fortnight" && usCuts();
+    const title = cut ? "Nómina por corte" : model.usMode === "fortnight" ? "Nómina quincenal" : custom ? "Nómina" : "Nómina semanal";
     const range = `${wdLabel(p.from)} – ${wdLabel(p.to)}`;
-    const step = model.usMode === "fortnight" ? "2 semanas" : "semana";
+    const step = cut ? "corte" : model.usMode === "fortnight" ? "2 semanas" : "semana";
+    const isNow = cut && p.from <= todayIn(tzOf()) && todayIn(tzOf()) <= p.to;
     return `<header class="client-hero pv-bar pvu-bar">
       <div class="pv-title"><div class="client-eyebrow">Nómina</div><h1 class="client-title">${h(title)}</h1>
-        <p class="pvu-week">${custom ? "Periodo" : "Semana laboral"} <b>${h(range)}</b></p>
+        <p class="pvu-week">${cut ? `${h(cutText(p))}${isNow ? ` <span class="pvu-chip is-ok">Corte actual</span>` : ""} · <b>${h(range)}</b>` : `${custom ? "Periodo" : "Semana laboral"} <b>${h(range)}</b>`}</p>
         <p class="pvu-rule">Overtime por encima de 40 h · Pausas sin pago</p></div>
       <div class="pvu-controls">
-        <div class="pvu-seg" role="group" aria-label="Periodo">${US_MODES.map(([k, l]) => `<button type="button" class="pv-filter ${model.usMode === k ? "is-active" : ""}" aria-pressed="${model.usMode === k}" data-pvu-mode="${k}">${l}</button>`).join("")}</div>
+        <div class="pvu-seg" role="group" aria-label="Periodo">${US_MODES.map(([k, l]) => `<button type="button" class="pv-filter ${model.usMode === k ? "is-active" : ""}" aria-pressed="${model.usMode === k}" data-pvu-mode="${k}">${h(modeLabel(k, l))}</button>`).join("")}</div>
         ${custom ? `<label class="pv-date"><span>Desde</span><input type="date" data-pv-from value="${h(p.from || "")}"></label>
           <label class="pv-date"><span>Hasta</span><input type="date" data-pv-to value="${h(p.to || "")}"></label>
           <button class="pv-btn-primary" type="button" data-pv-calc>Calcular</button>`
           : `<div class="pvu-nav"><button class="client-btn pvu-arrow" type="button" data-pvu-step="-1" aria-label="${h(step)} anterior">‹</button>
+          ${cut ? `<label class="pv-sort pvu-cut"><span>Corte</span><select data-pvu-cut aria-label="Elegir corte">${cutOptions(p).map((o) => `<option value="${h(o.from)}" ${o.selected ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select></label>` : ""}
           <button class="client-btn pvu-arrow" type="button" data-pvu-step="1" aria-label="${h(step)} siguiente">›</button></div>`}
         <button class="client-btn" type="button" data-pv-us-export="csv">CSV</button>
         <button class="pv-btn-primary" type="button" data-pv-us-export="pdf">Descargar PDF</button>
@@ -699,6 +737,7 @@
       if (!a.date) return;
       const x = get(a.date);
       if (!x.in || Date.parse(s.start) < x.inAt) { x.in = a.time; x.inAt = Date.parse(s.start); }
+      if (s.us && s.us.adjusted) x.adjusted = true;
       const b = clockIn(s.end, tz);
       if (b.date && (!x.out || Date.parse(s.end) > x.outAt)) { x.out = b.time; x.outAt = Date.parse(s.end); x.outDate = b.date !== a.date ? b.date : ""; }
     });
@@ -712,22 +751,27 @@
     const abbr = u.abbr || (c.pending[0] && c.pending[0].abbr) || "";
     const weeks = [];
     for (let ws = weekStartOf(p.from, usRules().week_start_day); ws <= p.to; ws = addDays(ws, 7)) weeks.push(ws);
-    const grid = weeks.map((ws) => {
+    const cut = model.usMode === "fortnight" && usCuts();
+    const wk = new Map(arr(u.weeks).map((w) => [w.week_start, w]));
+    const grid = weeks.map((ws, wi) => {
       const list = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(ws, i));
       let pay = 0; let pause = 0;
       const rows = list.map((d) => {
         const x = days.get(d);
         const out = d < p.from || d > p.to;
         if (x && !out) { pay += x.payable; pause += x.pause; }
-        return `<tr class="${out ? "is-out" : ""} ${x ? "" : "is-empty"}"><th scope="row">${h(wdLabel(d))}</th>
+        return `<tr class="${out ? "is-out" : ""} ${x ? "" : "is-empty"}"><th scope="row">${h(wdLabel(d))}${x && x.adjusted ? ` <span class="pvu-adj" title="Turno de ajuste masivo">Ajuste masivo</span>` : ""}</th>
           <td data-label="Entrada">${h(x && x.in ? x.in : "—")}</td><td data-label="Salida">${h(x && x.out ? `${x.out}${x.outDate ? ` (${dm(x.outDate)})` : ""}` : "—")}</td>
           <td data-label="En turno" class="pvu-n">${x ? h(hhmm(x.payable + x.pause)) : "—"}</td><td data-label="Pausas" class="pvu-n">${x ? h(hhmm(x.pause)) : "—"}</td>
           <td data-label="Pagables" class="pvu-n">${x ? `<b>${h(hhmm(x.payable))}</b>` : "—"}</td></tr>`;
       }).join("");
-      return `<table class="pvu-days"><caption>Semana ${h(wdLabel(ws))} – ${h(wdLabel(addDays(ws, 6)))}${abbr ? ` · hora ${h(abbr)}` : ""}</caption>
+      // 080A: en un corte, cada semana con sus regulares y su overtime (el overtime es por semana).
+      const w = wk.get(ws) || {};
+      const sub = cut ? `<p class="pvu-wsum">Semana ${wi + 1}: <b>${h(hhmm(w.payable))}</b> pagables · ${h(hhmm(w.regular))} regulares · ${num(w.overtime) > 0 ? `<b class="pvu-ot">${h(hhmm(w.overtime))} overtime</b>` : `${h(hhmm(0))} overtime`}</p>` : "";
+      return `<div class="pvu-wbox">${sub}<table class="pvu-days"><caption>${cut ? `Semana ${wi + 1} · ` : "Semana "}${h(wdLabel(ws))} – ${h(wdLabel(addDays(ws, 6)))}${abbr ? ` · hora ${h(abbr)}` : ""}</caption>
         <thead><tr><th scope="col">Día</th><th scope="col">Entrada</th><th scope="col">Salida</th><th scope="col" class="pvu-n">En turno</th><th scope="col" class="pvu-n">Pausas</th><th scope="col" class="pvu-n">Pagables</th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr><th scope="row">Total</th><td></td><td></td><td class="pvu-n">${h(hhmm(pay + pause))}</td><td class="pvu-n">${h(hhmm(pause))}</td><td class="pvu-n"><b>${h(hhmm(pay))}</b></td></tr></tfoot></table>`;
+        <tfoot><tr><th scope="row">Total</th><td></td><td></td><td class="pvu-n">${h(hhmm(pay + pause))}</td><td class="pvu-n">${h(hhmm(pause))}</td><td class="pvu-n"><b>${h(hhmm(pay))}</b></td></tr></tfoot></table></div>`;
     }).join("");
     const held = c.pending.map((x) => `<li><span>${h(wdLabel(clockIn(x.start, u.tz).date))} · entrada ${h(clockIn(x.start, u.tz).time)}${abbr ? ` ${h(abbr)}` : ""} · ${h(hhmm(x.minutes))} sin liquidar</span>
       <button type="button" class="pvu-confirm" data-pv-confirm="${h(pendingIndex(x))}">Confirmar salida</button></li>`).join("");
@@ -790,7 +834,7 @@
   async function usStep(dir) {
     const p = model.period || {};
     const days = model.usMode === "fortnight" ? 14 : 7;
-    const next = usPeriodFor(model.usMode, addDays(p.to, dir * days), usRules().week_start_day);
+    const next = usPeriod(model.usMode, addDays(p.to, dir * days));
     await load(next);
   }
 
@@ -799,7 +843,8 @@
     usPrefsSave();
     if (mode === "custom") { draw(); return; }
     const p = model.period || {};
-    await load(usPeriodFor(mode, p.to || todayIn(tzOf()), usRules().week_start_day));
+    // 080A: al entrar a Corte se abre el corte actual.
+    await load(usPeriod(mode, mode === "fortnight" && usCuts() ? todayIn(tzOf()) : (p.to || todayIn(tzOf()))));
   }
 
   // La tarjeta abierta se despliega debajo de SU fila, a todo el ancho.
@@ -1054,6 +1099,7 @@
     if (!t || !t.matches || !inside(t)) return;
     if (t.matches("[data-pv-sort]")) { model.sort = t.value; draw(); }
     if (t.matches("[data-pvu-sort]")) { model.usSort = t.value; usPrefsSave(); draw(); }
+    if (t.matches("[data-pvu-cut]") && usCuts() && t.value) { model.notice = ""; load(cutFor(t.value, usCuts())); }
   }
 
   function onKey(event) {
@@ -1078,7 +1124,7 @@
     if (ctx.usPayroll) {
       Object.assign(model, { usMode: "week", opFilter: "all", usSort: "payable" });
       usPrefsLoad(ctx.companyId);
-      if (model.usMode !== "custom") ctx.period = model.period = usPeriodFor(model.usMode, todayIn(tzOf()), (ctx.usRules || {}).week_start_day);
+      if (model.usMode !== "custom") ctx.period = model.period = usPeriodFor(model.usMode, todayIn(tzOf()), (ctx.usRules || {}).week_start_day, payPeriodOf(ctx.usRules || {}));
     }
     // Con la normativa colombiana el detalle es otro: se queda la pantalla de siempre.
     let first;
@@ -1108,5 +1154,5 @@
   }
 
   window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort, usOn, cash,
-    usOperations, usVisible, usPeriodFor, weekStartOf, usDays, confirmReady };
+    usOperations, usVisible, usPeriodFor, weekStartOf, usDays, confirmReady, payPeriodOf, cutFor };
 })();

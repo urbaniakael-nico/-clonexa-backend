@@ -124,8 +124,8 @@ test('Nómina v2 sin us_payroll: la pantalla de siempre, sin PDF/CSV nuevos', ()
 });
 
 test('client.js pide las versiones nuevas y pasa la sesión para la descarga; CSS solo del tema', () => {
-  assert.match(CLIENT, /payroll_v2\.js\?v=067A/);
-  assert.match(CLIENT, /payroll_v2\.css\?v=063A/);
+  assert.match(CLIENT, /payroll_v2\.js\?v=080A/);
+  assert.match(CLIENT, /payroll_v2\.css\?v=080A/);
   assert.match(CLIENT, /apiBase: API, token: \(\) => \(typeof cxReportsToken053C === "function" \? cxReportsToken053C\(\) : ""\)/);
   assert.match(REPORTS, /\/client-static\/us_payroll\.js\?v=067A/);
   assert.match(PAYROLL, /\/client-static\/us_payroll\.js\?v=067A/);
