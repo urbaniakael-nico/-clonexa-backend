@@ -517,7 +517,7 @@ const pedido = `Arma un ANUNCIO VISUAL de una sola imagen para Instagram sobre: 
  `\nEMOJI permitidos: ${__EMOJI__.join(' ')}` +
  `\nReglas: el titular completo (titulo + resaltado + remate) tiene MÁXIMO 8 PALABRAS, directo y concreto (ej: titulo "Del QR de la mesa", resaltado "a la cocina."). ` +
  `4 o 5 funciones cortas de Clonexa relacionadas con el tema, cada una con un emoji de la lista; no inventes cifras. ` +
- `Textos de redes: empiezan con el gancho, sin hashtags (van aparte), sin enlaces; ig_fb breve con 3 a 5 viñetas y cierra con "👉 Comenta DEMO y te escribo por privado.\nSígueme para más tips."; linkedin más profesional con una pregunta al final; nombra a Clonexa. Formato JSON:\n${formato}`;
+ `Textos de redes: empiezan con el gancho, sin hashtags (van aparte), sin enlaces; ig_fb breve con 3 a 5 viñetas y cierra con "👉 Comenta DEMO y te escribimos por privado." (habla como Clonexa, en plural: nunca en primera persona singular ni cerrando con una invitación a seguir la cuenta); linkedin más profesional con una pregunta al final; nombra a Clonexa. Formato JSON:\n${formato}`;
 return [{ json: { ...t, claude_body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 16000, output_config: { effort: 'low' }, system: __SYSTEM__, messages: [{ role: 'user', content: pedido }] }) } }];
 """.replace("__SYSTEM__", json.dumps(CLAUDE_SYSTEM, ensure_ascii=False))
        .replace("__ESCENAS__", json.dumps({k: v["rubro"] for k, v in nexa_ad.SCENES.items()}, ensure_ascii=False))

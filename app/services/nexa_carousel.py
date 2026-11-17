@@ -6,7 +6,7 @@ la izquierda, contador "n/N" arriba a la derecha, puntos de avance y "Desliza ->
 
 Estructura (6 o 7 laminas): portada (categoria, titulo con parte resaltada en degradado #ff3b4e ->
 #f20b6d, subtitulo) + 4 o 5 puntos (numero grande, titulo, cuadros HOY / CON CLONEXA) + cierre (icono,
-titulo resaltado, texto y boton "Comenta DEMO y te escribo").
+titulo resaltado, texto y boton "Comenta DEMO y te escribimos").
 
 render(spec) devuelve [(png_bytes, layout)]: layout dice donde quedo cada bloque para poder probar que
 nada se sale de la lamina ni se monta sobre otro bloque. Los textos largos bajan de tamano hasta caber.
@@ -34,7 +34,7 @@ SOFT = (214, 210, 221)
 GRAY = (160, 155, 168)
 DOT = (66, 62, 74)
 PINK_TXT = (255, 84, 140)
-CTA = "Comenta DEMO y te escribo"
+CTA = "Comenta DEMO y te escribimos"
 HANDLE = "@clonexaapp"
 
 _HERE = os.path.dirname(os.path.dirname(__file__))
