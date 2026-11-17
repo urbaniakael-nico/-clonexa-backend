@@ -231,6 +231,9 @@
       }
       const p = selectedPiece();
       if (p && !model.caption) model.caption = p.caption || "";
+      // Si la ultima publicacion sigue en proceso (p. ej. se cerro la pantalla), se retoma su seguimiento.
+      const last = model.posts[0];
+      if (!model.current && last && last.estado === "PROCESANDO") { model.current = { ...last }; startPoll(last.id); }
     }
     draw();
   }
