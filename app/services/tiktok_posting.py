@@ -52,6 +52,10 @@ LEGAL = {
     "branded": "https://www.tiktok.com/legal/page/global/bc-policy/en",
 }
 # Errores de creator_info / init que significan "ahora no se puede publicar".
+# Mientras la app no este auditada, TikTok solo acepta Direct Post en cuentas PRIVADAS (ajuste de la cuenta, no del video).
+PRIVATE_ONLY = {"unaudited_client_can_only_post_to_private_accounts"}
+PRIVATE_ONLY_MSG = ("Mientras TikTok no apruebe la auditoría, solo deja publicar en cuentas privadas. En la app de TikTok: "
+                    "Perfil → ☰ → Ajustes y privacidad → Privacidad → activa «Cuenta privada» y vuelve a tocar Publicar.")
 CANT_POST = {"spam_risk_too_many_posts", "spam_risk_user_banned_from_posting", "reached_active_user_cap", "spam_risk_too_many_pending_share"}
 
 
@@ -187,9 +191,10 @@ class SqlStore:
         await self._run("""INSERT INTO tiktok_posts (id, piece_id, modo, publish_id, status, privacy)
                            VALUES (CAST(:id AS uuid), CAST(:piece_id AS uuid), :modo, :publish_id, :status, :privacy)""", p)
 
-    async def update_post(self, post_id: str, **fields) -> None:
+    async def update_post(self, row_id: str, /, **fields) -> None:
+        # fields trae "post_id" (el id del post en TikTok): por eso el id de la fila va aparte, solo posicional.
         sets = ", ".join(f"{k} = :{k}" for k in fields)
-        await self._run(f"UPDATE tiktok_posts SET {sets}, updated_at = now() WHERE id = CAST(:id AS uuid)", {"id": post_id, **fields})
+        await self._run(f"UPDATE tiktok_posts SET {sets}, updated_at = now() WHERE id = CAST(:row_id AS uuid)", {"row_id": row_id, **fields})
 
     async def get_post(self, post_id: str) -> Optional[dict]:
         rows = await self._rows("SELECT * FROM tiktok_posts WHERE id = CAST(:i AS uuid)", {"i": post_id})
@@ -407,6 +412,8 @@ async def _post(db, path: str, payload: dict) -> dict:
         e = _api_error(body, f"TikTok respondió {r.status_code}.")
         if e.code in CANT_POST:
             e.args = ("TikTok no deja publicar ahora en esta cuenta. Intenta más tarde.",)
+        elif e.code in PRIVATE_ONLY or "integration guidelines" in str(e).lower():
+            e.args = (PRIVATE_ONLY_MSG,)
         raise e
     return body.get("data") or {}
 

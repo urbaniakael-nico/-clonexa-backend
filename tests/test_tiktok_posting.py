@@ -57,7 +57,7 @@ class MemStore:
     async def add_post(self, p):
         self.posts[p["id"]] = {**p, "fail_reason": "", "post_id": "", "created_at": datetime.now(timezone.utc)}
 
-    async def update_post(self, i, **f):
+    async def update_post(self, i, /, **f):
         self.posts[i].update(f)
 
     async def get_post(self, i):
@@ -85,6 +85,7 @@ CREATOR = {"creator_avatar_url": "https://p16.tiktokcdn.com/a.jpg", "creator_nic
 class FakeTikTok:
     def __init__(self):
         self.calls, self.creator, self.creator_error, self.uploads, self.status = [], dict(CREATOR), "", [], "PUBLISH_COMPLETE"
+        self.init_error = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -100,6 +101,8 @@ class FakeTikTok:
                 return httpx.Response(200, json={"data": {}, "error": {"code": self.creator_error, "message": "x"}})
             return httpx.Response(200, json={"data": self.creator, **ok})
         if path.endswith("/video/init/"):
+            if self.init_error:
+                return httpx.Response(403, json={"error": {**self.init_error, "log_id": "x"}})
             return httpx.Response(200, json={"data": {"publish_id": "v_pub_1", "upload_url": "https://open-upload.tiktokapis.com/video/?x=1"}, **ok})
         if path.endswith("/status/fetch/"):
             ids = ["7400000000000000001"] if self.status == "PUBLISH_COMPLETE" else []
@@ -298,3 +301,40 @@ def test_script_de_la_pantalla_exige_sesion(monkeypatch):
     monkeypatch.setattr(routes, "_active_session", AsyncMock(return_value=True))
     r = client.get("/admin-v2plus-tiktok.js")
     assert r.status_code == 200 and "CxConsoleTikTok" in r.text
+
+
+def test_sqlstore_actualiza_el_estado_aunque_traiga_post_id():
+    """El estado de TikTok trae post_id: no debe chocar con el id de la fila (fallo real del 17/11)."""
+    import asyncio
+    from app.services import tiktok_posting as tt
+
+    seen = []
+
+    class FakeDb:
+        async def execute(self, stmt, params=None):
+            seen.append((str(stmt), params))
+
+        async def commit(self):
+            pass
+
+    tt.SqlStore._ready = True
+    try:
+        asyncio.run(tt.SqlStore(FakeDb()).update_post("0b6d5f7e-1111-4222-8333-944445555666", status="PUBLICADO", fail_reason="", post_id="74001"))
+    finally:
+        tt.SqlStore._ready = False
+    sql, params = seen[-1]
+    assert "post_id = :post_id" in sql and "CAST(:row_id AS uuid)" in sql
+    assert params["post_id"] == "74001" and params["row_id"].startswith("0b6d5f7e")
+
+
+def test_cuenta_publica_sin_auditoria_explica_que_hacer(env):
+    store, fake, media = env
+    fake.init_error = {"code": "unaudited_client_can_only_post_to_private_accounts",
+                       "message": "Please review our integration guidelines at https://developers.tiktok.com/doc/content-sharing-guidelines/"}
+    connect(store)
+    p = _piece(store)
+    r = client.post(f"{BASE}/admin/publicar", json={"pieza": p["id"], "privacy_level": "SELF_ONLY"})
+    assert r.status_code == 400
+    d = r.json()["detail"]
+    assert d["codigo"] == "unaudited_client_can_only_post_to_private_accounts"
+    assert "Cuenta privada" in d["mensaje"] and "Please review" not in d["mensaje"]

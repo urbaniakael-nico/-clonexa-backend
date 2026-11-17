@@ -7,6 +7,7 @@ Los tokens de TikTok nunca salen en las respuestas.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 
@@ -20,6 +21,7 @@ from app.api.v1.endpoints.prospecting import require_n8n
 from app.api.v1.endpoints.social_metrics import require_admin_v2_session
 from app.services import tiktok_posting as tt
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 admin = [Depends(require_admin_v2_session)]
 n8n = [Depends(require_n8n)]
@@ -28,7 +30,9 @@ NO_STORE = {"Cache-Control": "no-store"}
 
 def _fail(exc: Exception) -> HTTPException:
     if isinstance(exc, tt.TikTokError):
+        logger.info("tiktok error codigo=%s", exc.code)   # solo el codigo: nunca tokens
         return HTTPException(status_code=exc.status, detail={"mensaje": tt.safe_message(exc), "codigo": exc.code})
+    logger.warning("tiktok fallo inesperado %s: %s", type(exc).__name__, tt.safe_message(exc))
     return HTTPException(status_code=502, detail={"mensaje": "No se pudo hablar con TikTok. Intenta de nuevo.", "codigo": "network"})
 
 
