@@ -46,7 +46,9 @@ from app.services import nexa_ad  # noqa: E402  catalogo de escenas demo y emoji
 BASE = "https://main-production-54df.up.railway.app"
 API = BASE + "/api/v1"
 BACKEND = "https://clonexa-backend-production.up.railway.app"
-LANDING = "https://clonexa-landing-production.up.railway.app/"
+# Enlace de los textos de redes: siempre el dominio propio (nunca la URL de Railway), con los utm por red
+# y campana. Los enlaces cortos /r/... de la landing son solo de prospectos (cuentan aperturas), no de redes.
+LANDING = "https://clonexa.com.co/"
 REFS = Path(r"C:\Users\valef\Desktop\referencias")
 BACKUPS = Path(r"C:\Users\valef\Desktop\respaldos-clonexa\n8n")
 CHAT = "5126243056"

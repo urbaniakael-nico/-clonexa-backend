@@ -116,3 +116,10 @@ def test_si_falta_el_archivo_de_la_fila_no_toma_el_de_otra_fila_del_mismo_dia():
     executed["Entrada"] = [{"fecha": "2026-11-17", "simular": False, "todas": False, "franja": "pm"}]
     pm = run_js(NODES["Elegir pieza"]["parameters"]["jsCode"], executed)
     assert pm["file_name"] == "2026-11-17 pm-hoy.mp4"
+
+
+def test_enlace_de_los_textos_es_el_dominio_propio_con_utm():
+    plan = NODES["Plan de envío"]["parameters"]["jsCode"]
+    assert "'https://clonexa.com.co/?utm_source=' + red + '&utm_medium=social&utm_campaign=' + camp" in plan
+    for n in FLOW.nodes:
+        assert "railway.app/?" not in json.dumps(n["parameters"]), n["name"]
