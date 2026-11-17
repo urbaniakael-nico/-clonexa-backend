@@ -259,7 +259,7 @@ const ddmmyyyy = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.sli
 const filas = values => (values || []).map((r, i) => { const o = { fila: i + 1 }; COLS.forEach((c, j) => o[c] = String((r || [])[j] == null ? '' : r[j]).trim()); o.iso = toIso(o.fecha); o.est = norm(o.estado); return o; }).filter(o => o.fila > 1 && o.iso);
 const kindOf = f => !f ? 'nada' : (String(f.mimeType || '').includes('folder') ? 'carpeta' : (String(f.mimeType || '').startsWith('video/') || /\.mp4$/i.test(f.name) ? 'video' : (String(f.mimeType || '').startsWith('image/') || /\.(png|jpe?g)$/i.test(f.name) ? 'imagen' : 'otro')));
 const elegir = (files, p) => { const base = String(p.archivo || '').split('/').pop().trim(); files = (files || []).filter(f => !f.trashed);
-  return (base && files.find(f => f.name === base)) || (base && files.find(f => f.name.startsWith(p.iso) && f.name.includes(base))) || files.find(f => f.name.startsWith(p.iso)) || null; };
+  return (base && files.find(f => f.name === base)) || (base && files.find(f => f.name.startsWith(p.iso) && f.name.includes(base))) || (!base && files.find(f => f.name.startsWith(p.iso))) || null; };  // con 2 filas por dia (AM/PM) nunca se toma el archivo de otra fila
 const parseJson = v => { if (v && typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return {}; } };
 """.replace("__SHEET__", SHEET).replace("__ROOT__", ROOT).replace("__HOST__", BASE).replace("__CHAT__", CHAT)
 
