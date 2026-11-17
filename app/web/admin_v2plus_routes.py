@@ -163,6 +163,13 @@ async def admin_v2plus_cola_js(request: Request, db: AsyncSession = Depends(get_
     return _file("admin_v2plus_cola.js", "application/javascript")
 
 
+@router.get("/admin-v2plus-tiktok.js", include_in_schema=False)
+async def admin_v2plus_tiktok_js(request: Request, db: AsyncSession = Depends(get_db)):
+    """Publicar en TikTok: el recurso tambien exige sesion de Admin V2 (401 sin ella)."""
+    await _require_session_json(request, db)
+    return _file("admin_v2plus_tiktok.js", "application/javascript")
+
+
 @router.get("/admin-v2plus-mapa.js", include_in_schema=False)
 async def admin_v2plus_mapa_js():
     return _file("admin_v2plus_mapa.js", "application/javascript")

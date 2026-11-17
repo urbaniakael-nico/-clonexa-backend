@@ -21,7 +21,7 @@
   // Menú final de la consola (Fase 3), en este orden.
   const VIEWS = {
     command: "Centro de mando", companies: "Empresas", catalog: "Catálogo", switches: "Interruptores",
-    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing", nexa: "Conversaciones Nexa", cola: "Cola de hoy", radar: "Radar · Innovación",
+    brand: "Estudio de marca", menuvideo: "Menú video", access: "Accesos y sesiones", health: "Salud y seguridad", billing: "Facturación", landing: "Landing", nexa: "Conversaciones Nexa", cola: "Cola de hoy", tiktok: "Publicar en TikTok", radar: "Radar · Innovación",
   };
 
   const state = { overview: null, filter: "todas", showDemos: false, view: "command", error: "", loading: false, updatedAt: null,
@@ -378,7 +378,19 @@
     return match ? match[1] : "";
   }
 
+  // Publicar en TikTok: #tiktok, #tiktok=<pieza> (botón de Telegram), #tiktok?conectada=1 / ?error=... (vuelta de TikTok)
+  function tiktokFromHash(hash) {
+    const value = String(hash || "");
+    if (!/^#tiktok(?:$|[=?])/.test(value)) return null;
+    const piece = /^#tiktok=([0-9a-f-]{36})$/.exec(value);
+    const conectada = /[?&]conectada=1(?:&|$)/.test(value);
+    const error = (/[?&]error=([a-z_]{1,20})(?:&|$)/.exec(value) || [])[1] || "";
+    return { piece: piece ? piece[1] : "", conectada, error };
+  }
+
   function onHash() {
+    const tiktok = tiktokFromHash(window.location.hash);
+    if (tiktok) { setView("tiktok", tiktok); return; }
     if (String(window.location.hash || "") === "#radar") { setView("radar"); return; }   // la oficina 3D abre el Radar
     if (String(window.location.hash || "") === "#cola") { setView("cola"); return; }     // "Abrir la cola" de Telegram
     const contact = nexaFromHash(window.location.hash);
@@ -499,7 +511,7 @@
     // La Ficha vive en otro archivo que carga después de este: la ruta inicial
     // (/admin-v2plus#empresa/{id} al recargar o desde un link) se resuelve
     // cuando ya cargaron todos los scripts de la página.
-    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash) || prospectFromHash(hash) || hash === "#radar" || hash === "#cola") onHash(); };
+    const firstRoute = () => { const hash = window.location && window.location.hash; if (companyFromHash(hash) || nexaFromHash(hash) || prospectFromHash(hash) || hash === "#radar" || hash === "#cola" || tiktokFromHash(hash)) onHash(); };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstRoute);
     else firstRoute();
     document.addEventListener("click", onClick);
@@ -511,6 +523,6 @@
     window.setInterval(load, REFRESH_MS);
   }
 
-  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, nexaFromHash, prospectFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
+  window.CxConsolePlus = { toast, setView, VIEWS, companyFromHash, nexaFromHash, prospectFromHash, tiktokFromHash, commandCenter, table, chips, cards, alertBand, actions, filtered, counts, visible, initials, since, money, soon, passkeysPanel, logoutPanel, state, STATES };
   if (document.getElementById && document.getElementById("vpMain")) start();
 })();
