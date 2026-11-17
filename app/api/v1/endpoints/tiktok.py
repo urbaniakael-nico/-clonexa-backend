@@ -7,12 +7,9 @@ Los tokens de TikTok nunca salen en las respuestas.
 """
 from __future__ import annotations
 
-import ipaddress
 import re
 from typing import Optional
-from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,8 +24,6 @@ router = APIRouter()
 admin = [Depends(require_admin_v2_session)]
 n8n = [Depends(require_n8n)]
 NO_STORE = {"Cache-Control": "no-store"}
-# Videos de las piezas del calendario: solo enlaces firmados del n8n propio (nexa-archivo).
-PIECE_HOSTS = {"main-production-54df.up.railway.app"}
 
 
 def _fail(exc: Exception) -> HTTPException:
@@ -169,38 +164,14 @@ async def callback(body: CallbackIn, request: Request, db: AsyncSession = Depend
     return {"ok": True, "redirect": _console(request, "tiktok?conectada=1")}
 
 
-class PiezaIn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    video_url: str = Field(max_length=2000)
-    fila: Optional[int] = None
-    fecha: str = Field(default="", max_length=20)
-    tema: str = Field(default="", max_length=300)
-    caption: str = Field(default="", max_length=4000)
-
-
-def _piece_url_ok(url: str) -> bool:
-    u = urlparse(url)
-    if u.scheme != "https" or u.hostname not in PIECE_HOSTS or not u.path.startswith("/webhook/nexa-archivo"):
-        return False
-    try:
-        ipaddress.ip_address(u.hostname)
-        return False
-    except ValueError:
-        return True
-
-
 @router.post("/n8n/pieza", dependencies=n8n)
-async def registrar_pieza(body: PiezaIn, request: Request, db: AsyncSession = Depends(get_db)) -> dict:
-    """La vista previa de Telegram registra la pieza (video) y recibe el enlace a la pantalla Publicar en TikTok.
-    Nada se publica aqui."""
-    if not _piece_url_ok(body.video_url):
-        raise HTTPException(status_code=400, detail="video_url no permitido")
+async def registrar_pieza(request: Request, file: UploadFile = File(...), fila: Optional[int] = Form(None), fecha: str = Form(""),
+                          tema: str = Form(""), caption: str = Form(""), db: AsyncSession = Depends(get_db)) -> dict:
+    """La vista previa de Telegram ("Mostrar pieza") sube el video de la pieza y recibe el enlace a la pantalla
+    Publicar en TikTok con la pieza precargada. Nada se publica aqui."""
+    data = await file.read(tt.MAX_VIDEO_BYTES + 1)
     try:
-        async with httpx.AsyncClient(timeout=180, follow_redirects=False, transport=tt.TRANSPORT) as c:
-            r = await c.get(body.video_url)
-        if r.status_code != 200:
-            raise tt.TikTokError(f"No pude bajar el video ({r.status_code}).", "download")
-        piece = await tt.save_piece(db, r.content, origen="calendario", fila=body.fila, fecha=body.fecha, tema=body.tema, caption=body.caption)
+        piece = await tt.save_piece(db, data, origen="calendario", fila=fila, fecha=fecha, tema=tema, caption=caption)
     except tt.TikTokError as exc:
         raise HTTPException(status_code=400, detail=tt.safe_message(exc)) from None
     return {"ok": True, "id": piece["id"], "enlace": _console(request, "tiktok=" + piece["id"])}

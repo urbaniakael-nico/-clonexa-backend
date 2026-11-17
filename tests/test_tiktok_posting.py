@@ -107,8 +107,6 @@ class FakeTikTok:
         if request.method == "PUT":
             self.uploads.append(request.headers.get("content-range"))
             return httpx.Response(201)
-        if path.startswith("/webhook/nexa-archivo"):
-            return httpx.Response(200, content=mp4(15))
         return httpx.Response(404)
 
 
@@ -262,17 +260,17 @@ def test_borrador_va_a_la_bandeja(env):
     assert "post_info" not in init and init["source_info"]["source"] == "FILE_UPLOAD"
 
 
-def test_n8n_registra_pieza_solo_desde_su_enlace_firmado(env):
+def test_n8n_registra_la_pieza_y_da_el_enlace_sin_publicar(env):
     store, fake, media = env
-    bad = client.post(f"{BASE}/n8n/pieza", json={"video_url": "https://evil.test/v.mp4"}, headers=N8N)
-    assert bad.status_code == 400
-    ok = client.post(f"{BASE}/n8n/pieza", headers=N8N, json={"video_url": "https://main-production-54df.up.railway.app/webhook/nexa-archivo?f=1&e=2&s=3",
-                                                             "fila": 19, "fecha": "2026-11-17", "tema": "Tu restaurante", "caption": "Texto TT"}).json()
+    ok = client.post(f"{BASE}/n8n/pieza", headers=N8N, files={"file": ("2026-11-17 reel.mp4", mp4(15), "video/mp4")},
+                     data={"fila": "19", "fecha": "2026-11-17", "tema": "Tu restaurante", "caption": "Texto TT"}).json()
     assert ok["ok"] and ok["enlace"].endswith("/admin-v2plus#tiktok=" + ok["id"])
     piece = store.pieces[ok["id"]]
-    assert piece["origen"] == "calendario" and round(piece["duration_sec"]) == 15
+    assert piece["origen"] == "calendario" and piece["fila"] == 19 and piece["caption"] == "Texto TT" and round(piece["duration_sec"]) == 15
     assert not any(c[1].endswith("/video/init/") for c in fake.calls)                     # registrar no publica
-    assert client.post(f"{BASE}/n8n/pieza", json={"video_url": "x"}).status_code in (401, 503)
+    assert client.post(f"{BASE}/n8n/pieza", files={"file": ("x.mp4", mp4(5), "video/mp4")}).status_code in (401, 503)
+    bad = client.post(f"{BASE}/n8n/pieza", headers=N8N, files={"file": ("x.mp4", b"no es video", "video/mp4")})
+    assert bad.status_code == 400
 
 
 def test_subir_mp4_y_vista_previa(env):

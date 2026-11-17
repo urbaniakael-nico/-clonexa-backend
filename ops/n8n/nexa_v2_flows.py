@@ -392,7 +392,7 @@ return [{ json: { texto } }];
     return f
 
 
-def flow_mostrar(secret: str) -> Flow:
+def flow_mostrar(secret: str, backend_cred: dict | None = None) -> Flow:
     f = Flow()
     f.sub_trigger()
     f.code("Entrada", "return [{ json: { fila: Number($json.fila) || 0, nota: String($json.nota || '') } }];")
@@ -406,9 +406,11 @@ const file = elegir($('Archivos en Drive').first().json.files, p);
 const kind = kindOf(file);
 const dia = p.iso ? DIAS[dow(p.iso)] + ' ' + ddmm(p.iso) : p.fecha;
 const ig = (p.ig || '(sin texto de Instagram/Facebook)').slice(0, 2800);
+const franja = (String(p.formato || '').match(/^\s*(am|pm)\s*[·.:-]/i) || [])[1] || '';
+const hora = /am/i.test(franja) ? '11:30 a. m.' : /pm/i.test(franja) ? '7:00 p. m.' : '12:00';
 const aviso = kind === 'nada' ? '\n⚠️ No encontré el archivo en Drive (Nexa / Contenido): ' + esc(p.archivo || 'sin nombre') + '\n' : '';
 const msg = '👀 <b>Vista previa · ' + esc(dia) + '</b>' + (e.nota ? ' · ' + esc(e.nota) : '') + '\n<b>' + esc(p.tema) + '</b> · ' + esc(p.formato) + '\n' + aviso + '\n' +
-  esc(ig) + (p.hashtags ? '\n\n' + esc(p.hashtags) : '') + '\n\n<i>Estado: ' + esc(p.estado || '—') + '. Si la apruebas se publica el ' + esc(dia) + ' a las 12:00.</i>';
+  esc(ig) + (p.hashtags ? '\n\n' + esc(p.hashtags) : '') + '\n\n<i>Estado: ' + esc(p.estado || '—') + '. Si la apruebas se publica el ' + esc(dia) + ' a las ' + hora + '.</i>';
 return [{ json: { ...p, kind, file_id: file ? file.id : '', file_name: file ? file.name : '', msg, caption: (kind === 'video' ? '🎬 ' : '🖼 ') + dia + ' · ' + p.tema } }];
 """)
     f.iff("¿Video?", "$json.kind === 'video'")
@@ -433,7 +435,36 @@ return fs.slice(0, 10).map(x => ({ json: { id: x.id, x: 'jpg', name: x.name } })
     f.chain("Al llamarlo", "Entrada", "Leer fila", "Archivos en Drive", "Pieza", "¿Video?")
     f.link("¿Video?", "Bajar video", 0)
     f.link("¿Video?", "¿Carpeta?", 1)
-    f.chain("Bajar video", "Enviar video", "Texto y botones")
+    if backend_cred:
+        # La pieza (video) queda lista en la consola: boton "Publicar en TikTok" con la pieza precargada.
+        # Registrar NO publica nada; si falla, el mensaje sale igual sin el boton.
+        f.add("TikTok: registrar pieza", "n8n-nodes-base.httpRequest", {
+            "method": "POST", "url": BACKEND + "/api/v1/tiktok/n8n/pieza", "authentication": "genericCredentialType",
+            "genericAuthType": "httpHeaderAuth", "sendBody": True, "contentType": "multipart-form-data",
+            "bodyParameters": {"parameters": [
+                {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"},
+                {"name": "fila", "value": "={{ $('Pieza').first().json.fila }}"},
+                {"name": "fecha", "value": "={{ $('Pieza').first().json.iso }}"},
+                {"name": "tema", "value": "={{ $('Pieza').first().json.tema }}"},
+                {"name": "caption", "value": "={{ $('Pieza').first().json.tt || '' }}"}]},
+            "options": {"timeout": 300000, "response": {"response": {"neverError": True}}}}, 4.2, backend_cred, onError="continueRegularOutput")
+        f.iff("¿Enlace de TikTok?", "String($json.enlace || '').startsWith('https://')")
+        f.add("Texto y botones (TikTok)", "n8n-nodes-base.telegram", {
+            "chatId": CHAT, "text": "={{ $('Pieza').first().json.msg }}",
+            "additionalFields": {"appendAttribution": False, "disable_web_page_preview": True, "parse_mode": "HTML"},
+            "replyMarkup": "inlineKeyboard", "inlineKeyboard": {"rows": [
+                {"row": {"buttons": [{"text": t, "additionalFields": {"callback_data": d}} for t, d in (
+                    ("✅ Aprobar", "={{ 'nx:a:' + $('Pieza').first().json.fila }}"), ("✏️ Cambiar texto", "={{ 'nx:c:' + $('Pieza').first().json.fila }}"),
+                    ("❌ Descartar", "={{ 'nx:d:' + $('Pieza').first().json.fila }}"))]}},
+                {"row": {"buttons": [{"text": "🎵 Publicar en TikTok", "additionalFields": {"url": "={{ $json.enlace }}"}}]}}]}},
+            1.2, C_TG, executeOnce=True)
+        f.link("Bajar video", "Enviar video")
+        f.link("Bajar video", "TikTok: registrar pieza")
+        f.chain("TikTok: registrar pieza", "¿Enlace de TikTok?")
+        f.link("¿Enlace de TikTok?", "Texto y botones (TikTok)", 0)
+        f.link("¿Enlace de TikTok?", "Texto y botones", 1)
+    else:
+        f.chain("Bajar video", "Enviar video", "Texto y botones")
     f.link("¿Carpeta?", "Láminas", 0)
     f.link("¿Carpeta?", "Texto y botones", 1)
     f.chain("Láminas", "Láminas en orden", a)
@@ -649,6 +680,20 @@ return [{ json: { fecha, listos, planb: necesita } }];
     f.chain("Una por pieza", "Mostrar pieza")
     f.link("¿Plan B?", "Avisar: plan B", 0)
     f.chain("Avisar: plan B", "Pedir plan B", "Plan B")
+    return f
+
+
+def flow_tiktok_callback(backend_cred: dict) -> Flow:
+    """Webhook tiktok-callback (la redirect URI registrada en la app de TikTok): pasa code+state al backend,
+    que valida el state (firmado, un solo uso), canjea el code y guarda los tokens cifrados. El navegador
+    vuelve a la consola (Publicar en TikTok) con "Cuenta conectada" o el motivo del error."""
+    f = Flow()
+    f.webhook("Callback TikTok", "tiktok-callback", "GET", respond="responseNode")
+    f.http("Pasar al backend", "POST", BACKEND + "/api/v1/tiktok/n8n/callback", backend_cred,
+           json_body="={{ JSON.stringify({ code: String($json.query.code || ''), state: String($json.query.state || ''), error: String($json.query.error || '') }) }}")
+    f.add("Volver a la consola", "n8n-nodes-base.respondToWebhook",
+          {"respondWith": "redirect", "redirectURL": "={{ $json.redirect || '" + BACKEND + "/admin-v2plus#tiktok?error=token' }}", "options": {}}, 1.1)
+    f.chain("Callback TikTok", "Pasar al backend", "Volver a la consola")
     return f
 
 
@@ -1190,7 +1235,7 @@ def main() -> None:
     errores_id = upsert("Nexa - Errores", *_nc(flow_errores()), {}, True, existing)
     common = {"errorWorkflow": errores_id}
     upsert("Nexa - Archivo temporal", *_nc(flow_archivo(secret_archivo, backend_cred)), common, True, existing)
-    mostrar_id = upsert("Nexa - Mostrar pieza", *_nc(flow_mostrar(secret_archivo)), common, True, existing)
+    mostrar_id = upsert("Nexa - Mostrar pieza", *_nc(flow_mostrar(secret_archivo, backend_cred)), common, True, existing)
     planb_id = upsert("Nexa - Plan B", *_nc(flow_planb(backend_cred, mostrar_id, gen_key)), common, True, existing)
     upsert("Nexa - Vista previa", *_nc(flow_vista_previa(mostrar_id, planb_id, hook_secret)), common, True, existing)
     upsert("Nexa - Publicar del día", *_nc(flow_publicar(secret_archivo, hook_secret)), common, True, existing)
