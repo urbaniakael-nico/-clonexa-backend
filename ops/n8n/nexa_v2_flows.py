@@ -9,8 +9,10 @@ plan B con carrusel, /tema y alertas de error. Crea o actualiza (idempotente, po
 - "Nexa - Plan B"             sub-flujo: carrusel con Claude + backend (Pillow) -> Drive -> fila -> vista previa;
                               formato Avatar: HeyGen v3 si hay saldo, si no aviso con 3 botones.
 - "Nexa - Vista previa"       todos los dias 18:00 Bogota (manana "Listo para aprobar"; L/M/V sin pieza -> plan B).
-- "Nexa - Publicar del dia"   L/M/V 12:00 Bogota: publica lo "Aprobado" de hoy (IG, FB, YouTube, LinkedIn);
-                              webhook con simular=1 arma todo sin enviar.
+- "Nexa - Publicar del dia"   publica lo "Aprobado" de hoy (IG, FB, YouTube, LinkedIn), una vez por fila:
+                              Formato "AM · ..." todos los dias 11:30, "PM · ..." todos los dias 19:00 y las
+                              filas sin AM/PM L/M/V 12:00 (hora Bogota). Webhook con simular=1 arma todo sin
+                              enviar (&franja=am|pm|sin para una sola franja).
 Y cambia los existentes:
 - "Nexa - Bot de comandos": botones (callback_query), respuesta con texto nuevo, /tema, /temas, /planb,
                             ayuda nueva y /saldo con HeyGen v3.
@@ -650,28 +652,41 @@ return [{ json: { fecha, listos, planb: necesita } }];
 
 def flow_publicar(secret_archivo: str, hook_secret: str) -> Flow:
     f = Flow()
+    # Franjas: desde el 17/11/2026 hay 2 filas por fecha (Formato "AM · ..." y "PM · ..."). La AM sale a las
+    # 11:30 y la PM a las 19:00 todos los dias; las filas sin AM/PM siguen saliendo L/M/V a las 12:00.
+    f.cron("Cada día 11:30 (AM)", "30 11 * * *")
     f.cron("L, M y V 12:00", "0 12 * * 1,3,5")
+    f.cron("Cada día 19:00 (PM)", "0 19 * * *")
     f.webhook("Simular o probar (enlace)", "nexa-publicar-dia", "GET")
     f.code("Entrada", JS_COMMON + r"""
-let fecha = isoBog(0), simular = false, todas = false;
-try { const q = $('Simular o probar (enlace)').first().json.query || {}; if (q.k !== '__SECRET__') throw new Error('Acceso no autorizado'); fecha = toIso(q.fecha) || fecha; simular = q.simular !== '0'; todas = simular && q.todas === '1'; } catch (e) { if (String(e.message).includes('autorizado')) throw e; }
-return [{ json: { fecha, simular, todas, vuelta: $runIndex } }];
+let fecha = isoBog(0), simular = false, todas = false, franja = '', webhook = false;
+// Franja segun el disparador: am (11:30), pm (19:00), sin (filas sin AM/PM, L/M/V 12:00).
+const disparo = n => { try { return $(n).isExecuted === true; } catch (e) { return false; } };
+if (disparo('Cada día 11:30 (AM)')) franja = 'am'; else if (disparo('Cada día 19:00 (PM)')) franja = 'pm'; else if (disparo('L, M y V 12:00')) franja = 'sin';
+try { const q = $('Simular o probar (enlace)').first().json.query || {}; if (q.k !== '__SECRET__') throw new Error('Acceso no autorizado'); webhook = true; fecha = toIso(q.fecha) || fecha; simular = q.simular !== '0'; todas = simular && q.todas === '1'; franja = ['am', 'pm', 'sin'].includes(q.franja) ? q.franja : 'todas'; } catch (e) { if (String(e.message).includes('autorizado')) throw e; }
+// Respaldo: si no se pudo saber el disparador, se decide por la hora de Bogota (nunca publica todo junto).
+if (!franja) { const h = new Date(Date.now() - 5 * 3600e3).getUTCHours(); franja = h < 12 ? 'am' : h < 18 ? 'sin' : 'pm'; }
+return [{ json: { fecha, simular, todas, franja, vuelta: $runIndex } }];
 """.replace("__SECRET__", hook_secret))
     read_calendar(f)
     list_root(f)
     f.code("Elegir pieza", JS_COMMON + r"""
-const { fecha, simular, todas } = $('Entrada').last().json;
+const { fecha, simular, todas, franja } = $('Entrada').last().json;
 const cal = filas($('Leer calendario').last().json.values);
 const hechas = (() => { try { return $('Fila publicada').all().map(i => i.json.fila); } catch (e) { return []; } })();
-const aprobadas = cal.filter(r => r.iso === fecha && (r.est === 'aprobado' || (todas && r.est === 'listo para aprobar')) && !hechas.includes(r.fila));  // todas: solo en simulacion
-if (!aprobadas.length) return [{ json: { nada: true, fecha, simular, primera: hechas.length === 0 } }];
+// Formato "AM · ..." / "PM · ..." -> am / pm; cualquier otro -> sin (filas de antes del 17/11 y plan B).
+const franjaDe = r => { const m = String(r.formato || '').match(/^\s*(am|pm)\s*[·.:-]/i); return m ? m[1].toLowerCase() : 'sin'; };
+const deHoy = cal.filter(r => r.iso === fecha && (franja === 'todas' || franjaDe(r) === franja));
+const aprobadas = deHoy.filter(r => (r.est === 'aprobado' || (todas && r.est === 'listo para aprobar')) && !hechas.includes(r.fila));  // todas: solo en simulacion
+// silencio: la franja no tiene ninguna fila hoy (no avisa "nada que publicar" 3 veces al dia).
+if (!aprobadas.length) return [{ json: { nada: true, fecha, simular, franja, primera: hechas.length === 0, silencio: franja !== 'todas' && !deHoy.length } }];
 const p = aprobadas[0];
 const file = elegir($('Archivos en Drive').last().json.files, p);
 return [{ json: { nada: false, fecha, simular, ...p, kind: kindOf(file), file_id: file ? file.id : '', file_name: file ? file.name : '', otras: aprobadas.length - 1 } }];
 """)
     f.iff("¿Nada aprobado?", "$json.nada")
-    f.iff("¿Primera vuelta?", "$json.primera")
-    f.tg("Avisar: nada que publicar", "={{ '📭 Hoy (' + $json.fecha.slice(8,10) + '/' + $json.fecha.slice(5,7) + ') no hay ninguna pieza en estado Aprobado: no publiqué nada.' + ($json.simular ? ' (simulación)' : '') }}", html=False)
+    f.iff("¿Primera vuelta?", "$json.primera && !$json.silencio")
+    f.tg("Avisar: nada que publicar", "={{ '📭 Hoy (' + $json.fecha.slice(8,10) + '/' + $json.fecha.slice(5,7) + ')' + ({ am: ' en la franja AM (11:30 a. m.)', pm: ' en la franja PM (7:00 p. m.)' }[$json.franja] || '') + ' no hay ninguna pieza en estado Aprobado: no publiqué nada.' + ($json.simular ? ' (simulación)' : '') }}", html=False)
     f.iff("¿Hay archivo?", "['video','carpeta','imagen'].includes($json.kind)")
     f.tg("Avisar: falta archivo", "={{ '⚠️ La pieza aprobada de hoy («' + $json.tema + '», fila ' + $json.fila + ') no tiene archivo en Drive (Nexa / Contenido): ' + ($json.archivo || 'sin nombre') + '. No publiqué nada.' }}", html=False)
     f.iff("¿Es carrusel?", "$json.kind === 'carpeta'")
@@ -891,7 +906,9 @@ return [{ json: { fila: v.fila, estado, enlaces: enlaces + (fallos ? (enlaces ? 
     f.code("Fila publicada", "return [{ json: { fila: $('Resumen').last().json.fila } }];")
     f.iff("¿Otra aprobada hoy?", "$('Plan de envío').last().json.otras > 0 && $runIndex < 4")
     # conexiones
+    f.link("Cada día 11:30 (AM)", "Entrada")
     f.link("L, M y V 12:00", "Entrada")
+    f.link("Cada día 19:00 (PM)", "Entrada")
     f.link("Simular o probar (enlace)", "Entrada")
     f.chain("Entrada", "Leer calendario", "Archivos en Drive", "Elegir pieza", "¿Nada aprobado?")
     f.link("¿Nada aprobado?", "¿Primera vuelta?", 0)
