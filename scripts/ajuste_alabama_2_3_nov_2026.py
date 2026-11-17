@@ -297,6 +297,13 @@ async def undo(db, company_id: str = VOLTAGE, *, actor: str = ACTOR) -> dict:
 
     from app.services import us_payroll
 
+    # El ajuste 02-14 nov reemplazo tambien estos dias: primero se deshace ese (orden inverso).
+    newer = (await db.execute(text("""
+        SELECT count(*) FROM workforce_attendance_adjustments
+        WHERE company_id = CAST(:c AS uuid) AND batch = 'alabama-2026-11-02-14' AND undone_at IS NULL
+    """), {"c": company_id})).scalar()
+    if newer:
+        raise NeedsReview("El ajuste 02-14 nov está activo: deshazlo primero (scripts/ajuste_alabama_02_14_nov_2026.py --undo).")
     rows = (await db.execute(text("""
         SELECT id::text AS id, employee_id::text AS employee_id, work_date, before_json, after_json FROM workforce_attendance_adjustments
         WHERE company_id = CAST(:c AS uuid) AND batch = :b AND undone_at IS NULL ORDER BY employee_id, work_date
