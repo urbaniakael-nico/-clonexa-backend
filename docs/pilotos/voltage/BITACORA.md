@@ -16,8 +16,8 @@ Operaciones (lugares de trabajo): **Virginia** (America/New_York, ET) y **Alabam
 | Nómina EE. UU. (`us_payroll`, FLSA) | Encendida solo en VOLTAGE desde 2026-11-03 (b7f949f). Overtime > 40 h por semana laboral, pausas sin pago, hora del lugar. Tarifas pendientes (el dinero sale "Pendiente"). |
 | Semana laboral y corte (por operación, desde 2026-11-18) | **Virginia**: domingo 00:00 a sábado 23:59 ET; corte cada 2 semanas con ancla domingo 01/11/2026 (01-14 nov, 15-28 nov, 29 nov-12 dic, 13-26 dic…). **Alabama**: lunes 00:00 a domingo 23:59 CT; ancla lunes 02/11/2026 (02-15 nov, 16-29 nov, 30 nov-13 dic…). |
 | Límite de turno abierto | 15 h (otras empresas 12 h). |
-| Ajustes masivos de horas | Alabama 2-3 nov (lote `alabama-2026-11-02-03`, reemplazado por el de 02-14 nov), Alabama 02-14 nov (lote `alabama-2026-11-02-14`, 25 personas) y Virginia 01-14 nov (lote `virginia-2026-11-01-14`, 11 personas). |
-| Pendiente | Decidir las 7 personas de Virginia con horas del bot en 01-14/11 que no estaban en la tabla. Tarifas por hora. |
+| Ajustes masivos de horas | Alabama 2-3 nov (lote `alabama-2026-11-02-03`, reemplazado por el de 02-14 nov), Alabama 02-14 nov (lote `alabama-2026-11-02-14`, 25 personas) Virginia 01-14 nov (lote `virginia-2026-11-01-14`, 11 personas) y Virginia 01-14 nov parte 2 (lote `virginia-2026-11-01-14-b`: 4 personas más, resto en 0, turnos sin cerrar). |
+| Pendiente | Tarifas por hora. NICOLAS GOMEZ (prueba) sigue como trabajador activo: el dueño decide si se archiva. |
 
 ## Historial
 
@@ -110,3 +110,28 @@ CI completo en verde; despliegue Railway `ccd7a263` en línea, `/health` 200.
 - Respaldo: `workforce_attendance_adjustments`, lote `virginia-2026-11-01-14`, motivo "ajuste Virginia
   tabla supervisor 01-14/11". Auditoría: `admin_audit_log`, `/scripts/ajuste_virginia_01_14_nov_2026/apply`.
 - **Revertir:** `railway run -s Postgres py -3.11 scripts/ajuste_virginia_01_14_nov_2026.py --undo`
+
+### 2026-11-18 — Ajuste Virginia 01-14 nov, parte 2 (lote `virginia-2026-11-01-14-b`)
+
+Solo script (sin cambios de la app): `scripts/ajuste_virginia_01_14_nov_2026_b.py` (PRUEBA por defecto,
+`--apply --expected 15`, `--verify`, `--undo`), con sus pruebas. El lote de la primera parte no se tocó.
+
+- 4 personas más por la tabla del supervisor (entrada 6:00, almuerzo 12:00-12:30 sin pago):
+  | Persona (sistema) | Antes (bot) pag/reg/OT | Después pag/reg/OT | Semanas 01-07 / 08-14 |
+  | --- | --- | --- | --- |
+  | Diego Alejandro Ruiz Chavez | 73:12 / 73:12 / 0 | 108:00 / 80:00 / 28:00 | 60:00 / 48:00 |
+  | Jaime David Marca Rioz | 18:50 / 18:50 / 0 | 24:00 / 24:00 / 0 | 24:00 / 0 |
+  | Noe Daniel Ponce Mamani | 83:49 / 80:00 / 3:49 | 83:55 / 80:00 / 3:55 | 42:55 / 41:00 |
+  | Mijail Navor Illanes Salas | 50:28 / 40:00 / 10:28 | 90:00 / 78:00 / 12:00 | 38:00 / 52:00 |
+- En 0 para el corte 01-14 (solo sus marcaciones; la persona y su estado no cambian): Oscar Diaz Vargas
+  (tenía 25:51), Oscar Julio Anez Fernandez (7:24), NICOLAS GOMEZ (0:16, prueba; sigue como trabajador
+  activo) e Ismael Camino Mendoza (0:00 pagables, una entrada sin salida; apareció en la PRUEBA).
+- Turnos sin cerrar del primer corte: 0 por quitar en Virginia y 0 en Alabama (los ajustes anteriores
+  ya los habían reemplazado); ningún estado del bot "en turno" con un turno del primer corte.
+- Resultado: 36 persona-día, 108 marcaciones reemplazadas, 116 nuevas (`ajuste_masivo`). Correrlo de
+  nuevo no cambia nada.
+- Verificado en producción: Virginia corte 01-14 = **1329:55 / 1022:00 / 307:55** (15 personas con
+  horas); Alabama corte 02-15 = **2724:30 / 1977:00 / 747:30** (25). Virginia 15-28 y Alabama 16-29: lo del bot.
+- Respaldo: `workforce_attendance_adjustments`, lote `virginia-2026-11-01-14-b`. Auditoría:
+  `admin_audit_log`, `/scripts/ajuste_virginia_01_14_nov_2026_b/apply`.
+- **Revertir (solo esta parte):** `railway run -s Postgres py -3.11 scripts/ajuste_virginia_01_14_nov_2026_b.py --undo`
