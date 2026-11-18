@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import re
 import tempfile
 import uuid
 from datetime import date, datetime, timezone
@@ -123,7 +124,8 @@ def test_activity_returns_only_that_company_and_period(pg_url):
 
                 out = await payroll_v2.period_activity(db, uuid.UUID(a), date(2026, 10, 1), date(2026, 10, 15))
                 dump = json.dumps(out)
-                assert "DE OTRA" not in dump and eb not in dump and s_otra not in dump and "999" not in dump, "nada de la otra empresa"
+                # el 999 (total de la otra empresa) como numero: un uuid al azar puede traer "999" por dentro
+                assert "DE OTRA" not in dump and eb not in dump and s_otra not in dump and not re.search(r"(?<![0-9a-f-])999(?![0-9a-f-])", dump), "nada de la otra empresa"
                 assert out["documents"] == {ea: "1020"}
                 assert [g["perimeter"] for g in out["gps"][ea]] == ["EDIFICIO 1"], "solo el del periodo"
                 assert out["references"][ea][0]["reference"] == "PANT SET" and out["reference_closures"][ea][0]["quantity"] == 30
