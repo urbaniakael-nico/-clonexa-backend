@@ -400,6 +400,8 @@
      "overtime_rate": null,
      "pause_minutes": 55,
      "payable_minutes": 525,
+     "period_end": "2026-11-07",
+     "period_start": "2026-11-01",
      "place": "Virginia",
      "place_missing": false,
      "rate": null,
@@ -460,7 +462,14 @@
    "operations": [
     {
      "abbr": "ET",
+     "id": "place-virginia",
      "name": "Virginia",
+     "period_end": "2026-11-07",
+     "period_start": "2026-11-01",
+     "rules": {
+      "week_start_day": "sunday",
+      "week_start_time": "00:00"
+     },
      "tz": "America/New_York"
     }
    ],

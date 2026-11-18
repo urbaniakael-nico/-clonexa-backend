@@ -6,6 +6,9 @@ empresa en us_payroll_rules (settings del modulo payroll): {"week_start_day": "m
 Por defecto solo muestra (conexion de solo lectura). --apply guarda el ajuste con una fila de
 auditoria (antes y despues) en admin_audit_log; repetirlo no cambia nada. --undo vuelve a las
 reglas de antes desde esa auditoria.
+081A: ajuste propio por operacion en us_payroll_rules.places (por id del lugar de trabajo):
+Virginia semana domingo a sabado y corte de 2 semanas con ancla el domingo 01/11/2026 (01-14 nov,
+15-28 nov, 29 nov-12 dic...). Alabama no tiene ajuste propio: usa el de la empresa (lunes, 02/11).
 Uso: railway run -s Postgres py -3.11 scripts/voltage_cortes_pago.py [--apply | --undo]
 """
 from __future__ import annotations
@@ -19,6 +22,29 @@ VOLTAGE = "f1e8f774-f052-49ca-880a-268805f07db0"
 ACTOR = "Claude (script cortes de pago VOLTAGE 080A)"
 PATH = "/scripts/voltage_cortes_pago"
 WANTED = {"week_start_day": "monday", "week_start_time": "00:00", "pay_period": {"type": "biweekly", "anchor": "2026-11-02"}}
+WANTED_PLACES = {"Virginia": {"week_start_day": "sunday", "week_start_time": "00:00", "pay_period": {"type": "biweekly", "anchor": "2026-11-01"}}}
+
+
+async def place_ids(c, company_id: str) -> dict:
+    from sqlalchemy import text
+
+    rows = (await c.execute(text("SELECT id::text, name FROM work_locations WHERE company_id = CAST(:c AS uuid)"), {"c": company_id})).all()
+    by_name: dict = {}
+    for pid, name in rows:
+        by_name.setdefault(name, []).append(pid)
+    out = {}
+    for name in WANTED_PLACES:
+        ids = by_name.get(name) or []
+        if len(ids) > 1:
+            raise SystemExit(f"Hay {len(ids)} lugares llamados {name}: revisar a mano.")
+        if ids:
+            out[ids[0]] = WANTED_PLACES[name]
+    return out
+
+
+async def wanted(c, company_id: str, before: dict) -> dict:
+    places = {**(before.get("places") or {}), **await place_ids(c, company_id)}
+    return {**before, **WANTED, **({"places": places} if places else {})}
 
 
 def _json(value):
@@ -65,7 +91,7 @@ async def _audit(c, company_id: str, action: str, detail: dict) -> None:
 
 async def apply(c, company_id: str = VOLTAGE) -> dict:
     module_row, before = await current_rules(c, company_id)
-    after = {**before, **WANTED}
+    after = await wanted(c, company_id, before)
     if after == before:
         return {"changed": False, "rules": before}
     await _save(c, module_row, company_id, after)
@@ -111,7 +137,7 @@ async def main() -> None:
                 out = await undo(c)
             else:
                 _, rules = await current_rules(c, VOLTAGE)
-                out = {"now": rules, "would_be": {**rules, **WANTED}}
+                out = {"now": rules, "would_be": await wanted(c, VOLTAGE, rules)}
             print(json.dumps(out, ensure_ascii=False))
     finally:
         await engine.dispose()

@@ -17,7 +17,7 @@ Nada aqui guarda ni cambia marcaciones: se calcula sobre las existentes.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -59,7 +59,71 @@ def rules_of(raw: Any) -> dict:
     period = pay_period_of(raw.get("pay_period"))
     if period:
         out["pay_period"] = {"type": period["type"], "anchor": period["anchor"].isoformat()}
+    # 081A: ajuste propio por operacion (lugar de trabajo), guardado por id del lugar. Lo que una
+    # operacion no define lo toma de la empresa.
+    places = raw.get("places")
+    if isinstance(places, dict):
+        clean = {}
+        for key, value in places.items():
+            if isinstance(value, dict) and key:
+                own = {k: _field(k, value[k]) for k in PLACE_KEYS if k in value and _field(k, value[k]) is not None}
+                if own:
+                    clean[str(key)] = own
+        if clean:
+            out["places"] = clean
     return out
+
+
+PLACE_KEYS = ("week_start_day", "week_start_time", "overtime_after_minutes", "overtime_factor", "pay_period")
+
+
+def _field(key: str, value: Any) -> Any:
+    """Un campo de regla valido (normalizado) o None. Lo invalido no pisa a la empresa."""
+    if key == "week_start_day":
+        day = str(value or "").strip().lower()
+        return day if day in DAYS else None
+    if key == "week_start_time":
+        try:
+            hh, mm = (int(x) for x in str(value).strip().split(":"))
+        except ValueError:
+            return None
+        return f"{hh:02d}:{mm:02d}" if 0 <= hh <= 23 and 0 <= mm <= 59 else None
+    if key == "overtime_after_minutes":
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return None
+        return n if 60 <= n <= 7 * 24 * 60 else None
+    if key == "overtime_factor":
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return None
+        return f if 1 <= f <= 3 else None
+    if key == "pay_period":
+        period = pay_period_of(value)
+        return {"type": period["type"], "anchor": period["anchor"].isoformat()} if period else None
+    return None
+
+
+def place_rules(rules: Optional[dict], place_id: Any) -> dict:
+    """081A: las reglas de UNA operacion: las de la empresa con lo que la operacion cambie."""
+    rules = rules or {}
+    base = {k: v for k, v in rules.items() if k != "places"}
+    own = (rules.get("places") or {}).get(str(place_id)) if place_id else None
+    return rules_of({**base, **(own or {})})
+
+
+def span_for(day: date, rules: Optional[dict], kind: str) -> tuple[date, date]:
+    """081A: la semana laboral ("week") o el corte ("cut") de una operacion que contiene `day`.
+    Sin cortes configurados, "cut" son 2 semanas laborales (la de `day` y la anterior)."""
+    r = rules_of(rules)
+    ws = DAYS.index(r["week_start_day"])
+    start = day - timedelta(days=(day.weekday() - ws) % 7)
+    if kind == "cut":
+        cut = cut_for(day, r)
+        return cut if cut else (start - timedelta(days=7), start + timedelta(days=6))
+    return start, start + timedelta(days=6)
 
 
 # ------------------------------------------------------------------ cortes de pago (080A)
@@ -213,10 +277,14 @@ def compute(shifts: list[dict], rules: Optional[dict] = None) -> list[dict]:
     dato, que se conserva). Salida: los mismos turnos con `split` (ver split_shift) y en
     cada pieza `regular` y `overtime`."""
     rules = rules_of(rules)
-    limit = int(rules["overtime_after_minutes"])
     out = []
     for s in shifts:
-        out.append({**s, "split": split_shift(s["start"], s["end"], s.get("breaks") or [], s.get("tz"), rules)})
+        # 081A: cada turno con las reglas de SU operacion (semana laboral y limite), si las trae.
+        r = rules_of(s["rules"]) if s.get("rules") else rules
+        split = split_shift(s["start"], s["end"], s.get("breaks") or [], s.get("tz"), r)
+        for p in split["pieces"]:
+            p["limit"] = int(r["overtime_after_minutes"])
+        out.append({**s, "split": split})
     by_emp: dict[str, list[dict]] = {}
     for s in out:
         for p in s["split"]["pieces"]:
@@ -226,17 +294,20 @@ def compute(shifts: list[dict], rules: Optional[dict] = None) -> list[dict]:
         for p in sorted(pieces, key=lambda x: x["start"]):
             key = p["week_start"].isoformat()
             before = used.get(key, 0)
-            p["regular"] = max(0, min(p["payable"], limit - before))
+            p["regular"] = max(0, min(p["payable"], p["limit"] - before))
             p["overtime"] = p["payable"] - p["regular"]
             used[key] = before + p["payable"]
     return out
 
 
-def in_period(shifts: list[dict], start_day: Optional[date], end_day: Optional[date]) -> list[dict]:
+def in_period(shifts: list[dict], start_day: Optional[date], end_day: Optional[date], bounds: Optional[Callable[[dict], tuple]] = None) -> list[dict]:
     """Turnos con alguna pieza en [start_day, end_day] (dia local); cada turno trae
-    `days` (solo las piezas del periodo) y sus totales del periodo."""
+    `days` (solo las piezas del periodo) y sus totales del periodo. 081A: `bounds(turno)`
+    da el periodo de cada turno (semana o corte de su operacion)."""
     out = []
     for s in shifts:
+        if bounds:
+            start_day, end_day = bounds(s)
         days: dict[date, dict] = {}
         for p in s["split"]["pieces"]:
             if (start_day and p["date"] < start_day) or (end_day and p["date"] > end_day):

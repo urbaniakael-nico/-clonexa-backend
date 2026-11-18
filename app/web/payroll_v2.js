@@ -85,6 +85,7 @@
     const p = model.period || {};
     if (!ctx.apiBase || typeof ctx.token !== "function") { model.error = "No se pudo descargar el archivo."; draw(); return; }
     const q = new URLSearchParams({ period_start: p.from || "", period_end: p.to || "" });
+    if (model.span) { q.set("span_kind", model.span.kind); q.set("span_ref", model.span.ref); } // 081A: periodo de cada operación
     try {
       const token = ctx.token();
       const res = await fetch(`${ctx.apiBase}/us-payroll/companies/${encodeURIComponent(ctx.companyId)}/export.${kind}?${q}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -576,6 +577,45 @@
   const modeLabel = (k, l) => (k === "fortnight" && usCuts() ? "Corte (2 semanas)" : l);
   const cutText = (p) => `Corte ${dm(p.from)} – ${dm(p.to)}`;
   // Selector de cortes: desde el primero (ancla) hasta 2 después del actual.
+  // 081A: semana y corte POR OPERACIÓN (us_payroll_rules.places; hoy Virginia dom-sáb, ancla 01/11).
+  // El servidor calcula a cada persona con la semana o el corte de SU operación que contiene `ref`.
+  const perOp = () => !!(usRules().places || (ctx && ctx.usRules && ctx.usRules.places));
+  const usOps = () => arr(model.snapshot && model.snapshot.us_payroll && model.snapshot.us_payroll.operations);
+  const opRulesOf = (o) => ({ ...usRules(), ...((o && o.rules) || {}) });
+  function shownOps() {
+    const ops = usOps();
+    const one = ops.filter((o) => o.name === model.opFilter);
+    return one.length ? one : ops;
+  }
+  const spanKind = (mode) => (mode === "fortnight" ? "cut" : "week");
+  const spanApprox = (ref) => ({ from: addDays(ref, -14), to: addDays(ref, 14) }); // el servidor da las fechas exactas
+  async function loadSpan(kind, ref) {
+    model.span = { kind, ref };
+    await load(spanApprox(ref));
+  }
+  const opPeriod = (o) => ({ from: o.period_start, to: o.period_end });
+  function opText(o) {
+    const p = opPeriod(o);
+    return o.cut ? cutText(p) : `Semana ${wdLabel(p.from)} – ${wdLabel(p.to)}`;
+  }
+  // Cortes de las operaciones a la vista: el i-ésimo corte de cada una (ancla + 14·i).
+  function opCutOptions() {
+    const ops = shownOps().map((o) => ({ o, pp: payPeriodOf(opRulesOf(o)) })).filter((x) => x.pp && x.o.period_start);
+    if (!ops.length) return [];
+    const base = ops[0];
+    const now = Math.floor(daysBetween(base.pp.anchor, todayIn(base.o.tz || tzOf())) / base.pp.days);
+    const curRef = model.span ? model.span.ref : todayIn(tzOf());
+    const selIdx = Math.floor(daysBetween(base.pp.anchor, curRef) / base.pp.days);
+    const out = [];
+    for (let i = Math.min(0, selIdx); i <= Math.max(now + 2, selIdx); i += 1) {
+      const cuts = ops.map((x) => { const from = addDays(x.pp.anchor, i * x.pp.days); return { name: x.o.name, from, to: addDays(from, x.pp.days - 1) }; });
+      const ref = cuts.map((c) => c.from).sort().slice(-1)[0];
+      const text = cuts.length === 1 ? cutText(cuts[0]) : cuts.map((c) => `${c.name} ${dm(c.from)}–${dm(c.to)}`).join(" · ");
+      out.push({ ref, label: `${text}${i === now ? " (actual)" : ""}`, selected: i === selIdx });
+    }
+    return out;
+  }
+
   function cutOptions(p) {
     const pp = usCuts();
     if (!pp) return [];
@@ -651,9 +691,19 @@
     const range = `${wdLabel(p.from)} – ${wdLabel(p.to)}`;
     const step = cut ? "corte" : model.usMode === "fortnight" ? "2 semanas" : "semana";
     const isNow = cut && p.from <= todayIn(tzOf()) && todayIn(tzOf()) <= p.to;
+    const byOp = !custom && model.span && perOp() && usOps().length;
+    const ops = byOp ? shownOps() : [];
+    const one = ops.length === 1 ? ops[0] : null;
+    const oneNow = one && one.period_start <= todayIn(one.tz || tzOf()) && todayIn(one.tz || tzOf()) <= one.period_end;
+    const opLine = !byOp ? "" : one
+      ? `${h(opText(one))}${oneNow && one.cut ? ` <span class="pvu-chip is-ok">Corte actual</span>` : ""} · <b>${h(`${wdLabel(one.period_start)} – ${wdLabel(one.period_end)}`)}</b>`
+      : ops.map((o) => `<span class="pvu-opper">${h(o.name)}: <b>${h(opText(o))}</b></span>`).join(" · ");
+    const select = byOp && cut
+      ? `<label class="pv-sort pvu-cut"><span>Corte</span><select data-pvu-cut aria-label="Elegir corte">${opCutOptions().map((o) => `<option value="${h(o.ref)}" ${o.selected ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select></label>`
+      : cut ? `<label class="pv-sort pvu-cut"><span>Corte</span><select data-pvu-cut aria-label="Elegir corte">${cutOptions(p).map((o) => `<option value="${h(o.from)}" ${o.selected ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select></label>` : "";
     return `<header class="client-hero pv-bar pvu-bar">
       <div class="pv-title"><div class="client-eyebrow">Nómina</div><h1 class="client-title">${h(title)}</h1>
-        <p class="pvu-week">${cut ? `${h(cutText(p))}${isNow ? ` <span class="pvu-chip is-ok">Corte actual</span>` : ""} · <b>${h(range)}</b>` : `${custom ? "Periodo" : "Semana laboral"} <b>${h(range)}</b>`}</p>
+        <p class="pvu-week">${byOp ? opLine : cut ? `${h(cutText(p))}${isNow ? ` <span class="pvu-chip is-ok">Corte actual</span>` : ""} · <b>${h(range)}</b>` : `${custom ? "Periodo" : "Semana laboral"} <b>${h(range)}</b>`}</p>
         <p class="pvu-rule">Overtime por encima de 40 h · Pausas sin pago</p></div>
       <div class="pvu-controls">
         <div class="pvu-seg" role="group" aria-label="Periodo">${US_MODES.map(([k, l]) => `<button type="button" class="pv-filter ${model.usMode === k ? "is-active" : ""}" aria-pressed="${model.usMode === k}" data-pvu-mode="${k}">${h(modeLabel(k, l))}</button>`).join("")}</div>
@@ -661,7 +711,7 @@
           <label class="pv-date"><span>Hasta</span><input type="date" data-pv-to value="${h(p.to || "")}"></label>
           <button class="pv-btn-primary" type="button" data-pv-calc>Calcular</button>`
           : `<div class="pvu-nav"><button class="client-btn pvu-arrow" type="button" data-pvu-step="-1" aria-label="${h(step)} anterior">‹</button>
-          ${cut ? `<label class="pv-sort pvu-cut"><span>Corte</span><select data-pvu-cut aria-label="Elegir corte">${cutOptions(p).map((o) => `<option value="${h(o.from)}" ${o.selected ? "selected" : ""}>${h(o.label)}</option>`).join("")}</select></label>` : ""}
+          ${select}
           <button class="client-btn pvu-arrow" type="button" data-pvu-step="1" aria-label="${h(step)} siguiente">›</button></div>`}
         <button class="client-btn" type="button" data-pv-us-export="csv">CSV</button>
         <button class="pv-btn-primary" type="button" data-pv-us-export="pdf">Descargar PDF</button>
@@ -745,13 +795,17 @@
   }
 
   function usDetail(c, pendingIndex) {
-    const p = model.period || {};
     const u = c.us || {};
+    // 081A: el periodo y la semana laboral de la operación de ESTA persona
+    const own = model.span && u.period_start ? { from: u.period_start, to: u.period_end } : null;
+    const p = own || model.period || {};
+    const op = usOps().find((o) => o.name === u.place);
+    const startDay = (own && op ? opRulesOf(op) : usRules()).week_start_day;
     const days = usDays(c);
     const abbr = u.abbr || (c.pending[0] && c.pending[0].abbr) || "";
     const weeks = [];
-    for (let ws = weekStartOf(p.from, usRules().week_start_day); ws <= p.to; ws = addDays(ws, 7)) weeks.push(ws);
-    const cut = model.usMode === "fortnight" && usCuts();
+    for (let ws = weekStartOf(p.from, startDay); ws <= p.to; ws = addDays(ws, 7)) weeks.push(ws);
+    const cut = (model.usMode === "fortnight" && usCuts()) || !!u.cut_label;
     const wk = new Map(arr(u.weeks).map((w) => [w.week_start, w]));
     const grid = weeks.map((ws, wi) => {
       const list = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(ws, i));
@@ -832,6 +886,7 @@
   }
 
   async function usStep(dir) {
+    if (model.span && perOp()) { await loadSpan(model.span.kind, addDays(model.span.ref, dir * (model.span.kind === "cut" ? 14 : 7))); return; }
     const p = model.period || {};
     const days = model.usMode === "fortnight" ? 14 : 7;
     const next = usPeriod(model.usMode, addDays(p.to, dir * days));
@@ -841,7 +896,8 @@
   async function usSetMode(mode) {
     model.usMode = mode;
     usPrefsSave();
-    if (mode === "custom") { draw(); return; }
+    if (mode === "custom") { model.span = null; draw(); return; }
+    if (perOp()) { await loadSpan(spanKind(mode), todayIn(tzOf())); return; } // 081A: el actual de cada operación
     const p = model.period || {};
     // 080A: al entrar a Corte se abre el corte actual.
     await load(usPeriod(mode, mode === "fortnight" && usCuts() ? todayIn(tzOf()) : (p.to || todayIn(tzOf()))));
@@ -940,7 +996,8 @@
   // ------------------------------------------------------------ datos
   async function calculate(period) {
     const cid = encodeURIComponent(ctx.companyId);
-    const snapshot = await ctx.api(`/payroll/companies/${cid}/periods/calculate`, { method: "POST", body: JSON.stringify({ period_start: period.from, period_end: period.to }) });
+    const body = { period_start: period.from, period_end: period.to, ...(model.span ? { us_span: model.span } : {}) };
+    const snapshot = await ctx.api(`/payroll/companies/${cid}/periods/calculate`, { method: "POST", body: JSON.stringify(body) });
     let activity = null;
     try {
       activity = await ctx.api(`/payroll/companies/${cid}/period-activity?period_start=${encodeURIComponent(period.from)}&period_end=${encodeURIComponent(period.to)}`);
@@ -1099,6 +1156,7 @@
     if (!t || !t.matches || !inside(t)) return;
     if (t.matches("[data-pv-sort]")) { model.sort = t.value; draw(); }
     if (t.matches("[data-pvu-sort]")) { model.usSort = t.value; usPrefsSave(); draw(); }
+    if (t.matches("[data-pvu-cut]") && t.value && model.span && perOp()) { model.notice = ""; loadSpan("cut", t.value); return; }
     if (t.matches("[data-pvu-cut]") && usCuts() && t.value) { model.notice = ""; load(cutFor(t.value, usCuts())); }
   }
 
@@ -1125,6 +1183,11 @@
       Object.assign(model, { usMode: "week", opFilter: "all", usSort: "payable" });
       usPrefsLoad(ctx.companyId);
       if (model.usMode !== "custom") ctx.period = model.period = usPeriodFor(model.usMode, todayIn(tzOf()), (ctx.usRules || {}).week_start_day, payPeriodOf(ctx.usRules || {}));
+      model.span = null;
+      if (model.usMode !== "custom" && (ctx.usRules || {}).places) { // 081A: semana o corte de cada operación
+        model.span = { kind: spanKind(model.usMode), ref: todayIn(tzOf()) };
+        ctx.period = model.period = spanApprox(model.span.ref);
+      }
     }
     // Con la normativa colombiana el detalle es otro: se queda la pantalla de siempre.
     let first;
@@ -1154,5 +1217,5 @@
   }
 
   window.CxPayrollV2 = { mount, view, model, buildCards, visibleCards, totalsOf, activityFor, hours, money, pair, contrast, initials, detail, shiftTotals, dayLong, hhmm, dayShort, usOn, cash,
-    usOperations, usVisible, usPeriodFor, weekStartOf, usDays, confirmReady, payPeriodOf, cutFor };
+    usOperations, usVisible, usPeriodFor, weekStartOf, usDays, confirmReady, payPeriodOf, cutFor, opCutOptions };
 })();

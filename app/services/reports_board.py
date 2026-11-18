@@ -214,6 +214,7 @@ async def live_state(db: AsyncSession, company_id: Any, now: datetime, rule: dic
             if s["employee_id"] not in closed_today or s["end"] > closed_today[s["employee_id"]]["end"]:
                 closed_today[s["employee_id"]] = {"end": s["end"], "tz": s["tz"]}
     open_views: dict[str, dict] = {}
+    us_payroll.attach_rules(data["open_shifts"], data["people"], rule)  # 081A: semana de SU operacion
     for s in data["open_shifts"]:
         eid = s["employee_id"]
         view, totals = running_view(s, now, rule)

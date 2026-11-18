@@ -221,7 +221,8 @@ async def _board(db: AsyncSession, company_id: Any, place: dict, start: date, en
 async def inicio(db: AsyncSession, company_id: Any, user: Any, place: dict, now: Optional[datetime] = None) -> dict:
     now = now or datetime.now(timezone.utc)
     today = _local(place, now).date()
-    start, end = week_of(today, (await us_payroll.rules(db, str(company_id))).get("week_start_day"))
+    # 081A: la semana laboral de ESTA operacion (Virginia dom-sab, Alabama lun-dom)
+    start, end = week_of(today, us_time.place_rules(await us_payroll.rules(db, str(company_id)), place.get("id")).get("week_start_day"))
     board, op = await _board(db, company_id, place, start, end, now)
     people = op.get("people") or []
     notes_today = sum(1 for n in op.get("notes") or [] if n.get("d") == today.isoformat())

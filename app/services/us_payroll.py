@@ -347,8 +347,9 @@ def _bounds(start_day: date, end_day: date) -> tuple[datetime, datetime]:
     return lo, hi
 
 
-def operations(people: dict) -> list[dict]:
-    """063A: una operacion por lugar de trabajo (Virginia, Alabama...), de este a oeste."""
+def operations(people: dict, rule: Optional[dict] = None) -> list[dict]:
+    """063A: una operacion por lugar de trabajo (Virginia, Alabama...), de este a oeste.
+    081A: con `rule`, cada operacion trae su semana laboral y su corte (los suyos o los de la empresa)."""
     seen: dict[str, dict] = {}
     ref = datetime(2026, 1, 15, tzinfo=timezone.utc)  # fecha fija: el orden no cambia con el horario de verano
     for p in people.values():
@@ -356,7 +357,27 @@ def operations(people: dict) -> list[dict]:
         if name and name not in seen:
             offset = ref.astimezone(us_time.zone(tz)).utcoffset() or timedelta(0)
             seen[name] = {"name": name, "tz": tz, "abbr": us_time.abbr(tz) if tz else "", "_o": offset.total_seconds()}
+            if rule is not None:
+                own = us_time.place_rules(rule, p.get("work_location_id"))
+                seen[name].update({"id": p.get("work_location_id"), "rules": {k: own[k] for k in ("week_start_day", "week_start_time", "pay_period") if k in own}})
     return [{k: v for k, v in o.items() if k != "_o"} for o in sorted(seen.values(), key=lambda o: (-o["_o"], o["name"].lower()))]
+
+
+def span_of_place(spans: dict, place_id: Any, start: date, end: date) -> tuple[date, date]:
+    if not spans:
+        return start, end
+    return spans.get(str(place_id or "")) or spans[None]
+
+
+def rules_for_person(rule: dict, person: Optional[dict]) -> dict:
+    """081A: reglas de la operacion de la persona (sin operacion: las de la empresa)."""
+    return us_time.place_rules(rule, (person or {}).get("work_location_id"))
+
+
+def attach_rules(shifts: list[dict], people: dict, rule: dict) -> list[dict]:
+    for s in shifts:
+        s["rules"] = rules_for_person(rule, people.get(s["employee_id"]))
+    return shifts
 
 
 def pay(regular: int, overtime: int, rate: Decimal, factor: float, deductions: Decimal) -> dict:
@@ -387,15 +408,35 @@ def week_totals(good: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
-async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period_end: date, employee_id: Any = None, board: bool = False) -> dict:
+async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period_end: date, employee_id: Any = None, board: bool = False,
+                   span: Optional[dict] = None) -> dict:
     """El snapshot de nomina de siempre (mismas llaves) con los numeros FLSA y el detalle.
     board=True (064A, Board de gerencia): ademas la linea de tiempo de los turnos por
     confirmar y el pagable por semana. Las cifras no cambian."""
     from app.api.v1.endpoints import payroll as core
 
     rule = await rules(db, company_id)
+    # 081A: span = {"kind": "week"|"cut", "ref": fecha}: cada persona con la semana o el corte de
+    # SU operacion que contiene ref (Virginia dom-sab, Alabama lun-dom...). Sin span: [inicio, fin].
+    spans: dict[Any, tuple[date, date]] = {}
+    if span and span.get("kind") in ("week", "cut") and isinstance(span.get("ref"), date):
+        kind, ref = span["kind"], span["ref"]
+        places = [None] + list((rule.get("places") or {}).keys())
+        spans = {pid: us_time.span_for(ref, us_time.place_rules(rule, pid), kind) for pid in places}
+        period_start, period_end = min(a for a, _ in spans.values()), max(b for _, b in spans.values())
     lo, hi = _bounds(period_start, period_end)
     data = await load(db, company_id, lo, hi, employee_id)
+
+    def span_of(eid: Any) -> tuple[date, date]:
+        if not spans:
+            return period_start, period_end
+        place = str((data["people"].get(str(eid)) or {}).get("work_location_id") or "")
+        return spans.get(place) or spans[None]
+
+    def bounds(s: dict) -> tuple[date, date]:
+        return span_of(s["employee_id"])
+
+    attach_rules(data["shifts"], data["people"], rule)
     verification = await core._cx_verification_context_049D(db, company_id)
     payable_shifts, unverified = [], []
     for s in data["shifts"]:
@@ -413,7 +454,7 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
     # "Por confirmar": fuera del pago y de la cuenta del overtime, como siempre (049D).
     held = [s for s in computed if s["_verdict"] == "hold"]
     good = us_time.compute([s for s in payable_shifts if s["_verdict"] != "hold"], rule)
-    for s in us_time.in_period(held, period_start, period_end):
+    for s in us_time.in_period(held, period_start, period_end, bounds):
         if core._cx_is_admin_closed_068C(s["_closure"]):
             continue
         person = data["people"].get(s["employee_id"]) or {}
@@ -427,7 +468,7 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         if board:
             item["us"] = shift_view(s)
         unverified.append(item)
-    period = us_time.in_period(good, period_start, period_end)
+    period = us_time.in_period(good, period_start, period_end, bounds)
 
     by_emp: dict[str, list[dict]] = {}
     for s in period:
@@ -438,12 +479,13 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         items.sort(key=lambda x: x["start"])
         tot = {k: sum(s[k] for s in items) for k in ("connected", "pause", "payable", "regular", "overtime")}
         deductions = _money(person.get("deduction_1")) + _money(person.get("deduction_2"))
-        money = pay(tot["regular"], tot["overtime"], _money(person.get("hourly_rate_regular")), rule["overtime_factor"], deductions)
+        prule = rules_for_person(rule, person)
+        money = pay(tot["regular"], tot["overtime"], _money(person.get("hourly_rate_regular")), prule["overtime_factor"], deductions)
         weeks = us_time.weeks_of(items)
         views = [shift_view(s) for s in items]
         shift_rows = []
         for s, v in zip(items, views):
-            m = pay(s["regular"], s["overtime"], _money(person.get("hourly_rate_regular")), rule["overtime_factor"], Decimal("0"))
+            m = pay(s["regular"], s["overtime"], _money(person.get("hourly_rate_regular")), prule["overtime_factor"], Decimal("0"))
             shift_rows.append({
                 "start": iso(s["split"]["start"]), "end": iso(s["split"]["end"]), "regular_minutes": s["regular"], "extra_minutes": s["overtime"],
                 "gross_amount": str(_money(m["gross"] or 0)), "source": "attendance", "mini_panel_session_id": None,
@@ -468,6 +510,9 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
             "shifts": shift_rows,
             "us": {
                 "place": place, "place_missing": not place, "tz": tz, "abbr": us_time.abbr(tz),
+                # 081A: el periodo de ESTA persona (semana o corte de su operacion)
+                "period_start": span_of(eid)[0].isoformat(), "period_end": span_of(eid)[1].isoformat(),
+                **({"cut_label": us_time.cut_label(*span_of(eid))} if us_time.cut_info(*span_of(eid), prule) else {}),
                 "days_worked": len({d["date"] for s in items for d in s["days"] if d["payable"] > 0}),
                 "connected_minutes": tot["connected"], "pause_minutes": tot["pause"], "payable_minutes": tot["payable"],
                 "regular_minutes": tot["regular"], "overtime_minutes": tot["overtime"], **money,
@@ -492,10 +537,19 @@ async def snapshot(db: AsyncSession, company_id: Any, period_start: date, period
         "rows": rows, "totals": totals,
         "payroll_rule": {"enabled": True, "limit_scope": "week", "ordinary_minutes_limit": rule["overtime_after_minutes"], "applied_by": "US_PAYROLL_FLSA"},
         "us_payroll": {"rules": rule, "missing_rate": missing_rate, "missing_place": missing_place, "company_tz": data["company_tz"],
-                       "company_abbr": us_time.abbr(data["company_tz"]), "operations": operations(data["people"])},
+                       "company_abbr": us_time.abbr(data["company_tz"]), "operations": operations(data["people"], rule)},
     }
+    # 081A: periodo y corte de cada operacion
+    for op in out["us_payroll"]["operations"]:
+        a, b = span_of_place(spans, op.get("id"), period_start, period_end)
+        op["period_start"], op["period_end"] = a.isoformat(), b.isoformat()
+        info = us_time.cut_info(a, b, us_time.place_rules(rule, op.get("id")))
+        if info:
+            op["cut"] = info
+    if span:
+        out["us_payroll"]["span"] = {"kind": span.get("kind"), "ref": iso(span.get("ref"))}
     # 080A: cortes de pago de la empresa (ajuste pay_period); solo si el periodo es un corte exacto.
-    cut = us_time.cut_info(period_start, period_end, rule)
+    cut = None if spans else us_time.cut_info(period_start, period_end, rule)
     if cut:
         out["us_payroll"]["cut"] = cut
     if board:
@@ -564,7 +618,9 @@ async def bot_summary(db: AsyncSession, company_id: Any, employee_id: Any, ended
     data = await load(db, company_id, lo, hi, employee_id)
     if not data["shifts"]:
         return None
-    computed = us_time.compute(data["shifts"], rule)
+    # 081A: semana y corte de la operacion de la persona (Virginia dom-sab, Alabama lun-dom)
+    rule = rules_for_person(rule, data["people"].get(str(employee_id)))
+    computed = us_time.compute(attach_rules(data["shifts"], data["people"], rule), rule)
     last = max(computed, key=lambda s: s["end"])
     week_key = last["split"]["pieces"][-1]["week_start"] if last["split"]["pieces"] else None
     week_pieces = [p for s in computed for p in s["split"]["pieces"] if week_key is not None and p["week_start"] == week_key]
@@ -583,9 +639,10 @@ async def bot_summary(db: AsyncSession, company_id: Any, employee_id: Any, ended
     if week_ot > 0:
         lines.append(t["overtime"].format(ot=bot_hm(week_ot, lang)))
     # 080A: contador del corte de pago; arranca en cero el primer dia del corte (00:00 del lugar).
-    cut = us_time.cut_for(end_l.date(), rule)
+    # 081A: un turno cuenta entero en el corte donde EMPEZO (aunque cruce la medianoche del cambio).
+    cut = us_time.cut_for(start_l.date(), rule)
     if cut:
-        cut_payable = sum(p["payable"] for s in computed for p in s["split"]["pieces"] if cut[0] <= p["date"] <= cut[1])
+        cut_payable = sum(s["split"]["payable"] for s in computed if cut[0] <= s["split"]["start"].astimezone(us_time.zone(s["tz"])).date() <= cut[1])
         lines.append(t["cut"].format(label=us_time.cut_label(*cut, lang), payable=bot_hm(cut_payable, lang)))
     person = data["people"].get(str(employee_id)) or {}
     money = pay(week_regular, week_ot, _money(person.get("hourly_rate_regular")), rule["overtime_factor"], Decimal("0"))

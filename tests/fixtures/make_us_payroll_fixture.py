@@ -43,7 +43,7 @@ async def build(db) -> dict:
     payload = {"summary": {"period": {"start": "2026-11-01", "end": "2026-11-07"}},
                "details": {"payroll": snap["rows"], "employees": [{"id": yes, "full_name": "Colaboradora Caso 2 Nov", "status": "active"}]}}
     ins = await reports_v2.insights_for(db, cid, payload, now=datetime.fromisoformat("2026-11-03T00:00:00+00:00"))
-    ids = {cid: "company-voltage", yes: "emp-caso"}
+    ids = {cid: "company-voltage", yes: "emp-caso", va: "place-virginia"}
     out = json.loads(json.dumps({"snapshot": snap, "insights_v2": ins}, default=str))
     return normalize(out, ids)
 

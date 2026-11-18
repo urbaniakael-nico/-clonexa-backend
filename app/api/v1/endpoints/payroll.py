@@ -1329,17 +1329,17 @@ def _cx_slim_061a(value: Any) -> Any:
     return value
 
 
-async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+async def calculate_period_snapshot(db: AsyncSession, company_id: UUID, period_start: date, period_end: date, us_span: dict | None = None) -> dict:
     token = await use_company_tz_052C(db, company_id)
     try:
-        return await _calculate_period_snapshot_052C(db, company_id, period_start, period_end)
+        return await _calculate_period_snapshot_052C(db, company_id, period_start, period_end, us_span)
     finally:
         from app.services import company_locale
 
         company_locale.CURRENT_TZ.reset(token)
 
 
-async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, period_start: date, period_end: date) -> dict:
+async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, period_start: date, period_end: date, us_span: dict | None = None) -> dict:
     # 049L: con dias de corte configurados (hoy VELVET) cada turno va al
     # periodo en el que EMPEZO; sin configuracion, como siempre (por su fin).
     # 061A: con us_payroll (hoy solo VOLTAGE) los tiempos y la nomina salen de las reglas
@@ -1347,7 +1347,7 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
     from app.services import us_payroll as cx_us_payroll_061a
 
     if await cx_us_payroll_061a.is_on(db, company_id):
-        return await cx_us_payroll_061a.snapshot(db, company_id, period_start, period_end)
+        return await cx_us_payroll_061a.snapshot(db, company_id, period_start, period_end, span=us_span)
     by_start = await load_period_config_049L(db, company_id) is not None
     co_state = await _cx_co_state_049A(db, company_id)
     if co_state == "colombia":
@@ -1668,6 +1668,18 @@ async def _calculate_period_snapshot_052C(db: AsyncSession, company_id: UUID, pe
     return snapshot_payload
 
 
+def us_span_081a(data: dict) -> dict | None:
+    """081A (us_payroll): {"us_span": {"kind": "week"|"cut", "ref": "AAAA-MM-DD"}} -> cada persona con la
+    semana o el corte de SU operacion que contiene ref. Cualquier otra cosa: None (periodo de siempre)."""
+    raw = data.get("us_span") if isinstance(data, dict) else None
+    if not isinstance(raw, dict) or raw.get("kind") not in ("week", "cut"):
+        return None
+    try:
+        return {"kind": raw["kind"], "ref": date.fromisoformat(str(raw.get("ref") or "")[:10])}
+    except ValueError:
+        return None
+
+
 @router.post("/companies/{company_id}/periods/calculate")
 async def calculate_payroll_period(
     company_id: UUID,
@@ -1685,7 +1697,7 @@ async def calculate_payroll_period(
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
 
-    snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end)
+    snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end, us_span_081a(data))
     snapshot["source"] = "calculated"
     return cx_employee_roles_051a.relabel(snapshot, await cx_employee_roles_051a.load_config(db, company_id))
 

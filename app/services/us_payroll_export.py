@@ -114,6 +114,7 @@ def operations(snapshot: dict) -> list[dict]:
     pending = snapshot.get("unverified_shifts") or []
     order = [o.get("name") for o in us.get("operations") or [] if o.get("name")]
     abbr = {o.get("name"): o.get("abbr") or "" for o in us.get("operations") or []}
+    meta = {o.get("name"): o for o in us.get("operations") or []}
     place_of: dict[str, Optional[str]] = {}
     for r in rows:
         u = r.get("us") or {}
@@ -131,7 +132,9 @@ def operations(snapshot: dict) -> list[dict]:
 
     def op(name: Optional[str]) -> dict:
         if name not in ops:
+            m = meta.get(name) or {}
             ops[name] = {"name": name or NO_PLACE, "place": name, "abbr": abbr.get(name, "") if name else us.get("company_abbr") or "",
+                         "period": period_text(m), "cut": m.get("cut"),
                          "people": [], "pending": [], "rate_pending": False,
                          "totals": {"payable": 0, "regular": 0, "overtime": 0, "pause": 0, "connected": 0, "gross": 0.0, "net": 0.0,
                                     "pending_count": 0, "pending_minutes": 0}}
@@ -214,9 +217,25 @@ def _day_money(row: dict, regular: int, overtime: int) -> Optional[float]:
 
 
 def cut_of(snapshot: dict) -> Optional[dict]:
-    """080A: el corte de pago del periodo (solo empresas con cortes y periodo = un corte)."""
-    cut = (snapshot.get("us_payroll") or {}).get("cut")
-    return cut if isinstance(cut, dict) and cut.get("start") else None
+    """080A: el corte de pago del periodo (solo empresas con cortes y periodo = un corte).
+    081A: con periodo por operacion, el primero de los cortes de las operaciones."""
+    us = snapshot.get("us_payroll") or {}
+    cut = us.get("cut")
+    if isinstance(cut, dict) and cut.get("start"):
+        return cut
+    cuts = [o["cut"] for o in us.get("operations") or [] if isinstance(o.get("cut"), dict)]
+    return {**cuts[0], "label": "Corte por operación", "by_operation": True} if cuts and us.get("span") else None
+
+
+def period_text(op: dict) -> str:
+    """081A: "Corte 01/11 - 14/11" o "Semana 15/11 - 21/11" de una operacion."""
+    if isinstance(op.get("cut"), dict):
+        return op["cut"]["label"]
+    a, b = op.get("period_start"), op.get("period_end")
+    if not a or not b:
+        return ""
+    da, db_ = date.fromisoformat(a), date.fromisoformat(b)
+    return f"{'Semana' if (db_ - da).days == 6 else 'Periodo'} {da:%d/%m} - {db_:%d/%m}"
 
 
 def week_rows(row: dict) -> list[dict]:
@@ -400,7 +419,12 @@ def build_pdf(snapshot: dict, company_name: str) -> bytes:
     c.setFont("Helvetica", 9)
     c.setFillColorRGB(*soft)
     c.drawString(margin, y - 26, "Overtime por encima de 40 h · Pausas sin pago · Hora local de cada operación")
-    c.drawRightString(width - margin, y - 12, f"{'Corte' if cut else 'Periodo'}: {per.get('period_start')} a {per.get('period_end')}")
+    ops_meta = [o for o in (snapshot.get("us_payroll") or {}).get("operations") or [] if period_text(o)]
+    if (snapshot.get("us_payroll") or {}).get("span") and ops_meta:  # 081A: fechas de cada operacion
+        right = " · ".join(f"{o['name']} {period_text(o).split(' ', 1)[1]}" for o in ops_meta)
+    else:
+        right = f"{'Corte' if cut else 'Periodo'}: {per.get('period_start')} a {per.get('period_end')}"
+    c.drawRightString(width - margin, y - 12, fit(right, 9, width / 2 - margin))
     c.drawRightString(width - margin, y - 26, f"Generado: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     y -= 44
     text_line(rules_line(snapshot), 8, color=soft)
@@ -420,7 +444,8 @@ def build_pdf(snapshot: dict, company_name: str) -> bytes:
         accent = accents[i % len(accents)] if o["place"] else accents[-1]
         ensure(60)
         y -= 2
-        text_line(f"{o['name']}" + (f" ({o['abbr']})" if o["abbr"] else ""), 11, bold=True, color=accent)
+        text_line(f"{o['name']}" + (f" ({o['abbr']})" if o["abbr"] else "") + (f" · {o['period']}" if (snapshot.get("us_payroll") or {}).get("span") and o.get("period") else ""),
+                  11, bold=True, color=accent)
         rows = []
         listed = set()
         for r in o["people"]:

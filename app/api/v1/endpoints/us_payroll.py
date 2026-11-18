@@ -45,6 +45,13 @@ async def reader(company_id: UUID, request: Request, authorization: Optional[str
     return who
 
 
+def _span(kind: str, ref: str) -> Optional[dict]:
+    """081A: semana o corte de la operacion de cada persona (ver payroll.us_span_081a)."""
+    from app.api.v1.endpoints.payroll import us_span_081a
+
+    return us_span_081a({"us_span": {"kind": kind, "ref": ref}})
+
+
 def _period(period_start: str, period_end: str) -> tuple[date, date]:
     try:
         start, end = date.fromisoformat(period_start[:10]), date.fromisoformat(period_end[:10])
@@ -57,10 +64,10 @@ def _period(period_start: str, period_end: str) -> tuple[date, date]:
     return start, end
 
 
-async def _snapshot(db: AsyncSession, company_id: UUID, start: date, end: date, employee_id: Optional[UUID]) -> dict:
+async def _snapshot(db: AsyncSession, company_id: UUID, start: date, end: date, employee_id: Optional[UUID], span: Optional[dict] = None) -> dict:
     from app.api.v1.endpoints.payroll import calculate_period_snapshot
 
-    snap = await calculate_period_snapshot(db, company_id, start, end)
+    snap = await calculate_period_snapshot(db, company_id, start, end, span)
     if employee_id:
         snap = {**snap, "rows": [r for r in snap.get("rows") or [] if str(r.get("employee_id")) == str(employee_id)]}
     return snap
@@ -83,9 +90,10 @@ async def _company_name(db: AsyncSession, company_id: UUID) -> str:
 
 @router.get("/companies/{company_id}/export.pdf")
 async def export_pdf(company_id: UUID, period_start: str = Query(...), period_end: str = Query(...), employee_id: Optional[UUID] = Query(default=None),
-                     disposition: str = Query(default="attachment"), who: str = Depends(reader), db: AsyncSession = Depends(get_db)) -> Response:
+                     disposition: str = Query(default="attachment"), span_kind: str = Query(default=""), span_ref: str = Query(default=""),
+                     who: str = Depends(reader), db: AsyncSession = Depends(get_db)) -> Response:
     start, end = _period(period_start, period_end)
-    snap = await _snapshot(db, company_id, start, end, employee_id)
+    snap = await _snapshot(db, company_id, start, end, employee_id, _span(span_kind, span_ref))
     pdf = us_payroll_export.build_pdf(snap, await _company_name(db, company_id))
     mode = "inline" if disposition == "inline" else "attachment"
     return Response(pdf, media_type="application/pdf",
@@ -94,8 +102,9 @@ async def export_pdf(company_id: UUID, period_start: str = Query(...), period_en
 
 @router.get("/companies/{company_id}/export.csv")
 async def export_csv(company_id: UUID, period_start: str = Query(...), period_end: str = Query(...), employee_id: Optional[UUID] = Query(default=None),
+                     span_kind: str = Query(default=""), span_ref: str = Query(default=""),
                      who: str = Depends(reader), db: AsyncSession = Depends(get_db)) -> Response:
     start, end = _period(period_start, period_end)
-    snap = await _snapshot(db, company_id, start, end, employee_id)
+    snap = await _snapshot(db, company_id, start, end, employee_id, _span(span_kind, span_ref))
     return Response(us_payroll_export.build_csv(snap, await _documents(db, company_id)), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="nomina_{start}_{end}.csv"', "Cache-Control": "no-store"})

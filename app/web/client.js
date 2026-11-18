@@ -9207,7 +9207,7 @@ function inventoryCreatePayload() {
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
-        script.src = "/client-static/payroll_v2.js?v=080A";
+        script.src = "/client-static/payroll_v2.js?v=081A";
         script.onload = () => resolve();
         script.onerror = () => { cxPayrollV2Loading052B = null; reject(new Error("payroll_v2")); };
         document.head.appendChild(script);
