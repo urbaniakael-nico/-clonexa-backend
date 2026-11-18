@@ -9,16 +9,15 @@ Operaciones (lugares de trabajo): **Virginia** (America/New_York, ET) y **Alabam
 > Este archivo se creó el 2026-11-17. Lo anterior se resume desde las notas del proyecto;
 > el detalle está en los commits citados.
 
-## Estado actual (2026-11-17)
+## Estado actual (2026-11-18)
 
 | Tema | Estado |
 | --- | --- |
 | Nómina EE. UU. (`us_payroll`, FLSA) | Encendida solo en VOLTAGE desde 2026-11-03 (b7f949f). Overtime > 40 h por semana laboral, pausas sin pago, hora del lugar. Tarifas pendientes (el dinero sale "Pendiente"). |
-| Semana laboral | **Lunes 00:00 a domingo 23:59** (hora de cada operación) desde 2026-11-17. Antes: domingo. |
-| Corte de pago | **Cada 2 semanas, lunes a domingo, ancla lunes 02/11/2026**: 02-15 nov, 16-29 nov, 30 nov-13 dic, 14-27 dic… |
+| Semana laboral y corte (por operación, desde 2026-11-18) | **Virginia**: domingo 00:00 a sábado 23:59 ET; corte cada 2 semanas con ancla domingo 01/11/2026 (01-14 nov, 15-28 nov, 29 nov-12 dic, 13-26 dic…). **Alabama**: lunes 00:00 a domingo 23:59 CT; ancla lunes 02/11/2026 (02-15 nov, 16-29 nov, 30 nov-13 dic…). |
 | Límite de turno abierto | 15 h (otras empresas 12 h). |
-| Ajustes masivos de horas | Alabama 2-3 nov (lote `alabama-2026-11-02-03`, reemplazado después por el de 02-14 nov) y Alabama 02-14 nov (lote `alabama-2026-11-02-14`). |
-| Pendiente | Virginia: ajuste de horas (va después). Tarifas por hora. |
+| Ajustes masivos de horas | Alabama 2-3 nov (lote `alabama-2026-11-02-03`, reemplazado por el de 02-14 nov), Alabama 02-14 nov (lote `alabama-2026-11-02-14`, 25 personas) y Virginia 01-14 nov (lote `virginia-2026-11-01-14`, 11 personas). |
+| Pendiente | Decidir las 7 personas de Virginia con horas del bot en 01-14/11 que no estaban en la tabla. Tarifas por hora. |
 
 ## Historial
 
@@ -73,3 +72,41 @@ Operaciones (lugares de trabajo): **Virginia** (America/New_York, ET) y **Alabam
 - **Revertir:** `railway run -s Postgres py -3.11 scripts/ajuste_alabama_02_14_nov_2026.py --undo`
   (vuelve todo a como estaba, incluido el ajuste del 2-3 nov). El `--undo` del ajuste viejo se niega
   mientras este esté activo.
+
+### 2026-11-18 — Cortes por operación (Virginia domingo a sábado) + ajuste Virginia 01-14 nov
+
+**Commits en `main`:** `ea920d1` (main verde: prueba del menú con TikTok; incluye la bitácora `7dce666`),
+`dc068f3` (cortes por operación, 081A), `204c5a9` (script Virginia), `1ea9b55` (fix: el periodo por
+operación solo se pasa cuando viene), `10437cb` (prueba con un "999" que salía por azar en un uuid).
+CI completo en verde; despliegue Railway `ccd7a263` en línea, `/health` 200.
+
+**1) Semana y corte por operación**
+- `us_payroll_rules.places` = `{"c09efe34-…" (Virginia): {"week_start_day": "sunday", "pay_period": {"type": "biweekly", "anchor": "2026-11-01"}}}`.
+  Alabama no tiene ajuste propio: usa el de la empresa (lunes, ancla 02/11). Guardado con
+  `scripts/voltage_cortes_pago.py --apply` (auditoría, `--undo`).
+- Overtime FLSA por la semana laboral de la operación de cada persona.
+- Nómina: "Semana" y "Corte (2 semanas)" se calculan por persona con la semana o el corte de SU
+  operación. Con "Ambas operaciones" se ve "Virginia: Corte 01/11 – 14/11 · Alabama: Corte 02/11 – 15/11"
+  y el selector junta los dos; filtrando una operación, el selector muestra solo sus cortes. Detalle de
+  la persona con Semana 1 / Semana 2 y sus fechas. PDF/CSV con las fechas de cada operación.
+- Bot (trabajador), Board y Líder de operación (supervisor): semana y corte de la operación. Virginia
+  reinicia el domingo 00:00 ET (corte 15/11, 29/11, 13/12…), Alabama el lunes 00:00 CT. Un turno que
+  cruza el cambio de corte cuenta entero en el corte donde empezó (en el contador del bot).
+
+**2) Ajuste Virginia 01/11-14/11/2026 (tabla del supervisor)**
+- Script `scripts/ajuste_virginia_01_14_nov_2026.py` (PRUEBA por defecto, `--apply --expected 11`, `--verify`, `--undo`).
+- Nombres en el sistema: Helen Omonte Villca, Kewin Mauricio Rios Lindo, Jose Julian Cardenas Beltran,
+  Luis Vladimir Rodriguez Ortiz, Kerim Gigliola Munoz Rojas, Roberto Carlos Camacho Rondal, Mery Rondal
+  Rocha, Yessenia Ortiz Garcia, Jesus Castellon Escobar, Jhoselin Vasquez Mercado, Jacob Cameron Lopez.
+  "luis Miguel Rodriguez Aponte" es otra persona (sin marcaciones): no se tocó ni se unió.
+- Resultado: 96 persona-día, 230 marcaciones reemplazadas, 382 nuevas (`ajuste_masivo`). 9 turnos por
+  confirmar del rango quedaron reemplazados; ningún turno abierto viejo; nadie de los 11 tenía horas el 15/11.
+- Antes → después (pagables / regulares / overtime): total 734:13 / 648:06 / 86:07 → **1024:00 / 760:00 / 264:00**.
+  Verificado en producción (`--verify`): las 11 cuadran con la tabla, semanas 01-07 y 08-14.
+- Sin cambios: Alabama corte 02-15 (2724:30 / 747:30 overtime) y Virginia corte 15-28 (lo del bot).
+- Otras 7 personas de Virginia con horas del bot en 01-14/11, NO tocadas (decide el dueño): Diego
+  Alejandro Ruiz Chavez, Jaime David Marca Rioz, Mijail Navor Illanes Salas, NICOLAS GOMEZ, Noe Daniel
+  Ponce Mamani, Oscar Diaz Vargas, Oscar Julio Anez Fernandez.
+- Respaldo: `workforce_attendance_adjustments`, lote `virginia-2026-11-01-14`, motivo "ajuste Virginia
+  tabla supervisor 01-14/11". Auditoría: `admin_audit_log`, `/scripts/ajuste_virginia_01_14_nov_2026/apply`.
+- **Revertir:** `railway run -s Postgres py -3.11 scripts/ajuste_virginia_01_14_nov_2026.py --undo`
