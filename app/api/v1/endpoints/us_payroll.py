@@ -67,7 +67,7 @@ def _period(period_start: str, period_end: str) -> tuple[date, date]:
 async def _snapshot(db: AsyncSession, company_id: UUID, start: date, end: date, employee_id: Optional[UUID], span: Optional[dict] = None) -> dict:
     from app.api.v1.endpoints.payroll import calculate_period_snapshot
 
-    snap = await calculate_period_snapshot(db, company_id, start, end, span)
+    snap = await calculate_period_snapshot(db, company_id, start, end, **({"us_span": span} if span else {}))
     if employee_id:
         snap = {**snap, "rows": [r for r in snap.get("rows") or [] if str(r.get("employee_id")) == str(employee_id)]}
     return snap

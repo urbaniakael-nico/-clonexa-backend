@@ -1697,7 +1697,8 @@ async def calculate_payroll_period(
     if period_end < period_start:
         raise HTTPException(status_code=400, detail="period_end_before_start")
 
-    snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end, us_span_081a(data))
+    span_081a = us_span_081a(data)
+    snapshot = await calculate_period_snapshot(db, company_id, period_start, period_end, **({"us_span": span_081a} if span_081a else {}))
     snapshot["source"] = "calculated"
     return cx_employee_roles_051a.relabel(snapshot, await cx_employee_roles_051a.load_config(db, company_id))
 
